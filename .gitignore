@@ -1,0 +1,15 @@
+# Secrets / local environment files
+.env
+.env.*
+!.env.example
+
+# Database backups
+backups/
+*.dump
+*.sql.gz
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
