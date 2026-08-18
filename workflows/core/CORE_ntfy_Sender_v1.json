@@ -1,0 +1,154 @@
+{
+  "name": "CORE - ntfy Sender v1",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -760,
+        -120
+      ],
+      "id": "9bdd6d0c-d10f-4afb-9ae1-d950bf0d73af",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        120
+      ],
+      "id": "1304644d-7536-4a87-9f6d-8dc2e6f0d264",
+      "name": "Manual Test Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    delivery_payloads: [{\n      alert_id: 'TEST:NTFY:SENDER',\n      subscriber_id: 'TEST_GIO',\n      subscriber_name: 'Test Gio',\n      ntfy_topic: 'test-citymanager-gio',\n      title: 'City Manager OS - ntfy Test',\n      message: 'Central ntfy sender is working.',\n      priority: 3,\n      tags: ['white_check_mark', 'test'],\n      click: '',\n      matched_watch_ids: ['TEST_W_TOWN'],\n      match_reasons: ['Manual ntfy sender test']\n    }]\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -540,
+        120
+      ],
+      "id": "231d28f0-7301-42a9-9051-c60eff80cf2c",
+      "name": "Sample Delivery Payload"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nlet payloads = [];\n\nif (Array.isArray(input.delivery_payloads)) {\n  payloads = input.delivery_payloads;\n} else if (input.ntfy_topic) {\n  payloads = [input];\n}\n\nif (!payloads.length) {\n  throw new Error('No delivery_payloads or single ntfy delivery payload found.');\n}\n\nconst NTFY_BASE_URL = 'http://100.94.203.47:8080';\n\nreturn payloads.map((payload) => {\n  if (!payload.ntfy_topic) {\n    throw new Error(`Delivery payload is missing ntfy_topic for subscriber ${payload.subscriber_id || 'unknown'}`);\n  }\n\n  const priority = Math.max(1, Math.min(5, Number(payload.priority) || 3));\n  const tags = Array.isArray(payload.tags) ? payload.tags : [];\n\n  const ntfyBody = {\n    topic: payload.ntfy_topic,\n    title: payload.title || 'City Manager OS',\n    message: payload.message || '',\n    priority,\n    tags\n  };\n\n  if (payload.click) {\n    ntfyBody.click = payload.click;\n  }\n\n  return {\n    json: {\n      ...payload,\n      ntfy_base_url: NTFY_BASE_URL,\n      ntfy_body: ntfyBody\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -260,
+        0
+      ],
+      "id": "1e29be56-3987-4ac4-a8ce-22ba3b9a15b3",
+      "name": "Prepare ntfy Requests"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.ntfy_base_url }}",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.ntfy_body) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        20,
+        0
+      ],
+      "id": "66b88142-8c07-42da-bc41-e3f8e48a78a3",
+      "name": "Publish to ntfy"
+    },
+    {
+      "parameters": {
+        "jsCode": "const responses = $input.all();\nconst requests = $('Prepare ntfy Requests').all();\n\nreturn responses.map((item, index) => {\n  const response = item.json;\n  const request = requests[index]?.json || {};\n\n  return {\n    json: {\n      sent: Boolean(response.id) && (response.event === 'message' || !response.event),\n      alert_id: request.alert_id || null,\n      subscriber_id: request.subscriber_id || null,\n      subscriber_name: request.subscriber_name || null,\n      ntfy_topic: request.ntfy_topic || response.topic || null,\n      matched_watch_ids: request.matched_watch_ids || [],\n      match_reasons: request.match_reasons || [],\n      ntfy_message_id: response.id || null,\n      ntfy_event: response.event || null,\n      ntfy_time: response.time || null,\n      ntfy_response: response\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        0
+      ],
+      "id": "729a8652-b74d-447a-87dd-0ddd83dde77f",
+      "name": "Return Send Results"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare ntfy Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Test Trigger": {
+      "main": [
+        [
+          {
+            "node": "Sample Delivery Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample Delivery Payload": {
+      "main": [
+        [
+          {
+            "node": "Prepare ntfy Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare ntfy Requests": {
+      "main": [
+        [
+          {
+            "node": "Publish to ntfy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish to ntfy": {
+      "main": [
+        [
+          {
+            "node": "Return Send Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "89dc1335-a23a-409a-8d6c-41761908e401",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
