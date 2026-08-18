@@ -1,0 +1,42 @@
+name: city-manager-os
+
+services:
+  postgis:
+    image: postgis/postgis:17-3.5
+    container_name: citymanager-postgis
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    volumes:
+      - citymanager_postgis_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+
+    networks:
+      - citymanager
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+    # Intentionally no public port mapping.
+    # n8n connects over the shared Docker network using:
+    # host: citymanager-postgis
+    # port: 5432
+
+networks:
+  citymanager:
+    external: true
+
+volumes:
+  citymanager_postgis_data:
+    name: citymanager_postgis_data
