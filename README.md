@@ -50,6 +50,6 @@ Next foundation:
 - [Standard Alert Schema](schemas/ALERT_SCHEMA.json)
 - [Database Model](schemas/DATABASE_SCHEMA.md)
 
-## Important Security Rule
+## Security Rule
 
 This repository is for architecture, schemas, sanitized examples, documentation, and exported workflows. Do **not** commit passwords, API keys, production credentials, confidential resident information, or live sensitive municipal intelligence.

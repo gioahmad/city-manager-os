@@ -1,0 +1,23 @@
+{
+  "alert_id": "SOURCE-UNIQUE-ID",
+  "source": "PSEG",
+  "category": "UTILITY",
+  "subtype": "POWER_OUTAGE",
+  "county": "HUDSON",
+  "municipality": "WEEHAWKEN",
+  "title": "PSEG - Weehawken - 42 Out",
+  "message": "42 customers are without power.",
+  "priority": 4,
+  "tags": ["warning", "zap"],
+  "click": "https://example.com/",
+  "timestamp": "2026-08-18T13:00:00-04:00",
+  "location": {
+    "address": "",
+    "latitude": null,
+    "longitude": null,
+    "block": "",
+    "lot": "",
+    "parcel_id": ""
+  },
+  "metadata": {}
+}
