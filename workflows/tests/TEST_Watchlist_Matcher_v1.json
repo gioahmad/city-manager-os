@@ -1,0 +1,80 @@
+{
+  "name": "TEST - Watchlist Matcher v1",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-700,0],
+      "id": "46275ed8-58a9-45cc-b88c-9f39aa57b842",
+      "name": "Run Issue 4 Tests"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO subscribers (subscriber_id, name, active, ntfy_topic, notes)\nVALUES\n  ('TEST_GIO', 'Test Gio', true, 'test-citymanager-gio', 'Issue #4 fixture'),\n  ('TEST_MAYOR', 'Test Mayor', true, 'test-citymanager-mayor', 'Issue #4 fixture'),\n  ('TEST_POLICE', 'Test Police', true, 'test-citymanager-police', 'Issue #4 fixture'),\n  ('TEST_FIRE', 'Test Fire', true, 'test-citymanager-fire', 'Issue #4 fixture'),\n  ('TEST_DPW', 'Test DPW', true, 'test-citymanager-dpw', 'Issue #4 fixture'),\n  ('TEST_OEM', 'Test OEM', true, 'test-citymanager-oem', 'Issue #4 fixture')\nON CONFLICT (subscriber_id) DO UPDATE SET\n  name = EXCLUDED.name, active = true, ntfy_topic = EXCLUDED.ntfy_topic, notes = EXCLUDED.notes;\n\nINSERT INTO watch_items (watch_id, active, watch_type, display_name, search_term, aliases, match_mode, match_field, category, subcategory, source_filter, alert_category_filter, min_priority, notes)\nVALUES\n  ('TEST_W_TOWN', true, 'TOWN', 'Weehawken', 'WEEHAWKEN', '{}', 'FIELD', 'municipality', 'GEOGRAPHY', 'MUNICIPALITY', '{}', '{}', 1, 'Issue #4 town fixture'),\n  ('TEST_W_SOURCE', true, 'SOURCE', 'PSEG', 'PSEG', ARRAY['PSE&G'], 'FIELD', 'source', 'UTILITY', 'SOURCE', '{}', '{}', 1, 'Issue #4 source fixture'),\n  ('TEST_W_PHRASE', true, 'PHRASE', 'Second Alarm', '2ND ALARM', ARRAY['SECOND ALARM','2ND-ALARM'], 'CONTAINS', 'search_text', 'FIRE', 'MAJOR_INCIDENT', '{}', ARRAY['FIRE'], 3, 'Issue #4 phrase fixture'),\n  ('TEST_W_ADDRESS', true, 'ADDRESS', '4100 Park Avenue', '4100 PARK AVE', ARRAY['4100 PARK AVENUE','4100 PARK'], 'CONTAINS', 'search_text', 'PROPERTY', 'WATCHED_PROPERTY', '{}', '{}', 2, 'Issue #4 address fixture'),\n  ('TEST_W_FACILITY', true, 'FACILITY', 'Weehawken High School', 'WEEHAWKEN HIGH SCHOOL', ARRAY['WEEHAWKEN HS'], 'WORD', 'search_text', 'SCHOOL', 'CRITICAL_FACILITY', '{}', '{}', 1, 'Issue #4 facility fixture'),\n  ('TEST_W_CATEGORY', true, 'CATEGORY', 'Weather Category', 'WEATHER', '{}', 'EXACT', 'category', 'WEATHER', 'CATEGORY_TEST', '{}', '{}', 1, 'Issue #4 exact fixture')\nON CONFLICT (watch_id) DO UPDATE SET active = true, watch_type = EXCLUDED.watch_type, display_name = EXCLUDED.display_name, search_term = EXCLUDED.search_term, aliases = EXCLUDED.aliases, match_mode = EXCLUDED.match_mode, match_field = EXCLUDED.match_field, category = EXCLUDED.category, subcategory = EXCLUDED.subcategory, source_filter = EXCLUDED.source_filter, alert_category_filter = EXCLUDED.alert_category_filter, min_priority = EXCLUDED.min_priority, notes = EXCLUDED.notes;\n\nINSERT INTO watch_item_recipients (watch_item_id, subscriber_id, active)\nSELECT wi.id, s.id, true\nFROM (VALUES\n  ('TEST_W_TOWN','TEST_GIO'),('TEST_W_TOWN','TEST_MAYOR'),('TEST_W_TOWN','TEST_OEM'),\n  ('TEST_W_SOURCE','TEST_GIO'),('TEST_W_SOURCE','TEST_DPW'),('TEST_W_SOURCE','TEST_OEM'),\n  ('TEST_W_PHRASE','TEST_GIO'),('TEST_W_PHRASE','TEST_FIRE'),('TEST_W_PHRASE','TEST_POLICE'),('TEST_W_PHRASE','TEST_OEM'),\n  ('TEST_W_ADDRESS','TEST_GIO'),('TEST_W_ADDRESS','TEST_MAYOR'),('TEST_W_ADDRESS','TEST_POLICE'),('TEST_W_ADDRESS','TEST_OEM'),\n  ('TEST_W_FACILITY','TEST_GIO'),('TEST_W_FACILITY','TEST_MAYOR'),('TEST_W_FACILITY','TEST_POLICE'),('TEST_W_FACILITY','TEST_FIRE'),('TEST_W_FACILITY','TEST_OEM'),\n  ('TEST_W_CATEGORY','TEST_GIO'),('TEST_W_CATEGORY','TEST_OEM')\n) AS fixture(watch_id, subscriber_id)\nJOIN watch_items wi ON wi.watch_id = fixture.watch_id\nJOIN subscribers s ON s.subscriber_id = fixture.subscriber_id\nON CONFLICT (watch_item_id, subscriber_id) DO UPDATE SET active = true;\n\nSELECT 'Issue #4 fixtures seeded' AS result;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-480,0],
+      "id": "ab4709d9-81aa-4503-8bbf-21cf4c90b30a",
+      "name": "Seed Test Fixtures"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT wi.id::text AS watch_item_uuid, wi.watch_id, wi.watch_type, wi.display_name, wi.search_term, wi.aliases, wi.match_mode, wi.match_field, wi.category, wi.subcategory, wi.parent_group, wi.tags, wi.source_filter, wi.alert_category_filter, wi.min_priority, wi.address, wi.municipality, wi.county, wi.state, wi.zip, wi.block, wi.lot, wi.qualifier, wi.parcel_id, wi.latitude, wi.longitude, wi.gis_enabled, wi.gis_lookup, wi.nearby_enabled, wi.radius_ft, COALESCE(jsonb_agg(jsonb_build_object('subscriber_uuid', s.id::text,'subscriber_id', s.subscriber_id,'name', s.name,'ntfy_topic', s.ntfy_topic)) FILTER (WHERE wir.active = true AND s.active = true AND s.id IS NOT NULL),'[]'::jsonb) AS recipients FROM watch_items wi LEFT JOIN watch_item_recipients wir ON wir.watch_item_id = wi.id LEFT JOIN subscribers s ON s.id = wir.subscriber_id WHERE wi.active = true AND wi.watch_id LIKE 'TEST_W_%' AND (wi.starts_at IS NULL OR wi.starts_at <= NOW()) AND (wi.expires_at IS NULL OR wi.expires_at > NOW()) GROUP BY wi.id ORDER BY wi.watch_id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-240,0],
+      "id": "637aa052-eec5-4289-8d5f-bf9d2c6c3afa",
+      "name": "Load Test Watchlist"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i=>i.json).filter(r=>r&&r.watch_id);\nfunction n(v){if(v===undefined||v===null)return '';let t=Array.isArray(v)?v.join(' '):(typeof v==='object'?JSON.stringify(v):String(v));return t.normalize('NFKD').replace(/[\\u0300-\\u036f]/g,'').toUpperCase().replace(/&/g,'').replace(/[^A-Z0-9]+/g,' ').replace(/\\s+/g,' ').trim();}\nfunction a(v){if(v===undefined||v===null||v==='')return [];if(Array.isArray(v))return v.filter(Boolean);if(typeof v==='string')return v.split('|').map(x=>x.trim()).filter(Boolean);return [v];}\nfunction g(o,p){return String(p||'search_text').split('.').reduce((c,k)=>c==null?undefined:c[k],o);}\nfunction er(v){return v.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\$&');}\nfunction prep(i){const l=i.location||{};const tags=Array.isArray(i.tags)?i.tags:[];const search_text=[i.source,i.category,i.subtype,i.status,i.county,i.municipality,l.label,l.address,i.title,i.message,...tags].filter(Boolean).join(' ');return {...i,location:l,tags,search_text};}\nfunction run(i){const alert=prep(i),matches=[],rm=new Map();for(const row of rows){if(Number(alert.priority||0)<Number(row.min_priority||1))continue;const sf=a(row.source_filter).map(n);if(sf.length&&!sf.includes(n(alert.source)))continue;const cf=a(row.alert_category_filter).map(n);if(cf.length&&!cf.includes(n(alert.category)))continue;const field=row.match_field||'search_text',h=n(g(alert,field)),cs=[row.search_term,...a(row.aliases)].map(n).filter(Boolean),m=n(row.match_mode);let ok=false;for(const c of cs){if(m==='FIELD'||m==='EXACT')ok=h===c;else if(m==='CONTAINS')ok=h.includes(c);else if(m==='WORD')ok=new RegExp(`(^|\\\\s)${er(c)}(?=\\\\s|$)`).test(h);if(ok)break;}if(!ok)continue;matches.push(row.watch_id);for(const r of a(row.recipients)){if(!r||typeof r!=='object')continue;const k=r.subscriber_id||r.ntfy_topic;if(k&&!rm.has(k))rm.set(k,r.subscriber_id||k);}}return {watch_ids:[...new Set(matches)].sort(),recipients:[...new Set(rm.values())].sort()};}\nconst b={schema_version:'1.0',status:'ACTIVE',event_action:'NEW',county:'HUDSON',priority:4,tags:[],location:{},metadata:{},observed_at:new Date().toISOString(),received_at:new Date().toISOString()};\nconst tests=[\n{name:'town FIELD match',alert:{...b,alert_id:'TEST:TOWN',source:'TEST',category:'OEM',subtype:'NOTICE',municipality:'WEEHAWKEN',title:'Municipal notice',message:'Test municipal alert'},watch_ids:['TEST_W_TOWN'],recipients:['TEST_GIO','TEST_MAYOR','TEST_OEM']},\n{name:'source FIELD match',alert:{...b,alert_id:'TEST:SOURCE',source:'PSEG',category:'UTILITY',subtype:'POWER_OUTAGE',municipality:'SECAUCUS',title:'Utility alert',message:'Power outage reported'},watch_ids:['TEST_W_SOURCE'],recipients:['TEST_DPW','TEST_GIO','TEST_OEM']},\n{name:'phrase CONTAINS alias match',alert:{...b,alert_id:'TEST:PHRASE',source:'FIRE_SDR',category:'FIRE',subtype:'MAJOR_FIRE',municipality:'NORTH BERGEN',priority:5,title:'Working fire',message:'Second alarm transmitted for the incident'},watch_ids:['TEST_W_PHRASE'],recipients:['TEST_FIRE','TEST_GIO','TEST_OEM','TEST_POLICE']},\n{name:'address CONTAINS alias match',alert:{...b,alert_id:'TEST:ADDRESS',source:'FIRE_SDR',category:'FIRE',subtype:'WORKING_FIRE',municipality:'UNION CITY',title:'Working fire',message:'Incident reported at 4100 Park Avenue',location:{label:'4100 Park Avenue',address:'4100 Park Avenue'}},watch_ids:['TEST_W_ADDRESS'],recipients:['TEST_GIO','TEST_MAYOR','TEST_OEM','TEST_POLICE']},\n{name:'facility WORD alias match',alert:{...b,alert_id:'TEST:FACILITY',source:'TEST',category:'OEM',subtype:'FACILITY_EVENT',municipality:'UNION CITY',title:'Incident at Weehawken HS',message:'Facility test'},watch_ids:['TEST_W_FACILITY'],recipients:['TEST_FIRE','TEST_GIO','TEST_MAYOR','TEST_OEM','TEST_POLICE']},\n{name:'category EXACT match',alert:{...b,alert_id:'TEST:EXACT',source:'NWS',category:'WEATHER',subtype:'ADVISORY',municipality:'NORTH BERGEN',title:'Weather advisory',message:'Test weather alert'},watch_ids:['TEST_W_CATEGORY'],recipients:['TEST_GIO','TEST_OEM']},\n{name:'multi-match recipient dedupe',alert:{...b,alert_id:'TEST:MULTI',source:'FIRE_SDR',category:'FIRE',subtype:'2ND_ALARM',municipality:'WEEHAWKEN',priority:5,title:'2nd Alarm - Weehawken',message:'Second alarm transmitted at 4100 Park Avenue',location:{label:'4100 Park Avenue',address:'4100 Park Ave'}},watch_ids:['TEST_W_ADDRESS','TEST_W_PHRASE','TEST_W_TOWN'],recipients:['TEST_FIRE','TEST_GIO','TEST_MAYOR','TEST_OEM','TEST_POLICE']},\n{name:'category filter rejects false phrase match',alert:{...b,alert_id:'TEST:FILTER',source:'NJ511',category:'TRAFFIC',subtype:'ROAD_CLOSURE',municipality:'NORTH BERGEN',title:'Road incident',message:'Second alarm wording appears here but category is traffic'},watch_ids:[],recipients:[]}];\nconst results=tests.map(t=>{const actual=run(t.alert),ew=[...t.watch_ids].sort(),erx=[...t.recipients].sort(),p=JSON.stringify(actual.watch_ids)===JSON.stringify(ew)&&JSON.stringify(actual.recipients)===JSON.stringify(erx);return {name:t.name,passed:p,expected_watch_ids:ew,actual_watch_ids:actual.watch_ids,expected_recipients:erx,actual_recipients:actual.recipients};});\nreturn [{json:{all_passed:results.every(r=>r.passed),tests_run:results.length,passed:results.filter(r=>r.passed).length,failed:results.filter(r=>!r.passed).length,results}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [20,0],
+      "id": "fb76df7b-049b-4065-9b3f-126b208a9e89",
+      "name": "Run Matcher Tests"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM watch_items WHERE watch_id LIKE 'TEST_W_%';\nDELETE FROM subscribers WHERE subscriber_id LIKE 'TEST_%';\nSELECT 'Issue #4 fixtures cleaned' AS result;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [280,0],
+      "id": "b144096a-9e5a-4184-ac62-de35a9ce7188",
+      "name": "Cleanup Test Fixtures"
+    },
+    {
+      "parameters": {"jsCode":"return [{ json: $('Run Matcher Tests').first().json }];"},
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520,0],
+      "id": "677c07bc-5d3f-4cae-85a0-ad96e960fce4",
+      "name": "Return Test Results"
+    }
+  ],
+  "connections": {
+    "Run Issue 4 Tests":{"main":[[{"node":"Seed Test Fixtures","type":"main","index":0}]]},
+    "Seed Test Fixtures":{"main":[[{"node":"Load Test Watchlist","type":"main","index":0}]]},
+    "Load Test Watchlist":{"main":[[{"node":"Run Matcher Tests","type":"main","index":0}]]},
+    "Run Matcher Tests":{"main":[[{"node":"Cleanup Test Fixtures","type":"main","index":0}]]},
+    "Cleanup Test Fixtures":{"main":[[{"node":"Return Test Results","type":"main","index":0}]]}
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {"executionOrder":"v1"},
+  "versionId": "576e4696-44e8-410f-b675-a067b8bb75a6",
+  "meta": {"templateCredsSetupCompleted":true},
+  "tags": []
+}
