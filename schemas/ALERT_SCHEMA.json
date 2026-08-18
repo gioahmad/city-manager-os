@@ -1,23 +1,42 @@
 {
-  "alert_id": "SOURCE-UNIQUE-ID",
+  "schema_version": "1.0",
+  "alert_id": "PSEG:OUTAGE:123456",
   "source": "PSEG",
+  "source_event_id": "123456",
   "category": "UTILITY",
   "subtype": "POWER_OUTAGE",
+  "status": "ACTIVE",
+  "event_action": "NEW",
+  "title": "PSEG - Weehawken - 42 Out",
+  "message": "42 customers are without power in Weehawken.",
+  "priority": 4,
   "county": "HUDSON",
   "municipality": "WEEHAWKEN",
-  "title": "PSEG - Weehawken - 42 Out",
-  "message": "42 customers are without power.",
-  "priority": 4,
-  "tags": ["warning", "zap"],
-  "click": "https://example.com/",
-  "timestamp": "2026-08-18T13:00:00-04:00",
   "location": {
+    "label": "Weehawken",
     "address": "",
+    "state": "NJ",
+    "zip": "",
     "latitude": null,
     "longitude": null,
     "block": "",
     "lot": "",
+    "qualifier": "",
     "parcel_id": ""
   },
-  "metadata": {}
+  "tags": [
+    "power",
+    "outage"
+  ],
+  "click_url": "https://outagecenter.pseg.com/",
+  "source_url": "https://outagecenter.pseg.com/",
+  "observed_at": "2026-08-18T13:00:00-04:00",
+  "source_updated_at": "2026-08-18T13:05:00-04:00",
+  "received_at": "2026-08-18T13:05:15-04:00",
+  "expires_at": null,
+  "metadata": {
+    "customers_out": 42,
+    "customers_served": 25203,
+    "etr": "2026-08-18T15:30:00-04:00"
+  }
 }
