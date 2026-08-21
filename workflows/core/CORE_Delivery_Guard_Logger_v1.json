@@ -1,0 +1,408 @@
+{
+  "name": "CORE - Delivery Guard + Logger v1",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -980,
+        -140
+      ],
+      "id": "74333924-67ff-45f1-a775-1d6b8f51e45e",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -980,
+        160
+      ],
+      "id": "88bcbe25-964a-4cc6-b6bb-dc27eb4e9dfe",
+      "name": "Manual Test Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    alert: {\n      schema_version: '1.0',\n      alert_id: 'TEST:DELIVERY:GUARD:V1',\n      source: 'SYSTEM_TEST',\n      source_event_id: 'delivery-guard-v1',\n      category: 'SYSTEM',\n      subtype: 'DELIVERY_GUARD',\n      status: 'ACTIVE',\n      event_action: 'NEW',\n      title: 'City Manager OS - Delivery Guard Test',\n      message: 'Issue #6 manual test. First run should send; second identical run should be suppressed.',\n      priority: 3,\n      county: 'HUDSON',\n      municipality: 'WEEHAWKEN',\n      location: {\n        label: 'Manual Delivery Test',\n        address: '',\n        state: 'NJ',\n        zip: '',\n        latitude: null,\n        longitude: null,\n        block: '',\n        lot: '',\n        qualifier: '',\n        parcel_id: ''\n      },\n      tags: ['test', 'delivery'],\n      click_url: '',\n      source_url: '',\n      observed_at: new Date().toISOString(),\n      source_updated_at: new Date().toISOString(),\n      received_at: new Date().toISOString(),\n      expires_at: null,\n      metadata: { test: true, issue: 6 }\n    },\n    matched: true,\n    match_count: 2,\n    recipient_count: 1,\n    matched_watch_ids: ['W_PSEG_SOURCE', 'W_WEEHAWKEN_TOWN'],\n    matches: [],\n    recipients: [{\n      subscriber_id: 'PSEG_CHANNEL',\n      name: 'PSEG Channel',\n      ntfy_topic: 'PSEG',\n      matched_watch_ids: ['W_PSEG_SOURCE', 'W_WEEHAWKEN_TOWN'],\n      match_reasons: [\n        'Manual Issue #6 delivery guard test',\n        'Same recipient reached through two watch items'\n      ]\n    }],\n    delivery_payloads: [{\n      alert_id: 'TEST:DELIVERY:GUARD:V1',\n      subscriber_id: 'PSEG_CHANNEL',\n      subscriber_name: 'PSEG Channel',\n      ntfy_topic: 'PSEG',\n      title: 'City Manager OS - Delivery Guard Test',\n      message: 'Issue #6 manual test. First run should send; second identical run should be suppressed.',\n      priority: 3,\n      tags: ['test', 'delivery'],\n      click: '',\n      matched_watch_ids: ['W_PSEG_SOURCE', 'W_WEEHAWKEN_TOWN'],\n      match_reasons: [\n        'Manual Issue #6 delivery guard test',\n        'Same recipient reached through two watch items'\n      ]\n    }]\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        160
+      ],
+      "id": "e132a927-19f7-4644-b7e6-2ef3118c058a",
+      "name": "Sample Matcher Output"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH d AS (\n  SELECT $1::jsonb AS p\n),\na AS (\n  INSERT INTO alerts (\n    schema_version, alert_id, source, source_event_id, category, subtype,\n    status, event_action, title, message, priority, county, municipality,\n    location, tags, click_url, source_url, observed_at, source_updated_at,\n    received_at, expires_at, metadata, raw_payload, updated_at\n  )\n  SELECT\n    COALESCE(p->'alert'->>'schema_version', '1.0'),\n    p->'alert'->>'alert_id',\n    p->'alert'->>'source',\n    NULLIF(p->'alert'->>'source_event_id', ''),\n    p->'alert'->>'category',\n    p->'alert'->>'subtype',\n    p->'alert'->>'status',\n    p->'alert'->>'event_action',\n    p->'alert'->>'title',\n    p->'alert'->>'message',\n    (p->'alert'->>'priority')::integer,\n    NULLIF(p->'alert'->>'county', ''),\n    NULLIF(p->'alert'->>'municipality', ''),\n    COALESCE(p->'alert'->'location', '{}'::jsonb),\n    ARRAY(SELECT jsonb_array_elements_text(COALESCE(p->'alert'->'tags', '[]'::jsonb))),\n    NULLIF(p->'alert'->>'click_url', ''),\n    NULLIF(p->'alert'->>'source_url', ''),\n    NULLIF(p->'alert'->>'observed_at', '')::timestamptz,\n    NULLIF(p->'alert'->>'source_updated_at', '')::timestamptz,\n    COALESCE(NULLIF(p->'alert'->>'received_at', '')::timestamptz, NOW()),\n    NULLIF(p->'alert'->>'expires_at', '')::timestamptz,\n    COALESCE(p->'alert'->'metadata', '{}'::jsonb),\n    p->'alert',\n    NOW()\n  FROM d\n  ON CONFLICT (alert_id) DO UPDATE SET\n    status = EXCLUDED.status,\n    event_action = EXCLUDED.event_action,\n    title = EXCLUDED.title,\n    message = EXCLUDED.message,\n    priority = EXCLUDED.priority,\n    metadata = EXCLUDED.metadata,\n    raw_payload = EXCLUDED.raw_payload,\n    updated_at = NOW()\n  RETURNING id\n)\nSELECT d.p AS matcher_output\nFROM d CROSS JOIN a;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -520,
+        160
+      ],
+      "id": "b97c1f21-b694-42b1-ade1-2e6221355057",
+      "name": "Seed Manual Test Alert"
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json || {};\nreturn [{ json: row.matcher_output || {} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -300,
+        160
+      ],
+      "id": "685a5930-3524-4ba0-97d0-bd4da5f454e4",
+      "name": "Restore Manual Matcher Output"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\nconst alert = input.alert && typeof input.alert === 'object' ? input.alert : {};\n\nlet payloads = [];\nif (Array.isArray(input.delivery_payloads)) {\n  payloads = input.delivery_payloads;\n} else if (input.ntfy_topic) {\n  payloads = [input];\n}\n\nif (!payloads.length) {\n  return [];\n}\n\nreturn payloads.map((payload) => ({\n  json: {\n    ...payload,\n    event_action: alert.event_action || payload.event_action || '',\n    alert_status: alert.status || payload.alert_status || '',\n    delivery_fingerprint_version: 'v1'\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        0
+      ],
+      "id": "5f8fdec5-5490-49af-ade0-d738c843f6c8",
+      "name": "Prepare Delivery Candidates"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH input AS (\n  SELECT $1::jsonb AS p\n),\nrefs AS (\n  SELECT\n    p,\n    a.id AS alert_uuid,\n    s.id AS subscriber_uuid,\n    concat_ws(\n      '|',\n      p->>'alert_id',\n      p->>'subscriber_id',\n      COALESCE(p->>'event_action', ''),\n      md5(concat_ws(\n        '|',\n        COALESCE(p->>'title', ''),\n        COALESCE(p->>'message', ''),\n        COALESCE(p->>'priority', ''),\n        COALESCE((p->'tags')::text, '[]'),\n        COALESCE(p->>'click', '')\n      ))\n    ) AS delivery_key\n  FROM input\n  LEFT JOIN alerts a\n    ON a.alert_id = p->>'alert_id'\n  LEFT JOIN subscribers s\n    ON s.subscriber_id = p->>'subscriber_id'\n),\nattempt AS (\n  INSERT INTO deliveries (\n    delivery_key,\n    alert_id,\n    subscriber_id,\n    ntfy_topic,\n    status,\n    attempted_at,\n    sent_at,\n    error_message,\n    matched_watch_ids,\n    match_reasons\n  )\n  SELECT\n    delivery_key,\n    alert_uuid,\n    subscriber_uuid,\n    p->>'ntfy_topic',\n    'PENDING',\n    NOW(),\n    NULL,\n    NULL,\n    COALESCE(p->'matched_watch_ids', '[]'::jsonb),\n    COALESCE(p->'match_reasons', '[]'::jsonb)\n  FROM refs\n  WHERE alert_uuid IS NOT NULL\n    AND subscriber_uuid IS NOT NULL\n  ON CONFLICT (delivery_key) DO UPDATE SET\n    status = 'PENDING',\n    attempted_at = NOW(),\n    sent_at = NULL,\n    error_message = NULL,\n    matched_watch_ids = EXCLUDED.matched_watch_ids,\n    match_reasons = EXCLUDED.match_reasons\n  WHERE deliveries.status = 'FAILED'\n  RETURNING\n    id::text AS delivery_uuid,\n    delivery_key,\n    status,\n    attempted_at,\n    true AS should_send\n),\nexisting AS (\n  SELECT\n    d.id::text AS delivery_uuid,\n    d.delivery_key,\n    d.status,\n    d.attempted_at,\n    false AS should_send\n  FROM refs r\n  JOIN deliveries d\n    ON d.delivery_key = r.delivery_key\n  WHERE NOT EXISTS (\n    SELECT 1 FROM attempt a WHERE a.delivery_key = r.delivery_key\n  )\n),\ninvalid AS (\n  SELECT\n    NULL::text AS delivery_uuid,\n    delivery_key,\n    'INVALID'::text AS status,\n    NOW() AS attempted_at,\n    false AS should_send\n  FROM refs\n  WHERE alert_uuid IS NULL OR subscriber_uuid IS NULL\n),\nchoice AS (\n  SELECT * FROM attempt\n  UNION ALL\n  SELECT * FROM existing\n  UNION ALL\n  SELECT * FROM invalid\n)\nSELECT\n  r.p AS payload,\n  c.delivery_uuid,\n  c.delivery_key,\n  c.status AS reservation_status,\n  c.attempted_at,\n  c.should_send,\n  CASE\n    WHEN r.alert_uuid IS NULL THEN 'Alert ID not found in alerts table'\n    WHEN r.subscriber_uuid IS NULL THEN 'Subscriber ID not found in subscribers table'\n    WHEN c.status = 'SENT' THEN 'Exact delivery already sent'\n    WHEN c.status = 'PENDING' THEN 'Exact delivery already pending'\n    WHEN c.status = 'FAILED' THEN 'Previous failed delivery eligible for retry'\n    ELSE NULL\n  END AS reservation_reason\nFROM refs r\nJOIN choice c USING (delivery_key);",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        180,
+        0
+      ],
+      "id": "fc97711d-4c02-4b6b-b780-66028dba368f",
+      "name": "Reserve Delivery"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => {\n  const row = item.json || {};\n  const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};\n  return {\n    json: {\n      ...payload,\n      delivery_uuid: row.delivery_uuid || null,\n      delivery_key: row.delivery_key || null,\n      reservation_status: row.reservation_status || null,\n      reservation_reason: row.reservation_reason || null,\n      should_send: Boolean(row.should_send)\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        0
+      ],
+      "id": "f96e4ad7-5170-4409-aad7-e5f2c76c6b2c",
+      "name": "Format Delivery Reservation"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.should_send }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        660,
+        0
+      ],
+      "id": "d73549a1-0788-43cf-b024-480a97186c21",
+      "name": "Should Send?"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "CORE - ntfy Sender v1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        900,
+        -120
+      ],
+      "id": "dc5dcb62-e4fb-4018-9ebb-51b36f08629c",
+      "name": "Send via Central ntfy",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const responses = $input.all();\nconst reservations = $('Format Delivery Reservation').all()\n  .map((item) => item.json || {})\n  .filter((row) => row.should_send === true);\n\nreturn responses.map((item, index) => {\n  const response = item.json || {};\n  const reservation = reservations[index] || {};\n  const errorMessage =\n    response?.error?.message ||\n    response?.error ||\n    (!response.sent && response.message ? response.message : null);\n\n  return {\n    json: {\n      ...reservation,\n      ...response,\n      sent: response.sent === true,\n      delivery_error: errorMessage ? String(errorMessage) : null\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1140,
+        -120
+      ],
+      "id": "441774f8-6736-4825-8538-9e3eb6620c4d",
+      "name": "Combine Send Result"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH d AS (\n  SELECT $1::jsonb AS p\n),\nu AS (\n  UPDATE deliveries\n  SET\n    status = CASE\n      WHEN COALESCE((d.p->>'sent')::boolean, false) THEN 'SENT'\n      ELSE 'FAILED'\n    END,\n    sent_at = CASE\n      WHEN COALESCE((d.p->>'sent')::boolean, false) THEN NOW()\n      ELSE NULL\n    END,\n    error_message = CASE\n      WHEN COALESCE((d.p->>'sent')::boolean, false) THEN NULL\n      ELSE COALESCE(NULLIF(d.p->>'delivery_error', ''), 'ntfy sender returned sent=false')\n    END,\n    matched_watch_ids = COALESCE(d.p->'matched_watch_ids', deliveries.matched_watch_ids),\n    match_reasons = COALESCE(d.p->'match_reasons', deliveries.match_reasons),\n    ntfy_message_id = NULLIF(d.p->>'ntfy_message_id', ''),\n    ntfy_response = COALESCE(d.p->'ntfy_response', deliveries.ntfy_response)\n  FROM d\n  WHERE deliveries.delivery_key = d.p->>'delivery_key'\n  RETURNING\n    deliveries.id::text AS delivery_uuid,\n    deliveries.delivery_key,\n    deliveries.status,\n    deliveries.attempted_at,\n    deliveries.sent_at,\n    deliveries.error_message,\n    deliveries.ntfy_message_id,\n    deliveries.matched_watch_ids,\n    deliveries.match_reasons\n)\nSELECT\n  d.p->>'alert_id' AS alert_id,\n  d.p->>'subscriber_id' AS subscriber_id,\n  d.p->>'subscriber_name' AS subscriber_name,\n  d.p->>'ntfy_topic' AS ntfy_topic,\n  false AS suppressed,\n  u.*\nFROM d CROSS JOIN u;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1380,
+        -120
+      ],
+      "id": "6aa5a309-b1b0-414e-8995-7b3bc7cf9a01",
+      "name": "Finalize Delivery Log"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => {\n  const row = item.json || {};\n  return {\n    json: {\n      sent: false,\n      suppressed: true,\n      alert_id: row.alert_id || null,\n      subscriber_id: row.subscriber_id || null,\n      subscriber_name: row.subscriber_name || null,\n      ntfy_topic: row.ntfy_topic || null,\n      delivery_uuid: row.delivery_uuid || null,\n      delivery_key: row.delivery_key || null,\n      status: row.reservation_status || 'SUPPRESSED',\n      reason: row.reservation_reason || 'Exact duplicate suppressed',\n      matched_watch_ids: row.matched_watch_ids || [],\n      match_reasons: row.match_reasons || []\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        140
+      ],
+      "id": "b1edb5ba-e92b-4399-ab4e-892e99a785cb",
+      "name": "Format Suppressed Result"
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1620,
+        0
+      ],
+      "id": "5fc5dff8-c9e4-463d-bfd3-beaed6a5488b",
+      "name": "Merge Delivery Results"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map((item) => item.json || {});\nreturn items.map((row) => ({\n  json: {\n    ...row,\n    delivery_guard_result: row.suppressed\n      ? 'SUPPRESSED'\n      : (row.status === 'SENT' ? 'SENT' : row.status || 'UNKNOWN')\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1860,
+        0
+      ],
+      "id": "3d907706-0c35-4aaf-81bc-02a94cf1fc00",
+      "name": "Return Delivery Results"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare Delivery Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Test Trigger": {
+      "main": [
+        [
+          {
+            "node": "Sample Matcher Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample Matcher Output": {
+      "main": [
+        [
+          {
+            "node": "Seed Manual Test Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seed Manual Test Alert": {
+      "main": [
+        [
+          {
+            "node": "Restore Manual Matcher Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Manual Matcher Output": {
+      "main": [
+        [
+          {
+            "node": "Prepare Delivery Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Delivery Candidates": {
+      "main": [
+        [
+          {
+            "node": "Reserve Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reserve Delivery": {
+      "main": [
+        [
+          {
+            "node": "Format Delivery Reservation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Delivery Reservation": {
+      "main": [
+        [
+          {
+            "node": "Should Send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Send?": {
+      "main": [
+        [
+          {
+            "node": "Send via Central ntfy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Suppressed Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send via Central ntfy": {
+      "main": [
+        [
+          {
+            "node": "Combine Send Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Send Result": {
+      "main": [
+        [
+          {
+            "node": "Finalize Delivery Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Delivery Log": {
+      "main": [
+        [
+          {
+            "node": "Merge Delivery Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Suppressed Result": {
+      "main": [
+        [
+          {
+            "node": "Merge Delivery Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Delivery Results": {
+      "main": [
+        [
+          {
+            "node": "Return Delivery Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "46013258-4a46-44c8-acfe-dbb38a83bd84",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
