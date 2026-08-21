@@ -114,7 +114,13 @@ attempted_at
 sent_at
 error_message
 matched_watch_ids      jsonb
+match_reasons          jsonb
+ntfy_message_id        text
+ntfy_response          jsonb
+created_at
 ```
+
+Delivery deduplication v1 uses a fingerprint based on alert ID, subscriber ID, lifecycle action, and notification content. Exact repeats are suppressed before send; failed attempts remain eligible for retry.
 
 ### `source_health`
 
