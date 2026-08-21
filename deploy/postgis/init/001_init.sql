@@ -125,11 +125,15 @@ CREATE TABLE IF NOT EXISTS deliveries (
   sent_at timestamptz,
   error_message text,
   matched_watch_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  match_reasons jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ntfy_message_id text,
+  ntfy_response jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_deliveries_alert ON deliveries(alert_id);
 CREATE INDEX IF NOT EXISTS idx_deliveries_subscriber ON deliveries(subscriber_id);
+CREATE INDEX IF NOT EXISTS idx_deliveries_status ON deliveries(status);
 
 CREATE TABLE IF NOT EXISTS source_health (
   source_id text PRIMARY KEY,
