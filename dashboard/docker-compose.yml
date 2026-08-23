@@ -1,0 +1,20 @@
+services:
+  citymanager-dashboard:
+    build: .
+    container_name: citymanager-dashboard
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_HOST: citymanager-postgis
+      DB_PORT: 5432
+      DB_NAME: citymanager
+      DB_USER: citymanager_app
+    ports:
+      - "127.0.0.1:8090:8000"
+    networks:
+      - citymanager
+
+networks:
+  citymanager:
+    external: true
