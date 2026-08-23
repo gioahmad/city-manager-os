@@ -3,114 +3,219 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="60">
   <title>City Manager OS</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header class="topbar">
-    <div>
+    <div class="brand">
       <div class="eyebrow">WEEHAWKEN OPERATIONS</div>
-      <h1>City Manager OS</h1>
+      <div class="brand-row">
+        <h1>City Manager OS</h1>
+        <span class="private-badge">TAILSCALE PRIVATE</span>
+      </div>
+      <div class="tagline">SEE IT <span>→</span> TRACK IT <span>→</span> TELL ME</div>
     </div>
-    <div class="timestamp">Updated {{ generated_at.strftime('%Y-%m-%d %H:%M:%S') }}</div>
+    <div class="header-status">
+      <div class="system-live"><span class="live-dot"></span> SYSTEM ONLINE</div>
+      <div class="timestamp">Updated {{ generated_at.strftime('%m/%d/%Y %H:%M:%S') }}</div>
+      <a class="refresh-link" href="/">Refresh now</a>
+    </div>
   </header>
 
   <main>
-    <section class="metrics">
-      <div class="metric"><span>Active Alerts</span><strong>{{ metrics.active_alerts or 0 }}</strong></div>
-      <div class="metric"><span>Watch Items</span><strong>{{ metrics.active_watch_items or 0 }}</strong></div>
-      <div class="metric"><span>Sent / 24h</span><strong>{{ metrics.sent_24h or 0 }}</strong></div>
-      <div class="metric"><span>Source Warnings</span><strong>{{ metrics.unhealthy_sources or 0 }}</strong></div>
+    <section class="metrics" aria-label="System summary">
+      <div class="metric metric-alerts">
+        <span>Active Alerts</span>
+        <strong>{{ metrics.active_alerts or 0 }}</strong>
+        <small>Open operational items</small>
+      </div>
+      <div class="metric">
+        <span>Watch Items</span>
+        <strong>{{ metrics.active_watch_items or 0 }}</strong>
+        <small>Currently monitored</small>
+      </div>
+      <div class="metric">
+        <span>Sent / 24h</span>
+        <strong>{{ metrics.sent_24h or 0 }}</strong>
+        <small>Notifications delivered</small>
+      </div>
+      <div class="metric {% if metrics.unhealthy_sources %}metric-warning{% endif %}">
+        <span>Source Warnings</span>
+        <strong>{{ metrics.unhealthy_sources or 0 }}</strong>
+        <small>Collectors needing attention</small>
+      </div>
     </section>
 
-    <section class="grid two">
-      <article class="panel">
-        <div class="panel-head"><h2>Active Alerts</h2><span>{{ active_alerts|length }}</span></div>
-        {% if active_alerts %}
-          {% for a in active_alerts %}
-          <div class="alert priority-{{ a.priority }}">
-            <div class="alert-top">
-              <strong>{{ a.title }}</strong>
-              <span>P{{ a.priority }}</span>
-            </div>
-            <div class="meta">{{ a.source }} · {{ a.category }}{% if a.municipality %} · {{ a.municipality }}{% endif %} · {{ a.event_action }}</div>
-            <p>{{ a.message }}</p>
+    <section class="section-label">
+      <span>OPERATING PICTURE</span>
+      <span class="section-rule"></span>
+    </section>
+
+    <section class="grid primary-grid">
+      <article class="panel alerts-panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-kicker">NOW</div>
+            <h2>Active Alerts</h2>
           </div>
-          {% endfor %}
-        {% else %}
-          <div class="empty">No active alerts.</div>
-        {% endif %}
+          <span class="count-pill">{{ active_alerts|length }}</span>
+        </div>
+        <div class="panel-body">
+          {% if active_alerts %}
+            {% for a in active_alerts %}
+            <div class="alert priority-{{ a.priority }}">
+              <div class="alert-top">
+                <div class="alert-title-wrap">
+                  <span class="priority-chip p{{ a.priority }}">P{{ a.priority }}</span>
+                  <strong>{{ a.title }}</strong>
+                </div>
+                {% if a.click_url %}<a class="open-link" href="{{ a.click_url }}" target="_blank" rel="noopener">Open ↗</a>{% endif %}
+              </div>
+              <div class="meta-row">
+                <span class="source-chip">{{ a.source }}</span>
+                <span>{{ a.category }}</span>
+                {% if a.municipality %}<span>{{ a.municipality }}</span>{% endif %}
+                <span>{{ a.event_action }}</span>
+              </div>
+              <p>{{ a.message }}</p>
+              {% if a.received_at %}<time class="received-time">Received {{ a.received_at.strftime('%m/%d %H:%M') }}</time>{% endif %}
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="empty-state">
+              <div class="empty-icon">✓</div>
+              <strong>No active alerts</strong>
+              <span>No unresolved operational alerts are currently recorded.</span>
+            </div>
+          {% endif %}
+        </div>
       </article>
 
-      <article class="panel">
-        <div class="panel-head"><h2>Utility Status</h2><span>PSEG</span></div>
-        {% if utility_status %}
-          {% for u in utility_status %}
-          <div class="feed-row">
-            <div>
-              <strong>{{ u.title }}</strong>
-              <div class="meta">{{ u.municipality or 'Hudson County' }} · {{ u.event_action }} · P{{ u.priority }}</div>
-            </div>
-            <time>{{ u.received_at.strftime('%m/%d %H:%M') if u.received_at else '' }}</time>
+      <article class="panel utility-panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-kicker">UTILITIES</div>
+            <h2>PSEG Status</h2>
           </div>
-          {% endfor %}
-        {% else %}
-          <div class="empty">No PSEG alert history yet.</div>
-        {% endif %}
+          <span class="source-badge">PSEG</span>
+        </div>
+        <div class="panel-body compact-list">
+          {% if utility_status %}
+            {% for u in utility_status %}
+            <div class="feed-row">
+              <div class="feed-main">
+                <div class="feed-title-row">
+                  <span class="priority-dot p{{ u.priority }}"></span>
+                  <strong>{{ u.title }}</strong>
+                </div>
+                <div class="meta">{{ u.municipality or 'Hudson County' }} · {{ u.event_action }} · P{{ u.priority }}</div>
+              </div>
+              <time>{{ u.received_at.strftime('%m/%d %H:%M') if u.received_at else '' }}</time>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="empty-state small">
+              <strong>No PSEG history yet</strong>
+              <span>Utility alerts will appear here automatically.</span>
+            </div>
+          {% endif %}
+        </div>
       </article>
     </section>
 
-    <section class="grid two">
-      <article class="panel">
-        <div class="panel-head"><h2>Intelligence Feed</h2><span>Latest</span></div>
-        {% if intelligence_feed %}
-          {% for f in intelligence_feed %}
-          <div class="feed-row">
-            <div>
-              <strong>{{ f.title }}</strong>
-              <div class="meta">{{ f.source }} · {{ f.category }}{% if f.municipality %} · {{ f.municipality }}{% endif %}</div>
-            </div>
-            <time>{{ f.received_at.strftime('%m/%d %H:%M') if f.received_at else '' }}</time>
+    <section class="section-label lower-label">
+      <span>INTELLIGENCE & SYSTEM HEALTH</span>
+      <span class="section-rule"></span>
+    </section>
+
+    <section class="grid secondary-grid">
+      <article class="panel feed-panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-kicker">TIMELINE</div>
+            <h2>Intelligence Feed</h2>
           </div>
-          {% endfor %}
-        {% else %}
-          <div class="empty">No alerts recorded yet.</div>
-        {% endif %}
+          <span class="subtle-label">Latest 40</span>
+        </div>
+        <div class="panel-body compact-list scroll-panel">
+          {% if intelligence_feed %}
+            {% for f in intelligence_feed %}
+            <div class="feed-row">
+              <div class="feed-main">
+                <div class="feed-title-row">
+                  <span class="priority-dot p{{ f.priority }}"></span>
+                  <strong>{{ f.title }}</strong>
+                </div>
+                <div class="meta">{{ f.source }} · {{ f.category }}{% if f.municipality %} · {{ f.municipality }}{% endif %} · {{ f.event_action }}</div>
+              </div>
+              <time>{{ f.received_at.strftime('%m/%d %H:%M') if f.received_at else '' }}</time>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="empty-state small"><strong>No intelligence recorded yet</strong></div>
+          {% endif %}
+        </div>
       </article>
 
       <div class="stack">
         <article class="panel">
-          <div class="panel-head"><h2>Source Health</h2><span>{{ source_health|length }}</span></div>
-          {% if source_health %}
-            {% for s in source_health %}
-            <div class="feed-row">
-              <div><strong>{{ s.source_id }}</strong><div class="meta">{{ s.last_error or 'No reported error' }}</div></div>
-              <span class="status {{ (s.status or 'unknown')|lower }}">{{ s.status }}</span>
+          <div class="panel-head">
+            <div>
+              <div class="panel-kicker">COLLECTORS</div>
+              <h2>Source Health</h2>
             </div>
-            {% endfor %}
-          {% else %}
-            <div class="empty">No source-health records yet.</div>
-          {% endif %}
+            <span class="count-pill neutral">{{ source_health|length }}</span>
+          </div>
+          <div class="panel-body compact-list">
+            {% if source_health %}
+              {% for s in source_health %}
+              <div class="feed-row">
+                <div class="feed-main">
+                  <strong>{{ s.source_id }}</strong>
+                  <div class="meta">{% if s.last_error %}{{ s.last_error }}{% elif s.last_success_at %}Last success {{ s.last_success_at.strftime('%m/%d %H:%M') }}{% else %}No reported error{% endif %}</div>
+                </div>
+                <span class="status {{ (s.status or 'unknown')|lower }}">{{ s.status }}</span>
+              </div>
+              {% endfor %}
+            {% else %}
+              <div class="empty-state small"><strong>No source-health records yet</strong></div>
+            {% endif %}
+          </div>
         </article>
 
         <article class="panel">
-          <div class="panel-head"><h2>Recent Deliveries</h2><span>Audit</span></div>
-          {% if recent_deliveries %}
-            {% for d in recent_deliveries %}
-            <div class="feed-row">
-              <div>
-                <strong>{{ d.alert_title }}</strong>
-                <div class="meta">{{ d.subscriber_name }} · {{ d.ntfy_topic }}</div>
-              </div>
-              <span class="status {{ (d.status or 'unknown')|lower }}">{{ d.status }}</span>
+          <div class="panel-head">
+            <div>
+              <div class="panel-kicker">AUDIT</div>
+              <h2>Recent Deliveries</h2>
             </div>
-            {% endfor %}
-          {% else %}
-            <div class="empty">No deliveries logged yet.</div>
-          {% endif %}
+            <span class="subtle-label">Latest 20</span>
+          </div>
+          <div class="panel-body compact-list">
+            {% if recent_deliveries %}
+              {% for d in recent_deliveries %}
+              <div class="feed-row">
+                <div class="feed-main">
+                  <strong>{{ d.alert_title }}</strong>
+                  <div class="meta">{{ d.subscriber_name }} · {{ d.ntfy_topic }}{% if d.sent_at %} · {{ d.sent_at.strftime('%m/%d %H:%M') }}{% endif %}</div>
+                </div>
+                <span class="status {{ (d.status or 'unknown')|lower }}">{{ d.status }}</span>
+              </div>
+              {% endfor %}
+            {% else %}
+              <div class="empty-state small"><strong>No deliveries logged yet</strong></div>
+            {% endif %}
+          </div>
         </article>
       </div>
     </section>
+
+    <footer>
+      <span>City Manager OS v0.1</span>
+      <span>Private municipal operations interface · Tailscale access only</span>
+    </footer>
   </main>
 </body>
 </html>
