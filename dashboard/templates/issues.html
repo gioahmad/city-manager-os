@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Issues · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="eyebrow">WEEHAWKEN OPERATIONS</div>
+      <div class="brand-row">
+        <h1>Issues</h1>
+        <span class="private-badge">TAILSCALE PRIVATE</span>
+      </div>
+      <div class="tagline">MANUAL INTAKE & FOLLOW-UP</div>
+    </div>
+    <div class="header-status">
+      <a class="nav-button" href="/">← Dashboard</a>
+    </div>
+  </header>
+
+  <main>
+    {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+
+    <section class="metrics">
+      <div class="metric"><span>Total</span><strong>{{ counts.total or 0 }}</strong><small>All issues</small></div>
+      <div class="metric metric-alerts"><span>Open</span><strong>{{ counts.open or 0 }}</strong><small>Needs attention</small></div>
+      <div class="metric"><span>In Progress</span><strong>{{ counts.in_progress or 0 }}</strong><small>Actively being worked</small></div>
+      <div class="metric"><span>Closed</span><strong>{{ counts.closed or 0 }}</strong><small>Resolved or closed</small></div>
+    </section>
+
+    <section class="grid watch-layout" style="margin-top:16px">
+      <article class="panel">
+        <div class="panel-head">
+          <div><div class="panel-kicker">NEW</div><h2>Add Issue</h2></div>
+        </div>
+        <div class="panel-body form-panel">
+          <form method="post" action="/issues/create" class="watch-form">
+            <label>Title<input name="title" required placeholder="Flooding reported near 19th Street"></label>
+            <label>Description<textarea name="description" rows="4" placeholder="What happened, what needs to be checked, relevant details"></textarea></label>
+            <div class="form-grid two-col">
+              <label>Category<input name="category" placeholder="FLOODING"></label>
+              <label>Priority
+                <select name="priority">
+                  {% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == 3 %}selected{% endif %}>P{{ p }}</option>{% endfor %}
+                </select>
+              </label>
+            </div>
+            <label>Address<input name="address" placeholder="19th St & Waterfront Terrace"></label>
+            <div class="form-grid two-col">
+              <label>Municipality<input name="municipality" value="Weehawken"></label>
+              <label>Assigned to<input name="assigned_to" placeholder="DPW, Police, Engineering, Gio"></label>
+            </div>
+            <button class="primary-button" type="submit">Create Issue</button>
+          </form>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <div><div class="panel-kicker">TRACK</div><h2>Issue List</h2></div>
+          <span class="count-pill">{{ items|length }}</span>
+        </div>
+        <div class="panel-body">
+          <form class="watch-filters" method="get" action="/issues">
+            <input name="q" value="{{ q }}" placeholder="Search title, category, address, assignee">
+            <select name="state">
+              <option value="open" {% if state == 'open' %}selected{% endif %}>Open</option>
+              <option value="closed" {% if state == 'closed' %}selected{% endif %}>Closed</option>
+              <option value="all" {% if state == 'all' %}selected{% endif %}>All</option>
+            </select>
+            <button class="secondary-button" type="submit">Filter</button>
+          </form>
+
+          <div class="watch-list">
+            {% if items %}
+              {% for i in items %}
+              <details class="watch-card {% if i.status in ['RESOLVED','CLOSED'] %}inactive{% endif %}">
+                <summary>
+                  <div class="watch-summary-main">
+                    <span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span>
+                    <div>
+                      <strong>{{ i.title }}</strong>
+                      <div class="meta">{{ i.status }}{% if i.category %} · {{ i.category }}{% endif %}{% if i.municipality %} · {{ i.municipality }}{% endif %}</div>
+                    </div>
+                  </div>
+                  <span class="watch-id">{{ i.updated_at.strftime('%m/%d %H:%M') if i.updated_at else '' }}</span>
+                </summary>
+
+                <div class="watch-card-body">
+                  <form method="post" action="/issues/{{ i.id }}/update" class="watch-form compact">
+                    <label>Title<input name="title" value="{{ i.title }}" required></label>
+                    <label>Description<textarea name="description" rows="3">{{ i.description or '' }}</textarea></label>
+                    <div class="form-grid three-col">
+                      <label>Category<input name="category" value="{{ i.category or '' }}"></label>
+                      <label>Priority
+                        <select name="priority">
+                          {% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == i.priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}
+                        </select>
+                      </label>
+                      <label>Status
+                        <select name="status">
+                          {% for s in issue_statuses %}<option value="{{ s }}" {% if s == i.status %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                        </select>
+                      </label>
+                    </div>
+                    <div class="form-grid two-col">
+                      <label>Address<input name="address" value="{{ i.address or '' }}"></label>
+                      <label>Municipality<input name="municipality" value="{{ i.municipality or '' }}"></label>
+                    </div>
+                    <label>Assigned to<input name="assigned_to" value="{{ i.assigned_to or '' }}"></label>
+                    <div class="meta">Source: {{ i.source or 'MANUAL' }}{% if i.created_at %} · Created {{ i.created_at.strftime('%m/%d/%Y %H:%M') }}{% endif %}{% if i.closed_at %} · Closed {{ i.closed_at.strftime('%m/%d/%Y %H:%M') }}{% endif %}</div>
+                    <div class="form-actions">
+                      <button class="primary-button" type="submit">Save Issue</button>
+                    </div>
+                  </form>
+                </div>
+              </details>
+              {% endfor %}
+            {% else %}
+              <div class="empty-state"><strong>No issues found</strong><span>Create a new issue or change the filter.</span></div>
+            {% endif %}
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <footer><span>City Manager OS v0.1</span><span>Manual issues write directly to PostgreSQL</span></footer>
+  </main>
+</body>
+</html>
