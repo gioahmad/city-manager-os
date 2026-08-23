@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">WEEHAWKEN OPERATIONS</div>
+      <h1>City Manager OS</h1>
+    </div>
+    <div class="timestamp">Updated {{ generated_at.strftime('%Y-%m-%d %H:%M:%S') }}</div>
+  </header>
+
+  <main>
+    <section class="metrics">
+      <div class="metric"><span>Active Alerts</span><strong>{{ metrics.active_alerts or 0 }}</strong></div>
+      <div class="metric"><span>Watch Items</span><strong>{{ metrics.active_watch_items or 0 }}</strong></div>
+      <div class="metric"><span>Sent / 24h</span><strong>{{ metrics.sent_24h or 0 }}</strong></div>
+      <div class="metric"><span>Source Warnings</span><strong>{{ metrics.unhealthy_sources or 0 }}</strong></div>
+    </section>
+
+    <section class="grid two">
+      <article class="panel">
+        <div class="panel-head"><h2>Active Alerts</h2><span>{{ active_alerts|length }}</span></div>
+        {% if active_alerts %}
+          {% for a in active_alerts %}
+          <div class="alert priority-{{ a.priority }}">
+            <div class="alert-top">
+              <strong>{{ a.title }}</strong>
+              <span>P{{ a.priority }}</span>
+            </div>
+            <div class="meta">{{ a.source }} · {{ a.category }}{% if a.municipality %} · {{ a.municipality }}{% endif %} · {{ a.event_action }}</div>
+            <p>{{ a.message }}</p>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">No active alerts.</div>
+        {% endif %}
+      </article>
+
+      <article class="panel">
+        <div class="panel-head"><h2>Utility Status</h2><span>PSEG</span></div>
+        {% if utility_status %}
+          {% for u in utility_status %}
+          <div class="feed-row">
+            <div>
+              <strong>{{ u.title }}</strong>
+              <div class="meta">{{ u.municipality or 'Hudson County' }} · {{ u.event_action }} · P{{ u.priority }}</div>
+            </div>
+            <time>{{ u.received_at.strftime('%m/%d %H:%M') if u.received_at else '' }}</time>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">No PSEG alert history yet.</div>
+        {% endif %}
+      </article>
+    </section>
+
+    <section class="grid two">
+      <article class="panel">
+        <div class="panel-head"><h2>Intelligence Feed</h2><span>Latest</span></div>
+        {% if intelligence_feed %}
+          {% for f in intelligence_feed %}
+          <div class="feed-row">
+            <div>
+              <strong>{{ f.title }}</strong>
+              <div class="meta">{{ f.source }} · {{ f.category }}{% if f.municipality %} · {{ f.municipality }}{% endif %}</div>
+            </div>
+            <time>{{ f.received_at.strftime('%m/%d %H:%M') if f.received_at else '' }}</time>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">No alerts recorded yet.</div>
+        {% endif %}
+      </article>
+
+      <div class="stack">
+        <article class="panel">
+          <div class="panel-head"><h2>Source Health</h2><span>{{ source_health|length }}</span></div>
+          {% if source_health %}
+            {% for s in source_health %}
+            <div class="feed-row">
+              <div><strong>{{ s.source_id }}</strong><div class="meta">{{ s.last_error or 'No reported error' }}</div></div>
+              <span class="status {{ (s.status or 'unknown')|lower }}">{{ s.status }}</span>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="empty">No source-health records yet.</div>
+          {% endif %}
+        </article>
+
+        <article class="panel">
+          <div class="panel-head"><h2>Recent Deliveries</h2><span>Audit</span></div>
+          {% if recent_deliveries %}
+            {% for d in recent_deliveries %}
+            <div class="feed-row">
+              <div>
+                <strong>{{ d.alert_title }}</strong>
+                <div class="meta">{{ d.subscriber_name }} · {{ d.ntfy_topic }}</div>
+              </div>
+              <span class="status {{ (d.status or 'unknown')|lower }}">{{ d.status }}</span>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="empty">No deliveries logged yet.</div>
+          {% endif %}
+        </article>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
