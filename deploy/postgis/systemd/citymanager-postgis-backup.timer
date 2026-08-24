@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily City Manager OS PostGIS Backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=300
+Unit=citymanager-postgis-backup.service
+
+[Install]
+WantedBy=timers.target

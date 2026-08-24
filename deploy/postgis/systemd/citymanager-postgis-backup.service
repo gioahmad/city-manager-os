@@ -1,0 +1,9 @@
+[Unit]
+Description=City Manager OS PostGIS Backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/city-manager-os/deploy/postgis
+ExecStart=/opt/city-manager-os/deploy/postgis/backup.sh

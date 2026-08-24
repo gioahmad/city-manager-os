@@ -26,3 +26,8 @@ docker exec citymanager-postgis \
   -Fc > "$OUT"
 
 echo "Backup complete: $OUT"
+
+# Keep the most recent 14 days of database backups.
+find backups -type f -name 'citymanager_*.dump' -mtime +14 -delete
+
+echo "Retention cleanup complete."
