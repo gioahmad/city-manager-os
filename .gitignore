@@ -8,6 +8,10 @@ backups/
 *.dump
 *.sql.gz
 
+# Python cache / bytecode
+__pycache__/
+*.py[cod]
+
 # OS/editor noise
 .DS_Store
 Thumbs.db
