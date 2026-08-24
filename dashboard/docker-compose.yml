@@ -11,7 +11,7 @@ services:
       DB_NAME: citymanager
       DB_USER: citymanager_app
     ports:
-      - "127.0.0.1:8090:8000"
+      - "${DASHBOARD_BIND_IP:-127.0.0.1}:8090:8000"
     networks:
       - citymanager
 
