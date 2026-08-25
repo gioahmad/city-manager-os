@@ -1,0 +1,13 @@
+<nav class="main-nav" aria-label="Primary navigation">
+  <a href="/" class="{% if page == 'overview' %}active{% endif %}">Overview</a>
+  <a href="/alerts" class="{% if page == 'alerts' %}active{% endif %}">Alerts</a>
+  <a href="/modules" class="{% if page == 'modules' %}active{% endif %}">Modules</a>
+  <a href="/issues" class="{% if page == 'issues' %}active{% endif %}">Issues</a>
+  <span class="nav-divider"></span>
+  <a href="/watchlist" class="{% if page == 'watchlist' %}active{% endif %}">Watchlists</a>
+  <a href="/subscribers" class="{% if page == 'subscribers' %}active{% endif %}">Subscribers</a>
+  <a href="/routing" class="{% if page == 'routing' %}active{% endif %}">Routing</a>
+  <span class="nav-divider"></span>
+  <a href="/source-health" class="{% if page == 'source-health' %}active{% endif %}">Source Health</a>
+  <a href="/deliveries" class="{% if page == 'deliveries' %}active{% endif %}">Deliveries</a>
+</nav>
