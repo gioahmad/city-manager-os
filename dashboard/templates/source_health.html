@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Source Health · City Manager OS</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<header class="topbar"><div class="brand"><div class="eyebrow">MONITORING</div><div class="brand-row"><h1>Source Health</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Collector and Integration Health</div></div></header>
+{% include "nav.html" %}
+<main>
+  <article class="panel">
+    <div class="panel-head"><div><div class="panel-kicker">SYSTEM</div><h2>Collectors</h2></div><span class="count-pill">{{ rows|length }}</span></div>
+    <div class="panel-body table-wrap">
+      <table class="ops-table"><thead><tr><th>Source</th><th>Status</th><th>Last Attempt</th><th>Last Success</th><th>Last Event</th><th>Last Error</th></tr></thead><tbody>
+      {% for s in rows %}<tr><td><strong>{{ s.source_id }}</strong></td><td><span class="status {{ (s.status or 'unknown')|lower }}">{{ s.status }}</span></td><td>{{ s.last_attempt_at.strftime('%m/%d %H:%M:%S') if s.last_attempt_at else '—' }}</td><td>{{ s.last_success_at.strftime('%m/%d %H:%M:%S') if s.last_success_at else '—' }}</td><td>{{ s.last_event_at.strftime('%m/%d %H:%M:%S') if s.last_event_at else '—' }}</td><td class="error-text">{{ s.last_error or '' }}</td></tr>{% else %}<tr><td colspan="6">No source-health records yet.</td></tr>{% endfor %}
+      </tbody></table>
+    </div>
+  </article>
+  <footer><span>City Manager OS</span><span>Source heartbeat and failure status</span></footer>
+</main>
+</body></html>
