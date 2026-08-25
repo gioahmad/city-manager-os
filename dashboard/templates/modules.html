@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Modules · City Manager OS</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<header class="topbar"><div class="brand"><div class="eyebrow">MONITORING</div><div class="brand-row"><h1>Modules</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Operational Source Status</div></div></header>
+{% include "nav.html" %}
+<main>
+  <section class="module-grid">
+    {% for m in modules %}
+    <article class="panel module-card">
+      <div class="panel-head"><div><div class="panel-kicker">{{ m.key }}</div><h2>{{ m.name }}</h2></div><span class="status {{ (m.status or 'unknown')|lower|replace(' ','-') }}">{{ m.status }}</span></div>
+      <div class="panel-body">
+        <p class="module-description">{{ m.description }}</p>
+        <div class="module-stats"><div><span>Active Alerts</span><strong>{{ m.active_alerts or 0 }}</strong></div><div><span>Total Alerts</span><strong>{{ m.total_alerts or 0 }}</strong></div></div>
+        <dl class="detail-list"><div><dt>Last Success</dt><dd>{{ m.last_success_at.strftime('%m/%d/%Y %H:%M') if m.last_success_at else 'Not reported' }}</dd></div><div><dt>Last Event</dt><dd>{{ m.last_event_at.strftime('%m/%d/%Y %H:%M') if m.last_event_at else 'No event recorded' }}</dd></div>{% if m.last_error %}<div><dt>Last Error</dt><dd class="error-text">{{ m.last_error }}</dd></div>{% endif %}</dl>
+        {% if m.key == 'PSEG' %}<a class="secondary-button button-link" href="/alerts?source=PSEG&state=all">View PSEG alerts</a>{% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </section>
+  <footer><span>City Manager OS</span><span>Module readiness and source monitoring</span></footer>
+</main>
+</body></html>
