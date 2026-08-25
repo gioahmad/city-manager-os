@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Routing · City Manager OS</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<header class="topbar"><div class="brand"><div class="eyebrow">ALERT MANAGEMENT</div><div class="brand-row"><h1>Routing</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Watchlist to Subscriber Assignment</div></div></header>
+{% include "nav.html" %}
+<main>
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+  <section class="metrics watch-metrics"><div class="metric"><span>Total Routes</span><strong>{{ counts.total or 0 }}</strong><small>All assignments</small></div><div class="metric"><span>Active</span><strong>{{ counts.active or 0 }}</strong><small>Currently routing</small></div><div class="metric"><span>Inactive</span><strong>{{ counts.inactive or 0 }}</strong><small>Paused assignments</small></div></section>
+  <section class="grid watch-layout" style="margin-top:16px">
+    <article class="panel"><div class="panel-head"><div><div class="panel-kicker">ASSIGN</div><h2>Add Route</h2></div></div><div class="panel-body form-panel"><form method="post" action="/routing/create" class="watch-form"><label>Watch Item<select name="watch_item_id" required>{% for w in watch_items %}<option value="{{ w.id }}">{{ w.display_name }} · {{ w.watch_id }}</option>{% endfor %}</select></label><label>Subscriber<select name="subscriber_id" required>{% for s in subscribers %}<option value="{{ s.id }}">{{ s.name }} · {{ s.ntfy_topic }}</option>{% endfor %}</select></label><button class="primary-button" type="submit">Activate Route</button></form></div></article>
+    <article class="panel"><div class="panel-head"><div><div class="panel-kicker">CURRENT</div><h2>Routing Matrix</h2></div><span class="count-pill">{{ routes|length }}</span></div><div class="panel-body table-wrap"><table class="ops-table"><thead><tr><th>Status</th><th>Watch Item</th><th>Type</th><th>Subscriber</th><th>Topic</th><th>Action</th></tr></thead><tbody>{% for r in routes %}<tr><td><span class="status {% if r.active %}active{% else %}inactive-status{% endif %}">{{ 'ACTIVE' if r.active else 'PAUSED' }}</span></td><td><strong>{{ r.watch_name }}</strong><div class="meta mono">{{ r.watch_id }}</div></td><td>{{ r.watch_type }}</td><td>{{ r.subscriber_name }}</td><td class="mono">{{ r.ntfy_topic }}</td><td><form method="post" action="/routing/{{ r.id }}/toggle"><button class="secondary-button compact-button" type="submit">{{ 'Pause' if r.active else 'Activate' }}</button></form></td></tr>{% else %}<tr><td colspan="6">No routes configured yet.</td></tr>{% endfor %}</tbody></table></div></article>
+  </section>
+  <footer><span>City Manager OS</span><span>Central watchlist-to-subscriber routing</span></footer>
+</main></body></html>
