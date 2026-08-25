@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alerts · City Manager OS</title><link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><div class="eyebrow">OPERATIONS</div><div class="brand-row"><h1>Alerts</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Central Alert Monitor</div></div></header>
+{% include "nav.html" %}
+<main>
+  <section class="metrics watch-metrics">
+    <div class="metric"><span>Total</span><strong>{{ counts.total or 0 }}</strong><small>Recorded alerts</small></div>
+    <div class="metric metric-alerts"><span>Active</span><strong>{{ counts.active or 0 }}</strong><small>Current unresolved alerts</small></div>
+    <div class="metric"><span>Resolved</span><strong>{{ counts.resolved or 0 }}</strong><small>Closed lifecycle alerts</small></div>
+  </section>
+  <article class="panel" style="margin-top:16px">
+    <div class="panel-head"><div><div class="panel-kicker">MONITOR</div><h2>Alert Stream</h2></div><span class="count-pill">{{ alerts|length }}</span></div>
+    <div class="panel-body">
+      <form class="filter-bar" method="get" action="/alerts">
+        <input name="q" value="{{ q }}" placeholder="Search alert, municipality, ID">
+        <select name="source"><option value="">All sources</option>{% for s in sources %}<option value="{{ s.source }}" {% if source == s.source %}selected{% endif %}>{{ s.source }}</option>{% endfor %}</select>
+        <select name="state"><option value="active" {% if state == 'active' %}selected{% endif %}>Active</option><option value="resolved" {% if state == 'resolved' %}selected{% endif %}>Resolved</option><option value="all" {% if state == 'all' %}selected{% endif %}>All</option></select>
+        <button class="secondary-button" type="submit">Apply</button>
+      </form>
+      <div class="data-list">
+        {% for a in alerts %}
+        <div class="data-row priority-{{ a.priority }}">
+          <div class="data-main"><div class="data-title"><span class="priority-chip p{{ a.priority }}">P{{ a.priority }}</span><strong>{{ a.title }}</strong></div><div class="meta">{{ a.source }} · {{ a.category }} · {{ a.event_action }}{% if a.municipality %} · {{ a.municipality }}{% endif %}</div><div class="row-message">{{ a.message }}</div></div>
+          <div class="data-side"><span class="status {{ (a.status or 'unknown')|lower }}">{{ a.status }}</span><time>{{ a.received_at.strftime('%m/%d %H:%M') if a.received_at else '' }}</time>{% if a.click_url %}<a class="text-link" href="{{ a.click_url }}" target="_blank" rel="noopener">Open</a>{% endif %}</div>
+        </div>
+        {% else %}<div class="empty-state small"><strong>No alerts match this filter</strong></div>{% endfor %}
+      </div>
+    </div>
+  </article>
+  <footer><span>City Manager OS</span><span>Central alert history and active-state monitor</span></footer>
+</main>
+</body></html>
