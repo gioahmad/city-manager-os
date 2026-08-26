@@ -32,6 +32,38 @@
       <div class="metric {% if metrics.unhealthy_sources %}metric-warning{% endif %}"><span>Source Warnings</span><strong>{{ metrics.unhealthy_sources or 0 }}</strong><small>Collectors needing attention</small></div>
     </section>
 
+    <section class="section-label"><span>WHAT'S HAPPENING NOW</span><span class="section-rule"></span></section>
+    <section class="panel">
+      <div class="panel-head">
+        <div><div class="panel-kicker">CURRENT & NEXT 12 HOURS</div><h2>Operational Schedule</h2></div>
+        <a class="text-link" href="/schedule">Manage schedule</a>
+      </div>
+      <div class="panel-body compact-list">
+        {% if happening_now %}
+          {% for e in happening_now %}
+          <div class="feed-row">
+            <div class="feed-main">
+              <div class="feed-title-row">
+                {% if e.timing_status == 'NOW' %}<span class="status healthy">NOW</span>{% elif e.timing_status == 'NEXT' %}<span class="status warning">NEXT</span>{% else %}<span class="status">UPCOMING</span>{% endif %}
+                <strong>{{ e.title }}</strong>
+              </div>
+              <div class="meta">
+                {{ e.starts_local.strftime('%I:%M %p') if e.starts_local else '' }}{% if e.ends_local %}–{{ e.ends_local.strftime('%I:%M %p') }}{% endif %}
+                {% if e.location_name %} · {{ e.location_name }}{% endif %}
+                {% if e.category %} · {{ e.category }}{% endif %}
+                {% if e.municipality %} · {{ e.municipality }}{% endif %}
+              </div>
+              {% if e.notes %}<div class="meta">{{ e.notes }}</div>{% endif %}
+            </div>
+            <span class="priority-chip p{{ e.priority }}">P{{ e.priority }}</span>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty-state small"><strong>No scheduled activity in the next 12 hours</strong><span>Add municipal events, meetings, road work, school activity, closures, inspections, or other operational items.</span></div>
+        {% endif %}
+      </div>
+    </section>
+
     <section class="section-label"><span>OPERATING PICTURE</span><span class="section-rule"></span></section>
     <section class="grid primary-grid">
       <article class="panel">
