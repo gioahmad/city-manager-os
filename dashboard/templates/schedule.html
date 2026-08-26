@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Schedule · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="eyebrow">WEEHAWKEN OPERATIONS</div>
+      <div class="brand-row"><h1>Operational Schedule</h1><span class="private-badge">PRIVATE</span></div>
+      <div class="tagline">Current and upcoming municipal activity</div>
+    </div>
+  </header>
+  {% include "nav.html" %}
+
+  <main>
+    {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+
+    <section class="metrics watch-metrics">
+      <div class="metric metric-alerts"><span>Happening Now</span><strong>{{ counts.happening_now or 0 }}</strong><small>Currently underway</small></div>
+      <div class="metric"><span>Later Today</span><strong>{{ counts.later_today or 0 }}</strong><small>Scheduled today</small></div>
+      <div class="metric"><span>Upcoming</span><strong>{{ counts.upcoming or 0 }}</strong><small>Future active items</small></div>
+    </section>
+
+    <section class="grid watch-layout" style="margin-top:16px">
+      <article class="panel">
+        <div class="panel-head"><div><div class="panel-kicker">ADD</div><h2>Schedule Item</h2></div></div>
+        <div class="panel-body form-panel">
+          <form method="post" action="/schedule/create" class="watch-form">
+            <label>Title<input name="title" required placeholder="School assembly"></label>
+            <div class="form-grid two-col">
+              <label>Category<input name="category" placeholder="SCHOOL, ROADWORK, MEETING"></label>
+              <label>Priority
+                <select name="priority">
+                  {% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == 3 %}selected{% endif %}>P{{ p }}</option>{% endfor %}
+                </select>
+              </label>
+            </div>
+            <label>Location<input name="location_name" placeholder="Weehawken High School"></label>
+            <label>Address<input name="address" placeholder="53 Liberty Place"></label>
+            <label>Municipality<input name="municipality" value="Weehawken"></label>
+            <div class="form-grid two-col">
+              <label>Starts<input type="datetime-local" name="starts_at" required></label>
+              <label>Ends<input type="datetime-local" name="ends_at"></label>
+            </div>
+            <label>Notes<textarea name="notes" rows="3" placeholder="Operational details, expected impact, contact, restrictions"></textarea></label>
+            <button class="primary-button" type="submit">Add Schedule Item</button>
+          </form>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head"><div><div class="panel-kicker">MANAGE</div><h2>Schedule</h2></div><span class="count-pill">{{ rows|length }}</span></div>
+        <div class="panel-body">
+          <form class="watch-filters" method="get" action="/schedule">
+            <input name="q" value="{{ q }}" placeholder="Search event, location, address, category">
+            <select name="state">
+              <option value="upcoming" {% if state == 'upcoming' %}selected{% endif %}>Upcoming</option>
+              <option value="past" {% if state == 'past' %}selected{% endif %}>Past</option>
+              <option value="inactive" {% if state == 'inactive' %}selected{% endif %}>Inactive</option>
+              <option value="all" {% if state == 'all' %}selected{% endif %}>All</option>
+            </select>
+            <button class="secondary-button" type="submit">Filter</button>
+          </form>
+
+          <div class="watch-list">
+            {% for e in rows %}
+            <details class="watch-card {% if not e.active %}inactive{% endif %}">
+              <summary>
+                <div class="watch-summary-main">
+                  {% if e.timing_status == 'NOW' %}<span class="status healthy">NOW</span>{% elif e.timing_status == 'UPCOMING' %}<span class="status warning">UPCOMING</span>{% else %}<span class="status inactive-status">{{ e.timing_status }}</span>{% endif %}
+                  <div>
+                    <strong>{{ e.title }}</strong>
+                    <div class="meta">{{ e.starts_local.strftime('%m/%d %I:%M %p') if e.starts_local else '' }}{% if e.ends_local %}–{{ e.ends_local.strftime('%I:%M %p') }}{% endif %}{% if e.location_name %} · {{ e.location_name }}{% endif %}{% if e.category %} · {{ e.category }}{% endif %}</div>
+                  </div>
+                </div>
+                <span class="priority-chip p{{ e.priority }}">P{{ e.priority }}</span>
+              </summary>
+              <div class="watch-card-body">
+                <form method="post" action="/schedule/{{ e.id }}/update" class="watch-form compact">
+                  <label>Title<input name="title" value="{{ e.title }}" required></label>
+                  <div class="form-grid two-col">
+                    <label>Category<input name="category" value="{{ e.category or '' }}"></label>
+                    <label>Priority<select name="priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == e.priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label>
+                  </div>
+                  <label>Location<input name="location_name" value="{{ e.location_name or '' }}"></label>
+                  <div class="form-grid two-col">
+                    <label>Address<input name="address" value="{{ e.address or '' }}"></label>
+                    <label>Municipality<input name="municipality" value="{{ e.municipality or 'Weehawken' }}"></label>
+                  </div>
+                  <div class="form-grid two-col">
+                    <label>Starts<input type="datetime-local" name="starts_at" value="{{ e.starts_local.strftime('%Y-%m-%dT%H:%M') if e.starts_local else '' }}" required></label>
+                    <label>Ends<input type="datetime-local" name="ends_at" value="{{ e.ends_local.strftime('%Y-%m-%dT%H:%M') if e.ends_local else '' }}"></label>
+                  </div>
+                  <label>Notes<textarea name="notes" rows="2">{{ e.notes or '' }}</textarea></label>
+                  <label class="checkbox-row"><input type="checkbox" name="active" value="1" {% if e.active %}checked{% endif %}> Active</label>
+                  <button class="primary-button" type="submit">Save Changes</button>
+                </form>
+                <form method="post" action="/schedule/{{ e.id }}/toggle" class="toggle-form"><button class="secondary-button" type="submit">{{ 'Deactivate' if e.active else 'Reactivate' }}</button></form>
+              </div>
+            </details>
+            {% else %}<div class="empty-state"><strong>No schedule items found</strong><span>Add an item or change the filter.</span></div>{% endfor %}
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <footer><span>City Manager OS</span><span>Operational schedule · America/New_York</span></footer>
+  </main>
+</body>
+</html>
