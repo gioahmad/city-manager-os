@@ -275,6 +275,32 @@ def my_day(request: Request):
         """
     )
 
+    priority_alerts = query_all(
+        """
+        SELECT
+          alert_id, source, category, subtype, title, message,
+          priority, municipality, event_action, click_url,
+          received_at AT TIME ZONE 'America/New_York' AS received_local
+        FROM alerts
+        WHERE status <> 'RESOLVED'
+          AND (expires_at IS NULL OR expires_at > now())
+        ORDER BY priority DESC, received_at DESC
+        LIMIT 8
+        """
+    )
+
+    source_warnings = query_all(
+        """
+        SELECT
+          source_id, status, last_error,
+          last_success_at AT TIME ZONE 'America/New_York' AS last_success_local,
+          last_event_at AT TIME ZONE 'America/New_York' AS last_event_local
+        FROM source_health
+        WHERE upper(status) NOT IN ('OK','HEALTHY')
+        ORDER BY updated_at DESC
+        """
+    )
+
     attention = query_all(
         """
         SELECT
@@ -429,6 +455,8 @@ def my_day(request: Request):
         name="my_day.html",
         context={
             "schedule": schedule,
+            "priority_alerts": priority_alerts,
+            "source_warnings": source_warnings,
             "attention": attention,
             "waiting": waiting,
             "commitments": commitments,

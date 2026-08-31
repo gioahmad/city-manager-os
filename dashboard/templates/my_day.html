@@ -27,6 +27,74 @@
   <div class="metric"><span>No Next Action</span><strong>{{ counts.no_next_action or 0 }}</strong><small>Needs definition</small></div>
 </section>
 
+
+<section class="section-label"><span>DAILY BRIEF</span><span class="section-rule"></span></section>
+
+<section class="grid primary-grid">
+
+<article class="panel">
+  <div class="panel-head">
+    <div><div class="panel-kicker">SITUATIONAL AWARENESS</div><h2>Priority Alerts</h2></div>
+    <a class="text-link" href="/alerts">View all</a>
+  </div>
+
+  <div class="panel-body compact-list">
+    {% for a in priority_alerts %}
+    <div class="feed-row">
+      <div class="feed-main">
+        <div class="feed-title-row">
+          <span class="priority-chip p{{ a.priority }}">P{{ a.priority }}</span>
+          <strong>{{ a.title }}</strong>
+        </div>
+
+        <div class="meta">
+          {{ a.source }} · {{ a.category }}
+          {% if a.municipality %} · {{ a.municipality }}{% endif %}
+          · {{ a.event_action }}
+        </div>
+
+        {% if a.message %}<div class="meta">{{ a.message }}</div>{% endif %}
+      </div>
+
+      <time>{{ a.received_local.strftime('%m/%d %I:%M %p') if a.received_local else '' }}</time>
+    </div>
+    {% else %}
+    <div class="empty-state small"><strong>No active priority alerts</strong></div>
+    {% endfor %}
+  </div>
+</article>
+
+<article class="panel">
+  <div class="panel-head">
+    <div><div class="panel-kicker">SYSTEM EXCEPTIONS</div><h2>Source Warnings</h2></div>
+    <a class="text-link" href="/source-health">Details</a>
+  </div>
+
+  <div class="panel-body compact-list">
+    {% for s in source_warnings %}
+    <div class="feed-row">
+      <div class="feed-main">
+        <strong>{{ s.source_id }}</strong>
+        <div class="meta">
+          {% if s.last_error %}
+            {{ s.last_error }}
+          {% elif s.last_success_local %}
+            Last success {{ s.last_success_local.strftime('%m/%d %I:%M %p') }}
+          {% else %}
+            No successful poll recorded
+          {% endif %}
+        </div>
+      </div>
+      <span class="status {{ (s.status or 'unknown')|lower }}">{{ s.status }}</span>
+    </div>
+    {% else %}
+    <div class="empty-state small"><strong>All monitored sources healthy</strong></div>
+    {% endfor %}
+  </div>
+</article>
+
+</section>
+
 <section class="grid primary-grid" style="margin-top:16px">
 
 <article class="panel">
