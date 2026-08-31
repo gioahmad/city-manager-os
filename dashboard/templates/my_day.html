@@ -41,6 +41,26 @@
           {% if e.location_name %} · {{ e.location_name }}{% endif %}
           {% if e.category %} · {{ e.category }}{% endif %}
         </div>
+
+        {% if e.attendees %}
+          <div class="meta">With: {{ e.attendees }}</div>
+        {% endif %}
+
+        {% if e.objective %}
+          <div class="meta"><strong>Objective:</strong> {{ e.objective }}</div>
+        {% endif %}
+
+        {% if e.decisions_needed %}
+          <div class="meta"><strong>Decision:</strong> {{ e.decisions_needed }}</div>
+        {% endif %}
+
+        {% if e.prep_notes %}
+          <div class="meta"><strong>Prep:</strong> {{ e.prep_notes }}</div>
+        {% endif %}
+
+        {% if e.debrief_notes %}
+          <div class="meta"><strong>Debrief:</strong> {{ e.debrief_notes }}</div>
+        {% endif %}
       </div>
       <span class="priority-chip p{{ e.priority }}">P{{ e.priority }}</span>
     </div>

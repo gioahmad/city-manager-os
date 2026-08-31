@@ -47,6 +47,14 @@
               <label>Ends<input type="datetime-local" name="ends_at"></label>
             </div>
             <label>Notes<textarea name="notes" rows="3" placeholder="Operational details, expected impact, contact, restrictions"></textarea></label>
+
+            <div class="panel-kicker" style="margin-top:8px">MEETING PREP</div>
+            <label>Attendees<input name="attendees" placeholder="Mayor Turner, Engineer, Township Attorney"></label>
+            <label>Objective<input name="objective" placeholder="What do I need to accomplish?"></label>
+            <label>Prep Notes<textarea name="prep_notes" rows="3" placeholder="Background, context, facts to remember"></textarea></label>
+            <label>Decisions Needed<textarea name="decisions_needed" rows="2" placeholder="What needs to be decided or approved?"></textarea></label>
+            <label>Debrief Notes<textarea name="debrief_notes" rows="2" placeholder="Complete after the meeting"></textarea></label>
+
             <button class="primary-button" type="submit">Add Schedule Item</button>
           </form>
         </div>
@@ -96,6 +104,14 @@
                     <label>Ends<input type="datetime-local" name="ends_at" value="{{ e.ends_local.strftime('%Y-%m-%dT%H:%M') if e.ends_local else '' }}"></label>
                   </div>
                   <label>Notes<textarea name="notes" rows="2">{{ e.notes or '' }}</textarea></label>
+
+                  <div class="panel-kicker" style="margin-top:8px">MEETING PREP / DEBRIEF</div>
+                  <label>Attendees<input name="attendees" value="{{ e.attendees or '' }}"></label>
+                  <label>Objective<input name="objective" value="{{ e.objective or '' }}"></label>
+                  <label>Prep Notes<textarea name="prep_notes" rows="3">{{ e.prep_notes or '' }}</textarea></label>
+                  <label>Decisions Needed<textarea name="decisions_needed" rows="2">{{ e.decisions_needed or '' }}</textarea></label>
+                  <label>Debrief Notes<textarea name="debrief_notes" rows="3">{{ e.debrief_notes or '' }}</textarea></label>
+
                   <label class="checkbox-row"><input type="checkbox" name="active" value="1" {% if e.active %}checked{% endif %}> Active</label>
                   <button class="primary-button" type="submit">Save Changes</button>
                 </form>

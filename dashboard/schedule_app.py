@@ -80,7 +80,9 @@ def schedule_page(request: Request, state: str = "upcoming", q: str = "", msg: s
         SELECT id, active, title, category, location_name, address, municipality,
                starts_at AT TIME ZONE 'America/New_York' AS starts_local,
                ends_at AT TIME ZONE 'America/New_York' AS ends_local,
-               priority, source, notes, created_at, updated_at,
+               priority, source, notes,
+               attendees, objective, prep_notes, decisions_needed, debrief_notes,
+               created_at, updated_at,
                CASE
                  WHEN active = false THEN 'INACTIVE'
                  WHEN starts_at <= now()
@@ -144,25 +146,37 @@ def schedule_create(
     ends_at: str = Form(""),
     priority: int = Form(3),
     notes: str = Form(""),
+    attendees: str = Form(""),
+    objective: str = Form(""),
+    prep_notes: str = Form(""),
+    decisions_needed: str = Form(""),
+    debrief_notes: str = Form(""),
 ):
     execute(
         """
         INSERT INTO operational_events (
           title, category, location_name, address, municipality,
-          starts_at, ends_at, priority, source, notes
+          starts_at, ends_at, priority, source, notes,
+          attendees, objective, prep_notes, decisions_needed, debrief_notes
         )
         VALUES (
           %s, %s, %s, %s, %s,
           %s::timestamp AT TIME ZONE 'America/New_York',
           CASE WHEN NULLIF(%s, '') IS NULL THEN NULL
                ELSE %s::timestamp AT TIME ZONE 'America/New_York' END,
-          %s, 'MANUAL', %s
+          %s, 'MANUAL', %s,
+          %s, %s, %s, %s, %s
         )
         """,
         (
             title.strip(), category.strip() or None, location_name.strip() or None,
             address.strip() or None, municipality.strip() or "Weehawken",
             starts_at, ends_at, ends_at, priority, notes.strip() or None,
+            attendees.strip() or None,
+            objective.strip() or None,
+            prep_notes.strip() or None,
+            decisions_needed.strip() or None,
+            debrief_notes.strip() or None,
         ),
     )
     return RedirectResponse(url="/schedule?msg=Schedule+item+created", status_code=303)
@@ -180,6 +194,11 @@ def schedule_update(
     ends_at: str = Form(""),
     priority: int = Form(3),
     notes: str = Form(""),
+    attendees: str = Form(""),
+    objective: str = Form(""),
+    prep_notes: str = Form(""),
+    decisions_needed: str = Form(""),
+    debrief_notes: str = Form(""),
     active: str | None = Form(None),
 ):
     execute(
@@ -196,6 +215,11 @@ def schedule_update(
                            ELSE %s::timestamp AT TIME ZONE 'America/New_York' END,
             priority = %s,
             notes = %s,
+            attendees = %s,
+            objective = %s,
+            prep_notes = %s,
+            decisions_needed = %s,
+            debrief_notes = %s,
             updated_at = now()
         WHERE id = %s
         """,
@@ -203,7 +227,14 @@ def schedule_update(
             active is not None, title.strip(), category.strip() or None,
             location_name.strip() or None, address.strip() or None,
             municipality.strip() or "Weehawken", starts_at, ends_at, ends_at,
-            priority, notes.strip() or None, event_id,
+            priority,
+            notes.strip() or None,
+            attendees.strip() or None,
+            objective.strip() or None,
+            prep_notes.strip() or None,
+            decisions_needed.strip() or None,
+            debrief_notes.strip() or None,
+            event_id,
         ),
     )
     return RedirectResponse(url="/schedule?msg=Schedule+item+updated", status_code=303)
@@ -226,7 +257,8 @@ def my_day(request: Request):
           id, title, category, location_name, address, municipality,
           starts_at AT TIME ZONE 'America/New_York' AS starts_local,
           ends_at AT TIME ZONE 'America/New_York' AS ends_local,
-          priority, notes
+          priority, notes,
+          attendees, objective, prep_notes, decisions_needed, debrief_notes
         FROM operational_events
         WHERE active = true
           AND starts_at >= date_trunc(
