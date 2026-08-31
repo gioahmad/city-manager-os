@@ -291,6 +291,7 @@ def my_day(request: Request):
           FROM alerts
           WHERE status <> 'RESOLVED'
             AND source <> 'EXEC_ASSISTANT'
+            AND source <> 'SYSTEM_TEST'
             AND (expires_at IS NULL OR expires_at > now())
           ORDER BY
             CASE
@@ -430,6 +431,27 @@ def my_day(request: Request):
         """
     )
 
+    visibility = query_all(
+        """
+        SELECT
+          id, title, item_type, priority,
+          visibility_status, visibility_audience, visibility_note,
+          next_action, assigned_to
+        FROM issues
+        WHERE status NOT IN ('RESOLVED','CLOSED')
+          AND visibility_status IN ('WATCH','PREP','READY')
+        ORDER BY
+          CASE visibility_status
+            WHEN 'READY' THEN 0
+            WHEN 'PREP' THEN 1
+            ELSE 2
+          END,
+          priority DESC,
+          updated_at DESC
+        LIMIT 20
+        """
+    )
+
     overdue = query_all(
         """
         SELECT
@@ -501,6 +523,7 @@ def my_day(request: Request):
             "commitments": commitments,
             "communications": communications,
             "decisions": decisions,
+            "visibility": visibility,
             "overdue": overdue,
             "counts": counts,
         },

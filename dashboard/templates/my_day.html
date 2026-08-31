@@ -270,6 +270,42 @@
   </div>
 </section>
 
+
+<section class="panel" style="margin-top:16px">
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">MESSAGE / STAKEHOLDER AWARENESS</div>
+      <h2>Visibility Queue</h2>
+    </div>
+    <a class="text-link" href="/issues?state=visibility">View all</a>
+  </div>
+
+  <div class="panel-body compact-list">
+    {% for i in visibility %}
+    <div class="feed-row">
+      <div class="feed-main">
+        <div class="feed-title-row">
+          <span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span>
+          <strong>{{ i.title }}</strong>
+        </div>
+        <div class="meta">
+          {{ i.visibility_status }}
+          {% if i.visibility_audience %} · {{ i.visibility_audience }}{% endif %}
+        </div>
+        {% if i.visibility_note %}
+          <div class="meta">{{ i.visibility_note }}</div>
+        {% endif %}
+        {% if i.next_action %}
+          <div class="meta">Next: {{ i.next_action }}</div>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="empty-state small"><strong>Nothing needs visibility action</strong></div>
+    {% endfor %}
+  </div>
+</section>
+
 <section class="panel" style="margin-top:16px">
   <div class="panel-head"><div><div class="panel-kicker">PROACTIVE RESURFACING</div><h2>Overdue / Follow Up Now</h2></div><a class="text-link" href="/issues?state=overdue">View all</a></div>
   <div class="panel-body compact-list">
