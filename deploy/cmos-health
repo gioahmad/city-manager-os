@@ -12,6 +12,74 @@ echo
 ./deploy/cmos-source status
 
 echo
+echo "=== EXECUTIVE AUTOMATION ==="
+
+python3 - "$N8N_DB" <<'PY2'
+import sqlite3, json, sys
+
+WF_ID = "EAChiefOfStaff01"
+
+con = sqlite3.connect(sys.argv[1])
+con.row_factory = sqlite3.Row
+
+r = con.execute(
+    '''
+    SELECT
+      name,
+      active,
+      nodes,
+      activeVersionId,
+      versionCounter
+    FROM workflow_entity
+    WHERE id=?
+    ''',
+    (WF_ID,)
+).fetchone()
+
+if not r:
+    print("EXEC_ASSISTANT missing")
+else:
+    nodes = json.loads(r["nodes"])
+
+    sched = next(
+        (
+            n for n in nodes
+            if n.get("name") == "Hourly Executive Assistant Scan"
+        ),
+        None
+    )
+
+    interval = "?"
+    if sched:
+        interval = (
+            sched.get("parameters", {})
+                 .get("rule", {})
+                 .get("interval", [{}])[0]
+                 .get("minutesInterval", "?")
+        )
+
+    published = con.execute(
+        '''
+        SELECT count(*)
+        FROM workflow_history
+        WHERE workflowId=?
+          AND versionId=?
+        ''',
+        (WF_ID, r["activeVersionId"])
+    ).fetchone()[0]
+
+    print(
+        f"EXEC_ASSISTANT "
+        f"active={r['active']} "
+        f"published={published} "
+        f"interval={interval}m "
+        f"version={r['versionCounter']}"
+    )
+
+con.close()
+PY2
+
+echo
 echo "=== ROUTING / LAST ACTIVITY ==="
 
 docker exec -i citymanager-postgis sh -lc \
@@ -28,7 +96,8 @@ WITH sources(source) AS (
       ('ORU'),
       ('BNN'),
       ('NHRFR_RADIO'),
-      ('WPD_RADIO')
+      ('WPD_RADIO'),
+      ('EXEC_ASSISTANT')
 ),
 routes AS (
     SELECT
