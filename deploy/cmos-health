@@ -51,20 +51,36 @@ activity AS (
         a.source,
         COUNT(DISTINCT a.id) AS alerts,
         MAX(a.received_at) AS last_alert,
-        COUNT(DISTINCT d.id) FILTER (WHERE d.status = 'SENT') AS sent,
-        MAX(d.created_at) FILTER (WHERE d.status = 'SENT') AS last_sent
+
+        COUNT(DISTINCT d.id) FILTER (
+            WHERE d.status = 'SENT'
+              AND ds.subscriber_id = 'GIO_CATCHALL'
+        ) AS gio_sent,
+
+        MAX(d.created_at) FILTER (
+            WHERE d.status = 'SENT'
+              AND ds.subscriber_id = 'GIO_CATCHALL'
+        ) AS last_gio_sent,
+
+        COUNT(DISTINCT d.id) FILTER (
+            WHERE d.status = 'SENT'
+        ) AS total_sent
+
     FROM alerts a
     LEFT JOIN deliveries d
         ON d.alert_id = a.id
+    LEFT JOIN subscribers ds
+        ON ds.id = d.subscriber_id
     GROUP BY a.source
 )
 SELECT
     x.source,
     COALESCE(r.gio_route,false) AS gio_route,
     COALESCE(a.alerts,0) AS alerts,
-    COALESCE(a.sent,0) AS sent,
+    COALESCE(a.gio_sent,0) AS gio_sent,
+    COALESCE(a.total_sent,0) AS total_sent,
     a.last_alert,
-    a.last_sent
+    a.last_gio_sent
 FROM sources x
 LEFT JOIN routes r ON r.source = x.source
 LEFT JOIN activity a ON a.source = x.source
