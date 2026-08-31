@@ -1,0 +1,146 @@
+[
+  {
+    "updatedAt": "2026-08-26T23:34:41.863Z",
+    "createdAt": "2026-08-03T14:36:37.095Z",
+    "id": "dWFD3eKf7psieFo3",
+    "name": "NHRFR_DISP",
+    "description": "Existing NHRFR dispatch feed with parallel City Manager OS Standard Alert routing.",
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "nhrfr",
+          "options": {}
+        },
+        "name": "Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [96, 432],
+        "id": "451bcba8-87ea-47ab-8b84-1c556a3d83cc",
+        "webhookId": "d2db1f62-a286-4a58-ac89-62700339f469"
+      },
+      {
+        "parameters": {
+          "jsCode": "for (const item of $input.all()) {\n  const preview = item.json.body?.body_preview || '';\n  const dateMatch = preview.match(/\\d{1,2}\\/\\d{1,2}\\s+([^\\s]+)/);\n  const callType = dateMatch ? dateMatch[1] : 'Dispatch';\n  const incidentMatch = preview.match(/([^\\s]+)\\s+INCIDENT/i);\n  const townCode = incidentMatch ? incidentMatch[1].toUpperCase() : '';\n  const townMap = {\n    'UC': 'Union City',\n    'WNY': 'West New York',\n    'WEE': 'Weehawken',\n    'GUTT': 'Guttenberg',\n    'NB': 'North Bergen'\n  };\n  const townFull = townMap[townCode] || townCode;\n  let address = '';\n  if (callType && townCode) {\n    const regexString = `${callType}\\\\s+(.+?)\\\\s+${townCode}\\\\s+INCIDENT`;\n    const addressMatch = preview.match(new RegExp(regexString, 'i'));\n    if (addressMatch) address = addressMatch[1].trim();\n  }\n  let gmapsUrl = '';\n  if (address && townFull) {\n    const searchString = `${address}, ${townFull}, NJ`;\n    gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchString)}`;\n  }\n  item.json.ntfy_title = townCode ? `${callType} - ${townCode}` : callType;\n  item.json.address = address;\n  item.json.townFull = townFull;\n  item.json.gmapsUrl = gmapsUrl;\n}\nreturn $input.all();"
+        },
+        "name": "Parse Dispatch",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [320, 432],
+        "id": "4e3d7f59-00ea-4eb5-912a-a9acffc58ed6"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://ntfy.nhnj.us/NHRFR",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {"name": "Title", "value": "={{ $json.ntfy_title }}"},
+              {"name": "Click", "value": "={{ $json.gmapsUrl }}"},
+              {"name": "Actions", "value": "=view, Open Map, {{ $json.gmapsUrl }}"}
+            ]
+          },
+          "sendBody": true,
+          "contentType": "raw",
+          "body": "={{ $json.body.body_preview }}\n\nLocation: {{ $json.address }}, {{ $json.townFull }}",
+          "options": {}
+        },
+        "name": "Push to ntfy",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [544, 272],
+        "id": "acb4a26c-240d-4a6c-b880-d6df5e5c7c88"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://nhnj.us/webhooks/logger.php",
+          "sendBody": true,
+          "contentType": "form-urlencoded",
+          "bodyParameters": {
+            "parameters": [
+              {"name": "message", "value": "={{ $json.body.body_preview }} | Map: {{ $json.gmapsUrl }}"}
+            ]
+          },
+          "options": {}
+        },
+        "name": "Log to Webpage",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [544, 432],
+        "id": "a9bd0bd9-9fc3-4ab5-8b47-59accbcaf623"
+      },
+      {
+        "parameters": {
+          "jsCode": "return $input.all().map((item) => {\n  const j = item.json || {};\n  const body = j.body || {};\n  const preview = String(body.body_preview || '').trim();\n  const callType = String(j.ntfy_title || 'Dispatch').split(' - ')[0].trim() || 'Dispatch';\n  const municipality = String(j.townFull || '').trim().toUpperCase();\n  const address = String(j.address || '').trim();\n  const rawId = body.incident_id || body.incidentId || body.id || body.event_id || body.eventId || '';\n  const fallback = preview.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').substring(0, 180);\n  const sourceEventId = String(rawId || fallback || Date.now());\n  const priorityText = `${callType} ${preview}`.toUpperCase();\n  let priority = 4;\n  if (/WORKING FIRE|STRUCTURE FIRE|2ND ALARM|SECOND ALARM|3RD ALARM|THIRD ALARM|MAYDAY|ENTRAPMENT|HAZMAT|MCI/.test(priorityText)) priority = 5;\n  else if (/ALARM|FIRE|SMOKE|RESCUE|EMS|MEDICAL|MVC|MVA|ACCIDENT/.test(priorityText)) priority = 4;\n  else priority = 3;\n  const now = new Date().toISOString();\n  return { json: {\n    schema_version: '1.0',\n    alert_id: `NHRFR_DISP:${sourceEventId}`,\n    source: 'NHRFR_DISP',\n    source_event_id: sourceEventId,\n    category: 'PUBLIC_SAFETY',\n    subtype: callType.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '') || 'DISPATCH',\n    status: 'ACTIVE',\n    event_action: 'NEW',\n    title: j.ntfy_title || `NHRFR Dispatch${municipality ? ' - ' + municipality : ''}`,\n    message: preview || 'NHRFR dispatch received.',\n    priority,\n    county: 'HUDSON',\n    municipality,\n    location: {\n      label: address || municipality,\n      address,\n      state: 'NJ',\n      zip: '',\n      latitude: null,\n      longitude: null,\n      block: '',\n      lot: '',\n      qualifier: '',\n      parcel_id: ''\n    },\n    tags: ['nhrfr', 'dispatch', callType.toLowerCase().replace(/[^a-z0-9]+/g, '-')].filter(Boolean),\n    click_url: j.gmapsUrl || '',\n    source_url: '',\n    observed_at: now,\n    source_updated_at: null,\n    received_at: now,\n    expires_at: null,\n    metadata: {\n      town_code: String(j.ntfy_title || '').split(' - ')[1] || '',\n      parsed_address: address,\n      original_preview: preview\n    }\n  }};\n});"
+        },
+        "name": "Build Standard NHRFR Alert",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [544, 592],
+        "id": "cmos-nhrfr-build-standard-alert"
+      },
+      {
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "ESH9c2pZ8QfkMosO",
+            "mode": "list",
+            "cachedResultUrl": "/workflow/ESH9c2pZ8QfkMosO",
+            "cachedResultName": "CORE - Watchlist Matcher v1"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {},
+            "matchingColumns": [],
+            "schema": [],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": true
+          },
+          "mode": "each",
+          "options": {"waitForSubWorkflow": true}
+        },
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [800, 592],
+        "id": "cmos-nhrfr-send-matcher",
+        "name": "Send to Central Watchlist Matcher",
+        "onError": "continueRegularOutput"
+      }
+    ],
+    "connections": {
+      "Webhook": {
+        "main": [[{"node": "Parse Dispatch", "type": "main", "index": 0}]]
+      },
+      "Parse Dispatch": {
+        "main": [[
+          {"node": "Push to ntfy", "type": "main", "index": 0},
+          {"node": "Log to Webpage", "type": "main", "index": 0},
+          {"node": "Build Standard NHRFR Alert", "type": "main", "index": 0}
+        ]]
+      },
+      "Build Standard NHRFR Alert": {
+        "main": [[{"node": "Send to Central Watchlist Matcher", "type": "main", "index": 0}]]
+      },
+      "Send to Central Watchlist Matcher": {"main": [[]]}
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate",
+      "availableInMCP": false
+    },
+    "staticData": null,
+    "meta": null,
+    "nodeGroups": [],
+    "pinData": {},
+    "versionId": "f4133133-06d3-4300-9260-a453296f6a92",
+    "activeVersionId": "f4133133-06d3-4300-9260-a453296f6a92",
+    "versionCounter": 24,
+    "triggerCount": 1,
+    "sourceWorkflowId": null,
+    "tags": []
+  }
+]
