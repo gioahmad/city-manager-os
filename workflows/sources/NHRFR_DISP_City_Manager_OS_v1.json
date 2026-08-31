@@ -9,11 +9,7 @@
     "isArchived": false,
     "nodes": [
       {
-        "parameters": {
-          "httpMethod": "POST",
-          "path": "nhrfr",
-          "options": {}
-        },
+        "parameters": {"httpMethod": "POST", "path": "nhrfr", "options": {}},
         "name": "Webhook",
         "type": "n8n-nodes-base.webhook",
         "typeVersion": 1,
@@ -23,7 +19,7 @@
       },
       {
         "parameters": {
-          "jsCode": "for (const item of $input.all()) {\n  const preview = item.json.body?.body_preview || '';\n  const dateMatch = preview.match(/\\d{1,2}\\/\\d{1,2}\\s+([^\\s]+)/);\n  const callType = dateMatch ? dateMatch[1] : 'Dispatch';\n  const incidentMatch = preview.match(/([^\\s]+)\\s+INCIDENT/i);\n  const townCode = incidentMatch ? incidentMatch[1].toUpperCase() : '';\n  const townMap = {\n    'UC': 'Union City',\n    'WNY': 'West New York',\n    'WEE': 'Weehawken',\n    'GUTT': 'Guttenberg',\n    'NB': 'North Bergen'\n  };\n  const townFull = townMap[townCode] || townCode;\n  let address = '';\n  if (callType && townCode) {\n    const regexString = `${callType}\\\\s+(.+?)\\\\s+${townCode}\\\\s+INCIDENT`;\n    const addressMatch = preview.match(new RegExp(regexString, 'i'));\n    if (addressMatch) address = addressMatch[1].trim();\n  }\n  let gmapsUrl = '';\n  if (address && townFull) {\n    const searchString = `${address}, ${townFull}, NJ`;\n    gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchString)}`;\n  }\n  item.json.ntfy_title = townCode ? `${callType} - ${townCode}` : callType;\n  item.json.address = address;\n  item.json.townFull = townFull;\n  item.json.gmapsUrl = gmapsUrl;\n}\nreturn $input.all();"
+          "jsCode": "for (const item of $input.all()) {\n  const preview = item.json.body?.body_preview || '';\n  const dateMatch = preview.match(/\\d{1,2}\\/\\d{1,2}\\s+([^\\s]+)/);\n  const callType = dateMatch ? dateMatch[1] : 'Dispatch';\n  const incidentMatch = preview.match(/([^\\s]+)\\s+INCIDENT/i);\n  const townCode = incidentMatch ? incidentMatch[1].toUpperCase() : '';\n  const townMap = { 'UC': 'Union City', 'WNY': 'West New York', 'WEE': 'Weehawken', 'GUTT': 'Guttenberg', 'NB': 'North Bergen' };\n  const townFull = townMap[townCode] || townCode;\n  let address = '';\n  if (callType && townCode) {\n    const regexString = `${callType}\\\\s+(.+?)\\\\s+${townCode}\\\\s+INCIDENT`;\n    const addressMatch = preview.match(new RegExp(regexString, 'i'));\n    if (addressMatch) address = addressMatch[1].trim();\n  }\n  let gmapsUrl = '';\n  if (address && townFull) {\n    const searchString = `${address}, ${townFull}, NJ`;\n    gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchString)}`;\n  }\n  item.json.ntfy_title = townCode ? `${callType} - ${townCode}` : callType;\n  item.json.address = address;\n  item.json.townFull = townFull;\n  item.json.gmapsUrl = gmapsUrl;\n}\nreturn $input.all();"
         },
         "name": "Parse Dispatch",
         "type": "n8n-nodes-base.code",
@@ -36,13 +32,11 @@
           "method": "POST",
           "url": "http://ntfy.nhnj.us/NHRFR",
           "sendHeaders": true,
-          "headerParameters": {
-            "parameters": [
-              {"name": "Title", "value": "={{ $json.ntfy_title }}"},
-              {"name": "Click", "value": "={{ $json.gmapsUrl }}"},
-              {"name": "Actions", "value": "=view, Open Map, {{ $json.gmapsUrl }}"}
-            ]
-          },
+          "headerParameters": {"parameters": [
+            {"name": "Title", "value": "={{ $json.ntfy_title }}"},
+            {"name": "Click", "value": "={{ $json.gmapsUrl }}"},
+            {"name": "Actions", "value": "=view, Open Map, {{ $json.gmapsUrl }}"}
+          ]},
           "sendBody": true,
           "contentType": "raw",
           "body": "={{ $json.body.body_preview }}\n\nLocation: {{ $json.address }}, {{ $json.townFull }}",
@@ -60,11 +54,7 @@
           "url": "https://nhnj.us/webhooks/logger.php",
           "sendBody": true,
           "contentType": "form-urlencoded",
-          "bodyParameters": {
-            "parameters": [
-              {"name": "message", "value": "={{ $json.body.body_preview }} | Map: {{ $json.gmapsUrl }}"}
-            ]
-          },
+          "bodyParameters": {"parameters": [{"name": "message", "value": "={{ $json.body.body_preview }} | Map: {{ $json.gmapsUrl }}"}]},
           "options": {}
         },
         "name": "Log to Webpage",
@@ -75,7 +65,7 @@
       },
       {
         "parameters": {
-          "jsCode": "return $input.all().map((item) => {\n  const j = item.json || {};\n  const body = j.body || {};\n  const preview = String(body.body_preview || '').trim();\n  const callType = String(j.ntfy_title || 'Dispatch').split(' - ')[0].trim() || 'Dispatch';\n  const municipality = String(j.townFull || '').trim().toUpperCase();\n  const address = String(j.address || '').trim();\n  const rawId = body.incident_id || body.incidentId || body.id || body.event_id || body.eventId || '';\n  const fallback = preview.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').substring(0, 180);\n  const sourceEventId = String(rawId || fallback || Date.now());\n  const priorityText = `${callType} ${preview}`.toUpperCase();\n  let priority = 4;\n  if (/WORKING FIRE|STRUCTURE FIRE|2ND ALARM|SECOND ALARM|3RD ALARM|THIRD ALARM|MAYDAY|ENTRAPMENT|HAZMAT|MCI/.test(priorityText)) priority = 5;\n  else if (/ALARM|FIRE|SMOKE|RESCUE|EMS|MEDICAL|MVC|MVA|ACCIDENT/.test(priorityText)) priority = 4;\n  else priority = 3;\n  const now = new Date().toISOString();\n  return { json: {\n    schema_version: '1.0',\n    alert_id: `NHRFR_DISP:${sourceEventId}`,\n    source: 'NHRFR_DISP',\n    source_event_id: sourceEventId,\n    category: 'PUBLIC_SAFETY',\n    subtype: callType.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '') || 'DISPATCH',\n    status: 'ACTIVE',\n    event_action: 'NEW',\n    title: j.ntfy_title || `NHRFR Dispatch${municipality ? ' - ' + municipality : ''}`,\n    message: preview || 'NHRFR dispatch received.',\n    priority,\n    county: 'HUDSON',\n    municipality,\n    location: {\n      label: address || municipality,\n      address,\n      state: 'NJ',\n      zip: '',\n      latitude: null,\n      longitude: null,\n      block: '',\n      lot: '',\n      qualifier: '',\n      parcel_id: ''\n    },\n    tags: ['nhrfr', 'dispatch', callType.toLowerCase().replace(/[^a-z0-9]+/g, '-')].filter(Boolean),\n    click_url: j.gmapsUrl || '',\n    source_url: '',\n    observed_at: now,\n    source_updated_at: null,\n    received_at: now,\n    expires_at: null,\n    metadata: {\n      town_code: String(j.ntfy_title || '').split(' - ')[1] || '',\n      parsed_address: address,\n      original_preview: preview\n    }\n  }};\n});"
+          "jsCode": "return $input.all().map((item) => {\n  const j = item.json || {};\n  const body = j.body || {};\n  const preview = String(body.body_preview || '').trim();\n  const callType = String(j.ntfy_title || 'Dispatch').split(' - ')[0].trim() || 'Dispatch';\n  const municipality = String(j.townFull || '').trim().toUpperCase();\n  const address = String(j.address || '').trim();\n  const rawId = body.incident_id || body.incidentId || body.id || body.event_id || body.eventId || '';\n  const fallback = preview.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').substring(0, 180);\n  const sourceEventId = String(rawId || fallback || Date.now());\n  const priorityText = `${callType} ${preview}`.toUpperCase();\n  let priority = 4;\n  if (/WORKING FIRE|STRUCTURE FIRE|2ND ALARM|SECOND ALARM|3RD ALARM|THIRD ALARM|MAYDAY|ENTRAPMENT|HAZMAT|MCI/.test(priorityText)) priority = 5;\n  else if (/ALARM|FIRE|SMOKE|RESCUE|EMS|MEDICAL|MVC|MVA|ACCIDENT/.test(priorityText)) priority = 4;\n  else priority = 3;\n  const now = new Date().toISOString();\n  const alert = {\n    schema_version: '1.0',\n    alert_id: `NHRFR_DISP:${sourceEventId}`,\n    source: 'NHRFR_DISP',\n    source_event_id: sourceEventId,\n    category: 'PUBLIC_SAFETY',\n    subtype: callType.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '') || 'DISPATCH',\n    status: 'ACTIVE', event_action: 'NEW',\n    title: j.ntfy_title || `NHRFR Dispatch${municipality ? ' - ' + municipality : ''}`,\n    message: preview || 'NHRFR dispatch received.',\n    priority, county: 'HUDSON', municipality,\n    location: { label: address || municipality, address, state: 'NJ', zip: '', latitude: null, longitude: null, block: '', lot: '', qualifier: '', parcel_id: '' },\n    tags: ['nhrfr', 'dispatch', callType.toLowerCase().replace(/[^a-z0-9]+/g, '-')].filter(Boolean),\n    click_url: j.gmapsUrl || '', source_url: '', observed_at: now, source_updated_at: null, received_at: now, expires_at: null,\n    metadata: { town_code: String(j.ntfy_title || '').split(' - ')[1] || '', parsed_address: address, original_preview: preview }\n  };\n  alert.search_text = [alert.source, alert.category, alert.subtype, alert.status, alert.county, alert.municipality, alert.location.label, alert.location.address, alert.title, alert.message, ...alert.tags].filter(Boolean).join(' ');\n  return { json: alert };\n});"
         },
         "name": "Build Standard NHRFR Alert",
         "type": "n8n-nodes-base.code",
@@ -85,53 +75,53 @@
       },
       {
         "parameters": {
-          "workflowId": {
-            "__rl": true,
-            "value": "ESH9c2pZ8QfkMosO",
-            "mode": "list",
-            "cachedResultUrl": "/workflow/ESH9c2pZ8QfkMosO",
-            "cachedResultName": "CORE - Watchlist Matcher v1"
-          },
-          "workflowInputs": {
-            "mappingMode": "defineBelow",
-            "value": {},
-            "matchingColumns": [],
-            "schema": [],
-            "attemptToConvertTypes": false,
-            "convertFieldsToString": true
-          },
+          "operation": "executeQuery",
+          "query": "WITH d AS (SELECT $1::jsonb AS j), upserted AS ( INSERT INTO alerts (schema_version, alert_id, source, source_event_id, category, subtype, status, event_action, title, message, priority, county, municipality, location, tags, click_url, source_url, observed_at, source_updated_at, received_at, expires_at, metadata, raw_payload, search_text, updated_at) SELECT COALESCE(j->>'schema_version','1.0'), j->>'alert_id', j->>'source', NULLIF(j->>'source_event_id',''), j->>'category', j->>'subtype', j->>'status', j->>'event_action', j->>'title', j->>'message', (j->>'priority')::integer, NULLIF(j->>'county',''), NULLIF(j->>'municipality',''), COALESCE(j->'location','{}'::jsonb), ARRAY(SELECT jsonb_array_elements_text(COALESCE(j->'tags','[]'::jsonb))), NULLIF(j->>'click_url',''), NULLIF(j->>'source_url',''), NULLIF(j->>'observed_at','')::timestamptz, NULLIF(j->>'source_updated_at','')::timestamptz, COALESCE(NULLIF(j->>'received_at','')::timestamptz,NOW()), NULLIF(j->>'expires_at','')::timestamptz, COALESCE(j->'metadata','{}'::jsonb), j, NULLIF(j->>'search_text',''), NOW() FROM d ON CONFLICT (alert_id) DO UPDATE SET status=EXCLUDED.status, event_action=EXCLUDED.event_action, title=EXCLUDED.title, message=EXCLUDED.message, priority=EXCLUDED.priority, county=EXCLUDED.county, municipality=EXCLUDED.municipality, location=EXCLUDED.location, tags=EXCLUDED.tags, click_url=EXCLUDED.click_url, metadata=EXCLUDED.metadata, raw_payload=EXCLUDED.raw_payload, search_text=EXCLUDED.search_text, updated_at=NOW() RETURNING id::text AS alert_db_uuid ) SELECT d.j AS alert, upserted.alert_db_uuid FROM d CROSS JOIN upserted;",
+          "options": {"queryReplacement": "={{ JSON.stringify($json) }}"}
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [800, 592],
+        "id": "cmos-nhrfr-upsert-alert",
+        "name": "Upsert Alert to City Manager OS",
+        "credentials": {"postgres": {"id": "ypC5byxSvG6uOccJ", "name": "Postgres account"}}
+      },
+      {
+        "parameters": {"jsCode": "return $input.all().map((item) => ({ json: item.json.alert || {} }));"},
+        "name": "Restore Standard NHRFR Alert",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [1040, 592],
+        "id": "cmos-nhrfr-restore-standard-alert"
+      },
+      {
+        "parameters": {
+          "workflowId": {"__rl": true, "value": "ESH9c2pZ8QfkMosO", "mode": "list", "cachedResultUrl": "/workflow/ESH9c2pZ8QfkMosO", "cachedResultName": "CORE - Watchlist Matcher v1"},
+          "workflowInputs": {"mappingMode": "defineBelow", "value": {}, "matchingColumns": [], "schema": [], "attemptToConvertTypes": false, "convertFieldsToString": true},
           "mode": "each",
           "options": {"waitForSubWorkflow": true}
         },
         "type": "n8n-nodes-base.executeWorkflow",
         "typeVersion": 1.2,
-        "position": [800, 592],
+        "position": [1280, 592],
         "id": "cmos-nhrfr-send-matcher",
         "name": "Send to Central Watchlist Matcher",
         "onError": "continueRegularOutput"
       }
     ],
     "connections": {
-      "Webhook": {
-        "main": [[{"node": "Parse Dispatch", "type": "main", "index": 0}]]
-      },
-      "Parse Dispatch": {
-        "main": [[
-          {"node": "Push to ntfy", "type": "main", "index": 0},
-          {"node": "Log to Webpage", "type": "main", "index": 0},
-          {"node": "Build Standard NHRFR Alert", "type": "main", "index": 0}
-        ]]
-      },
-      "Build Standard NHRFR Alert": {
-        "main": [[{"node": "Send to Central Watchlist Matcher", "type": "main", "index": 0}]]
-      },
+      "Webhook": {"main": [[{"node": "Parse Dispatch", "type": "main", "index": 0}]]},
+      "Parse Dispatch": {"main": [[
+        {"node": "Push to ntfy", "type": "main", "index": 0},
+        {"node": "Log to Webpage", "type": "main", "index": 0},
+        {"node": "Build Standard NHRFR Alert", "type": "main", "index": 0}
+      ]]},
+      "Build Standard NHRFR Alert": {"main": [[{"node": "Upsert Alert to City Manager OS", "type": "main", "index": 0}]]},
+      "Upsert Alert to City Manager OS": {"main": [[{"node": "Restore Standard NHRFR Alert", "type": "main", "index": 0}]]},
+      "Restore Standard NHRFR Alert": {"main": [[{"node": "Send to Central Watchlist Matcher", "type": "main", "index": 0}]]},
       "Send to Central Watchlist Matcher": {"main": [[]]}
     },
-    "settings": {
-      "executionOrder": "v1",
-      "binaryMode": "separate",
-      "availableInMCP": false
-    },
+    "settings": {"executionOrder": "v1", "binaryMode": "separate", "availableInMCP": false},
     "staticData": null,
     "meta": null,
     "nodeGroups": [],
