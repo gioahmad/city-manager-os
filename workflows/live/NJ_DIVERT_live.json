@@ -1,0 +1,1817 @@
+{
+  "id": "DaFhaA4YY6g65O0p",
+  "name": "NJ Divert Monitor to NTFY (Clean Dashboard Icons)",
+  "active": 1,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        -800,
+        336
+      ],
+      "id": "20d41dd8-c61d-4e24-b915-e543dd079dca"
+    },
+    {
+      "parameters": {
+        "url": "https://njdivert.juvare.com/njdivert.juvare.com.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Fetch NJ Divert Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -576,
+        336
+      ],
+      "id": "4df72cb6-ae73-40e2-a1f6-be9b0b22c482"
+    },
+    {
+      "parameters": {
+        "jsCode": "let response = $input.first().json ?? {};\n\nif (response.data && typeof response.data === 'string') {\n  try {\n    response = JSON.parse(response.data);\n  } catch (e) {\n    throw new Error('Juvare returned text/HTML instead of JSON. Raw: ' + response.data.substring(0, 150));\n  }\n}\n\nlet statuses = [];\nif (Array.isArray(response.statuses)) statuses = response.statuses;\nelse if (Array.isArray(response)) statuses = response;\nelse if (response.data && Array.isArray(response.data.statuses)) statuses = response.data.statuses;\n\nif (!statuses.length) throw new Error('NJ Divert returned no records.');\n\nconst STATE_KEY = 'njDivertStateV5';\nconst NJ_DIVERT_URL = 'https://njdivert.juvare.com/';\nconst nowEastern = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());\n\nconst currentRows = {};\nfor (const item of statuses) {\n  const id = String(item.id || item.resourceName);\n  currentRows[id] = {\n    id,\n    resourceName: String(item.resourceName ?? '').trim(),\n    county: String(item.county ?? 'Unknown').trim(),\n    edStatus: String(item.edStatus ?? 'Normal').trim(),\n    edStatusReason: String(item.edStatusReason ?? '').trim(),\n    colorCode: String(item.colorCode ?? 'green').trim().toLowerCase(),\n    comments: String(item.comments ?? '').trim(),\n  };\n}\n\nconst staticData = $getWorkflowStaticData('global');\nconst previous = staticData[STATE_KEY] ?? null;\nconst previousRows = previous?.rows ?? {};\n\nconst activeDiverts = [];\nconst clearedDiverts = [];\n\nfor (const [id, row] of Object.entries(currentRows)) {\n  const oldRow = previousRows[id] ?? null;\n  const isCurrentlyDivert = row.edStatus.toLowerCase() !== 'normal';\n  const wasDivert = oldRow && oldRow.edStatus.toLowerCase() !== 'normal';\n\n  if (isCurrentlyDivert) {\n    activeDiverts.push({\n      ...row,\n      isNew: !wasDivert,\n      statusChanged: oldRow && oldRow.edStatus !== row.edStatus,\n      previousStatus: oldRow ? oldRow.edStatus : 'Unknown'\n    });\n  } else if (wasDivert && !isCurrentlyDivert) {\n    clearedDiverts.push({\n      ...row,\n      previousStatus: oldRow.edStatus\n    });\n  }\n}\n\nstaticData[STATE_KEY] = { rows: currentRows, lastUpdated: response.updateDateTime ?? new Date().toISOString() };\n\nif (activeDiverts.length === 0 && clearedDiverts.length === 0) {\n  return [{ json: { shouldSend: false, reason: 'All normal, no changes.', ntfyPayload: null } }];\n}\n\nconst groupAndSort = (facilities) => {\n  facilities.sort((a, b) => {\n    if (a.county < b.county) return -1;\n    if (a.county > b.county) return 1;\n    if (a.resourceName < b.resourceName) return -1;\n    if (a.resourceName > b.resourceName) return 1;\n    return 0;\n  });\n  const grouped = {};\n  for (const f of facilities) {\n    if (!grouped[f.county]) grouped[f.county] = [];\n    grouped[f.county].push(f);\n  }\n  return grouped;\n};\n\nconst getIcon = (status, colorCode) => {\n  const s = status.toLowerCase();\n  if (s === 'normal') return '\ud83d\udfe9';\n  if (s === 'closed') return '\u2b1b';\n  if (colorCode === 'red' || ['psychiatric', 'specialty', 'divert', 'reroute'].includes(s)) return '\ud83d\udfe5';\n  return '\ud83d\udfe8';\n};\n\nconst groupedActive = groupAndSort(activeDiverts);\nconst lines = [];\n\nif (clearedDiverts.length > 0) {\n  lines.push('**RECENTLY CLEARED**');\n  clearedDiverts.sort((a, b) => a.resourceName.localeCompare(b.resourceName));\n  for (const f of clearedDiverts) {\n    lines.push(`\ud83d\udfe9 ${f.resourceName} (${f.county} Co.)`);\n  }\n  lines.push('');\n}\n\nif (activeDiverts.length > 0) {\n  lines.push('**ACTIVE DIVERTS**');\n  for (const [county, facilities] of Object.entries(groupedActive)) {\n    lines.push(`\\n*${county.toUpperCase()} COUNTY*`);\n    for (const f of facilities) {\n      const icon = getIcon(f.edStatus, f.colorCode);\n      let statusBadge = `[${f.edStatus.toUpperCase()}]`;\n      let nameLine = `**${f.resourceName}**`;\n      \n      if (f.isNew) {\n        lines.push(`${icon} [NEW] ${nameLine} ${statusBadge}`);\n      } else {\n        lines.push(`${icon} ${nameLine} ${statusBadge}`);\n      }\n      \n      let statusLine = `> Status: ${f.edStatus.toUpperCase()}`;\n      if (f.statusChanged && f.previousStatus.toLowerCase() !== 'normal') {\n         statusLine = `> Status: ${f.previousStatus.toUpperCase()} -> ${f.edStatus.toUpperCase()}`;\n      }\n      lines.push(statusLine);\n      \n      if (f.edStatusReason) lines.push(`> Reason: ${f.edStatusReason}`);\n      if (f.comments) lines.push(`> Note: ${f.comments}`);\n      lines.push('');\n    }\n  }\n}\n\nlines.push(`\\nUpdated ${nowEastern()}`);\n\nlet title = 'NJ Divert Update';\nif (activeDiverts.length > 0 && clearedDiverts.length > 0) {\n  title = `NJ Divert: ${activeDiverts.length} Active, ${clearedDiverts.length} Cleared`;\n} else if (activeDiverts.length > 0) {\n  title = `NJ Divert: ${activeDiverts.length} Active Diverts`;\n} else if (clearedDiverts.length > 0) {\n  title = `NJ Divert: All Clear (${clearedDiverts.length} Restored)`;\n}\n\nlet priority = 4;\nlet tags = ['hospital'];\nif (activeDiverts.length === 0) {\n  priority = 3;\n} else {\n  if (activeDiverts.some(f => f.edStatus.toLowerCase() === 'closed')) {\n    priority = 5;\n  }\n}\n\nconst ntfyPayload = {\n  topic: 'NJDivert',\n  title,\n  message: lines.join('\\n').trim(),\n  priority,\n  tags,\n  markdown: true,\n  click: NJ_DIVERT_URL,\n  actions: [\n    { action: 'view', label: 'NJ Divert Portal', url: NJ_DIVERT_URL, clear: false }\n  ]\n};\n\nreturn [{ json: { shouldSend: true, activeCount: activeDiverts.length, clearedCount: clearedDiverts.length, ntfyPayload } }];"
+      },
+      "name": "Normalize Compare Render",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        336
+      ],
+      "id": "3091de74-8a29-4bea-b142-81e9e416e9a4"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.shouldSend }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Check If Should Send",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -144,
+        336
+      ],
+      "id": "b37faf79-8b72-4867-820e-c72c9736c745"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ntfy.nhnj.us/NJDivert",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Title",
+              "value": "={{ $json.ntfyPayload.title }}"
+            },
+            {
+              "name": "Priority",
+              "value": "={{ String($json.ntfyPayload.priority) }}"
+            },
+            {
+              "name": "Tags",
+              "value": "={{ $json.ntfyPayload.tags.join(',') }}"
+            },
+            {
+              "name": "Click",
+              "value": "={{ $json.ntfyPayload.click }}"
+            },
+            {
+              "name": "Actions",
+              "value": "={{ $json.ntfyPayload.actions.map(a => `view, ${a.label}, ${a.url}, clear=${a.clear}`).join('; ') }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/plain; charset=utf-8",
+        "body": "={{ $json.ntfyPayload.message }}",
+        "options": {}
+      },
+      "name": "Push Divert Alert to NTFY",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        80,
+        304
+      ],
+      "id": "0e9e34db-1633-43b9-b3ca-0ebadc9560e7"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => {\n  const j = item.json || {};\n  const p = j.ntfyPayload || {};\n\n  const title = String(p.title || 'NJ Divert Update').trim();\n  const message = String(p.message || '').trim();\n  const activeCount = Number(j.activeCount || 0);\n  const clearedCount = Number(j.clearedCount || 0);\n\n  const rawKey = `${title}|${message}`;\n\n  // Small deterministic hash so a retry of the same update keeps the same alert_id.\n  let hash = 2166136261;\n  for (let i = 0; i < rawKey.length; i++) {\n    hash ^= rawKey.charCodeAt(i);\n    hash = Math.imul(hash, 16777619);\n  }\n\n  const sourceEventId = (hash >>> 0).toString(16).padStart(8, '0');\n  const now = new Date().toISOString();\n\n  let status = 'ACTIVE';\n  let eventAction = 'UPDATE';\n\n  if (activeCount === 0) {\n    status = 'RESOLVED';\n    eventAction = 'RESOLVED';\n  } else if (clearedCount === 0) {\n    eventAction = 'NEW';\n  }\n\n  const priority = Number(p.priority || 4);\n\n  const alert = {\n    schema_version: '1.0',\n    alert_id: `NJ_DIVERT:${sourceEventId}`,\n    source: 'NJ_DIVERT',\n    source_event_id: sourceEventId,\n\n    category: 'EMS',\n    subtype: 'HOSPITAL_DIVERT',\n\n    status,\n    event_action: eventAction,\n\n    title,\n    message: message || 'NJ Divert status changed.',\n\n    priority,\n\n    county: '',\n    municipality: '',\n\n    location: {\n      label: '',\n      address: '',\n      state: 'NJ',\n      zip: '',\n      latitude: null,\n      longitude: null,\n      block: '',\n      lot: '',\n      qualifier: '',\n      parcel_id: ''\n    },\n\n    tags: ['nj-divert', 'hospital', 'ems'],\n\n    click_url: String(p.click || ''),\n    source_url: String(p.click || ''),\n\n    observed_at: now,\n    source_updated_at: null,\n    received_at: now,\n    expires_at: null,\n\n    metadata: {\n      active_count: activeCount,\n      cleared_count: clearedCount,\n      ntfy_topic: String(p.topic || 'NJDivert'),\n      original_title: title\n    }\n  };\n\n  alert.search_text = [\n    alert.source,\n    'NJ DIVERT',\n    alert.category,\n    alert.subtype,\n    alert.status,\n    alert.title,\n    alert.message,\n    ...alert.tags\n  ].filter(Boolean).join(' ');\n\n  return { json: alert };\n});"
+      },
+      "name": "Build Standard NJ Divert Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        520
+      ],
+      "id": "cmos-njdivert-build-standard-alert"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH d AS (SELECT $1::jsonb AS j), upserted AS ( INSERT INTO alerts (schema_version, alert_id, source, source_event_id, category, subtype, status, event_action, title, message, priority, county, municipality, location, tags, click_url, source_url, observed_at, source_updated_at, received_at, expires_at, metadata, raw_payload, search_text, updated_at) SELECT COALESCE(j->>'schema_version','1.0'), j->>'alert_id', j->>'source', NULLIF(j->>'source_event_id',''), j->>'category', j->>'subtype', j->>'status', j->>'event_action', j->>'title', j->>'message', (j->>'priority')::integer, NULLIF(j->>'county',''), NULLIF(j->>'municipality',''), COALESCE(j->'location','{}'::jsonb), ARRAY(SELECT jsonb_array_elements_text(COALESCE(j->'tags','[]'::jsonb))), NULLIF(j->>'click_url',''), NULLIF(j->>'source_url',''), NULLIF(j->>'observed_at','')::timestamptz, NULLIF(j->>'source_updated_at','')::timestamptz, COALESCE(NULLIF(j->>'received_at','')::timestamptz,NOW()), NULLIF(j->>'expires_at','')::timestamptz, COALESCE(j->'metadata','{}'::jsonb), j, NULLIF(j->>'search_text',''), NOW() FROM d ON CONFLICT (alert_id) DO UPDATE SET status=EXCLUDED.status, event_action=EXCLUDED.event_action, title=EXCLUDED.title, message=EXCLUDED.message, priority=EXCLUDED.priority, county=EXCLUDED.county, municipality=EXCLUDED.municipality, location=EXCLUDED.location, tags=EXCLUDED.tags, click_url=EXCLUDED.click_url, metadata=EXCLUDED.metadata, raw_payload=EXCLUDED.raw_payload, search_text=EXCLUDED.search_text, updated_at=NOW() RETURNING id::text AS alert_db_uuid ) SELECT d.j AS alert, upserted.alert_db_uuid FROM d CROSS JOIN upserted;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        320,
+        520
+      ],
+      "id": "cmos-njdivert-upsert-alert",
+      "name": "Upsert NJ Divert Alert to City Manager OS",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => ({ json: item.json.alert || {} }));"
+      },
+      "name": "Restore Standard NJ Divert Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        520
+      ],
+      "id": "cmos-njdivert-restore-alert"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ESH9c2pZ8QfkMosO",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ESH9c2pZ8QfkMosO",
+          "cachedResultName": "CORE - Watchlist Matcher v1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        800,
+        520
+      ],
+      "id": "cmos-njdivert-send-matcher",
+      "name": "Send NJ Divert to Central Watchlist Matcher",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch NJ Divert Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch NJ Divert Summary": {
+      "main": [
+        [
+          {
+            "node": "Normalize Compare Render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Compare Render": {
+      "main": [
+        [
+          {
+            "node": "Check If Should Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Should Send": {
+      "main": [
+        [
+          {
+            "node": "Push Divert Alert to NTFY",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Standard NJ Divert Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Standard NJ Divert Alert": {
+      "main": [
+        [
+          {
+            "node": "Upsert NJ Divert Alert to City Manager OS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert NJ Divert Alert to City Manager OS": {
+      "main": [
+        [
+          {
+            "node": "Restore Standard NJ Divert Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Standard NJ Divert Alert": {
+      "main": [
+        [
+          {
+            "node": "Send NJ Divert to Central Watchlist Matcher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send NJ Divert to Central Watchlist Matcher": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "global": {
+      "njDivertStateV1": {
+        "rows": {
+          "195183": {
+            "id": "195183",
+            "resourceName": "AHS Chilton Medical Center",
+            "county": "Morris",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195184": {
+            "id": "195184",
+            "resourceName": "AtlantiCare Regional Medical Center - City Campus",
+            "county": "Atlantic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195185": {
+            "id": "195185",
+            "resourceName": "AtlantiCare Regional Medical Center - Mainland Campus",
+            "county": "Atlantic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195186": {
+            "id": "195186",
+            "resourceName": "Bergen New Bridge Medical Center",
+            "county": "Bergen",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195187": {
+            "id": "195187",
+            "resourceName": "Cooper University Hospital Cape Regional",
+            "county": "Cape May",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195188": {
+            "id": "195188",
+            "resourceName": "Capital Health Medical Center - Hopewell",
+            "county": "Mercer",
+            "edStatus": "Adult ED",
+            "edStatusReason": "Patient Volume",
+            "colorCode": "red",
+            "comments": "4 hour divert but still accept STEMI and Peds"
+          },
+          "195189": {
+            "id": "195189",
+            "resourceName": "Capital Health Regional Medical Center",
+            "county": "Mercer",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "All back to normal"
+          },
+          "195190": {
+            "id": "195190",
+            "resourceName": "CentraState Medical Center",
+            "county": "Monmouth",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195191": {
+            "id": "195191",
+            "resourceName": "RWJBH Clara Maass Medical Center",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195192": {
+            "id": "195192",
+            "resourceName": "RWJBH Community Medical Center",
+            "county": "Ocean",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195193": {
+            "id": "195193",
+            "resourceName": "Cooper University Hospital",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195194": {
+            "id": "195194",
+            "resourceName": "Hudson Regional Health Bayonne University Hospital",
+            "county": "Hudson",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195195": {
+            "id": "195195",
+            "resourceName": "Hudson Regional Health The Heights University SED in Jersey City",
+            "county": "Hudson",
+            "edStatus": "Closed",
+            "edStatusReason": "",
+            "colorCode": "black",
+            "comments": "This SED is no longer in operation as of 03.14.2026 at 2100 Hours and will NOT accept patients. This closure is permanent."
+          },
+          "195196": {
+            "id": "195196",
+            "resourceName": "Hudson Regional Health Hoboken University Hospital",
+            "county": "Hudson",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195197": {
+            "id": "195197",
+            "resourceName": "Deborah Heart and Lung Center",
+            "county": "Burlington",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195198": {
+            "id": "195198",
+            "resourceName": "Carewell Health Medical Center",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195199": {
+            "id": "195199",
+            "resourceName": "Englewood Hospital",
+            "county": "Bergen",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195200": {
+            "id": "195200",
+            "resourceName": "AHS Hackettstown Medical Center",
+            "county": "Warren",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195201": {
+            "id": "195201",
+            "resourceName": "HMH Bayshore Medical Center",
+            "county": "Monmouth",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195202": {
+            "id": "195202",
+            "resourceName": "HMH Jersey Shore University Medical Center",
+            "county": "Monmouth",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195203": {
+            "id": "195203",
+            "resourceName": "HMH JFK University Medical Center",
+            "county": "Middlesex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195204": {
+            "id": "195204",
+            "resourceName": "HMH Mountainside Medical Center",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195205": {
+            "id": "195205",
+            "resourceName": "HMH Ocean University Medical Center",
+            "county": "Ocean",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195206": {
+            "id": "195206",
+            "resourceName": "HMH Palisades Medical Center",
+            "county": "Hudson",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195207": {
+            "id": "195207",
+            "resourceName": "HMH Pascack Valley Medical Center",
+            "county": "Bergen",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "."
+          },
+          "195208": {
+            "id": "195208",
+            "resourceName": "HMH Old Bridge Medical Center",
+            "county": "Middlesex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195209": {
+            "id": "195209",
+            "resourceName": "HMH Raritan Bay Medical Center",
+            "county": "Middlesex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195210": {
+            "id": "195210",
+            "resourceName": "HMH Riverview Medical Center",
+            "county": "Monmouth",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Regular Operations Resuming"
+          },
+          "195211": {
+            "id": "195211",
+            "resourceName": "HMH Southern Ocean Medical Center",
+            "county": "Ocean",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195212": {
+            "id": "195212",
+            "resourceName": "Holy Name Medical Center",
+            "county": "Bergen",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195213": {
+            "id": "195213",
+            "resourceName": "Hudson Regional Health Secaucus University Hospital",
+            "county": "Hudson",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195214": {
+            "id": "195214",
+            "resourceName": "Hunterdon Medical Center",
+            "county": "Hunterdon",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195215": {
+            "id": "195215",
+            "resourceName": "Inspira Medical Center Elmer",
+            "county": "Salem",
+            "edStatus": "Specialty",
+            "edStatusReason": "Other",
+            "colorCode": "red",
+            "comments": "CT down until 10am for scheduled maintenance"
+          },
+          "195216": {
+            "id": "195216",
+            "resourceName": "Inspira Medical Center Mullica Hill",
+            "county": "Gloucester",
+            "edStatus": "Psychiatric",
+            "edStatusReason": "",
+            "colorCode": "red",
+            "comments": "Extending Psych until 4 am due to specialty volume."
+          },
+          "195217": {
+            "id": "195217",
+            "resourceName": "Inspira Medical Center Vineland",
+            "county": "Cumberland",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Status auto-changed to normal per diversion policy"
+          },
+          "195218": {
+            "id": "195218",
+            "resourceName": "Jefferson Cherry Hill Hospital",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195219": {
+            "id": "195219",
+            "resourceName": "Jefferson Stratford Hospital",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "NORMAL OPERATION"
+          },
+          "195220": {
+            "id": "195220",
+            "resourceName": "Jefferson Washington Township Hospital",
+            "county": "Gloucester",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Status auto-changed to normal per diversion policy"
+          },
+          "195221": {
+            "id": "195221",
+            "resourceName": "RWJBH Jersey City Medical Center",
+            "county": "Hudson",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195222": {
+            "id": "195222",
+            "resourceName": "RWJBH Monmouth Medical Center",
+            "county": "Monmouth",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195223": {
+            "id": "195223",
+            "resourceName": "RWJBH Monmouth Medical Center Southern Campus",
+            "county": "Ocean",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195224": {
+            "id": "195224",
+            "resourceName": "AHS Morristown Medical Center",
+            "county": "Morris",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195225": {
+            "id": "195225",
+            "resourceName": "RWJBH Newark Beth Israel Medical Center",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195226": {
+            "id": "195226",
+            "resourceName": "AHS Newton Medical Center",
+            "county": "Sussex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195227": {
+            "id": "195227",
+            "resourceName": "AHS Overlook Medical Center",
+            "county": "Union",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195228": {
+            "id": "195228",
+            "resourceName": "RWJBH Robert Wood Johnson University Hospital",
+            "county": "Middlesex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195229": {
+            "id": "195229",
+            "resourceName": "RWJBH University Hospital Hamilton",
+            "county": "Mercer",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195230": {
+            "id": "195230",
+            "resourceName": "RWJBH University Hospital Rahway",
+            "county": "Union",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195231": {
+            "id": "195231",
+            "resourceName": "RWJBH University Hospital Somerset",
+            "county": "Somerset",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195232": {
+            "id": "195232",
+            "resourceName": "RWJBH Cooperman Barnabas Medical Center",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195233": {
+            "id": "195233",
+            "resourceName": "Saint Clare's Denville Hospital",
+            "county": "Morris",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195234": {
+            "id": "195234",
+            "resourceName": "Saint Clare's Dover Hospital",
+            "county": "Morris",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195235": {
+            "id": "195235",
+            "resourceName": "Saint Michael's Medical Center",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195236": {
+            "id": "195236",
+            "resourceName": "Saint Peter's University Hospital",
+            "county": "Middlesex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Status auto-changed to normal per diversion policy"
+          },
+          "195237": {
+            "id": "195237",
+            "resourceName": "Inspira Medical Center Mannington",
+            "county": "Salem",
+            "edStatus": "Specialty",
+            "edStatusReason": "Other",
+            "colorCode": "red",
+            "comments": "surgical divert"
+          },
+          "195238": {
+            "id": "195238",
+            "resourceName": "Shore Medical Center",
+            "county": "Atlantic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195240": {
+            "id": "195240",
+            "resourceName": "St. Joseph's University Medical Center",
+            "county": "Passaic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195241": {
+            "id": "195241",
+            "resourceName": "St. Joseph's Wayne Medical Center",
+            "county": "Passaic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195242": {
+            "id": "195242",
+            "resourceName": "St. Mary's General Hospital",
+            "county": "Passaic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195243": {
+            "id": "195243",
+            "resourceName": "The Valley Hospital",
+            "county": "Bergen",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195244": {
+            "id": "195244",
+            "resourceName": "RWJBH Trinitas Regional Medical Center",
+            "county": "Union",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "."
+          },
+          "195245": {
+            "id": "195245",
+            "resourceName": "University Hospital",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Status auto-changed to normal per diversion policy"
+          },
+          "195246": {
+            "id": "195246",
+            "resourceName": "Penn Medicine Princeton Medical Center",
+            "county": "Middlesex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Status auto-changed to normal per diversion policy"
+          },
+          "195247": {
+            "id": "195247",
+            "resourceName": "Virtua Marlton Hospital",
+            "county": "Burlington",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195248": {
+            "id": "195248",
+            "resourceName": "Virtua Mount Holly Hospital",
+            "county": "Burlington",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195249": {
+            "id": "195249",
+            "resourceName": "Virtua Our Lady of Lourdes Hospital",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195250": {
+            "id": "195250",
+            "resourceName": "Virtua Voorhees Hospital",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195251": {
+            "id": "195251",
+            "resourceName": "Virtua Willingboro Hospital",
+            "county": "Burlington",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195252": {
+            "id": "195252",
+            "resourceName": "AtlantiCare SED Hammonton",
+            "county": "Atlantic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195253": {
+            "id": "195253",
+            "resourceName": "Inspira Bridgeton SED",
+            "county": "Cumberland",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195254": {
+            "id": "195254",
+            "resourceName": "JFK Muhlenberg SED",
+            "county": "Union",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195255": {
+            "id": "195255",
+            "resourceName": "Ocean Care SED",
+            "county": "Ocean",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195256": {
+            "id": "195256",
+            "resourceName": "Overlook-Union SED",
+            "county": "Union",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195257": {
+            "id": "195257",
+            "resourceName": "Saint Clares Sussex SED",
+            "county": "Sussex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195258": {
+            "id": "195258",
+            "resourceName": "Virtua Berlin SED",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195259": {
+            "id": "195259",
+            "resourceName": "Virtua Camden SED",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "197030": {
+            "id": "197030",
+            "resourceName": "HMH Hackensack University Medical Center",
+            "county": "Bergen",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "197031": {
+            "id": "197031",
+            "resourceName": "St. Luke's Hospital - Warren Campus",
+            "county": "Warren",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "201835": {
+            "id": "201835",
+            "resourceName": "Inspira Woodbury SED",
+            "county": "Gloucester",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Status auto-changed to normal per diversion policy"
+          },
+          "203102": {
+            "id": "203102",
+            "resourceName": "Capital Health at Deborah SED",
+            "county": "Burlington",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "205977": {
+            "id": "205977",
+            "resourceName": "Burn Center at RWJ Cooperman Barnabas",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "218017": {
+            "id": "218017",
+            "resourceName": "RWJBH Bayonne - SED",
+            "county": "Hudson",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Facility has returned to normal operations."
+          }
+        },
+        "lastUpdated": "2026-08-25T06:14:57.798619Z"
+      },
+      "njDivertStateV5": {
+        "rows": {
+          "195183": {
+            "id": "195183",
+            "resourceName": "AHS Chilton Medical Center",
+            "county": "Morris",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195184": {
+            "id": "195184",
+            "resourceName": "AtlantiCare Regional Medical Center - City Campus",
+            "county": "Atlantic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195185": {
+            "id": "195185",
+            "resourceName": "AtlantiCare Regional Medical Center - Mainland Campus",
+            "county": "Atlantic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195186": {
+            "id": "195186",
+            "resourceName": "Bergen New Bridge Medical Center",
+            "county": "Bergen",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195187": {
+            "id": "195187",
+            "resourceName": "Cooper University Hospital Cape Regional",
+            "county": "Cape May",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195188": {
+            "id": "195188",
+            "resourceName": "Capital Health Medical Center - Hopewell",
+            "county": "Mercer",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195189": {
+            "id": "195189",
+            "resourceName": "Capital Health Regional Medical Center",
+            "county": "Mercer",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195190": {
+            "id": "195190",
+            "resourceName": "CentraState Medical Center",
+            "county": "Monmouth",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Status auto-changed to normal per diversion policy"
+          },
+          "195191": {
+            "id": "195191",
+            "resourceName": "RWJBH Clara Maass Medical Center",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195192": {
+            "id": "195192",
+            "resourceName": "RWJBH Community Medical Center",
+            "county": "Ocean",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195193": {
+            "id": "195193",
+            "resourceName": "Cooper University Hospital",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195194": {
+            "id": "195194",
+            "resourceName": "Hudson Regional Health Bayonne University Hospital",
+            "county": "Hudson",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195195": {
+            "id": "195195",
+            "resourceName": "Hudson Regional Health The Heights University SED in Jersey City",
+            "county": "Hudson",
+            "edStatus": "Closed",
+            "edStatusReason": "",
+            "colorCode": "black",
+            "comments": "This SED is no longer in operation as of 03.14.2026 at 2100 Hours and will NOT accept patients. This closure is permanent."
+          },
+          "195196": {
+            "id": "195196",
+            "resourceName": "Hudson Regional Health Hoboken University Hospital",
+            "county": "Hudson",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195197": {
+            "id": "195197",
+            "resourceName": "Deborah Heart and Lung Center",
+            "county": "Burlington",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195198": {
+            "id": "195198",
+            "resourceName": "Carewell Health Medical Center",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195199": {
+            "id": "195199",
+            "resourceName": "Englewood Hospital",
+            "county": "Bergen",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195200": {
+            "id": "195200",
+            "resourceName": "AHS Hackettstown Medical Center",
+            "county": "Warren",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195201": {
+            "id": "195201",
+            "resourceName": "HMH Bayshore Medical Center",
+            "county": "Monmouth",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195202": {
+            "id": "195202",
+            "resourceName": "HMH Jersey Shore University Medical Center",
+            "county": "Monmouth",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195203": {
+            "id": "195203",
+            "resourceName": "HMH JFK University Medical Center",
+            "county": "Middlesex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195204": {
+            "id": "195204",
+            "resourceName": "HMH Mountainside Medical Center",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195205": {
+            "id": "195205",
+            "resourceName": "HMH Ocean University Medical Center",
+            "county": "Ocean",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195206": {
+            "id": "195206",
+            "resourceName": "HMH Palisades Medical Center",
+            "county": "Hudson",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195207": {
+            "id": "195207",
+            "resourceName": "HMH Pascack Valley Medical Center",
+            "county": "Bergen",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "."
+          },
+          "195208": {
+            "id": "195208",
+            "resourceName": "HMH Old Bridge Medical Center",
+            "county": "Middlesex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195209": {
+            "id": "195209",
+            "resourceName": "HMH Raritan Bay Medical Center",
+            "county": "Middlesex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195210": {
+            "id": "195210",
+            "resourceName": "HMH Riverview Medical Center",
+            "county": "Monmouth",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Regular Operations Resuming"
+          },
+          "195211": {
+            "id": "195211",
+            "resourceName": "HMH Southern Ocean Medical Center",
+            "county": "Ocean",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Resuming Normal Operations"
+          },
+          "195212": {
+            "id": "195212",
+            "resourceName": "Holy Name Medical Center",
+            "county": "Bergen",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195213": {
+            "id": "195213",
+            "resourceName": "Hudson Regional Health Secaucus University Hospital",
+            "county": "Hudson",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195214": {
+            "id": "195214",
+            "resourceName": "Hunterdon Medical Center",
+            "county": "Hunterdon",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195215": {
+            "id": "195215",
+            "resourceName": "Inspira Medical Center Elmer",
+            "county": "Salem",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195216": {
+            "id": "195216",
+            "resourceName": "Inspira Medical Center Mullica Hill",
+            "county": "Gloucester",
+            "edStatus": "Psychiatric",
+            "edStatusReason": "",
+            "colorCode": "red",
+            "comments": "Psychiatric divert until 00:30"
+          },
+          "195217": {
+            "id": "195217",
+            "resourceName": "Inspira Medical Center Vineland",
+            "county": "Cumberland",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Status auto-changed to normal per diversion policy"
+          },
+          "195218": {
+            "id": "195218",
+            "resourceName": "Jefferson Cherry Hill Hospital",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195219": {
+            "id": "195219",
+            "resourceName": "Jefferson Stratford Hospital",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "NORMAL OPERATION"
+          },
+          "195220": {
+            "id": "195220",
+            "resourceName": "Jefferson Washington Township Hospital",
+            "county": "Gloucester",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Status auto-changed to normal per diversion policy"
+          },
+          "195221": {
+            "id": "195221",
+            "resourceName": "RWJBH Jersey City Medical Center",
+            "county": "Hudson",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195222": {
+            "id": "195222",
+            "resourceName": "RWJBH Monmouth Medical Center",
+            "county": "Monmouth",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195223": {
+            "id": "195223",
+            "resourceName": "RWJBH Monmouth Medical Center Southern Campus",
+            "county": "Ocean",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Telemetry issue resolved."
+          },
+          "195224": {
+            "id": "195224",
+            "resourceName": "AHS Morristown Medical Center",
+            "county": "Morris",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195225": {
+            "id": "195225",
+            "resourceName": "RWJBH Newark Beth Israel Medical Center",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195226": {
+            "id": "195226",
+            "resourceName": "AHS Newton Medical Center",
+            "county": "Sussex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195227": {
+            "id": "195227",
+            "resourceName": "AHS Overlook Medical Center",
+            "county": "Union",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195228": {
+            "id": "195228",
+            "resourceName": "RWJBH Robert Wood Johnson University Hospital",
+            "county": "Middlesex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195229": {
+            "id": "195229",
+            "resourceName": "RWJBH University Hospital Hamilton",
+            "county": "Mercer",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195230": {
+            "id": "195230",
+            "resourceName": "RWJBH University Hospital Rahway",
+            "county": "Union",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195231": {
+            "id": "195231",
+            "resourceName": "RWJBH University Hospital Somerset",
+            "county": "Somerset",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195232": {
+            "id": "195232",
+            "resourceName": "RWJBH Cooperman Barnabas Medical Center",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195233": {
+            "id": "195233",
+            "resourceName": "Saint Clare's Denville Hospital",
+            "county": "Morris",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195234": {
+            "id": "195234",
+            "resourceName": "Saint Clare's Dover Hospital",
+            "county": "Morris",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195235": {
+            "id": "195235",
+            "resourceName": "Saint Michael's Medical Center",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195236": {
+            "id": "195236",
+            "resourceName": "Saint Peter's University Hospital",
+            "county": "Middlesex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Status auto-changed to normal per diversion policy"
+          },
+          "195237": {
+            "id": "195237",
+            "resourceName": "Inspira Medical Center Mannington",
+            "county": "Salem",
+            "edStatus": "Specialty",
+            "edStatusReason": "Other",
+            "colorCode": "red",
+            "comments": "surgical divert"
+          },
+          "195238": {
+            "id": "195238",
+            "resourceName": "Shore Medical Center",
+            "county": "Atlantic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195240": {
+            "id": "195240",
+            "resourceName": "St. Joseph's University Medical Center",
+            "county": "Passaic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195241": {
+            "id": "195241",
+            "resourceName": "St. Joseph's Wayne Medical Center",
+            "county": "Passaic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195242": {
+            "id": "195242",
+            "resourceName": "St. Mary's General Hospital",
+            "county": "Passaic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195243": {
+            "id": "195243",
+            "resourceName": "The Valley Hospital",
+            "county": "Bergen",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195244": {
+            "id": "195244",
+            "resourceName": "RWJBH Trinitas Regional Medical Center",
+            "county": "Union",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "."
+          },
+          "195245": {
+            "id": "195245",
+            "resourceName": "University Hospital",
+            "county": "Essex",
+            "edStatus": "Psychiatric",
+            "edStatusReason": "",
+            "colorCode": "red",
+            "comments": "4HRS PSYCH DIVERT."
+          },
+          "195246": {
+            "id": "195246",
+            "resourceName": "Penn Medicine Princeton Medical Center",
+            "county": "Middlesex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195247": {
+            "id": "195247",
+            "resourceName": "Virtua Marlton Hospital",
+            "county": "Burlington",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195248": {
+            "id": "195248",
+            "resourceName": "Virtua Mount Holly Hospital",
+            "county": "Burlington",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195249": {
+            "id": "195249",
+            "resourceName": "Virtua Our Lady of Lourdes Hospital",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195250": {
+            "id": "195250",
+            "resourceName": "Virtua Voorhees Hospital",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195251": {
+            "id": "195251",
+            "resourceName": "Virtua Willingboro Hospital",
+            "county": "Burlington",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195252": {
+            "id": "195252",
+            "resourceName": "AtlantiCare SED Hammonton",
+            "county": "Atlantic",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195253": {
+            "id": "195253",
+            "resourceName": "Inspira Bridgeton SED",
+            "county": "Cumberland",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195254": {
+            "id": "195254",
+            "resourceName": "JFK Muhlenberg SED",
+            "county": "Union",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195255": {
+            "id": "195255",
+            "resourceName": "Ocean Care SED",
+            "county": "Ocean",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195256": {
+            "id": "195256",
+            "resourceName": "Overlook-Union SED",
+            "county": "Union",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195257": {
+            "id": "195257",
+            "resourceName": "Saint Clares Sussex SED",
+            "county": "Sussex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195258": {
+            "id": "195258",
+            "resourceName": "Virtua Berlin SED",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "195259": {
+            "id": "195259",
+            "resourceName": "Virtua Camden SED",
+            "county": "Camden",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "197030": {
+            "id": "197030",
+            "resourceName": "HMH Hackensack University Medical Center",
+            "county": "Bergen",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "197031": {
+            "id": "197031",
+            "resourceName": "St. Luke's Hospital - Warren Campus",
+            "county": "Warren",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "201835": {
+            "id": "201835",
+            "resourceName": "Inspira Woodbury SED",
+            "county": "Gloucester",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Status auto-changed to normal per diversion policy"
+          },
+          "203102": {
+            "id": "203102",
+            "resourceName": "Capital Health at Deborah SED",
+            "county": "Burlington",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "205977": {
+            "id": "205977",
+            "resourceName": "Burn Center at RWJ Cooperman Barnabas",
+            "county": "Essex",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": ""
+          },
+          "218017": {
+            "id": "218017",
+            "resourceName": "RWJBH Bayonne - SED",
+            "county": "Hudson",
+            "edStatus": "Normal",
+            "edStatusReason": "",
+            "colorCode": "green",
+            "comments": "Facility has returned to normal operations."
+          }
+        },
+        "lastUpdated": "2026-08-31T02:58:57.882443Z"
+      }
+    }
+  },
+  "pinData": "{}",
+  "versionId": "e8c066a2-fb3c-41b2-9ba7-87f90e732925",
+  "triggerCount": 1,
+  "meta": null,
+  "parentFolderId": null,
+  "createdAt": "2026-08-25 03:42:04.545",
+  "updatedAt": "2026-08-31T02:30:44.394Z",
+  "isArchived": 0,
+  "versionCounter": 8,
+  "description": null,
+  "activeVersionId": "e8c066a2-fb3c-41b2-9ba7-87f90e732925",
+  "nodeGroups": "[]",
+  "sourceWorkflowId": null
+}

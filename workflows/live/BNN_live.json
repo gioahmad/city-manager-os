@@ -1,0 +1,236 @@
+{
+  "id": "91kogN5QvQ7s8AkR",
+  "name": "BNN",
+  "active": 1,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "BNN",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        16,
+        16
+      ],
+      "id": "4334cfb2-8aa9-49ae-8492-06837fb1bdca",
+      "webhookId": "d6efad82-e0ca-4bcc-9789-4441ad78ab8f"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ntfy.nhnj.us/BNN",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "=",
+              "value": "={{ $json.body.location }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "body": "={{ $json.body.formatted_message }}",
+        "options": {}
+      },
+      "name": "Push to ntfy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        -112
+      ],
+      "id": "d311f336-9aab-4bf2-b130-8ff073de2428"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nhnj.us/webhooks/bnn_logger.php",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "message",
+              "value": "={{ $json.body.formatted_message }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Log to Webpage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        128
+      ],
+      "id": "c3659bd8-8b6b-4250-b1d2-4c99eb8368f9"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction hashId(value) {\n  let hash = 2166136261;\n  value = String(value || '');\n  for (let i = 0; i < value.length; i++) {\n    hash ^= value.charCodeAt(i);\n    hash = Math.imul(hash, 16777619);\n  }\n  return (hash >>> 0).toString(16).padStart(8, '0');\n}\n\nreturn $input.all().map((item) => {\n  const j = item.json || {};\n  const body = j.body || {};\n\n  const location = String(body.location || '').trim();\n  const message = String(\n    body.formatted_message ||\n    body.message ||\n    body.text ||\n    ''\n  ).trim();\n\n  const title = String(\n    body.custom_title ||\n    (location ? `BNN - ${location}` : 'BNN Incident')\n  ).trim();\n\n  const combined = `${title} ${location} ${message}`.toUpperCase();\n\n  let priority = 3;\n\n  if (/2ND ALARM|SECOND ALARM|3RD ALARM|THIRD ALARM|WORKING FIRE|MAYDAY|MCI|ENTRAPMENT|SHOOTING|STABBING/.test(combined)) {\n    priority = 5;\n  } else if (/FIRE|SMOKE|POLICE|EMS|MEDICAL|MVA|MVC|ACCIDENT|HAZMAT|RESCUE/.test(combined)) {\n    priority = 4;\n  }\n\n  const now = new Date().toISOString();\n  const sourceEventId = hashId(location + '|' + message);\n\n  const alert = {\n    schema_version: '1.0',\n    alert_id: `BNN:${sourceEventId}`,\n    source: 'BNN',\n    source_event_id: sourceEventId,\n    category: 'PUBLIC_SAFETY',\n    subtype: 'INCIDENT',\n    status: 'ACTIVE',\n    event_action: 'NEW',\n    title,\n    message: message || 'BNN incident received.',\n    priority,\n    county: '',\n    municipality: '',\n    location: {\n      label: location,\n      address: location,\n      state: '',\n      zip: '',\n      latitude: null,\n      longitude: null,\n      block: '',\n      lot: '',\n      qualifier: '',\n      parcel_id: ''\n    },\n    tags: ['bnn', 'public-safety'],\n    click_url: '',\n    source_url: '',\n    observed_at: now,\n    source_updated_at: null,\n    received_at: now,\n    expires_at: null,\n    metadata: {\n      original_location: location\n    }\n  };\n\n  alert.search_text = [\n    alert.source, alert.category, alert.subtype,\n    location, alert.title, alert.message,\n    ...alert.tags\n  ].filter(Boolean).join(' ');\n\n  return { json: alert };\n});\n"
+      },
+      "name": "Build Standard BNN Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        256
+      ],
+      "id": "cmos-bnn-build"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH d AS (SELECT $1::jsonb AS j), upserted AS ( INSERT INTO alerts (schema_version, alert_id, source, source_event_id, category, subtype, status, event_action, title, message, priority, county, municipality, location, tags, click_url, source_url, observed_at, source_updated_at, received_at, expires_at, metadata, raw_payload, search_text, updated_at) SELECT COALESCE(j->>'schema_version','1.0'), j->>'alert_id', j->>'source', NULLIF(j->>'source_event_id',''), j->>'category', j->>'subtype', j->>'status', j->>'event_action', j->>'title', j->>'message', (j->>'priority')::integer, NULLIF(j->>'county',''), NULLIF(j->>'municipality',''), COALESCE(j->'location','{}'::jsonb), ARRAY(SELECT jsonb_array_elements_text(COALESCE(j->'tags','[]'::jsonb))), NULLIF(j->>'click_url',''), NULLIF(j->>'source_url',''), NULLIF(j->>'observed_at','')::timestamptz, NULLIF(j->>'source_updated_at','')::timestamptz, COALESCE(NULLIF(j->>'received_at','')::timestamptz,NOW()), NULLIF(j->>'expires_at','')::timestamptz, COALESCE(j->'metadata','{}'::jsonb), j, NULLIF(j->>'search_text',''), NOW() FROM d ON CONFLICT (alert_id) DO UPDATE SET status=EXCLUDED.status, event_action=EXCLUDED.event_action, title=EXCLUDED.title, message=EXCLUDED.message, priority=EXCLUDED.priority, county=EXCLUDED.county, municipality=EXCLUDED.municipality, location=EXCLUDED.location, tags=EXCLUDED.tags, click_url=EXCLUDED.click_url, metadata=EXCLUDED.metadata, raw_payload=EXCLUDED.raw_payload, search_text=EXCLUDED.search_text, updated_at=NOW() RETURNING id::text AS alert_db_uuid ) SELECT d.j AS alert, upserted.alert_db_uuid FROM d CROSS JOIN upserted;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        496,
+        256
+      ],
+      "id": "cmos-bnn-upsert",
+      "name": "Upsert BNN Alert to City Manager OS",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => ({ json: item.json.alert || {} }));"
+      },
+      "name": "Restore Standard BNN Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        736,
+        256
+      ],
+      "id": "cmos-bnn-restore"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ESH9c2pZ8QfkMosO",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ESH9c2pZ8QfkMosO",
+          "cachedResultName": "CORE - Watchlist Matcher v1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        976,
+        256
+      ],
+      "id": "cmos-bnn-matcher",
+      "name": "Send BNN to Central Watchlist Matcher",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Push to ntfy",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log to Webpage",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Standard BNN Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Standard BNN Alert": {
+      "main": [
+        [
+          {
+            "node": "Upsert BNN Alert to City Manager OS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert BNN Alert to City Manager OS": {
+      "main": [
+        [
+          {
+            "node": "Restore Standard BNN Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Standard BNN Alert": {
+      "main": [
+        [
+          {
+            "node": "Send BNN to Central Watchlist Matcher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send BNN to Central Watchlist Matcher": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "pinData": "{\"Push to ntfy\":[{\"json\":{\"id\":\"BUfNDNi2VDe6\",\"time\":1785970200,\"expires\":1786013400,\"event\":\"message\",\"topic\":\"BNN\",\"message\":\"triggered\"}}]}",
+  "versionId": "f1114561-f38d-4ebb-87eb-ed9d392d7205",
+  "triggerCount": 1,
+  "meta": null,
+  "parentFolderId": null,
+  "createdAt": "2026-08-03 22:49:45.962",
+  "updatedAt": "2026-08-31T02:46:12.301Z",
+  "isArchived": 0,
+  "versionCounter": 26,
+  "description": null,
+  "activeVersionId": "f1114561-f38d-4ebb-87eb-ed9d392d7205",
+  "nodeGroups": "[]",
+  "sourceWorkflowId": null
+}

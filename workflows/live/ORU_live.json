@@ -1,0 +1,539 @@
+{
+  "id": "lgjND0RSgJf823gL",
+  "name": "ORU Outage Monitor",
+  "active": 1,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1920,
+        112
+      ],
+      "id": "2e404b52-311e-4301-91a6-173e8117275e",
+      "name": "Every 15 Minutes"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    // CHANGE THIS to the root URL of your ntfy server.\n    // Examples:\n    //   https://ntfy.sh\n    //   https://ntfy.yourdomain.com\n    ntfyUrl: 'https://ntfy.nhnj.us',\n\n    ntfyTopic: 'ORU',\n\n    metadataUrl: 'https://outagemap.oru.com/resources/data/external/interval_generation_data/metadata.json',\n    mapUrl: 'https://outagemap.oru.com/external/default.html',\n\n    // First successful run:\n    // true  = send if there are active outages\n    // false = silently establish the first baseline\n    sendFirstRunIfActive: true,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1696,
+        112
+      ],
+      "id": "2e0b2e57-a67d-44d5-b57c-d1a34b5e7822",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.metadataUrl + '?_=' + $now.toMillis() }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json, text/javascript, */*; q=0.01"
+            },
+            {
+              "name": "Referer",
+              "value": "https://outagemap.oru.com/external/default.html"
+            },
+            {
+              "name": "X-Requested-With",
+              "value": "XMLHttpRequest"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1456,
+        112
+      ],
+      "id": "e15a7faf-1b6c-44a5-8940-8faab0440d66",
+      "name": "Fetch Metadata",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nfunction parseMaybe(value) {\n  if (value == null) return null;\n  if (typeof value === 'object') return value;\n  if (typeof value !== 'string') return null;\n\n  const text = value.trim();\n  if (!text) return null;\n\n  try {\n    return JSON.parse(text);\n  } catch {\n    return null;\n  }\n}\n\nlet metadata = null;\n\nif (input.directory) {\n  metadata = input;\n} else {\n  metadata =\n    parseMaybe(input.data) ||\n    parseMaybe(input.body) ||\n    parseMaybe(input);\n}\n\nif (!metadata?.directory) {\n  throw new Error(`ORU metadata did not contain a directory. Received: ${JSON.stringify(input).slice(0, 500)}`);\n}\n\nconst directory = String(metadata.directory).trim();\n\nif (!/^\\d{4}_\\d{2}_\\d{2}_\\d{2}_\\d{2}_\\d{2}$/.test(directory)) {\n  throw new Error(`Unexpected ORU generation directory: ${directory}`);\n}\n\nconst base =\n  `https://outagemap.oru.com/resources/data/external/interval_generation_data/${directory}`;\n\nconst cacheBust = Date.now();\n\nreturn [{\n  json: {\n    directory,\n    njUrl: `${base}/report_nj.json?_=${cacheBust}`,\n    nyUrl: `${base}/report_ny.json?_=${cacheBust}`,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        112
+      ],
+      "id": "73dca1a1-69b5-4a71-b684-fe5f20ba7c92",
+      "name": "Build URLs"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.njUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json, text/javascript, */*; q=0.01"
+            },
+            {
+              "name": "Referer",
+              "value": "https://outagemap.oru.com/external/default.html"
+            },
+            {
+              "name": "X-Requested-With",
+              "value": "XMLHttpRequest"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -976,
+        112
+      ],
+      "id": "f5276473-0fbf-4792-ad44-fccfa408930f",
+      "name": "Fetch NJ",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Build URLs').first().json.nyUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json, text/javascript, */*; q=0.01"
+            },
+            {
+              "name": "Referer",
+              "value": "https://outagemap.oru.com/external/default.html"
+            },
+            {
+              "name": "X-Requested-With",
+              "value": "XMLHttpRequest"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -736,
+        112
+      ],
+      "id": "178b0dc5-4f24-489b-9f81-793fafd618d0",
+      "name": "Fetch NY",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst directory = $('Build URLs').first().json.directory;\n\nfunction parseResponse(nodeName) {\n  const input = $(nodeName).first().json;\n\n  if (input?.file_data?.areas) return input;\n\n  const candidates = [\n    input?.data,\n    input?.body,\n    input?.response,\n  ];\n\n  for (const value of candidates) {\n    if (value && typeof value === 'object' && value.file_data?.areas) {\n      return value;\n    }\n\n    if (typeof value === 'string') {\n      const text = value.trim();\n      if (!text) continue;\n\n      try {\n        const parsed = JSON.parse(text);\n        if (parsed?.file_data?.areas) return parsed;\n      } catch {}\n    }\n  }\n\n  throw new Error(\n    `${nodeName} did not return a valid ORU report. ` +\n    `Received: ${JSON.stringify(input).slice(0, 750)}`\n  );\n}\n\nfunction n(value) {\n  const x = Number(value ?? 0);\n  return Number.isFinite(x) ? x : 0;\n}\n\nfunction titleCase(value) {\n  return String(value || '')\n    .trim()\n    .toLowerCase()\n    .replace(/\\b([a-z])/g, m => m.toUpperCase());\n}\n\nfunction normalizeEtr(raw) {\n  const value = String(raw || '').trim();\n\n  if (!value || value === 'ETR-NULL') return '';\n  return value;\n}\n\nfunction displayEtr(raw) {\n  const value = normalizeEtr(raw);\n\n  if (!value) return '--';\n  if (value === 'ETR-EXP') return 'Pending';\n\n  if (/^\\d{4}-\\d{2}-\\d{2}T/.test(value)) {\n    const d = new Date(value);\n\n    if (!Number.isNaN(d.getTime())) {\n      return new Intl.DateTimeFormat('en-US', {\n        timeZone: 'America/New_York',\n        hour: '2-digit',\n        minute: '2-digit',\n        hour12: false,\n      }).format(d);\n    }\n  }\n\n  return value.replace(/^ETR-/, '');\n}\n\nfunction formatNumber(value) {\n  return n(value).toLocaleString('en-US');\n}\n\nfunction percentLabel(out, served) {\n  out = n(out);\n  served = n(served);\n\n  if (out <= 0 || served <= 0) return '0%';\n\n  const pct = (out / served) * 100;\n\n  if (pct < 0.1) return '<0.1%';\n  if (pct < 10) return `${pct.toFixed(1)}%`;\n\n  return `${Math.round(pct)}%`;\n}\n\nfunction generationTime(dir) {\n  const m = String(dir).match(\n    /^(\\d{4})_(\\d{2})_(\\d{2})_(\\d{2})_(\\d{2})_(\\d{2})$/\n  );\n\n  if (!m) {\n    return new Intl.DateTimeFormat('en-US', {\n      timeZone: 'America/New_York',\n      hour: '2-digit',\n      minute: '2-digit',\n      hour12: false,\n    }).format(new Date());\n  }\n\n  // The ORU generation directory is UTC.\n  const d = new Date(Date.UTC(\n    Number(m[1]),\n    Number(m[2]) - 1,\n    Number(m[3]),\n    Number(m[4]),\n    Number(m[5]),\n    Number(m[6]),\n  ));\n\n  return new Intl.DateTimeFormat('en-US', {\n    timeZone: 'America/New_York',\n    hour: '2-digit',\n    minute: '2-digit',\n    hour12: false,\n  }).format(d);\n}\n\nfunction normalizeReport(report, state) {\n  const root = report?.file_data?.areas?.[0];\n\n  if (!root || !Array.isArray(root.areas)) {\n    throw new Error(`${state} ORU report has an unexpected structure.`);\n  }\n\n  const counties = root.areas.map(county => {\n    const towns = Array.isArray(county.areas) ? county.areas : [];\n\n    const activeTowns = towns\n      .filter(town => n(town?.cust_a?.val) > 0)\n      .map(town => ({\n        municipality: titleCase(town.area_name),\n        customersOut: n(town?.cust_a?.val),\n        customersServed: n(town?.cust_s),\n        etrRaw: normalizeEtr(town?.etr),\n        etr: displayEtr(town?.etr),\n      }))\n      .sort((a, b) => a.municipality.localeCompare(b.municipality));\n\n    return {\n      state,\n      county: titleCase(county.area_name),\n      customersOut: n(county?.cust_a?.val),\n      customersServed: n(county?.cust_s),\n      totalOutages: n(county?.total_outages),\n      municipalities: activeTowns,\n    };\n  });\n\n  counties.sort((a, b) => a.county.localeCompare(b.county));\n\n  return {\n    state,\n    customersOut: n(root?.cust_a?.val),\n    customersServed: n(root?.cust_s),\n    totalOutages: n(root?.total_outages),\n    counties,\n  };\n}\n\nconst nj = normalizeReport(parseResponse('Fetch NJ'), 'NJ');\nconst ny = normalizeReport(parseResponse('Fetch NY'), 'NY');\n\nconst states = [nj, ny];\nconst counties = states.flatMap(s => s.counties);\n\nconst totalCustomersOut = states.reduce((sum, s) => sum + s.customersOut, 0);\nconst totalOutages = states.reduce((sum, s) => sum + s.totalOutages, 0);\nconst activeMunicipalities = counties.reduce(\n  (sum, county) => sum + county.municipalities.length,\n  0\n);\nconst activeCounties = counties.filter(c => c.customersOut > 0).length;\n\n// Compare only fields that should create a notification.\n// We intentionally do NOT compare \"customers served\" so a routine customer-count\n// adjustment does not generate a false outage notification.\nconst canonical = {\n  totalCustomersOut,\n  totalOutages,\n  counties: counties.map(county => ({\n    state: county.state,\n    county: county.county,\n    customersOut: county.customersOut,\n    totalOutages: county.totalOutages,\n    municipalities: county.municipalities.map(town => ({\n      municipality: town.municipality,\n      customersOut: town.customersOut,\n      etr: town.etrRaw,\n    })),\n  })),\n};\n\nconst signature = JSON.stringify(canonical);\n\nconst store = $getWorkflowStaticData('global');\nconst previous = store.oruStateV1 || null;\n\nconst isFirstRun = !previous?.signature;\nconst changed = !isFirstRun && previous.signature !== signature;\n\nlet shouldSend = false;\nlet changeType = 'NO_CHANGE';\n\nif (isFirstRun) {\n  shouldSend = Boolean(cfg.sendFirstRunIfActive) && totalCustomersOut > 0;\n  changeType = shouldSend ? 'FIRST_ACTIVE' : 'FIRST_BASELINE';\n} else if (changed) {\n  shouldSend = true;\n\n  if (n(previous.totalCustomersOut) > 0 && totalCustomersOut === 0) {\n    changeType = 'RESTORED';\n  } else if (totalCustomersOut > n(previous.totalCustomersOut)) {\n    changeType = 'INCREASED';\n  } else if (totalCustomersOut < n(previous.totalCustomersOut)) {\n    changeType = 'DECREASED';\n  } else {\n    changeType = 'DETAIL_CHANGED';\n  }\n}\n\nconst lines = [];\n\nlines.push(`${formatNumber(totalCustomersOut)} CUSTOMERS OUT`);\nlines.push(\n  `${formatNumber(activeMunicipalities)} ACTIVE ` +\n  `${activeMunicipalities === 1 ? 'MUNICIPALITY' : 'MUNICIPALITIES'}`\n);\nlines.push(`${formatNumber(counties.length)} COUNTIES`);\nlines.push('');\n\nfor (const state of states) {\n  lines.push(state.state === 'NJ' ? 'NEW JERSEY' : 'NEW YORK');\n\n  for (const county of state.counties) {\n    const countyName = county.county.toUpperCase();\n\n    if (county.customersOut > 0) {\n      lines.push(\n        `\ud83d\udd34 ${countyName} COUNTY \u2014 ${formatNumber(county.customersOut)} OUT`\n      );\n\n      for (const town of county.municipalities) {\n        lines.push(`  \u2022 ${town.municipality}`);\n        lines.push(\n          `    ${formatNumber(town.customersOut)} of ` +\n          `${formatNumber(town.customersServed)} out ` +\n          `(${percentLabel(town.customersOut, town.customersServed)})`\n        );\n\n        if (town.etr !== '--') {\n          lines.push(`    ETR ${town.etr}`);\n        }\n      }\n    } else {\n      lines.push(`\ud83d\udfe2 ${countyName} COUNTY \u2014 CLEAR`);\n    }\n\n    lines.push('');\n  }\n}\n\nconst updated = generationTime(directory);\nlines.push(`Updated ${updated}`);\n\nconst title =\n  totalCustomersOut > 0\n    ? `ORU - ${formatNumber(totalCustomersOut)} Out | ${formatNumber(activeMunicipalities)} Town${activeMunicipalities === 1 ? '' : 's'}`\n    : 'ORU - All Clear';\n\nconst ntfy = {\n  topic: cfg.ntfyTopic,\n  title,\n  message: lines.join('\\n'),\n  priority: totalCustomersOut > 0 ? 5 : 3,\n  tags: totalCustomersOut > 0\n    ? ['warning', 'zap']\n    : ['white_check_mark'],\n  markdown: false,\n  click: cfg.mapUrl,\n  actions: [\n    {\n      action: 'view',\n      label: 'ORU Map',\n      url: cfg.mapUrl,\n      clear: false,\n    }\n  ]\n};\n\nreturn [{\n  json: {\n    shouldSend,\n    changeType,\n    directory,\n    updated,\n    signature,\n\n    totalCustomersOut,\n    totalOutages,\n    activeCounties,\n    activeMunicipalities,\n    countyCount: counties.length,\n\n    states,\n    ntfy,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -496,
+        112
+      ],
+      "id": "f0a73be4-7bdf-431f-8ed1-85278d72c147",
+      "name": "Process ORU"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ef867f1b-6f5b-4545-8879-4513fa841294",
+              "leftValue": "={{ $json.shouldSend }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -256,
+        112
+      ],
+      "id": "1e154627-87b6-4703-a13d-eccd5f290288",
+      "name": "Should Send?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.ntfyUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.ntfy }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "637eac88-09df-4038-a8bc-2e5391baf592",
+      "name": "Publish NTFY",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $('Process ORU').first().json;\nconst store = $getWorkflowStaticData('global');\n\nstore.oruStateV1 = {\n  signature: result.signature,\n  totalCustomersOut: result.totalCustomersOut,\n  totalOutages: result.totalOutages,\n  activeMunicipalities: result.activeMunicipalities,\n  directory: result.directory,\n  updated: result.updated,\n  savedAt: new Date().toISOString(),\n};\n\nreturn [{\n  json: {\n    saved: true,\n    shouldSend: result.shouldSend,\n    changeType: result.changeType,\n    totalCustomersOut: result.totalCustomersOut,\n    activeMunicipalities: result.activeMunicipalities,\n    directory: result.directory,\n    updated: result.updated,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        112
+      ],
+      "id": "b7761c2c-c1b3-49a1-b93e-9cf8edc468c1",
+      "name": "Commit State"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction hashId(value) {\n  let hash = 2166136261;\n  value = String(value || '');\n  for (let i = 0; i < value.length; i++) {\n    hash ^= value.charCodeAt(i);\n    hash = Math.imul(hash, 16777619);\n  }\n  return (hash >>> 0).toString(16).padStart(8, '0');\n}\n\nreturn $input.all().map((item) => {\n  const j = item.json || {};\n  const p = j.ntfy || {};\n  const totalOut = Number(j.totalCustomersOut || 0);\n  const change = String(j.changeType || 'UPDATE').toUpperCase();\n  const title = String(p.title || 'ORU Outage Update').trim();\n  const message = String(p.message || '').trim();\n  const now = new Date().toISOString();\n\n  const sourceEventId = hashId(\n    String(j.directory || '') + '|' +\n    String(j.signature || '') + '|' +\n    title + '|' + message\n  );\n\n  let status = totalOut > 0 ? 'ACTIVE' : 'RESOLVED';\n  let eventAction = 'UPDATE';\n\n  if (change === 'FIRST_ACTIVE') eventAction = 'NEW';\n  if (change === 'RESTORED') eventAction = 'RESOLVED';\n\n  const alert = {\n    schema_version: '1.0',\n    alert_id: `ORU:${sourceEventId}`,\n    source: 'ORU',\n    source_event_id: sourceEventId,\n    category: 'UTILITY',\n    subtype: 'POWER_OUTAGE',\n    status,\n    event_action: eventAction,\n    title,\n    message: message || 'ORU outage status changed.',\n    priority: Number(p.priority || (totalOut > 0 ? 5 : 3)),\n    county: '',\n    municipality: '',\n    location: {\n      label: 'ORU service territory',\n      address: '',\n      state: '',\n      zip: '',\n      latitude: null,\n      longitude: null,\n      block: '',\n      lot: '',\n      qualifier: '',\n      parcel_id: ''\n    },\n    tags: ['oru', 'utility', 'power-outage'],\n    click_url: String(p.click || ''),\n    source_url: String(p.click || ''),\n    observed_at: now,\n    source_updated_at: null,\n    received_at: now,\n    expires_at: null,\n    metadata: {\n      change_type: change,\n      total_customers_out: totalOut,\n      total_outages: Number(j.totalOutages || 0),\n      active_counties: Number(j.activeCounties || 0),\n      active_municipalities: Number(j.activeMunicipalities || 0),\n      states: j.states || []\n    }\n  };\n\n  alert.search_text = [\n    alert.source, alert.category, alert.subtype,\n    alert.status, alert.title, alert.message,\n    ...alert.tags\n  ].filter(Boolean).join(' ');\n\n  return { json: alert };\n});\n"
+      },
+      "name": "Build Standard ORU Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        352
+      ],
+      "id": "cmos-oru-build"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH d AS (SELECT $1::jsonb AS j), upserted AS ( INSERT INTO alerts (schema_version, alert_id, source, source_event_id, category, subtype, status, event_action, title, message, priority, county, municipality, location, tags, click_url, source_url, observed_at, source_updated_at, received_at, expires_at, metadata, raw_payload, search_text, updated_at) SELECT COALESCE(j->>'schema_version','1.0'), j->>'alert_id', j->>'source', NULLIF(j->>'source_event_id',''), j->>'category', j->>'subtype', j->>'status', j->>'event_action', j->>'title', j->>'message', (j->>'priority')::integer, NULLIF(j->>'county',''), NULLIF(j->>'municipality',''), COALESCE(j->'location','{}'::jsonb), ARRAY(SELECT jsonb_array_elements_text(COALESCE(j->'tags','[]'::jsonb))), NULLIF(j->>'click_url',''), NULLIF(j->>'source_url',''), NULLIF(j->>'observed_at','')::timestamptz, NULLIF(j->>'source_updated_at','')::timestamptz, COALESCE(NULLIF(j->>'received_at','')::timestamptz,NOW()), NULLIF(j->>'expires_at','')::timestamptz, COALESCE(j->'metadata','{}'::jsonb), j, NULLIF(j->>'search_text',''), NOW() FROM d ON CONFLICT (alert_id) DO UPDATE SET status=EXCLUDED.status, event_action=EXCLUDED.event_action, title=EXCLUDED.title, message=EXCLUDED.message, priority=EXCLUDED.priority, county=EXCLUDED.county, municipality=EXCLUDED.municipality, location=EXCLUDED.location, tags=EXCLUDED.tags, click_url=EXCLUDED.click_url, metadata=EXCLUDED.metadata, raw_payload=EXCLUDED.raw_payload, search_text=EXCLUDED.search_text, updated_at=NOW() RETURNING id::text AS alert_db_uuid ) SELECT d.j AS alert, upserted.alert_db_uuid FROM d CROSS JOIN upserted;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        352
+      ],
+      "id": "cmos-oru-upsert",
+      "name": "Upsert ORU Alert to City Manager OS",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => ({ json: item.json.alert || {} }));"
+      },
+      "name": "Restore Standard ORU Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        352
+      ],
+      "id": "cmos-oru-restore"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ESH9c2pZ8QfkMosO",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ESH9c2pZ8QfkMosO",
+          "cachedResultName": "CORE - Watchlist Matcher v1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        704,
+        352
+      ],
+      "id": "cmos-oru-matcher",
+      "name": "Send ORU to Central Watchlist Matcher",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Fetch Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Metadata": {
+      "main": [
+        [
+          {
+            "node": "Build URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build URLs": {
+      "main": [
+        [
+          {
+            "node": "Fetch NJ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch NJ": {
+      "main": [
+        [
+          {
+            "node": "Fetch NY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch NY": {
+      "main": [
+        [
+          {
+            "node": "Process ORU",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process ORU": {
+      "main": [
+        [
+          {
+            "node": "Should Send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Send?": {
+      "main": [
+        [
+          {
+            "node": "Publish NTFY",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Standard ORU Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Commit State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish NTFY": {
+      "main": [
+        [
+          {
+            "node": "Commit State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Standard ORU Alert": {
+      "main": [
+        [
+          {
+            "node": "Upsert ORU Alert to City Manager OS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert ORU Alert to City Manager OS": {
+      "main": [
+        [
+          {
+            "node": "Restore Standard ORU Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Standard ORU Alert": {
+      "main": [
+        [
+          {
+            "node": "Send ORU to Central Watchlist Matcher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send ORU to Central Watchlist Matcher": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": {
+    "node:Every 15 Minutes": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "global": {
+      "oruStateV1": {
+        "signature": "{\"totalCustomersOut\":0,\"totalOutages\":0,\"counties\":[{\"state\":\"NJ\",\"county\":\"Bergen\",\"customersOut\":0,\"totalOutages\":0,\"municipalities\":[]},{\"state\":\"NJ\",\"county\":\"Passaic\",\"customersOut\":0,\"totalOutages\":0,\"municipalities\":[]},{\"state\":\"NJ\",\"county\":\"Sussex\",\"customersOut\":0,\"totalOutages\":0,\"municipalities\":[]},{\"state\":\"NY\",\"county\":\"Orange\",\"customersOut\":0,\"totalOutages\":0,\"municipalities\":[]},{\"state\":\"NY\",\"county\":\"Rockland\",\"customersOut\":0,\"totalOutages\":0,\"municipalities\":[]},{\"state\":\"NY\",\"county\":\"Sullivan\",\"customersOut\":0,\"totalOutages\":0,\"municipalities\":[]},{\"state\":\"NY\",\"county\":\"Ulster\",\"customersOut\":0,\"totalOutages\":0,\"municipalities\":[]}]}",
+        "totalCustomersOut": 0,
+        "totalOutages": 0,
+        "activeMunicipalities": 0,
+        "directory": "2026_08_31_02_45_30",
+        "updated": "22:45",
+        "savedAt": "2026-08-31T03:00:06.321Z"
+      }
+    }
+  },
+  "pinData": "{}",
+  "versionId": "3dff65e0-6710-4f75-8c4e-dbc766a6e945",
+  "triggerCount": 1,
+  "meta": null,
+  "parentFolderId": null,
+  "createdAt": "2026-08-13 23:32:11.624",
+  "updatedAt": "2026-08-31T02:46:12.300Z",
+  "isArchived": 0,
+  "versionCounter": 6,
+  "description": null,
+  "activeVersionId": "3dff65e0-6710-4f75-8c4e-dbc766a6e945",
+  "nodeGroups": "[]",
+  "sourceWorkflowId": null
+}

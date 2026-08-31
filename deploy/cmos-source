@@ -1,0 +1,665 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ACTION="${1:-}"
+shift || true
+
+N8N_DIR=$(docker inspect n8n --format \
+'{{range .Mounts}}{{if eq .Destination "/home/node/.n8n"}}{{.Source}}{{end}}{{end}}')
+
+N8N_DB="$N8N_DIR/database.sqlite"
+
+if [[ -z "${N8N_DIR:-}" || ! -f "$N8N_DB" ]]; then
+  echo "ERROR: n8n database not found."
+  exit 1
+fi
+
+case "$ACTION" in
+
+centralize)
+python3 - "$N8N_DB" "$@" <<'PY'
+import sqlite3, json, sys, uuid, copy, os
+from datetime import datetime, timezone
+
+db = sys.argv[1]
+requested = [x.lower() for x in sys.argv[2:]]
+
+if not requested:
+    requested = ["earthquake", "oru", "bnn"]
+
+NHRFR_ID = "dWFD3eKf7psieFo3"
+
+HASH_JS = r"""
+function hashId(value) {
+  let hash = 2166136261;
+  value = String(value || '');
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+"""
+
+EARTHQUAKE_JS = HASH_JS + r"""
+return $input.all().map((item) => {
+  const j = item.json || {};
+  const p = j.ntfyPayload || {};
+  const title = String(p.title || 'Earthquake Alert').trim();
+  const message = String(p.message || '').trim();
+  const now = new Date().toISOString();
+  const sourceEventId = hashId(title + '|' + message);
+
+  const alert = {
+    schema_version: '1.0',
+    alert_id: `EARTHQUAKE:${sourceEventId}`,
+    source: 'EARTHQUAKE',
+    source_event_id: sourceEventId,
+    category: 'OEM',
+    subtype: 'EARTHQUAKE',
+    status: 'ACTIVE',
+    event_action: 'NEW',
+    title,
+    message: message || 'Regional seismic activity detected.',
+    priority: Number(p.priority || 3),
+    county: '',
+    municipality: '',
+    location: {
+      label: 'Regional seismic event',
+      address: '',
+      state: '',
+      zip: '',
+      latitude: null,
+      longitude: null,
+      block: '',
+      lot: '',
+      qualifier: '',
+      parcel_id: ''
+    },
+    tags: ['earthquake', 'seismic', 'usgs'],
+    click_url: String(p.click || ''),
+    source_url: String(p.click || ''),
+    observed_at: now,
+    source_updated_at: null,
+    received_at: now,
+    expires_at: null,
+    metadata: {
+      new_count: Number(j.newCount || 0),
+      ntfy_topic: String(p.topic || 'NJQuake')
+    }
+  };
+
+  alert.search_text = [
+    alert.source, alert.category, alert.subtype,
+    alert.title, alert.message, ...alert.tags
+  ].filter(Boolean).join(' ');
+
+  return { json: alert };
+});
+"""
+
+ORU_JS = HASH_JS + r"""
+return $input.all().map((item) => {
+  const j = item.json || {};
+  const p = j.ntfy || {};
+  const totalOut = Number(j.totalCustomersOut || 0);
+  const change = String(j.changeType || 'UPDATE').toUpperCase();
+  const title = String(p.title || 'ORU Outage Update').trim();
+  const message = String(p.message || '').trim();
+  const now = new Date().toISOString();
+
+  const sourceEventId = hashId(
+    String(j.directory || '') + '|' +
+    String(j.signature || '') + '|' +
+    title + '|' + message
+  );
+
+  let status = totalOut > 0 ? 'ACTIVE' : 'RESOLVED';
+  let eventAction = 'UPDATE';
+
+  if (change === 'FIRST_ACTIVE') eventAction = 'NEW';
+  if (change === 'RESTORED') eventAction = 'RESOLVED';
+
+  const alert = {
+    schema_version: '1.0',
+    alert_id: `ORU:${sourceEventId}`,
+    source: 'ORU',
+    source_event_id: sourceEventId,
+    category: 'UTILITY',
+    subtype: 'POWER_OUTAGE',
+    status,
+    event_action: eventAction,
+    title,
+    message: message || 'ORU outage status changed.',
+    priority: Number(p.priority || (totalOut > 0 ? 5 : 3)),
+    county: '',
+    municipality: '',
+    location: {
+      label: 'ORU service territory',
+      address: '',
+      state: '',
+      zip: '',
+      latitude: null,
+      longitude: null,
+      block: '',
+      lot: '',
+      qualifier: '',
+      parcel_id: ''
+    },
+    tags: ['oru', 'utility', 'power-outage'],
+    click_url: String(p.click || ''),
+    source_url: String(p.click || ''),
+    observed_at: now,
+    source_updated_at: null,
+    received_at: now,
+    expires_at: null,
+    metadata: {
+      change_type: change,
+      total_customers_out: totalOut,
+      total_outages: Number(j.totalOutages || 0),
+      active_counties: Number(j.activeCounties || 0),
+      active_municipalities: Number(j.activeMunicipalities || 0),
+      states: j.states || []
+    }
+  };
+
+  alert.search_text = [
+    alert.source, alert.category, alert.subtype,
+    alert.status, alert.title, alert.message,
+    ...alert.tags
+  ].filter(Boolean).join(' ');
+
+  return { json: alert };
+});
+"""
+
+BNN_JS = HASH_JS + r"""
+return $input.all().map((item) => {
+  const j = item.json || {};
+  const body = j.body || {};
+
+  const location = String(body.location || '').trim();
+  const message = String(
+    body.formatted_message ||
+    body.message ||
+    body.text ||
+    ''
+  ).trim();
+
+  const title = String(
+    body.custom_title ||
+    (location ? `BNN - ${location}` : 'BNN Incident')
+  ).trim();
+
+  const combined = `${title} ${location} ${message}`.toUpperCase();
+
+  let priority = 3;
+
+  if (/2ND ALARM|SECOND ALARM|3RD ALARM|THIRD ALARM|WORKING FIRE|MAYDAY|MCI|ENTRAPMENT|SHOOTING|STABBING/.test(combined)) {
+    priority = 5;
+  } else if (/FIRE|SMOKE|POLICE|EMS|MEDICAL|MVA|MVC|ACCIDENT|HAZMAT|RESCUE/.test(combined)) {
+    priority = 4;
+  }
+
+  const now = new Date().toISOString();
+  const sourceEventId = hashId(location + '|' + message);
+
+  const alert = {
+    schema_version: '1.0',
+    alert_id: `BNN:${sourceEventId}`,
+    source: 'BNN',
+    source_event_id: sourceEventId,
+    category: 'PUBLIC_SAFETY',
+    subtype: 'INCIDENT',
+    status: 'ACTIVE',
+    event_action: 'NEW',
+    title,
+    message: message || 'BNN incident received.',
+    priority,
+    county: '',
+    municipality: '',
+    location: {
+      label: location,
+      address: location,
+      state: '',
+      zip: '',
+      latitude: null,
+      longitude: null,
+      block: '',
+      lot: '',
+      qualifier: '',
+      parcel_id: ''
+    },
+    tags: ['bnn', 'public-safety'],
+    click_url: '',
+    source_url: '',
+    observed_at: now,
+    source_updated_at: null,
+    received_at: now,
+    expires_at: null,
+    metadata: {
+      original_location: location
+    }
+  };
+
+  alert.search_text = [
+    alert.source, alert.category, alert.subtype,
+    location, alert.title, alert.message,
+    ...alert.tags
+  ].filter(Boolean).join(' ');
+
+  return { json: alert };
+});
+"""
+
+PROFILES = {
+    "earthquake": {
+        "workflow_id": "6BEPAwdUkOKFEppQ",
+        "branch": "Check If Should Send",
+        "existing": "Push Quake Alert to NTFY",
+        "label": "Earthquake",
+        "build": "Build Standard Earthquake Alert",
+        "js": EARTHQUAKE_JS,
+    },
+    "oru": {
+        "workflow_id": "lgjND0RSgJf823gL",
+        "branch": "Should Send?",
+        "existing": "Publish NTFY",
+        "label": "ORU",
+        "build": "Build Standard ORU Alert",
+        "js": ORU_JS,
+    },
+    "bnn": {
+        "workflow_id": "91kogN5QvQ7s8AkR",
+        "branch": "Webhook",
+        "existing": "Push to ntfy",
+        "label": "BNN",
+        "build": "Build Standard BNN Alert",
+        "js": BNN_JS,
+    },
+}
+
+unknown = [x for x in requested if x not in PROFILES]
+if unknown:
+    raise SystemExit("Unknown source(s): " + ", ".join(unknown))
+
+con = sqlite3.connect(db)
+con.row_factory = sqlite3.Row
+cur = con.cursor()
+
+# Safe SQLite backup.
+stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+backup = f"{db}.before_cmos_sources_{stamp}"
+dst = sqlite3.connect(backup)
+con.backup(dst)
+dst.close()
+
+print("BACKUP:", backup)
+
+template = cur.execute(
+    "SELECT * FROM workflow_entity WHERE id=?",
+    (NHRFR_ID,)
+).fetchone()
+
+if not template:
+    raise SystemExit("Proven NHRFR template workflow not found.")
+
+template_nodes = {
+    n["name"]: n
+    for n in json.loads(template["nodes"])
+}
+
+def table_exists(name):
+    return cur.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (name,)
+    ).fetchone() is not None
+
+def columns(name):
+    return [dict(r) for r in cur.execute(f'PRAGMA table_info("{name}")')]
+
+def clone_history(workflow_id, old_version, new_version, nodes_json, connections_json, now):
+    if not table_exists("workflow_history"):
+        return False
+
+    cols = columns("workflow_history")
+    names = [c["name"] for c in cols]
+
+    wf_col = next((x for x in ("workflowId","workflow_id") if x in names), None)
+    ver_col = next((x for x in ("versionId","version_id") if x in names), None)
+
+    if not wf_col or not ver_col:
+        return False
+
+    row = cur.execute(
+        f'SELECT * FROM workflow_history WHERE "{wf_col}"=? AND "{ver_col}"=? LIMIT 1',
+        (workflow_id, old_version)
+    ).fetchone()
+
+    if not row:
+        return False
+
+    data = dict(row)
+    data[ver_col] = new_version
+
+    if "nodes" in data:
+        data["nodes"] = nodes_json
+
+    if "connections" in data:
+        data["connections"] = connections_json
+
+    for field in ("createdAt","created_at","updatedAt","updated_at"):
+        if field in data:
+            data[field] = now
+
+    insert_cols = []
+    insert_vals = []
+
+    for c in cols:
+        name = c["name"]
+
+        if c["pk"] and name != ver_col and "INT" in (c["type"] or "").upper():
+            continue
+
+        insert_cols.append(name)
+        insert_vals.append(data.get(name))
+
+    qcols = ",".join(f'"{x}"' for x in insert_cols)
+    marks = ",".join("?" for _ in insert_cols)
+
+    cur.execute(
+        f'INSERT INTO workflow_history ({qcols}) VALUES ({marks})',
+        insert_vals
+    )
+
+    return True
+
+def patch_source(key, cfg):
+    row = cur.execute(
+        "SELECT * FROM workflow_entity WHERE id=?",
+        (cfg["workflow_id"],)
+    ).fetchone()
+
+    if not row:
+        raise RuntimeError(f"{key}: workflow not found")
+
+    nodes = json.loads(row["nodes"])
+    connections = json.loads(row["connections"])
+
+    names = {n.get("name") for n in nodes}
+
+    if cfg["build"] in names:
+        print(f"{key.upper()}: already centralized — skipped")
+        return False
+
+    node_map = {n["name"]: n for n in nodes}
+
+    if cfg["branch"] not in node_map:
+        raise RuntimeError(f"{key}: branch node '{cfg['branch']}' not found")
+
+    branch_conn = connections.get(cfg["branch"], {}).get("main", [])
+
+    if not branch_conn or not branch_conn[0]:
+        raise RuntimeError(f"{key}: branch has no output")
+
+    if not any(
+        x.get("node") == cfg["existing"]
+        for x in branch_conn[0]
+    ):
+        raise RuntimeError(
+            f"{key}: existing direct ntfy path '{cfg['existing']}' not found"
+        )
+
+    label = cfg["label"]
+
+    upsert = copy.deepcopy(
+        template_nodes["Upsert Alert to City Manager OS"]
+    )
+    restore = copy.deepcopy(
+        template_nodes["Restore Standard NHRFR Alert"]
+    )
+    matcher = copy.deepcopy(
+        template_nodes["Send to Central Watchlist Matcher"]
+    )
+
+    build_name = cfg["build"]
+    upsert_name = f"Upsert {label} Alert to City Manager OS"
+    restore_name = f"Restore Standard {label} Alert"
+    matcher_name = f"Send {label} to Central Watchlist Matcher"
+
+    bx, by = node_map[cfg["branch"]].get("position", [0, 0])
+    cy = by + 240
+
+    build = {
+        "parameters": {"jsCode": cfg["js"]},
+        "name": build_name,
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [bx + 224, cy],
+        "id": f"cmos-{key}-build"
+    }
+
+    upsert["id"] = f"cmos-{key}-upsert"
+    upsert["name"] = upsert_name
+    upsert["position"] = [bx + 480, cy]
+
+    restore["id"] = f"cmos-{key}-restore"
+    restore["name"] = restore_name
+    restore["position"] = [bx + 720, cy]
+
+    matcher["id"] = f"cmos-{key}-matcher"
+    matcher["name"] = matcher_name
+    matcher["position"] = [bx + 960, cy]
+
+    nodes.extend([build, upsert, restore, matcher])
+
+    # Preserve the existing direct ntfy path and add the central path.
+    branch_conn[0].append({
+        "node": build_name,
+        "type": "main",
+        "index": 0
+    })
+
+    connections[build_name] = {
+        "main": [[{
+            "node": upsert_name,
+            "type": "main",
+            "index": 0
+        }]]
+    }
+
+    connections[upsert_name] = {
+        "main": [[{
+            "node": restore_name,
+            "type": "main",
+            "index": 0
+        }]]
+    }
+
+    connections[restore_name] = {
+        "main": [[{
+            "node": matcher_name,
+            "type": "main",
+            "index": 0
+        }]]
+    }
+
+    connections[matcher_name] = {"main": [[]]}
+
+    old_version = row["activeVersionId"] or row["versionId"]
+    new_version = str(uuid.uuid4())
+
+    now = (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+
+    nodes_json = json.dumps(nodes, separators=(",", ":"))
+    connections_json = json.dumps(connections, separators=(",", ":"))
+
+    clone_history(
+        cfg["workflow_id"],
+        old_version,
+        new_version,
+        nodes_json,
+        connections_json,
+        now
+    )
+
+    wf_cols = {c["name"] for c in columns("workflow_entity")}
+
+    sets = ['"nodes"=?', '"connections"=?']
+    vals = [nodes_json, connections_json]
+
+    if "versionId" in wf_cols:
+        sets.append('"versionId"=?')
+        vals.append(new_version)
+
+    if "activeVersionId" in wf_cols:
+        sets.append('"activeVersionId"=?')
+        vals.append(new_version)
+
+    if "versionCounter" in wf_cols:
+        sets.append('"versionCounter"=COALESCE("versionCounter",0)+1')
+
+    if "updatedAt" in wf_cols:
+        sets.append('"updatedAt"=?')
+        vals.append(now)
+
+    vals.append(cfg["workflow_id"])
+
+    cur.execute(
+        f'UPDATE workflow_entity SET {",".join(sets)} WHERE id=?',
+        vals
+    )
+
+    if table_exists("workflow_published_version"):
+        pcols = {c["name"] for c in columns("workflow_published_version")}
+
+        wf_col = next(
+            (x for x in ("workflowId","workflow_id") if x in pcols),
+            None
+        )
+
+        ver_col = next(
+            (
+                x for x in
+                ("publishedVersionId","versionId","version_id")
+                if x in pcols
+            ),
+            None
+        )
+
+        if wf_col and ver_col:
+            cur.execute(
+                f'UPDATE workflow_published_version '
+                f'SET "{ver_col}"=? WHERE "{wf_col}"=?',
+                (new_version, cfg["workflow_id"])
+            )
+
+    print(
+        f"{key.upper()}: patched "
+        f"{old_version} -> {new_version}"
+    )
+
+    return True
+
+try:
+    cur.execute("BEGIN IMMEDIATE")
+
+    changed = False
+
+    for key in requested:
+        if patch_source(key, PROFILES[key]):
+            changed = True
+
+    con.commit()
+
+except Exception:
+    con.rollback()
+    raise
+
+finally:
+    con.close()
+
+print("CHANGED:", changed)
+PY
+
+docker restart n8n >/dev/null
+sleep 6
+
+"$0" status "$@"
+;;
+
+status)
+python3 - "$N8N_DB" "$@" <<'PY'
+import sqlite3, json, sys
+
+db = sys.argv[1]
+requested = [x.lower() for x in sys.argv[2:]]
+
+PROFILES = {
+    "earthquake": ("6BEPAwdUkOKFEppQ", "Build Standard Earthquake Alert"),
+    "oru": ("lgjND0RSgJf823gL", "Build Standard ORU Alert"),
+    "bnn": ("91kogN5QvQ7s8AkR", "Build Standard BNN Alert"),
+    "njdivert": ("DaFhaA4YY6g65O0p", "Build Standard NJ Divert Alert"),
+    "nhrfr": ("dWFD3eKf7psieFo3", "Build Standard NHRFR Alert"),
+}
+
+if not requested:
+    requested = list(PROFILES)
+
+con = sqlite3.connect(db)
+con.row_factory = sqlite3.Row
+
+print()
+print("CITY MANAGER OS SOURCE STATUS")
+print("=" * 72)
+
+for key in requested:
+    if key not in PROFILES:
+        print(f"{key.upper():12} UNKNOWN")
+        continue
+
+    workflow_id, build_node = PROFILES[key]
+
+    row = con.execute("""
+        SELECT name,active,versionId,activeVersionId,versionCounter,nodes
+        FROM workflow_entity
+        WHERE id=?
+    """, (workflow_id,)).fetchone()
+
+    if not row:
+        print(f"{key.upper():12} MISSING")
+        continue
+
+    names = {
+        n.get("name")
+        for n in json.loads(row["nodes"])
+    }
+
+    central = "YES" if build_node in names else "NO"
+
+    print(
+        f"{key.upper():12} "
+        f"active={row['active']} "
+        f"central={central} "
+        f"version={row['versionCounter']}"
+    )
+
+con.close()
+PY
+
+echo
+docker ps --filter name=n8n --format 'n8n: {{.Status}}'
+;;
+
+*)
+echo "Usage:"
+echo "  ./deploy/cmos-source centralize earthquake oru bnn"
+echo "  ./deploy/cmos-source status"
+exit 1
+;;
+
+esac
