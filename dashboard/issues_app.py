@@ -22,6 +22,21 @@ def issues(request: Request, q: str = "", state: str = "open", msg: str = ""):
 
     if state == "open":
         where.append("status NOT IN ('RESOLVED', 'CLOSED')")
+    elif state == "today":
+        where.append("status NOT IN ('RESOLVED', 'CLOSED')")
+        where.append(
+            "("
+            "(due_at IS NOT NULL AND due_at < ((date_trunc('day', now() AT TIME ZONE 'America/New_York') + interval '1 day') AT TIME ZONE 'America/New_York')) "
+            "OR "
+            "(follow_up_at IS NOT NULL AND follow_up_at < ((date_trunc('day', now() AT TIME ZONE 'America/New_York') + interval '1 day') AT TIME ZONE 'America/New_York'))"
+            ")"
+        )
+    elif state == "waiting":
+        where.append("status NOT IN ('RESOLVED', 'CLOSED')")
+        where.append("NULLIF(trim(waiting_on), '') IS NOT NULL")
+    elif state == "no_next":
+        where.append("status NOT IN ('RESOLVED', 'CLOSED')")
+        where.append("NULLIF(trim(next_action), '') IS NULL")
     elif state == "closed":
         where.append("status IN ('RESOLVED', 'CLOSED')")
 
@@ -29,15 +44,20 @@ def issues(request: Request, q: str = "", state: str = "open", msg: str = ""):
         needle = f"%{q.strip()}%"
         where.append(
             "(title ILIKE %s OR description ILIKE %s OR category ILIKE %s "
-            "OR address ILIKE %s OR municipality ILIKE %s OR assigned_to ILIKE %s)"
+            "OR address ILIKE %s OR municipality ILIKE %s OR assigned_to ILIKE %s "
+            "OR item_type ILIKE %s OR next_action ILIKE %s OR waiting_on ILIKE %s)"
         )
-        params.extend([needle, needle, needle, needle, needle, needle])
+        params.extend([needle] * 9)
 
     clause = f"WHERE {' AND '.join(where)}" if where else ""
     items = query_all(
         f"""
         SELECT id, title, description, category, priority, status, source,
-               address, municipality, assigned_to, created_at, updated_at, closed_at
+               address, municipality, assigned_to,
+               item_type, next_action, waiting_on,
+               due_at AT TIME ZONE 'America/New_York' AS due_local,
+               follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local,
+               created_at, updated_at, closed_at
         FROM issues
         {clause}
         ORDER BY
@@ -51,10 +71,30 @@ def issues(request: Request, q: str = "", state: str = "open", msg: str = ""):
 
     counts = query_one(
         """
-        SELECT count(*) AS total,
-               count(*) FILTER (WHERE status NOT IN ('RESOLVED', 'CLOSED')) AS open,
-               count(*) FILTER (WHERE status = 'IN_PROGRESS') AS in_progress,
-               count(*) FILTER (WHERE status IN ('RESOLVED', 'CLOSED')) AS closed
+        SELECT
+               count(*) AS total,
+               count(*) FILTER (
+                   WHERE status NOT IN ('RESOLVED', 'CLOSED')
+               ) AS open,
+               count(*) FILTER (
+                   WHERE status NOT IN ('RESOLVED', 'CLOSED')
+                     AND (
+                       (due_at IS NOT NULL AND due_at < ((date_trunc('day', now() AT TIME ZONE 'America/New_York') + interval '1 day') AT TIME ZONE 'America/New_York'))
+                       OR
+                       (follow_up_at IS NOT NULL AND follow_up_at < ((date_trunc('day', now() AT TIME ZONE 'America/New_York') + interval '1 day') AT TIME ZONE 'America/New_York'))
+                     )
+               ) AS today,
+               count(*) FILTER (
+                   WHERE status NOT IN ('RESOLVED', 'CLOSED')
+                     AND NULLIF(trim(waiting_on), '') IS NOT NULL
+               ) AS waiting,
+               count(*) FILTER (
+                   WHERE status NOT IN ('RESOLVED', 'CLOSED')
+                     AND NULLIF(trim(next_action), '') IS NULL
+               ) AS no_next_action,
+               count(*) FILTER (
+                   WHERE status IN ('RESOLVED', 'CLOSED')
+               ) AS closed
         FROM issues
         """
     )
@@ -82,6 +122,11 @@ def issue_create(
     address: str = Form(""),
     municipality: str = Form("Weehawken"),
     assigned_to: str = Form(""),
+    item_type: str = Form("ISSUE"),
+    next_action: str = Form(""),
+    waiting_on: str = Form(""),
+    due_at: str = Form(""),
+    follow_up_at: str = Form(""),
 ):
     title = title.strip()
     if not title:
@@ -92,9 +137,15 @@ def issue_create(
         """
         INSERT INTO issues (
           title, description, category, priority, status, source,
-          address, municipality, assigned_to
+          address, municipality, assigned_to,
+          item_type, next_action, waiting_on, due_at, follow_up_at
         )
-        VALUES (%s, %s, %s, %s, 'OPEN', 'MANUAL', %s, %s, %s)
+        VALUES (
+          %s, %s, %s, %s, 'OPEN', 'MANUAL', %s, %s, %s,
+          %s, %s, %s,
+          NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
+          NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York'
+        )
         """,
         (
             title,
@@ -104,6 +155,11 @@ def issue_create(
             address.strip() or None,
             municipality.strip() or None,
             assigned_to.strip() or None,
+            item_type.strip().upper() or "ISSUE",
+            next_action.strip() or None,
+            waiting_on.strip() or None,
+            due_at.strip(),
+            follow_up_at.strip(),
         ),
     )
     return RedirectResponse(url="/issues?msg=Issue+created", status_code=303)
@@ -120,6 +176,11 @@ def issue_update(
     address: str = Form(""),
     municipality: str = Form(""),
     assigned_to: str = Form(""),
+    item_type: str = Form("ISSUE"),
+    next_action: str = Form(""),
+    waiting_on: str = Form(""),
+    due_at: str = Form(""),
+    follow_up_at: str = Form(""),
 ):
     title = title.strip()
     if not title:
@@ -139,6 +200,11 @@ def issue_update(
             address = %s,
             municipality = %s,
             assigned_to = %s,
+            item_type = %s,
+            next_action = %s,
+            waiting_on = %s,
+            due_at = NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
+            follow_up_at = NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
             updated_at = now(),
             closed_at = CASE
               WHEN %s IN ('RESOLVED', 'CLOSED') THEN COALESCE(closed_at, now())
@@ -155,6 +221,11 @@ def issue_update(
             address.strip() or None,
             municipality.strip() or None,
             assigned_to.strip() or None,
+            item_type.strip().upper() or "ISSUE",
+            next_action.strip() or None,
+            waiting_on.strip() or None,
+            due_at.strip(),
+            follow_up_at.strip(),
             status,
             issue_id,
         ),
