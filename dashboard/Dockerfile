@@ -12,6 +12,7 @@ COPY app.py .
 COPY issues_app.py .
 COPY operations_app.py .
 COPY schedule_app.py .
+COPY rules_app.py .
 COPY templates ./templates
 COPY static ./static
 

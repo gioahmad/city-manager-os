@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rules Center · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">ADMINISTRATION</div>
+    <div class="brand-row">
+      <h1>Rules Center</h1>
+      <span class="private-badge">PRIVATE</span>
+    </div>
+    <div class="tagline">
+      Keywords · Sections · Recipients
+    </div>
+  </div>
+</header>
+
+{% include "nav.html" %}
+
+<main>
+
+{% if msg %}
+<div class="flash">{{ msg }}</div>
+{% endif %}
+
+<section class="metrics">
+  <div class="metric">
+    <span>Active Rules</span>
+    <strong>{{ counts.active_rules or 0 }}</strong>
+    <small>Currently matching</small>
+  </div>
+
+  <div class="metric">
+    <span>Sections</span>
+    <strong>{{ counts.sections or 0 }}</strong>
+    <small>Active categories</small>
+  </div>
+
+  <div class="metric">
+    <span>Subsections</span>
+    <strong>{{ counts.subsections or 0 }}</strong>
+    <small>Managed groups</small>
+  </div>
+
+  <div class="metric">
+    <span>Recipients</span>
+    <strong>{{ counts.subscribers or 0 }}</strong>
+    <small>Active alert destinations</small>
+  </div>
+</section>
+
+
+<section class="section-label">
+  <span>QUICK RULE</span>
+  <span class="section-rule"></span>
+</section>
+
+
+<section class="grid watch-layout">
+
+<article class="panel">
+
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">FAST CAPTURE</div>
+      <h2>Add Keyword / Phrase</h2>
+    </div>
+  </div>
+
+  <div class="panel-body form-panel">
+
+    <form
+      method="post"
+      action="/rules/quick-add"
+      class="watch-form"
+    >
+
+      <label>
+        Keyword or Phrase
+        <input
+          name="search_term"
+          required
+          placeholder="Hudson Tunnel"
+        >
+      </label>
+
+      <label>
+        Friendly Name
+        <input
+          name="display_name"
+          placeholder="Optional — defaults to keyword"
+        >
+      </label>
+
+      <label>
+        Aliases
+        <span class="hint">Comma-separated</span>
+        <input
+          name="aliases"
+          placeholder="HTP, Hudson Tunnel Project"
+        >
+      </label>
+
+      <div class="form-grid two-col">
+
+        <label>
+          Section
+          <select name="section_id">
+            <option value="">Unassigned</option>
+
+            {% for s in sections %}
+              {% if s.active %}
+              <option value="{{ s.id }}">
+                {{ s.name }}
+              </option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>
+          Subsection
+          <select name="subsection_id">
+            <option value="">None</option>
+
+            {% for ss in subsections %}
+              {% if ss.active %}
+              <option value="{{ ss.id }}">
+                {{ ss.section_name }} — {{ ss.name }}
+              </option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        </label>
+
+      </div>
+
+
+      <div class="form-grid two-col">
+
+        <label>
+          Rule Type
+          <select name="watch_type">
+            {% for wt in watch_types %}
+            <option
+              value="{{ wt }}"
+              {% if wt == 'PHRASE' %}selected{% endif %}
+            >
+              {{ wt }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>
+          Minimum Priority
+          <select name="min_priority">
+            {% for p in [1,2,3,4,5] %}
+            <option value="{{ p }}">
+              P{{ p }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+
+      </div>
+
+
+      <label>
+        Municipality
+        <input
+          name="municipality"
+          placeholder="Optional"
+        >
+      </label>
+
+
+      <div class="panel-kicker" style="margin-top:14px">
+        WHO GETS IT
+      </div>
+
+      {% for sub in subscribers %}
+      <label class="checkbox-row">
+        <input
+          type="checkbox"
+          name="recipient_ids"
+          value="{{ sub.id }}"
+          {% if sub.subscriber_id == 'GIO_CATCHALL' %}checked{% endif %}
+        >
+        {{ sub.name }}
+        <span class="hint">
+          {{ sub.ntfy_topic }}
+        </span>
+      </label>
+      {% endfor %}
+
+
+      <details style="margin-top:12px">
+
+        <summary>
+          Advanced Matching
+        </summary>
+
+        <div
+          class="watch-form compact"
+          style="margin-top:12px"
+        >
+
+          <label>
+            Match Mode
+            <select name="match_mode">
+              <option value="CONTAINS" selected>
+                CONTAINS
+              </option>
+              <option value="WORD">
+                WORD
+              </option>
+              <option value="EXACT">
+                EXACT
+              </option>
+              <option value="FIELD">
+                FIELD
+              </option>
+            </select>
+          </label>
+
+          <label>
+            Match Field
+            <input
+              name="match_field"
+              placeholder="Only needed for FIELD mode"
+            >
+          </label>
+
+          <label>
+            Tags
+            <input
+              name="tags"
+              placeholder="Comma-separated"
+            >
+          </label>
+
+          <label>
+            Notes
+            <textarea
+              name="notes"
+              rows="2"
+            ></textarea>
+          </label>
+
+        </div>
+      </details>
+
+      <button
+        class="primary-button"
+        type="submit"
+      >
+        Add Rule
+      </button>
+
+    </form>
+
+  </div>
+
+</article>
+
+
+<article class="panel">
+
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">MANAGE</div>
+      <h2>Rules</h2>
+    </div>
+
+    <span class="count-pill">
+      {{ rules|length }}
+    </span>
+  </div>
+
+
+  <div class="panel-body">
+
+    <form
+      class="watch-filters"
+      method="get"
+      action="/rules"
+    >
+
+      <input
+        name="q"
+        value="{{ q }}"
+        placeholder="Search keyword, section, alias..."
+      >
+
+      <select name="state">
+        <option
+          value="active"
+          {% if state == 'active' %}selected{% endif %}
+        >
+          Active
+        </option>
+
+        <option
+          value="paused"
+          {% if state == 'paused' %}selected{% endif %}
+        >
+          Paused
+        </option>
+
+        <option
+          value="all"
+          {% if state == 'all' %}selected{% endif %}
+        >
+          All
+        </option>
+      </select>
+
+      <button
+        class="secondary-button"
+        type="submit"
+      >
+        Filter
+      </button>
+
+    </form>
+
+
+    <div class="watch-list">
+
+      {% for r in rules %}
+
+      <details
+        class="watch-card {% if not r.active %}inactive{% endif %}"
+      >
+
+        <summary>
+
+          <div class="watch-summary-main">
+
+            <span class="status {% if r.active %}active{% else %}inactive-status{% endif %}">
+              {{ 'ACTIVE' if r.active else 'PAUSED' }}
+            </span>
+
+            <div>
+
+              <strong>
+                {{ r.display_name }}
+              </strong>
+
+              <div class="meta">
+                {{ r.search_term }}
+
+                {% if r.section_name %}
+                  · {{ r.section_name }}
+                {% elif r.category %}
+                  · {{ r.category }}
+                {% endif %}
+
+                {% if r.subsection_name %}
+                  / {{ r.subsection_name }}
+                {% elif r.subcategory %}
+                  / {{ r.subcategory }}
+                {% endif %}
+              </div>
+
+              {% if r.recipient_names %}
+              <div class="meta">
+                → {{ r.recipient_names|join(', ') }}
+              </div>
+              {% endif %}
+
+            </div>
+          </div>
+
+          <span class="priority-chip p{{ r.min_priority }}">
+            P{{ r.min_priority }}
+          </span>
+
+        </summary>
+
+
+        <div class="watch-card-body">
+
+          <form
+            method="post"
+            action="/rules/{{ r.id }}/update"
+            class="watch-form compact"
+          >
+
+            <label>
+              Name
+              <input
+                name="display_name"
+                value="{{ r.display_name }}"
+                required
+              >
+            </label>
+
+            <label>
+              Keyword / Phrase
+              <input
+                name="search_term"
+                value="{{ r.search_term }}"
+                required
+              >
+            </label>
+
+            <label>
+              Aliases
+              <input
+                name="aliases"
+                value="{{ (r.aliases or [])|join(', ') }}"
+              >
+            </label>
+
+
+            <div class="form-grid two-col">
+
+              <label>
+                Section
+                <select name="section_id">
+                  <option value="">
+                    Unassigned
+                  </option>
+
+                  {% for s in sections %}
+                  <option
+                    value="{{ s.id }}"
+                    {% if r.rule_section_id == s.id %}selected{% endif %}
+                  >
+                    {{ s.name }}
+                  </option>
+                  {% endfor %}
+                </select>
+              </label>
+
+              <label>
+                Subsection
+                <select name="subsection_id">
+                  <option value="">
+                    None
+                  </option>
+
+                  {% for ss in subsections %}
+                  <option
+                    value="{{ ss.id }}"
+                    {% if r.rule_subsection_id == ss.id %}selected{% endif %}
+                  >
+                    {{ ss.section_name }} — {{ ss.name }}
+                  </option>
+                  {% endfor %}
+                </select>
+              </label>
+
+            </div>
+
+
+            <div class="form-grid three-col">
+
+              <label>
+                Type
+                <select name="watch_type">
+                  {% for wt in watch_types %}
+                  <option
+                    value="{{ wt }}"
+                    {% if wt == r.watch_type %}selected{% endif %}
+                  >
+                    {{ wt }}
+                  </option>
+                  {% endfor %}
+                </select>
+              </label>
+
+              <label>
+                Match
+                <select name="match_mode">
+                  {% for mm in match_modes %}
+                  <option
+                    value="{{ mm }}"
+                    {% if mm == r.match_mode %}selected{% endif %}
+                  >
+                    {{ mm }}
+                  </option>
+                  {% endfor %}
+                </select>
+              </label>
+
+              <label>
+                Priority
+                <select name="min_priority">
+                  {% for p in [1,2,3,4,5] %}
+                  <option
+                    value="{{ p }}"
+                    {% if p == r.min_priority %}selected{% endif %}
+                  >
+                    P{{ p }}
+                  </option>
+                  {% endfor %}
+                </select>
+              </label>
+
+            </div>
+
+
+            <label>
+              Match Field
+              <input
+                name="match_field"
+                value="{{ r.match_field or '' }}"
+              >
+            </label>
+
+            <label>
+              Municipality
+              <input
+                name="municipality"
+                value="{{ r.municipality or '' }}"
+              >
+            </label>
+
+            <label>
+              Tags
+              <input
+                name="tags"
+                value="{{ (r.tags or [])|join(', ') }}"
+              >
+            </label>
+
+            <label>
+              Notes
+              <textarea
+                name="notes"
+                rows="2"
+              >{{ r.notes or '' }}</textarea>
+            </label>
+
+
+            <div class="panel-kicker">
+              RECIPIENTS
+            </div>
+
+            {% for sub in subscribers %}
+            <label class="checkbox-row">
+
+              <input
+                type="checkbox"
+                name="recipient_ids"
+                value="{{ sub.id }}"
+                {% if sub.id in r.recipient_ids %}checked{% endif %}
+              >
+
+              {{ sub.name }}
+
+              <span class="hint">
+                {{ sub.ntfy_topic }}
+              </span>
+
+            </label>
+            {% endfor %}
+
+
+            <label class="checkbox-row">
+              <input
+                type="checkbox"
+                name="active"
+                value="1"
+                {% if r.active %}checked{% endif %}
+              >
+              Active
+            </label>
+
+
+            <button
+              class="primary-button"
+              type="submit"
+            >
+              Save Rule
+            </button>
+
+          </form>
+
+
+          <form
+            method="post"
+            action="/rules/{{ r.id }}/toggle"
+            class="toggle-form"
+          >
+            <button
+              class="secondary-button"
+              type="submit"
+            >
+              {{ 'Pause Rule' if r.active else 'Reactivate Rule' }}
+            </button>
+          </form>
+
+        </div>
+
+      </details>
+
+      {% else %}
+
+      <div class="empty-state small">
+        <strong>No rules found</strong>
+      </div>
+
+      {% endfor %}
+
+    </div>
+
+  </div>
+
+</article>
+
+</section>
+
+
+<section class="section-label lower-label">
+  <span>SECTIONS & SUBSECTIONS</span>
+  <span class="section-rule"></span>
+</section>
+
+
+<section class="grid primary-grid">
+
+<article class="panel">
+
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">ADD</div>
+      <h2>New Section</h2>
+    </div>
+  </div>
+
+  <div class="panel-body form-panel">
+
+    <form
+      method="post"
+      action="/rules/section/create"
+      class="watch-form"
+    >
+
+      <label>
+        Section Name
+        <input
+          name="name"
+          required
+          placeholder="Economic Development"
+        >
+      </label>
+
+      <label>
+        Order
+        <input
+          type="number"
+          name="sort_order"
+          value="100"
+        >
+      </label>
+
+      <button
+        class="primary-button"
+        type="submit"
+      >
+        Add Section
+      </button>
+
+    </form>
+
+  </div>
+
+</article>
+
+
+<article class="panel">
+
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">ADD</div>
+      <h2>New Subsection</h2>
+    </div>
+  </div>
+
+  <div class="panel-body form-panel">
+
+    <form
+      method="post"
+      action="/rules/subsection/create"
+      class="watch-form"
+    >
+
+      <label>
+        Section
+        <select
+          name="section_id"
+          required
+        >
+          {% for s in sections %}
+            {% if s.active %}
+            <option value="{{ s.id }}">
+              {{ s.name }}
+            </option>
+            {% endif %}
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        Subsection Name
+        <input
+          name="name"
+          required
+          placeholder="Grants"
+        >
+      </label>
+
+      <label>
+        Order
+        <input
+          type="number"
+          name="sort_order"
+          value="100"
+        >
+      </label>
+
+      <button
+        class="primary-button"
+        type="submit"
+      >
+        Add Subsection
+      </button>
+
+    </form>
+
+  </div>
+
+</article>
+
+</section>
+
+
+<section
+  class="grid primary-grid"
+  style="margin-top:16px"
+>
+
+{% for s in sections %}
+
+<article class="panel">
+
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">
+        SECTION
+      </div>
+
+      <h2>
+        {{ s.name }}
+      </h2>
+    </div>
+
+    <span class="status {% if s.active %}active{% else %}inactive-status{% endif %}">
+      {{ 'ACTIVE' if s.active else 'PAUSED' }}
+    </span>
+  </div>
+
+
+  <div class="panel-body">
+
+    <form
+      method="post"
+      action="/rules/section/{{ s.id }}/update"
+      class="watch-form compact"
+    >
+
+      <div class="form-grid two-col">
+
+        <label>
+          Name
+          <input
+            name="name"
+            value="{{ s.name }}"
+            required
+          >
+        </label>
+
+        <label>
+          Order
+          <input
+            type="number"
+            name="sort_order"
+            value="{{ s.sort_order }}"
+          >
+        </label>
+
+      </div>
+
+      <label class="checkbox-row">
+        <input
+          type="checkbox"
+          name="active"
+          value="1"
+          {% if s.active %}checked{% endif %}
+        >
+        Active
+      </label>
+
+      <button
+        class="secondary-button"
+        type="submit"
+      >
+        Save Section
+      </button>
+
+    </form>
+
+
+    <div
+      class="panel-kicker"
+      style="margin-top:18px"
+    >
+      SUBSECTIONS
+    </div>
+
+
+    {% for ss in subsections %}
+
+      {% if ss.section_id == s.id %}
+
+      <form
+        method="post"
+        action="/rules/subsection/{{ ss.id }}/update"
+        class="watch-form compact"
+        style="margin-top:10px"
+      >
+
+        <div class="form-grid two-col">
+
+          <label>
+            Name
+            <input
+              name="name"
+              value="{{ ss.name }}"
+              required
+            >
+          </label>
+
+          <label>
+            Order
+            <input
+              type="number"
+              name="sort_order"
+              value="{{ ss.sort_order }}"
+            >
+          </label>
+
+        </div>
+
+        <label class="checkbox-row">
+          <input
+            type="checkbox"
+            name="active"
+            value="1"
+            {% if ss.active %}checked{% endif %}
+          >
+          Active
+        </label>
+
+        <button
+          class="secondary-button"
+          type="submit"
+        >
+          Save Subsection
+        </button>
+
+      </form>
+
+      {% endif %}
+
+    {% endfor %}
+
+  </div>
+
+</article>
+
+{% endfor %}
+
+</section>
+
+
+<footer>
+  <span>City Manager OS</span>
+  <span>Rules Center</span>
+</footer>
+
+</main>
+</body>
+</html>

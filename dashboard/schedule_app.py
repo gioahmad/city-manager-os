@@ -5,6 +5,7 @@ from fastapi import Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from operations_app import app, operations_home
+import rules_app  # registers Rules Center routes
 from app import execute, query_all, query_one, templates
 
 
