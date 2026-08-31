@@ -1,0 +1,193 @@
+{
+  "id": "EAChiefOfStaff01",
+  "name": "EXEC - Proactive Open Loop Resurfacing",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 60
+            }
+          ]
+        }
+      },
+      "name": "Hourly Executive Assistant Scan",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        -800,
+        0
+      ],
+      "id": "6929c7ab-5657-4f12-b328-788696e81f5d"
+    },
+    {
+      "id": "c869636d-025f-42a7-ac53-5e9ff74e1f8f",
+      "name": "Load Due Open Loops",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      },
+      "position": [
+        -550,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nWITH reminders AS (\n\n  SELECT\n    id::text AS issue_uuid,\n    title,\n    item_type,\n    priority,\n    description,\n    next_action,\n    waiting_on,\n    assigned_to,\n    municipality,\n    'DUE'::text AS reminder_type,\n    due_at AS reminder_at,\n    to_char(\n      now() AT TIME ZONE 'America/New_York',\n      'YYYY-MM-DD'\n    ) AS reminder_day\n  FROM issues\n  WHERE status NOT IN ('RESOLVED','CLOSED')\n    AND due_at IS NOT NULL\n    AND due_at <= now()\n\n  UNION ALL\n\n  SELECT\n    id::text,\n    title,\n    item_type,\n    priority,\n    description,\n    next_action,\n    waiting_on,\n    assigned_to,\n    municipality,\n    'FOLLOW_UP'::text,\n    follow_up_at,\n    to_char(\n      now() AT TIME ZONE 'America/New_York',\n      'YYYY-MM-DD'\n    )\n  FROM issues\n  WHERE status NOT IN ('RESOLVED','CLOSED')\n    AND follow_up_at IS NOT NULL\n    AND follow_up_at <= now()\n)\n\nSELECT *\nFROM reminders\nWHERE (\n  EXTRACT(\n    HOUR FROM now() AT TIME ZONE 'America/New_York'\n  ) BETWEEN 7 AND 21\n  OR title = 'CMOS EA Push Test'\n)\nORDER BY reminder_at, priority DESC\nLIMIT 50;\n",
+        "options": {}
+      }
+    },
+    {
+      "id": "8f95ca47-35c8-4ea9-9216-e69e7b0c38af",
+      "name": "Build Standard Executive Assistant Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -300,
+        0
+      ],
+      "parameters": {
+        "jsCode": "\nreturn $input.all().map((item) => {\n  const j = item.json || {};\n  const type = String(j.reminder_type || 'FOLLOW_UP').toUpperCase();\n  const issueId = String(j.issue_uuid || '');\n  const day = String(j.reminder_day || '');\n  const now = new Date().toISOString();\n\n  const title =\n    `${type === 'DUE' ? 'Due' : 'Follow Up'}: ${j.title || 'Open Loop'}`;\n\n  const parts = [];\n\n  if (j.next_action) parts.push(`Next: ${j.next_action}`);\n  if (j.waiting_on) parts.push(`Waiting on: ${j.waiting_on}`);\n  if (j.assigned_to) parts.push(`Owner: ${j.assigned_to}`);\n  if (!parts.length && j.description) parts.push(String(j.description));\n  if (!parts.length) parts.push('Open loop requires attention.');\n\n  const alert = {\n    schema_version: '1.0',\n    alert_id: `EXEC_ASSISTANT:${issueId}:${type}:${day}`,\n    source: 'EXEC_ASSISTANT',\n    source_event_id: `${issueId}:${type}:${day}`,\n    category: 'EXECUTIVE',\n    subtype: `OPEN_LOOP_${type}`,\n    status: 'ACTIVE',\n    event_action: 'REMINDER',\n    title,\n    message: parts.join(' \u00b7 '),\n    priority: Number(j.priority || 3),\n    county: 'HUDSON',\n    municipality: String(j.municipality || ''),\n    location: {\n      label: 'City Manager OS Command Center',\n      address: '',\n      state: 'NJ',\n      zip: '',\n      latitude: null,\n      longitude: null,\n      block: '',\n      lot: '',\n      qualifier: '',\n      parcel_id: ''\n    },\n    tags: ['executive-assistant','open-loop',type.toLowerCase()],\n    click_url: 'http://100.94.203.47:8090/my-day',\n    source_url: '',\n    observed_at: now,\n    source_updated_at: null,\n    received_at: now,\n    expires_at: null,\n    metadata: {\n      issue_uuid: issueId,\n      item_type: j.item_type || '',\n      reminder_type: type,\n      reminder_at: j.reminder_at || null,\n      reminder_day: day\n    }\n  };\n\n  alert.search_text = [\n    alert.source,\n    alert.category,\n    alert.subtype,\n    alert.title,\n    alert.message,\n    alert.municipality,\n    ...alert.tags\n  ].filter(Boolean).join(' ');\n\n  return {json: alert};\n});\n"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH d AS (SELECT $1::jsonb AS j), upserted AS ( INSERT INTO alerts (schema_version, alert_id, source, source_event_id, category, subtype, status, event_action, title, message, priority, county, municipality, location, tags, click_url, source_url, observed_at, source_updated_at, received_at, expires_at, metadata, raw_payload, search_text, updated_at) SELECT COALESCE(j->>'schema_version','1.0'), j->>'alert_id', j->>'source', NULLIF(j->>'source_event_id',''), j->>'category', j->>'subtype', j->>'status', j->>'event_action', j->>'title', j->>'message', (j->>'priority')::integer, NULLIF(j->>'county',''), NULLIF(j->>'municipality',''), COALESCE(j->'location','{}'::jsonb), ARRAY(SELECT jsonb_array_elements_text(COALESCE(j->'tags','[]'::jsonb))), NULLIF(j->>'click_url',''), NULLIF(j->>'source_url',''), NULLIF(j->>'observed_at','')::timestamptz, NULLIF(j->>'source_updated_at','')::timestamptz, COALESCE(NULLIF(j->>'received_at','')::timestamptz,NOW()), NULLIF(j->>'expires_at','')::timestamptz, COALESCE(j->'metadata','{}'::jsonb), j, NULLIF(j->>'search_text',''), NOW() FROM d ON CONFLICT (alert_id) DO UPDATE SET status=EXCLUDED.status, event_action=EXCLUDED.event_action, title=EXCLUDED.title, message=EXCLUDED.message, priority=EXCLUDED.priority, county=EXCLUDED.county, municipality=EXCLUDED.municipality, location=EXCLUDED.location, tags=EXCLUDED.tags, click_url=EXCLUDED.click_url, metadata=EXCLUDED.metadata, raw_payload=EXCLUDED.raw_payload, search_text=EXCLUDED.search_text, updated_at=NOW() RETURNING id::text AS alert_db_uuid ) SELECT d.j AS alert, upserted.alert_db_uuid FROM d CROSS JOIN upserted;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -40,
+        0
+      ],
+      "id": "14c45226-8214-4ef4-ac9e-6efa6c2b489e",
+      "name": "Upsert Executive Assistant Alert",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => ({ json: item.json.alert || {} }));"
+      },
+      "name": "Restore Standard Executive Assistant Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "ccd17398-e40c-40af-8d60-8330a7d74985"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ESH9c2pZ8QfkMosO",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ESH9c2pZ8QfkMosO",
+          "cachedResultName": "CORE - Watchlist Matcher v1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "4e8c845a-4fdd-4132-b75e-257466258d94",
+      "name": "Send Executive Assistant to Central Watchlist Matcher",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Hourly Executive Assistant Scan": {
+      "main": [
+        [
+          {
+            "node": "Load Due Open Loops",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Due Open Loops": {
+      "main": [
+        [
+          {
+            "node": "Build Standard Executive Assistant Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Standard Executive Assistant Alert": {
+      "main": [
+        [
+          {
+            "node": "Upsert Executive Assistant Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Executive Assistant Alert": {
+      "main": [
+        [
+          {
+            "node": "Restore Standard Executive Assistant Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Standard Executive Assistant Alert": {
+      "main": [
+        [
+          {
+            "node": "Send Executive Assistant to Central Watchlist Matcher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionCounter": 2,
+  "description": "Proactive executive open-loop reminders through Watchlist Matcher and Delivery Guard."
+}
