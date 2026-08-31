@@ -37,6 +37,15 @@ def issues(request: Request, q: str = "", state: str = "open", msg: str = ""):
     elif state == "no_next":
         where.append("status NOT IN ('RESOLVED', 'CLOSED')")
         where.append("NULLIF(trim(next_action), '') IS NULL")
+    elif state == "commitments":
+        where.append("status NOT IN ('RESOLVED', 'CLOSED')")
+        where.append("item_type = 'COMMITMENT'")
+    elif state == "communications":
+        where.append("status NOT IN ('RESOLVED', 'CLOSED')")
+        where.append("item_type = 'COMMUNICATION'")
+    elif state == "overdue":
+        where.append("status NOT IN ('RESOLVED', 'CLOSED')")
+        where.append("(due_at < now() OR follow_up_at < now())")
     elif state == "closed":
         where.append("status IN ('RESOLVED', 'CLOSED')")
 
@@ -92,6 +101,18 @@ def issues(request: Request, q: str = "", state: str = "open", msg: str = ""):
                    WHERE status NOT IN ('RESOLVED', 'CLOSED')
                      AND NULLIF(trim(next_action), '') IS NULL
                ) AS no_next_action,
+               count(*) FILTER (
+                   WHERE status NOT IN ('RESOLVED', 'CLOSED')
+                     AND item_type = 'COMMITMENT'
+               ) AS commitments,
+               count(*) FILTER (
+                   WHERE status NOT IN ('RESOLVED', 'CLOSED')
+                     AND item_type = 'COMMUNICATION'
+               ) AS communications,
+               count(*) FILTER (
+                   WHERE status NOT IN ('RESOLVED', 'CLOSED')
+                     AND (due_at < now() OR follow_up_at < now())
+               ) AS overdue,
                count(*) FILTER (
                    WHERE status IN ('RESOLVED', 'CLOSED')
                ) AS closed

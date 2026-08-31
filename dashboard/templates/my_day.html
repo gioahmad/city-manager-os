@@ -111,6 +111,69 @@
   </div>
 </section>
 
+
+<section class="section-label lower-label"><span>CHIEF OF STAFF</span><span class="section-rule"></span></section>
+
+<section class="grid primary-grid">
+
+<article class="panel">
+  <div class="panel-head"><div><div class="panel-kicker">PROMISES / DELIVERABLES</div><h2>Commitments</h2></div><a class="text-link" href="/issues?state=commitments">View all</a></div>
+  <div class="panel-body compact-list">
+    {% for i in commitments %}
+    <div class="feed-row">
+      <div class="feed-main">
+        <div class="feed-title-row"><span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span><strong>{{ i.title }}</strong></div>
+        {% if i.next_action %}<div class="meta">Next: {{ i.next_action }}</div>{% endif %}
+        {% if i.waiting_on %}<div class="meta">Waiting on: {{ i.waiting_on }}</div>{% endif %}
+      </div>
+      {% if i.due_local %}<time>Due {{ i.due_local.strftime('%m/%d %I:%M %p') }}</time>{% endif %}
+    </div>
+    {% else %}
+    <div class="empty-state small"><strong>No open commitments</strong></div>
+    {% endfor %}
+  </div>
+</article>
+
+<article class="panel">
+  <div class="panel-head"><div><div class="panel-kicker">OUTBOUND / FOLLOW-UP</div><h2>Communications Queue</h2></div><a class="text-link" href="/issues?state=communications">View all</a></div>
+  <div class="panel-body compact-list">
+    {% for i in communications %}
+    <div class="feed-row">
+      <div class="feed-main">
+        <div class="feed-title-row"><span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span><strong>{{ i.title }}</strong></div>
+        {% if i.next_action %}<div class="meta">Next: {{ i.next_action }}</div>{% endif %}
+        {% if i.waiting_on %}<div class="meta">Waiting on: {{ i.waiting_on }}</div>{% endif %}
+      </div>
+      {% if i.due_local %}<time>{{ i.due_local.strftime('%m/%d %I:%M %p') }}</time>{% elif i.follow_up_local %}<time>{{ i.follow_up_local.strftime('%m/%d %I:%M %p') }}</time>{% endif %}
+    </div>
+    {% else %}
+    <div class="empty-state small"><strong>No queued communications</strong></div>
+    {% endfor %}
+  </div>
+</article>
+
+</section>
+
+<section class="panel" style="margin-top:16px">
+  <div class="panel-head"><div><div class="panel-kicker">PROACTIVE RESURFACING</div><h2>Overdue / Follow Up Now</h2></div><a class="text-link" href="/issues?state=overdue">View all</a></div>
+  <div class="panel-body compact-list">
+    {% for i in overdue %}
+    <div class="feed-row">
+      <div class="feed-main">
+        <div class="feed-title-row"><span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span><strong>{{ i.title }}</strong></div>
+        <div class="meta">{{ i.item_type }}{% if i.next_action %} · Next: {{ i.next_action }}{% endif %}</div>
+      </div>
+      <time>
+        {% if i.due_local %}Due {{ i.due_local.strftime('%m/%d %I:%M %p') }}
+        {% elif i.follow_up_local %}Follow {{ i.follow_up_local.strftime('%m/%d %I:%M %p') }}{% endif %}
+      </time>
+    </div>
+    {% else %}
+    <div class="empty-state small"><strong>Nothing overdue</strong></div>
+    {% endfor %}
+  </div>
+</section>
+
 <footer><span>City Manager OS</span><span>Executive Assistant · My Day</span></footer>
 </main>
 </body>

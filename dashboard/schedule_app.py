@@ -335,6 +335,56 @@ def my_day(request: Request):
         """
     )
 
+    commitments = query_all(
+        """
+        SELECT
+          id, title, priority, next_action, waiting_on, assigned_to,
+          due_at AT TIME ZONE 'America/New_York' AS due_local
+        FROM issues
+        WHERE status NOT IN ('RESOLVED','CLOSED')
+          AND item_type = 'COMMITMENT'
+        ORDER BY due_at NULLS LAST, priority DESC, updated_at DESC
+        LIMIT 20
+        """
+    )
+
+    communications = query_all(
+        """
+        SELECT
+          id, title, priority, next_action, waiting_on, assigned_to,
+          due_at AT TIME ZONE 'America/New_York' AS due_local,
+          follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local
+        FROM issues
+        WHERE status NOT IN ('RESOLVED','CLOSED')
+          AND item_type = 'COMMUNICATION'
+        ORDER BY
+          COALESCE(due_at, follow_up_at) NULLS LAST,
+          priority DESC,
+          updated_at DESC
+        LIMIT 20
+        """
+    )
+
+    overdue = query_all(
+        """
+        SELECT
+          id, title, item_type, priority,
+          next_action, waiting_on, assigned_to,
+          due_at AT TIME ZONE 'America/New_York' AS due_local,
+          follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local
+        FROM issues
+        WHERE status NOT IN ('RESOLVED','CLOSED')
+          AND (due_at < now() OR follow_up_at < now())
+        ORDER BY
+          LEAST(
+            COALESCE(due_at, 'infinity'::timestamptz),
+            COALESCE(follow_up_at, 'infinity'::timestamptz)
+          ),
+          priority DESC
+        LIMIT 25
+        """
+    )
+
     counts = query_one(
         """
         SELECT
@@ -381,6 +431,9 @@ def my_day(request: Request):
             "schedule": schedule,
             "attention": attention,
             "waiting": waiting,
+            "commitments": commitments,
+            "communications": communications,
+            "overdue": overdue,
             "counts": counts,
         },
     )
