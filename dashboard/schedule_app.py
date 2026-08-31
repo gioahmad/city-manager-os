@@ -277,13 +277,34 @@ def my_day(request: Request):
 
     priority_alerts = query_all(
         """
+        WITH current_alerts AS (
+          SELECT DISTINCT ON (
+            CASE
+              WHEN source IN ('NJ_DIVERT','PSEG','ORU')
+                THEN source || '|' || COALESCE(subtype,'') || '|' || COALESCE(municipality,'')
+              ELSE alert_id
+            END
+          )
+            alert_id, source, category, subtype, title, message,
+            priority, municipality, event_action, click_url,
+            received_at
+          FROM alerts
+          WHERE status <> 'RESOLVED'
+            AND source <> 'EXEC_ASSISTANT'
+            AND (expires_at IS NULL OR expires_at > now())
+          ORDER BY
+            CASE
+              WHEN source IN ('NJ_DIVERT','PSEG','ORU')
+                THEN source || '|' || COALESCE(subtype,'') || '|' || COALESCE(municipality,'')
+              ELSE alert_id
+            END,
+            received_at DESC
+        )
         SELECT
           alert_id, source, category, subtype, title, message,
           priority, municipality, event_action, click_url,
           received_at AT TIME ZONE 'America/New_York' AS received_local
-        FROM alerts
-        WHERE status <> 'RESOLVED'
-          AND (expires_at IS NULL OR expires_at > now())
+        FROM current_alerts
         ORDER BY priority DESC, received_at DESC
         LIMIT 8
         """
