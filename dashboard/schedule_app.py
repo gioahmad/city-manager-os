@@ -216,3 +216,139 @@ def schedule_toggle(event_id: uuid.UUID):
         (event_id,),
     )
     return RedirectResponse(url="/schedule?msg=Schedule+item+status+changed", status_code=303)
+
+
+@app.get("/my-day", response_class=HTMLResponse)
+def my_day(request: Request):
+    schedule = query_all(
+        """
+        SELECT
+          id, title, category, location_name, address, municipality,
+          starts_at AT TIME ZONE 'America/New_York' AS starts_local,
+          ends_at AT TIME ZONE 'America/New_York' AS ends_local,
+          priority, notes
+        FROM operational_events
+        WHERE active = true
+          AND starts_at >= date_trunc(
+                'day',
+                now() AT TIME ZONE 'America/New_York'
+              ) AT TIME ZONE 'America/New_York'
+          AND starts_at < (
+                date_trunc(
+                  'day',
+                  now() AT TIME ZONE 'America/New_York'
+                ) + interval '1 day'
+              ) AT TIME ZONE 'America/New_York'
+        ORDER BY starts_at
+        """
+    )
+
+    attention = query_all(
+        """
+        SELECT
+          id, title, item_type, priority, status,
+          next_action, waiting_on, assigned_to,
+          due_at AT TIME ZONE 'America/New_York' AS due_local,
+          follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local,
+          CASE
+            WHEN due_at IS NOT NULL AND due_at <= now() THEN 'OVERDUE'
+            WHEN follow_up_at IS NOT NULL AND follow_up_at <= now() THEN 'FOLLOW UP'
+            WHEN due_at IS NOT NULL
+              AND due_at < (
+                date_trunc('day', now() AT TIME ZONE 'America/New_York')
+                + interval '1 day'
+              ) AT TIME ZONE 'America/New_York'
+              THEN 'DUE TODAY'
+            WHEN follow_up_at IS NOT NULL
+              AND follow_up_at < (
+                date_trunc('day', now() AT TIME ZONE 'America/New_York')
+                + interval '1 day'
+              ) AT TIME ZONE 'America/New_York'
+              THEN 'FOLLOW UP TODAY'
+            WHEN next_action IS NULL OR trim(next_action) = '' THEN 'NO NEXT ACTION'
+            ELSE 'OPEN'
+          END AS attention_status
+        FROM issues
+        WHERE status NOT IN ('RESOLVED','CLOSED')
+          AND (
+            due_at <= (
+              date_trunc('day', now() AT TIME ZONE 'America/New_York')
+              + interval '1 day'
+            ) AT TIME ZONE 'America/New_York'
+            OR follow_up_at <= (
+              date_trunc('day', now() AT TIME ZONE 'America/New_York')
+              + interval '1 day'
+            ) AT TIME ZONE 'America/New_York'
+            OR next_action IS NULL
+            OR trim(next_action) = ''
+          )
+        ORDER BY priority DESC, COALESCE(due_at, follow_up_at), updated_at DESC
+        """
+    )
+
+    waiting = query_all(
+        """
+        SELECT
+          id, title, item_type, priority, waiting_on,
+          next_action, assigned_to,
+          follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local
+        FROM issues
+        WHERE status NOT IN ('RESOLVED','CLOSED')
+          AND NULLIF(trim(waiting_on), '') IS NOT NULL
+        ORDER BY
+          follow_up_at NULLS LAST,
+          priority DESC,
+          updated_at DESC
+        LIMIT 25
+        """
+    )
+
+    counts = query_one(
+        """
+        SELECT
+          (SELECT count(*)
+             FROM operational_events
+            WHERE active = true
+              AND starts_at >= date_trunc(
+                    'day',
+                    now() AT TIME ZONE 'America/New_York'
+                  ) AT TIME ZONE 'America/New_York'
+              AND starts_at < (
+                    date_trunc(
+                      'day',
+                      now() AT TIME ZONE 'America/New_York'
+                    ) + interval '1 day'
+                  ) AT TIME ZONE 'America/New_York'
+          ) AS schedule_today,
+
+          count(*) FILTER (
+            WHERE status NOT IN ('RESOLVED','CLOSED')
+              AND (
+                due_at <= now()
+                OR follow_up_at <= now()
+              )
+          ) AS due_now,
+
+          count(*) FILTER (
+            WHERE status NOT IN ('RESOLVED','CLOSED')
+              AND NULLIF(trim(waiting_on), '') IS NOT NULL
+          ) AS waiting,
+
+          count(*) FILTER (
+            WHERE status NOT IN ('RESOLVED','CLOSED')
+              AND NULLIF(trim(next_action), '') IS NULL
+          ) AS no_next_action
+        FROM issues
+        """
+    )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="my_day.html",
+        context={
+            "schedule": schedule,
+            "attention": attention,
+            "waiting": waiting,
+            "counts": counts,
+        },
+    )

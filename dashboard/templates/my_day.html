@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Day · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">EXECUTIVE ASSISTANT</div>
+    <div class="brand-row"><h1>My Day</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Today, Follow-ups and Open Loops</div>
+  </div>
+</header>
+
+{% include "nav.html" %}
+
+<main>
+
+<section class="metrics">
+  <div class="metric"><span>Schedule</span><strong>{{ counts.schedule_today or 0 }}</strong><small>Today</small></div>
+  <div class="metric metric-alerts"><span>Needs Attention</span><strong>{{ counts.due_now or 0 }}</strong><small>Due / follow-up now</small></div>
+  <div class="metric"><span>Waiting On</span><strong>{{ counts.waiting or 0 }}</strong><small>Pending responses</small></div>
+  <div class="metric"><span>No Next Action</span><strong>{{ counts.no_next_action or 0 }}</strong><small>Needs definition</small></div>
+</section>
+
+<section class="grid primary-grid" style="margin-top:16px">
+
+<article class="panel">
+  <div class="panel-head"><div><div class="panel-kicker">TODAY</div><h2>Schedule</h2></div><a class="text-link" href="/schedule">Manage</a></div>
+  <div class="panel-body compact-list">
+    {% for e in schedule %}
+    <div class="feed-row">
+      <div class="feed-main">
+        <strong>{{ e.title }}</strong>
+        <div class="meta">
+          {{ e.starts_local.strftime('%I:%M %p') if e.starts_local else '' }}
+          {% if e.location_name %} · {{ e.location_name }}{% endif %}
+          {% if e.category %} · {{ e.category }}{% endif %}
+        </div>
+      </div>
+      <span class="priority-chip p{{ e.priority }}">P{{ e.priority }}</span>
+    </div>
+    {% else %}
+    <div class="empty-state small"><strong>Nothing scheduled today</strong></div>
+    {% endfor %}
+  </div>
+</article>
+
+<article class="panel">
+  <div class="panel-head"><div><div class="panel-kicker">NEEDS YOU</div><h2>Attention Queue</h2></div><a class="text-link" href="/issues?state=today">Command Center</a></div>
+  <div class="panel-body compact-list">
+    {% for i in attention %}
+    <div class="feed-row">
+      <div class="feed-main">
+        <div class="feed-title-row"><span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span><strong>{{ i.title }}</strong></div>
+        <div class="meta">{{ i.item_type }} · {{ i.attention_status }}</div>
+        {% if i.next_action %}<div class="meta">Next: {{ i.next_action }}</div>{% endif %}
+      </div>
+      <time>
+        {% if i.due_local %}{{ i.due_local.strftime('%m/%d %I:%M %p') }}
+        {% elif i.follow_up_local %}{{ i.follow_up_local.strftime('%m/%d %I:%M %p') }}{% endif %}
+      </time>
+    </div>
+    {% else %}
+    <div class="empty-state small"><strong>Nothing requires immediate attention</strong></div>
+    {% endfor %}
+  </div>
+</article>
+
+</section>
+
+<section class="panel" style="margin-top:16px">
+  <div class="panel-head"><div><div class="panel-kicker">DELEGATION</div><h2>Waiting On</h2></div><a class="text-link" href="/issues?state=waiting">View all</a></div>
+  <div class="panel-body compact-list">
+    {% for i in waiting %}
+    <div class="feed-row">
+      <div class="feed-main">
+        <strong>{{ i.title }}</strong>
+        <div class="meta">Waiting on: {{ i.waiting_on }}{% if i.assigned_to %} · Owner: {{ i.assigned_to }}{% endif %}</div>
+        {% if i.next_action %}<div class="meta">Next: {{ i.next_action }}</div>{% endif %}
+      </div>
+      {% if i.follow_up_local %}<time>Follow {{ i.follow_up_local.strftime('%m/%d %I:%M %p') }}</time>{% endif %}
+    </div>
+    {% else %}
+    <div class="empty-state small"><strong>Nothing currently waiting on someone else</strong></div>
+    {% endfor %}
+  </div>
+</section>
+
+<footer><span>City Manager OS</span><span>Executive Assistant · My Day</span></footer>
+</main>
+</body>
+</html>
