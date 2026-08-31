@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+N8N_DIR=$(docker inspect n8n --format \
+'{{range .Mounts}}{{if eq .Destination "/home/node/.n8n"}}{{.Source}}{{end}}{{end}}')
+
+N8N_DB="$N8N_DIR/database.sqlite"
+
+echo "=== CITY MANAGER OS LIVE HEALTH ==="
+echo
+
+./deploy/cmos-source status
+
+echo
+echo "=== ROUTING / LAST ACTIVITY ==="
+
+docker exec -i citymanager-postgis sh -lc \
+'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+
+\pset pager off
+
+WITH sources(source) AS (
+    VALUES
+      ('PSEG'),
+      ('NHRFR_DISP'),
+      ('NJ_DIVERT'),
+      ('EARTHQUAKE'),
+      ('ORU'),
+      ('BNN'),
+      ('NHRFR_RADIO'),
+      ('WPD_RADIO')
+),
+routes AS (
+    SELECT
+        UPPER(w.search_term) AS source,
+        bool_or(
+            w.active
+            AND r.active
+            AND s.active
+            AND s.subscriber_id = 'GIO_CATCHALL'
+        ) AS gio_route
+    FROM watch_items w
+    LEFT JOIN watch_item_recipients r
+        ON r.watch_item_id = w.id
+    LEFT JOIN subscribers s
+        ON s.id = r.subscriber_id
+    GROUP BY UPPER(w.search_term)
+),
+activity AS (
+    SELECT
+        a.source,
+        COUNT(DISTINCT a.id) AS alerts,
+        MAX(a.received_at) AS last_alert,
+        COUNT(DISTINCT d.id) FILTER (WHERE d.status = 'SENT') AS sent,
+        MAX(d.created_at) FILTER (WHERE d.status = 'SENT') AS last_sent
+    FROM alerts a
+    LEFT JOIN deliveries d
+        ON d.alert_id = a.id
+    GROUP BY a.source
+)
+SELECT
+    x.source,
+    COALESCE(r.gio_route,false) AS gio_route,
+    COALESCE(a.alerts,0) AS alerts,
+    COALESCE(a.sent,0) AS sent,
+    a.last_alert,
+    a.last_sent
+FROM sources x
+LEFT JOIN routes r ON r.source = x.source
+LEFT JOIN activity a ON a.source = x.source
+ORDER BY x.source;
+
+SQL
+
+echo
+docker ps --filter name=n8n --format 'n8n: {{.Status}}'

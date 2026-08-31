@@ -666,3 +666,5 @@ exit 1
 ;;
 
 esac
+
+# Future health reporting is handled by deploy/cmos-health.
