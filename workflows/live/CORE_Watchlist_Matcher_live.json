@@ -1,0 +1,237 @@
+[
+  {
+    "updatedAt": "2026-08-24T03:07:35.065Z",
+    "createdAt": "2026-08-18T21:54:10.078Z",
+    "id": "ESH9c2pZ8QfkMosO",
+    "name": "CORE - Watchlist Matcher v1",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "passthrough"
+        },
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          224,
+          192
+        ],
+        "id": "17f71306-e0a2-4be0-8250-ecc739b786b1",
+        "name": "When Executed by Another Workflow"
+      },
+      {
+        "parameters": {},
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          0
+        ],
+        "id": "e3937cdd-6526-4e49-9cf8-17e616eeff6c",
+        "name": "Manual Test Trigger"
+      },
+      {
+        "parameters": {
+          "jsCode": "return [{\n  json: {\n    schema_version: '1.0',\n    alert_id: 'TEST:MANUAL:WATCHLIST-MATCHER',\n    source: 'FIRE_SDR',\n    source_event_id: 'manual-test',\n    category: 'FIRE',\n    subtype: '2ND_ALARM',\n    status: 'ACTIVE',\n    event_action: 'NEW',\n    title: '2nd Alarm - Weehawken',\n    message: 'Second alarm transmitted for a working fire at 4100 Park Avenue.',\n    priority: 5,\n    county: 'HUDSON',\n    municipality: 'WEEHAWKEN',\n    location: {\n      label: '4100 Park Avenue',\n      address: '4100 Park Ave',\n      state: 'NJ',\n      zip: '07086',\n      latitude: null,\n      longitude: null,\n      block: '',\n      lot: '',\n      qualifier: '',\n      parcel_id: ''\n    },\n    tags: ['fire', '2nd-alarm'],\n    click_url: '',\n    source_url: '',\n    observed_at: new Date().toISOString(),\n    source_updated_at: null,\n    received_at: new Date().toISOString(),\n    expires_at: null,\n    metadata: {\n      test: true,\n      alarm_level: 2\n    }\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          224,
+          0
+        ],
+        "id": "8d1d1552-78c9-4283-afdf-9628e9e216a0",
+        "name": "Sample Standard Alert"
+      },
+      {
+        "parameters": {
+          "jsCode": "const input = $input.first().json;\n\nconst required = [\n  'schema_version',\n  'alert_id',\n  'source',\n  'category',\n  'subtype',\n  'status',\n  'event_action',\n  'title',\n  'message',\n  'priority'\n];\n\nconst missing = required.filter((field) => {\n  const value = input[field];\n  return value === undefined || value === null || value === '';\n});\n\nif (missing.length) {\n  throw new Error(`Standard Alert missing required field(s): ${missing.join(', ')}`);\n}\n\nconst location = (input.location && typeof input.location === 'object')\n  ? input.location\n  : {};\n\nconst tags = Array.isArray(input.tags)\n  ? input.tags\n  : (input.tags ? [String(input.tags)] : []);\n\nconst searchParts = [\n  input.source,\n  input.category,\n  input.subtype,\n  input.status,\n  input.county,\n  input.municipality,\n  location.label,\n  location.address,\n  input.title,\n  input.message,\n  ...tags\n].filter((value) => value !== undefined && value !== null && String(value).trim() !== '');\n\nreturn [{\n  json: {\n    ...input,\n    location,\n    tags,\n    priority: Number(input.priority),\n    search_text: searchParts.join(' ')\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          448,
+          96
+        ],
+        "id": "860d8081-4689-4d18-9761-7aff22fbd093",
+        "name": "Normalize Alert"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT\n  wi.id::text AS watch_item_uuid,\n  wi.watch_id,\n  wi.watch_type,\n  wi.display_name,\n  wi.search_term,\n  wi.aliases,\n  wi.match_mode,\n  wi.match_field,\n  wi.category,\n  wi.subcategory,\n  wi.parent_group,\n  wi.tags,\n  wi.source_filter,\n  wi.alert_category_filter,\n  wi.min_priority,\n  wi.address,\n  wi.municipality,\n  wi.county,\n  wi.state,\n  wi.zip,\n  wi.block,\n  wi.lot,\n  wi.qualifier,\n  wi.parcel_id,\n  wi.latitude,\n  wi.longitude,\n  wi.gis_enabled,\n  wi.gis_lookup,\n  wi.nearby_enabled,\n  wi.radius_ft,\n  COALESCE(\n    jsonb_agg(\n      jsonb_build_object(\n        'subscriber_uuid', s.id::text,\n        'subscriber_id', s.subscriber_id,\n        'name', s.name,\n        'ntfy_topic', s.ntfy_topic\n      )\n    ) FILTER (\n      WHERE wir.active = true\n        AND s.active = true\n        AND s.id IS NOT NULL\n    ),\n    '[]'::jsonb\n  ) AS recipients\nFROM watch_items wi\nLEFT JOIN watch_item_recipients wir\n  ON wir.watch_item_id = wi.id\nLEFT JOIN subscribers s\n  ON s.id = wir.subscriber_id\nWHERE wi.active = true\n  AND (wi.starts_at IS NULL OR wi.starts_at <= NOW())\n  AND (wi.expires_at IS NULL OR wi.expires_at > NOW())\nGROUP BY wi.id\nORDER BY wi.watch_id;",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          672,
+          96
+        ],
+        "id": "dafb3743-833b-4a39-aa42-bd9b9750daf1",
+        "name": "Load Active Watchlist + Recipients",
+        "alwaysOutputData": true,
+        "credentials": {
+          "postgres": {
+            "id": "ypC5byxSvG6uOccJ",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const alert = $('Normalize Alert').first().json;\nconst rows = $input.all()\n  .map((item) => item.json)\n  .filter((row) => row && row.watch_id);\n\nfunction normalize(value) {\n  if (value === undefined || value === null) return '';\n\n  let text;\n  if (Array.isArray(value)) {\n    text = value.join(' ');\n  } else if (typeof value === 'object') {\n    text = JSON.stringify(value);\n  } else {\n    text = String(value);\n  }\n\n  return text\n    .normalize('NFKD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .toUpperCase()\n    .replace(/&/g, '')\n    .replace(/[^A-Z0-9]+/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction toArray(value) {\n  if (value === undefined || value === null || value === '') return [];\n  if (Array.isArray(value)) return value.filter(Boolean);\n  if (typeof value === 'string') {\n    return value\n      .split('|')\n      .map((part) => part.trim())\n      .filter(Boolean);\n  }\n  return [value];\n}\n\nfunction getPath(object, path) {\n  if (!path) return undefined;\n  return String(path)\n    .split('.')\n    .reduce((current, key) => {\n      if (current === undefined || current === null) return undefined;\n      return current[key];\n    }, object);\n}\n\nfunction escapeRegExp(value) {\n  return value.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n}\n\nfunction evaluateRow(row) {\n  const alertPriority = Number(alert.priority || 0);\n  const minimumPriority = Number(row.min_priority || 1);\n\n  if (alertPriority < minimumPriority) {\n    return { matched: false, skip_reason: `priority ${alertPriority} < ${minimumPriority}` };\n  }\n\n  const sourceFilters = toArray(row.source_filter).map(normalize);\n  if (sourceFilters.length && !sourceFilters.includes(normalize(alert.source))) {\n    return { matched: false, skip_reason: 'source filter' };\n  }\n\n  const categoryFilters = toArray(row.alert_category_filter).map(normalize);\n  if (categoryFilters.length && !categoryFilters.includes(normalize(alert.category))) {\n    return { matched: false, skip_reason: 'category filter' };\n  }\n\n  const matchField = row.match_field || 'search_text';\n  const haystack = normalize(getPath(alert, matchField));\n  const candidates = [\n    { value: row.search_term, kind: 'search_term' },\n    ...toArray(row.aliases).map((value) => ({ value, kind: 'alias' }))\n  ]\n    .map((candidate) => ({\n      ...candidate,\n      normalized: normalize(candidate.value)\n    }))\n    .filter((candidate) => candidate.normalized);\n\n  const mode = normalize(row.match_mode);\n\n  for (const candidate of candidates) {\n    let isMatch = false;\n\n    if (mode === 'FIELD' || mode === 'EXACT') {\n      isMatch = haystack === candidate.normalized;\n    } else if (mode === 'CONTAINS') {\n      isMatch = haystack.includes(candidate.normalized);\n    } else if (mode === 'WORD') {\n      const pattern = new RegExp(\n        `(^|\\\\s)${escapeRegExp(candidate.normalized)}(?=\\\\s|$)`\n      );\n      isMatch = pattern.test(haystack);\n    }\n\n    if (isMatch) {\n      return {\n        matched: true,\n        matched_candidate: candidate.value,\n        matched_candidate_type: candidate.kind,\n        match_field: matchField,\n        match_reason:\n          `${mode} ${matchField} matched ${candidate.kind} \"${candidate.value}\"`\n      };\n    }\n  }\n\n  return { matched: false };\n}\n\nconst matches = [];\nconst recipientMap = new Map();\n\nfor (const row of rows) {\n  const result = evaluateRow(row);\n  if (!result.matched) continue;\n\n  const match = {\n    watch_item_uuid: row.watch_item_uuid || row.id || null,\n    watch_id: row.watch_id,\n    display_name: row.display_name,\n    watch_type: row.watch_type,\n    match_mode: row.match_mode,\n    match_field: result.match_field,\n    matched_candidate: result.matched_candidate,\n    matched_candidate_type: result.matched_candidate_type,\n    match_reason: result.match_reason\n  };\n\n  matches.push(match);\n\n  const recipients = toArray(row.recipients);\n  for (const recipient of recipients) {\n    if (!recipient || typeof recipient !== 'object') continue;\n    if (!recipient.subscriber_id && !recipient.ntfy_topic) continue;\n\n    const key = recipient.subscriber_id || recipient.ntfy_topic;\n\n    if (!recipientMap.has(key)) {\n      recipientMap.set(key, {\n        subscriber_uuid: recipient.subscriber_uuid || null,\n        subscriber_id: recipient.subscriber_id || null,\n        name: recipient.name || null,\n        ntfy_topic: recipient.ntfy_topic || null,\n        matched_watch_ids: [],\n        match_reasons: []\n      });\n    }\n\n    const resolved = recipientMap.get(key);\n\n    if (!resolved.matched_watch_ids.includes(row.watch_id)) {\n      resolved.matched_watch_ids.push(row.watch_id);\n    }\n\n    if (!resolved.match_reasons.includes(result.match_reason)) {\n      resolved.match_reasons.push(result.match_reason);\n    }\n  }\n}\n\nconst recipients = Array.from(recipientMap.values());\n\nconst delivery_payloads = recipients.map((recipient) => ({\n  alert_id: alert.alert_id,\n  subscriber_id: recipient.subscriber_id,\n  subscriber_name: recipient.name,\n  ntfy_topic: recipient.ntfy_topic,\n  title: alert.title,\n  message: alert.message,\n  priority: alert.priority,\n  tags: alert.tags || [],\n  click: alert.click_url || '',\n  matched_watch_ids: recipient.matched_watch_ids,\n  match_reasons: recipient.match_reasons\n}));\n\nreturn [{\n  json: {\n    alert,\n    matched: matches.length > 0,\n    match_count: matches.length,\n    recipient_count: recipients.length,\n    matched_watch_ids: matches.map((match) => match.watch_id),\n    matches,\n    recipients,\n    delivery_payloads\n  }\n}];\n"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          896,
+          96
+        ],
+        "id": "6c9ed2cb-0ed6-466a-8575-2602e9bdee0a",
+        "name": "Match + Resolve Recipients"
+      },
+      {
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "waw3VpW2qWPnUK1r",
+            "mode": "list",
+            "cachedResultUrl": "/workflow/waw3VpW2qWPnUK1r",
+            "cachedResultName": "CORE - Delivery Guard + Logger v1"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {},
+            "matchingColumns": [],
+            "schema": [],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": true
+          },
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        },
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          1120,
+          96
+        ],
+        "id": "28be6d2c-cbc7-42e4-8b8a-866b9f76e214",
+        "name": "Send to Central Delivery Guard"
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Normalize Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Manual Test Trigger": {
+        "main": [
+          [
+            {
+              "node": "Sample Standard Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Sample Standard Alert": {
+        "main": [
+          [
+            {
+              "node": "Normalize Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize Alert": {
+        "main": [
+          [
+            {
+              "node": "Load Active Watchlist + Recipients",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Load Active Watchlist + Recipients": {
+        "main": [
+          [
+            {
+              "node": "Match + Resolve Recipients",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Match + Resolve Recipients": {
+        "main": [
+          [
+            {
+              "node": "Send to Central Delivery Guard",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate",
+      "availableInMCP": false
+    },
+    "staticData": null,
+    "meta": {
+      "templateCredsSetupCompleted": true
+    },
+    "nodeGroups": [],
+    "pinData": {},
+    "versionId": "e703bd4a-5369-49ea-b14a-d143d81c5be1",
+    "activeVersionId": "e703bd4a-5369-49ea-b14a-d143d81c5be1",
+    "versionCounter": 9,
+    "triggerCount": 0,
+    "sourceWorkflowId": null,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-08-18T21:54:10.081Z",
+        "createdAt": "2026-08-18T21:54:10.081Z",
+        "role": "workflow:owner",
+        "workflowId": "ESH9c2pZ8QfkMosO",
+        "projectId": "yS3HwEq5Z4uW8PkV",
+        "project": {
+          "updatedAt": "2026-08-03T02:15:43.575Z",
+          "createdAt": "2026-08-03T00:30:01.067Z",
+          "id": "yS3HwEq5Z4uW8PkV",
+          "name": "Gio Ahmad <gioahmad@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "customTelemetryTags": [],
+          "creatorId": "2db66e4c-8148-46b2-9276-aa9cc813230d"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": "Version e703bd4a",
+      "description": ""
+    }
+  }
+]
