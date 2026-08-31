@@ -115,6 +115,11 @@
                   <label class="checkbox-row"><input type="checkbox" name="active" value="1" {% if e.active %}checked{% endif %}> Active</label>
                   <button class="primary-button" type="submit">Save Changes</button>
                 </form>
+
+                <form method="post" action="/schedule/{{ e.id }}/create-follow-up" class="toggle-form">
+                  <button class="secondary-button" type="submit">Create Follow-Up</button>
+                </form>
+
                 <form method="post" action="/schedule/{{ e.id }}/toggle" class="toggle-form"><button class="secondary-button" type="submit">{{ 'Deactivate' if e.active else 'Reactivate' }}</button></form>
               </div>
             </details>

@@ -54,7 +54,7 @@ def issues(request: Request, q: str = "", state: str = "open", msg: str = ""):
         f"""
         SELECT id, title, description, category, priority, status, source,
                address, municipality, assigned_to,
-               item_type, next_action, waiting_on,
+               item_type, next_action, waiting_on, operational_event_id,
                due_at AT TIME ZONE 'America/New_York' AS due_local,
                follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local,
                created_at, updated_at, closed_at
@@ -127,6 +127,7 @@ def issue_create(
     waiting_on: str = Form(""),
     due_at: str = Form(""),
     follow_up_at: str = Form(""),
+    operational_event_id: str = Form(""),
 ):
     title = title.strip()
     if not title:
@@ -138,13 +139,15 @@ def issue_create(
         INSERT INTO issues (
           title, description, category, priority, status, source,
           address, municipality, assigned_to,
-          item_type, next_action, waiting_on, due_at, follow_up_at
+          item_type, next_action, waiting_on, due_at, follow_up_at,
+          operational_event_id
         )
         VALUES (
           %s, %s, %s, %s, 'OPEN', 'MANUAL', %s, %s, %s,
           %s, %s, %s,
           NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
-          NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York'
+          NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
+          NULLIF(%s, '')::uuid
         )
         """,
         (
@@ -160,6 +163,7 @@ def issue_create(
             waiting_on.strip() or None,
             due_at.strip(),
             follow_up_at.strip(),
+            operational_event_id.strip(),
         ),
     )
     return RedirectResponse(url="/issues?msg=Issue+created", status_code=303)

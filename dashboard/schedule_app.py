@@ -384,3 +384,51 @@ def my_day(request: Request):
             "counts": counts,
         },
     )
+
+
+@app.post("/schedule/{event_id}/create-follow-up")
+def schedule_create_follow_up(event_id: uuid.UUID):
+    execute(
+        """
+        INSERT INTO issues (
+          title,
+          description,
+          category,
+          priority,
+          status,
+          source,
+          municipality,
+          item_type,
+          operational_event_id
+        )
+        SELECT
+          'Follow up: ' || e.title,
+          CASE
+            WHEN NULLIF(trim(e.objective), '') IS NOT NULL
+              THEN 'Meeting objective: ' || e.objective
+            ELSE NULL
+          END,
+          'MEETING',
+          e.priority,
+          'OPEN',
+          'SCHEDULE',
+          e.municipality,
+          'FOLLOW_UP',
+          e.id
+        FROM operational_events e
+        WHERE e.id = %s
+          AND NOT EXISTS (
+            SELECT 1
+            FROM issues i
+            WHERE i.operational_event_id = e.id
+              AND i.item_type = 'FOLLOW_UP'
+              AND i.status NOT IN ('RESOLVED','CLOSED')
+          )
+        """,
+        (event_id,),
+    )
+
+    return RedirectResponse(
+        url="/issues?msg=Meeting+follow-up+ready",
+        status_code=303,
+    )
