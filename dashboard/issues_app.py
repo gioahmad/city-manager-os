@@ -43,6 +43,9 @@ def issues(request: Request, q: str = "", state: str = "open", msg: str = ""):
     elif state == "communications":
         where.append("status NOT IN ('RESOLVED', 'CLOSED')")
         where.append("item_type = 'COMMUNICATION'")
+    elif state == "decisions":
+        where.append("status NOT IN ('RESOLVED', 'CLOSED')")
+        where.append("item_type = 'DECISION'")
     elif state == "overdue":
         where.append("status NOT IN ('RESOLVED', 'CLOSED')")
         where.append("(due_at < now() OR follow_up_at < now())")
@@ -54,9 +57,10 @@ def issues(request: Request, q: str = "", state: str = "open", msg: str = ""):
         where.append(
             "(title ILIKE %s OR description ILIKE %s OR category ILIKE %s "
             "OR address ILIKE %s OR municipality ILIKE %s OR assigned_to ILIKE %s "
-            "OR item_type ILIKE %s OR next_action ILIKE %s OR waiting_on ILIKE %s)"
+            "OR item_type ILIKE %s OR next_action ILIKE %s OR waiting_on ILIKE %s "
+            "OR decision_options ILIKE %s OR recommendation ILIKE %s OR decision_outcome ILIKE %s)"
         )
-        params.extend([needle] * 9)
+        params.extend([needle] * 12)
 
     clause = f"WHERE {' AND '.join(where)}" if where else ""
     items = query_all(
@@ -64,6 +68,8 @@ def issues(request: Request, q: str = "", state: str = "open", msg: str = ""):
         SELECT id, title, description, category, priority, status, source,
                address, municipality, assigned_to,
                item_type, next_action, waiting_on, operational_event_id,
+               decision_options, recommendation, decision_outcome,
+               decision_by AT TIME ZONE 'America/New_York' AS decision_by_local,
                due_at AT TIME ZONE 'America/New_York' AS due_local,
                follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local,
                created_at, updated_at, closed_at
@@ -111,6 +117,10 @@ def issues(request: Request, q: str = "", state: str = "open", msg: str = ""):
                ) AS communications,
                count(*) FILTER (
                    WHERE status NOT IN ('RESOLVED', 'CLOSED')
+                     AND item_type = 'DECISION'
+               ) AS decisions,
+               count(*) FILTER (
+                   WHERE status NOT IN ('RESOLVED', 'CLOSED')
                      AND (due_at < now() OR follow_up_at < now())
                ) AS overdue,
                count(*) FILTER (
@@ -149,6 +159,10 @@ def issue_create(
     due_at: str = Form(""),
     follow_up_at: str = Form(""),
     operational_event_id: str = Form(""),
+    decision_options: str = Form(""),
+    recommendation: str = Form(""),
+    decision_by: str = Form(""),
+    decision_outcome: str = Form(""),
 ):
     title = title.strip()
     if not title:
@@ -161,14 +175,19 @@ def issue_create(
           title, description, category, priority, status, source,
           address, municipality, assigned_to,
           item_type, next_action, waiting_on, due_at, follow_up_at,
-          operational_event_id
+          operational_event_id,
+          decision_options, recommendation, decision_by, decision_outcome
         )
         VALUES (
           %s, %s, %s, %s, 'OPEN', 'MANUAL', %s, %s, %s,
           %s, %s, %s,
           NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
           NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
-          NULLIF(%s, '')::uuid
+          NULLIF(%s, '')::uuid,
+          %s,
+          %s,
+          NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
+          %s
         )
         """,
         (
@@ -185,6 +204,10 @@ def issue_create(
             due_at.strip(),
             follow_up_at.strip(),
             operational_event_id.strip(),
+            decision_options.strip() or None,
+            recommendation.strip() or None,
+            decision_by.strip(),
+            decision_outcome.strip() or None,
         ),
     )
     return RedirectResponse(url="/issues?msg=Issue+created", status_code=303)
@@ -206,6 +229,10 @@ def issue_update(
     waiting_on: str = Form(""),
     due_at: str = Form(""),
     follow_up_at: str = Form(""),
+    decision_options: str = Form(""),
+    recommendation: str = Form(""),
+    decision_by: str = Form(""),
+    decision_outcome: str = Form(""),
 ):
     title = title.strip()
     if not title:
@@ -230,6 +257,10 @@ def issue_update(
             waiting_on = %s,
             due_at = NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
             follow_up_at = NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
+            decision_options = %s,
+            recommendation = %s,
+            decision_by = NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
+            decision_outcome = %s,
             updated_at = now(),
             closed_at = CASE
               WHEN %s IN ('RESOLVED', 'CLOSED') THEN COALESCE(closed_at, now())
@@ -251,6 +282,10 @@ def issue_update(
             waiting_on.strip() or None,
             due_at.strip(),
             follow_up_at.strip(),
+            decision_options.strip() or None,
+            recommendation.strip() or None,
+            decision_by.strip(),
+            decision_outcome.strip() or None,
             status,
             issue_id,
         ),

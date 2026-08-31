@@ -391,6 +391,24 @@ def my_day(request: Request):
         """
     )
 
+    decisions = query_all(
+        """
+        SELECT
+          id, title, description, priority, assigned_to,
+          next_action, waiting_on,
+          decision_options, recommendation, decision_outcome,
+          decision_by AT TIME ZONE 'America/New_York' AS decision_by_local
+        FROM issues
+        WHERE status NOT IN ('RESOLVED','CLOSED')
+          AND item_type = 'DECISION'
+        ORDER BY
+          decision_by NULLS LAST,
+          priority DESC,
+          updated_at DESC
+        LIMIT 20
+        """
+    )
+
     overdue = query_all(
         """
         SELECT
@@ -461,6 +479,7 @@ def my_day(request: Request):
             "waiting": waiting,
             "commitments": commitments,
             "communications": communications,
+            "decisions": decisions,
             "overdue": overdue,
             "counts": counts,
         },

@@ -222,6 +222,54 @@
 
 </section>
 
+
+<section class="panel" style="margin-top:16px">
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">CHOICES REQUIRING JUDGMENT</div>
+      <h2>Decision Desk</h2>
+    </div>
+    <a class="text-link" href="/issues?state=decisions">View all</a>
+  </div>
+
+  <div class="panel-body compact-list">
+    {% for i in decisions %}
+    <div class="feed-row">
+      <div class="feed-main">
+        <div class="feed-title-row">
+          <span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span>
+          <strong>{{ i.title }}</strong>
+        </div>
+
+        {% if i.recommendation %}
+          <div class="meta"><strong>Recommend:</strong> {{ i.recommendation }}</div>
+        {% endif %}
+
+        {% if i.decision_options %}
+          <div class="meta"><strong>Options:</strong> {{ i.decision_options }}</div>
+        {% endif %}
+
+        {% if i.waiting_on %}
+          <div class="meta">Waiting on: {{ i.waiting_on }}</div>
+        {% endif %}
+
+        {% if i.next_action %}
+          <div class="meta">Next: {{ i.next_action }}</div>
+        {% endif %}
+      </div>
+
+      {% if i.decision_by_local %}
+        <time>Decide {{ i.decision_by_local.strftime('%m/%d %I:%M %p') }}</time>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="empty-state small">
+      <strong>No open decisions</strong>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
 <section class="panel" style="margin-top:16px">
   <div class="panel-head"><div><div class="panel-kicker">PROACTIVE RESURFACING</div><h2>Overdue / Follow Up Now</h2></div><a class="text-link" href="/issues?state=overdue">View all</a></div>
   <div class="panel-body compact-list">
