@@ -90,3 +90,51 @@ SQL
 
 echo
 docker ps --filter name=n8n --format 'n8n: {{.Status}}'
+
+echo
+echo "=== UNEXPECTED ACTIVE WORKFLOWS ==="
+
+N8N_DIR=$(docker inspect n8n --format \
+'{{range .Mounts}}{{if eq .Destination "/home/node/.n8n"}}{{.Source}}{{end}}{{end}}')
+
+python3 - "$N8N_DIR/database.sqlite" <<'PY'
+import sqlite3, json, sys
+
+EXPECTED_RAW = {
+    "waw3VpW2qWPnUK1r",
+    "eRiL5XxpySpnIULD",
+    "ESH9c2pZ8QfkMosO",
+    "sMCW36NqcgIkFrU6",
+    "tnabHwARR0DY3LVl",
+}
+
+con = sqlite3.connect(sys.argv[1])
+con.row_factory = sqlite3.Row
+
+unexpected = []
+
+for r in con.execute("""
+    SELECT id,name,nodes
+    FROM workflow_entity
+    WHERE active=1
+    ORDER BY name
+"""):
+    nodes = json.loads(r["nodes"])
+
+    central = any(
+        "Central Watchlist Matcher" in n.get("name","")
+        or "Build Standard" in n.get("name","")
+        for n in nodes
+    )
+
+    if not central and r["id"] not in EXPECTED_RAW:
+        unexpected.append((r["name"], r["id"]))
+
+if not unexpected:
+    print("NONE — all active workflows accounted for")
+else:
+    for name, wid in unexpected:
+        print(f"CHECK: {name} [{wid}]")
+
+con.close()
+PY
