@@ -1,0 +1,170 @@
+[
+  {
+    "updatedAt": "2026-08-26T23:34:41.863Z",
+    "createdAt": "2026-08-03T14:36:37.095Z",
+    "id": "dWFD3eKf7psieFo3",
+    "name": "NHRFR_DISP",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "nhrfr",
+          "options": {}
+        },
+        "name": "Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [
+          96,
+          432
+        ],
+        "id": "451bcba8-87ea-47ab-8b84-1c556a3d83cc",
+        "webhookId": "d2db1f62-a286-4a58-ac89-62700339f469"
+      },
+      {
+        "parameters": {
+          "jsCode": "for (const item of $input.all()) {\n  const preview = item.json.body?.body_preview || '';\n  \n  // 1. Extract Call Type\n  const dateMatch = preview.match(/\\d{1,2}\\/\\d{1,2}\\s+([^\\s]+)/);\n  const callType = dateMatch ? dateMatch[1] : 'Dispatch';\n  \n  // 2. Extract Town Code\n  const incidentMatch = preview.match(/([^\\s]+)\\s+INCIDENT/i);\n  const townCode = incidentMatch ? incidentMatch[1].toUpperCase() : '';\n  \n  // 3. Map abbreviation to full city name\n  const townMap = {\n    'UC': 'Union City',\n    'WNY': 'West New York',\n    'WEE': 'Weehawken',\n    'GUTT': 'Guttenberg',\n    'NB': 'North Bergen'\n  };\n  const townFull = townMap[townCode] || townCode;\n  \n  // 4. Extract Address\n  let address = '';\n  if (callType && townCode) {\n    // Matches everything between Call Type and Town Code\n    const regexString = `${callType}\\\\s+(.+?)\\\\s+${townCode}\\\\s+INCIDENT`;\n    const addressMatch = preview.match(new RegExp(regexString, 'i'));\n    if (addressMatch) {\n      address = addressMatch[1].trim();\n    }\n  }\n  \n  // 5. Construct Google Maps URL\n  let gmapsUrl = '';\n  if (address && townFull) {\n    const searchString = `${address}, ${townFull}, NJ`;\n    gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchString)}`;\n  }\n  \n  item.json.ntfy_title = townCode ? `${callType} - ${townCode}` : callType;\n  item.json.address = address;\n  item.json.townFull = townFull;\n  item.json.gmapsUrl = gmapsUrl;\n}\n\nreturn $input.all();"
+        },
+        "name": "Parse Dispatch",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          320,
+          432
+        ],
+        "id": "4e3d7f59-00ea-4eb5-912a-a9acffc58ed6"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://ntfy.nhnj.us/NHRFR",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Title",
+                "value": "={{ $json.ntfy_title }}"
+              },
+              {
+                "name": "Click",
+                "value": "={{ $json.gmapsUrl }}"
+              },
+              {
+                "name": "Actions",
+                "value": "=view, Open Map, {{ $json.gmapsUrl }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "raw",
+          "body": "={{ $json.body.body_preview }}\n\nLocation: {{ $json.address }}, {{ $json.townFull }}",
+          "options": {}
+        },
+        "name": "Push to ntfy",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          544,
+          336
+        ],
+        "id": "acb4a26c-240d-4a6c-b880-d6df5e5c7c88"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://nhnj.us/webhooks/logger.php",
+          "sendBody": true,
+          "contentType": "form-urlencoded",
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "message",
+                "value": "={{ $json.body.body_preview }} | Map: {{ $json.gmapsUrl }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "name": "Log to Webpage",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          544,
+          528
+        ],
+        "id": "a9bd0bd9-9fc3-4ab5-8b47-59accbcaf623"
+      }
+    ],
+    "connections": {
+      "Webhook": {
+        "main": [
+          [
+            {
+              "node": "Parse Dispatch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Dispatch": {
+        "main": [
+          [
+            {
+              "node": "Push to ntfy",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Log to Webpage",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate",
+      "availableInMCP": false
+    },
+    "staticData": null,
+    "meta": null,
+    "nodeGroups": [],
+    "pinData": {},
+    "versionId": "f4133133-06d3-4300-9260-a453296f6a92",
+    "activeVersionId": "f4133133-06d3-4300-9260-a453296f6a92",
+    "versionCounter": 24,
+    "triggerCount": 1,
+    "sourceWorkflowId": null,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-08-03T14:36:37.098Z",
+        "createdAt": "2026-08-03T14:36:37.098Z",
+        "role": "workflow:owner",
+        "workflowId": "dWFD3eKf7psieFo3",
+        "projectId": "yS3HwEq5Z4uW8PkV",
+        "project": {
+          "updatedAt": "2026-08-03T02:15:43.575Z",
+          "createdAt": "2026-08-03T00:30:01.067Z",
+          "id": "yS3HwEq5Z4uW8PkV",
+          "name": "Gio Ahmad <gioahmad@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "customTelemetryTags": [],
+          "creatorId": "2db66e4c-8148-46b2-9276-aa9cc813230d"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": "Version f4133133",
+      "description": ""
+    }
+  }
+]
