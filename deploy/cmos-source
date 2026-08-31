@@ -607,6 +607,7 @@ PROFILES = {
     "nhrfr": ("dWFD3eKf7psieFo3", "Build Standard NHRFR Alert"),
     "nhrfr_radio": ("2JiMOS2UJl9gWa02", "Build Standard NHRFR Radio Alert"),
     "wpd_radio": ("UKtblSE48goN2RVX", "Build Standard WPD Radio Alert"),
+    "pseg": ("EN6Uc0NZKsBd5AxF", "Build Standard PSEG Alerts"),
 }
 
 if not requested:
