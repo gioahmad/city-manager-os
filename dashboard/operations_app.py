@@ -100,13 +100,57 @@ def operations_home(request: Request):
         """
     )
 
-    open_issues = query_all(
+    command_center = query_all(
         """
-        SELECT id, title, category, priority, status, assigned_to, updated_at
+        SELECT
+          id, title, item_type, category, priority, status,
+          assigned_to, next_action, waiting_on,
+          due_at AT TIME ZONE 'America/New_York' AS due_local,
+          follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local,
+          updated_at,
+          CASE
+            WHEN due_at IS NOT NULL AND due_at <= now() THEN 'DUE'
+            WHEN follow_up_at IS NOT NULL AND follow_up_at <= now() THEN 'FOLLOW UP'
+            WHEN waiting_on IS NOT NULL AND trim(waiting_on) <> '' THEN 'WAITING'
+            WHEN next_action IS NULL OR trim(next_action) = '' THEN 'NO NEXT ACTION'
+            ELSE 'OPEN'
+          END AS loop_status
         FROM issues
         WHERE status NOT IN ('RESOLVED','CLOSED')
-        ORDER BY priority DESC, updated_at DESC
+        ORDER BY
+          CASE
+            WHEN due_at IS NOT NULL AND due_at <= now() THEN 0
+            WHEN follow_up_at IS NOT NULL AND follow_up_at <= now() THEN 1
+            WHEN waiting_on IS NOT NULL AND trim(waiting_on) <> '' THEN 2
+            WHEN next_action IS NULL OR trim(next_action) = '' THEN 3
+            ELSE 4
+          END,
+          priority DESC,
+          updated_at DESC
         LIMIT 10
+        """
+    )
+
+    command_counts = query_one(
+        """
+        SELECT
+          count(*) FILTER (
+            WHERE status NOT IN ('RESOLVED','CLOSED')
+              AND (
+                (due_at IS NOT NULL AND due_at < ((date_trunc('day', now() AT TIME ZONE 'America/New_York') + interval '1 day') AT TIME ZONE 'America/New_York'))
+                OR
+                (follow_up_at IS NOT NULL AND follow_up_at < ((date_trunc('day', now() AT TIME ZONE 'America/New_York') + interval '1 day') AT TIME ZONE 'America/New_York'))
+              )
+          ) AS today,
+          count(*) FILTER (
+            WHERE status NOT IN ('RESOLVED','CLOSED')
+              AND NULLIF(trim(waiting_on), '') IS NOT NULL
+          ) AS waiting,
+          count(*) FILTER (
+            WHERE status NOT IN ('RESOLVED','CLOSED')
+              AND NULLIF(trim(next_action), '') IS NULL
+          ) AS no_next_action
+        FROM issues
         """
     )
 
@@ -119,7 +163,8 @@ def operations_home(request: Request):
             "intelligence_feed": intelligence_feed,
             "source_health": source_health,
             "recent_deliveries": recent_deliveries,
-            "open_issues": open_issues,
+            "command_center": command_center,
+            "command_counts": command_counts,
             "generated_at": datetime.now(),
             "page": "overview",
         },
