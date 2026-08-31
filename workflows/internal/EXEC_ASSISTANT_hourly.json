@@ -124,6 +124,60 @@
       "id": "4e8c845a-4fdd-4132-b75e-257466258d94",
       "name": "Send Executive Assistant to Central Watchlist Matcher",
       "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c821217e-dd9b-40f3-95c8-5a4f0b2c1850",
+      "name": "Morning Brief Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        -800,
+        420
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "80b1cbaa-1bfb-4fd6-954f-1a163323a380",
+      "name": "Load Morning Brief",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      },
+      "position": [
+        -550,
+        420
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nWITH bounds AS (\n  SELECT\n    date_trunc(\n      'day',\n      now() AT TIME ZONE 'America/New_York'\n    ) AT TIME ZONE 'America/New_York' AS day_start,\n\n    (\n      date_trunc(\n        'day',\n        now() AT TIME ZONE 'America/New_York'\n      ) + interval '1 day'\n    ) AT TIME ZONE 'America/New_York' AS day_end\n)\n\nSELECT\n  to_char(\n    now() AT TIME ZONE 'America/New_York',\n    'YYYY-MM-DD'\n  ) AS brief_day,\n\n  to_char(\n    now() AT TIME ZONE 'America/New_York',\n    'Dy Mon DD'\n  ) AS date_label,\n\n  COALESCE((\n    SELECT jsonb_agg(\n      jsonb_build_object(\n        'title', x.title,\n        'time', x.event_time,\n        'location', x.location_name\n      )\n    )\n    FROM (\n      SELECT\n        e.title,\n        to_char(\n          e.starts_at AT TIME ZONE 'America/New_York',\n          'FMHH12:MI AM'\n        ) AS event_time,\n        COALESCE(e.location_name, '') AS location_name\n      FROM operational_events e, bounds b\n      WHERE e.active = true\n        AND e.starts_at >= b.day_start\n        AND e.starts_at < b.day_end\n      ORDER BY e.starts_at\n      LIMIT 8\n    ) x\n  ), '[]'::jsonb) AS schedule_items,\n\n  (\n    SELECT count(*)\n    FROM operational_events e, bounds b\n    WHERE e.active = true\n      AND e.starts_at >= b.day_start\n      AND e.starts_at < b.day_end\n  ) AS schedule_count,\n\n  COALESCE((\n    SELECT jsonb_agg(\n      jsonb_build_object(\n        'title', x.title,\n        'type', x.item_type,\n        'next', x.next_action,\n        'waiting_on', x.waiting_on\n      )\n    )\n    FROM (\n      SELECT\n        i.title,\n        i.item_type,\n        i.next_action,\n        i.waiting_on\n      FROM issues i\n      WHERE i.status NOT IN ('RESOLVED','CLOSED')\n        AND (\n          i.due_at <= now()\n          OR i.follow_up_at <= now()\n        )\n      ORDER BY\n        i.priority DESC,\n        COALESCE(i.due_at, i.follow_up_at),\n        i.updated_at DESC\n      LIMIT 5\n    ) x\n  ), '[]'::jsonb) AS attention_items,\n\n  (\n    SELECT count(*)\n    FROM issues\n    WHERE status NOT IN ('RESOLVED','CLOSED')\n      AND (\n        due_at <= now()\n        OR follow_up_at <= now()\n      )\n  ) AS attention_count,\n\n  COALESCE((\n    SELECT jsonb_agg(\n      jsonb_build_object(\n        'title', x.title,\n        'recommendation', x.recommendation,\n        'decision_by', x.decision_time\n      )\n    )\n    FROM (\n      SELECT\n        i.title,\n        i.recommendation,\n        CASE\n          WHEN i.decision_by IS NULL THEN ''\n          ELSE to_char(\n            i.decision_by AT TIME ZONE 'America/New_York',\n            'MM/DD FMHH12:MI AM'\n          )\n        END AS decision_time\n      FROM issues i\n      WHERE i.status NOT IN ('RESOLVED','CLOSED')\n        AND i.item_type = 'DECISION'\n        AND (\n          NULLIF(trim(i.decision_outcome), '') IS NULL\n          OR upper(trim(i.decision_outcome)) = 'PENDING'\n        )\n      ORDER BY\n        i.decision_by NULLS LAST,\n        i.priority DESC,\n        i.updated_at DESC\n      LIMIT 4\n    ) x\n  ), '[]'::jsonb) AS decision_items,\n\n  (\n    SELECT count(*)\n    FROM issues\n    WHERE status NOT IN ('RESOLVED','CLOSED')\n      AND item_type = 'DECISION'\n      AND (\n        NULLIF(trim(decision_outcome), '') IS NULL\n        OR upper(trim(decision_outcome)) = 'PENDING'\n      )\n  ) AS decision_count,\n\n  (\n    SELECT count(*)\n    FROM issues\n    WHERE status NOT IN ('RESOLVED','CLOSED')\n      AND NULLIF(trim(waiting_on), '') IS NOT NULL\n  ) AS waiting_count,\n\n  (\n    SELECT count(*)\n    FROM issues\n    WHERE status NOT IN ('RESOLVED','CLOSED')\n      AND item_type = 'COMMITMENT'\n  ) AS commitment_count,\n\n  (\n    SELECT count(*)\n    FROM issues\n    WHERE status NOT IN ('RESOLVED','CLOSED')\n      AND item_type = 'COMMUNICATION'\n  ) AS communication_count,\n\n  COALESCE((\n    SELECT jsonb_agg(\n      jsonb_build_object(\n        'title', x.title,\n        'source', x.source,\n        'priority', x.priority\n      )\n    )\n    FROM (\n      SELECT\n        a.title,\n        a.source,\n        a.priority\n      FROM alerts a\n      WHERE a.status <> 'RESOLVED'\n        AND a.source <> 'EXEC_ASSISTANT'\n        AND (\n          a.expires_at IS NULL\n          OR a.expires_at > now()\n        )\n      ORDER BY\n        a.priority DESC,\n        a.received_at DESC\n      LIMIT 4\n    ) x\n  ), '[]'::jsonb) AS priority_alerts,\n\n  (\n    SELECT count(*)\n    FROM alerts a\n    WHERE a.status <> 'RESOLVED'\n      AND a.source <> 'EXEC_ASSISTANT'\n      AND (\n        a.expires_at IS NULL\n        OR a.expires_at > now()\n      )\n  ) AS priority_alert_count,\n\n  COALESCE((\n    SELECT jsonb_agg(\n      jsonb_build_object(\n        'source', x.source_id,\n        'status', x.status\n      )\n    )\n    FROM (\n      SELECT\n        source_id,\n        status\n      FROM source_health\n      WHERE upper(status) NOT IN ('OK','HEALTHY')\n      ORDER BY updated_at DESC\n      LIMIT 6\n    ) x\n  ), '[]'::jsonb) AS source_warnings,\n\n  (\n    SELECT count(*)\n    FROM source_health\n    WHERE upper(status) NOT IN ('OK','HEALTHY')\n  ) AS source_warning_count;\n",
+        "options": {}
+      }
+    },
+    {
+      "id": "1e1f99e8-3493-4fad-a147-89e8ea4a4c44",
+      "name": "Build Standard Morning Brief Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -300,
+        420
+      ],
+      "parameters": {
+        "jsCode": "\nfunction asArray(v) {\n  if (Array.isArray(v)) return v;\n  if (!v) return [];\n\n  if (typeof v === 'string') {\n    try {\n      const parsed = JSON.parse(v);\n      return Array.isArray(parsed) ? parsed : [];\n    } catch (_) {\n      return [];\n    }\n  }\n\n  return [];\n}\n\nreturn $input.all().map((item) => {\n  const j = item.json || {};\n\n  // Validation mode. This is switched off after the live test.\n  const testMode = false;\n\n  const schedule = asArray(j.schedule_items);\n  const attention = asArray(j.attention_items);\n  const decisions = asArray(j.decision_items);\n  const alerts = asArray(j.priority_alerts);\n  const warnings = asArray(j.source_warnings);\n\n  const day = String(j.brief_day || '');\n  const dateLabel = String(j.date_label || day);\n  const now = new Date().toISOString();\n\n  const lines = [];\n\n  if (schedule.length) {\n    const text = schedule.map((x) => {\n      let s = `${x.time || ''} ${x.title || ''}`.trim();\n      if (x.location) s += ` @ ${x.location}`;\n      return s;\n    }).join(' | ');\n\n    lines.push(\n      `Schedule (${j.schedule_count || schedule.length}): ${text}`\n    );\n  } else {\n    lines.push('Schedule: Clear');\n  }\n\n  if (Number(j.attention_count || 0) > 0) {\n    const text = attention.map((x) => {\n      let s = x.title || 'Open Loop';\n      if (x.next) s += ` \u2014 ${x.next}`;\n      return s;\n    }).join(' | ');\n\n    lines.push(\n      `Needs attention (${j.attention_count}): ${text}`\n    );\n  } else {\n    lines.push('Needs attention: None overdue');\n  }\n\n  if (Number(j.decision_count || 0) > 0) {\n    const text = decisions.map((x) => {\n      let s = x.title || 'Decision';\n\n      if (x.recommendation) {\n        s += ` \u2014 Recommend: ${x.recommendation}`;\n      }\n\n      if (x.decision_by) {\n        s += ` (${x.decision_by})`;\n      }\n\n      return s;\n    }).join(' | ');\n\n    lines.push(\n      `Decisions (${j.decision_count}): ${text}`\n    );\n  }\n\n  lines.push(\n    `Waiting: ${j.waiting_count || 0} \u00b7 ` +\n    `Commitments: ${j.commitment_count || 0} \u00b7 ` +\n    `Comms: ${j.communication_count || 0}`\n  );\n\n  if (alerts.length) {\n    const text = alerts.map((x) => {\n      return `${x.source || 'ALERT'}: ${x.title || ''}`;\n    }).join(' | ');\n\n    lines.push(\n      `Priority alerts (${j.priority_alert_count || alerts.length}): ${text}`\n    );\n  } else {\n    lines.push('Priority alerts: None active');\n  }\n\n  if (warnings.length) {\n    const text = warnings.map((x) => {\n      return `${x.source || ''} ${x.status || ''}`.trim();\n    }).join(' | ');\n\n    lines.push(\n      `Source warnings (${j.source_warning_count || warnings.length}): ${text}`\n    );\n  } else {\n    lines.push('Systems: All monitored sources healthy');\n  }\n\n  const title = testMode\n    ? `Morning Brief TEST \u2014 ${dateLabel}`\n    : `Morning Brief \u2014 ${dateLabel}`;\n\n  const testSuffix = testMode ? ':TEST' : '';\n\n  const alert = {\n    schema_version: '1.0',\n    alert_id:\n      `EXEC_ASSISTANT:MORNING_BRIEF${testSuffix}:${day}`,\n    source: 'EXEC_ASSISTANT',\n    source_event_id:\n      `MORNING_BRIEF${testSuffix}:${day}`,\n    category: 'EXECUTIVE',\n    subtype: 'MORNING_BRIEF',\n    status: 'ACTIVE',\n    event_action: 'DAILY_BRIEF',\n    title,\n    message: lines.join('\\n').substring(0, 3900),\n    priority: 3,\n    county: 'HUDSON',\n    municipality: 'Weehawken',\n    location: {\n      label: 'City Manager OS \u00b7 My Day',\n      address: '',\n      state: 'NJ',\n      zip: '',\n      latitude: null,\n      longitude: null,\n      block: '',\n      lot: '',\n      qualifier: '',\n      parcel_id: ''\n    },\n    tags: [\n      'executive-assistant',\n      'morning-brief',\n      'daily-brief'\n    ],\n    click_url: 'http://100.94.203.47:8090/my-day',\n    source_url: '',\n    observed_at: now,\n    source_updated_at: null,\n    received_at: now,\n    expires_at: null,\n    metadata: {\n      brief_day: day,\n      test_mode: testMode,\n      schedule_count: Number(j.schedule_count || 0),\n      attention_count: Number(j.attention_count || 0),\n      decision_count: Number(j.decision_count || 0),\n      waiting_count: Number(j.waiting_count || 0),\n      commitment_count: Number(j.commitment_count || 0),\n      communication_count: Number(j.communication_count || 0),\n      priority_alert_count: Number(j.priority_alert_count || 0),\n      source_warning_count: Number(j.source_warning_count || 0)\n    }\n  };\n\n  alert.search_text = [\n    alert.source,\n    alert.category,\n    alert.subtype,\n    alert.title,\n    alert.message,\n    ...alert.tags\n  ].filter(Boolean).join(' ');\n\n  return {json: alert};\n});\n"
+      }
     }
   ],
   "connections": {
@@ -181,13 +235,47 @@
           }
         ]
       ]
+    },
+    "Morning Brief Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load Morning Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Morning Brief": {
+      "main": [
+        [
+          {
+            "node": "Build Standard Morning Brief Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Standard Morning Brief Alert": {
+      "main": [
+        [
+          {
+            "node": "Upsert Executive Assistant Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
-    "availableInMCP": false
+    "availableInMCP": false,
+    "timezone": "America/New_York"
   },
-  "versionCounter": 4,
+  "versionCounter": 6,
   "description": "Proactive executive open-loop reminders through Watchlist Matcher and Delivery Guard."
 }

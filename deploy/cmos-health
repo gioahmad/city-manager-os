@@ -49,7 +49,16 @@ else:
         None
     )
 
+    morning = next(
+        (
+            n for n in nodes
+            if n.get("name") == "Morning Brief Trigger"
+        ),
+        None
+    )
+
     interval = "?"
+
     if sched:
         interval = (
             sched.get("parameters", {})
@@ -57,6 +66,23 @@ else:
                  .get("interval", [{}])[0]
                  .get("minutesInterval", "?")
         )
+
+    morning_schedule = "missing"
+
+    if morning:
+        rule = (
+            morning.get("parameters", {})
+                   .get("rule", {})
+                   .get("interval", [{}])[0]
+        )
+
+        if rule.get("field") == "cronExpression":
+            morning_schedule = rule.get(
+                "expression",
+                "?"
+            )
+        else:
+            morning_schedule = str(rule)
 
     published = con.execute(
         '''
@@ -72,7 +98,8 @@ else:
         f"EXEC_ASSISTANT "
         f"active={r['active']} "
         f"published={published} "
-        f"interval={interval}m "
+        f"open_loops={interval}m "
+        f"morning='{morning_schedule}' "
         f"version={r['versionCounter']}"
     )
 
