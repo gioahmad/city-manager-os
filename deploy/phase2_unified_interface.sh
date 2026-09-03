@@ -128,7 +128,10 @@ LOGIN_STATUS="$(curl -fsS -o "$LOGIN_HTML" -w '%{http_code}' "$PUBLIC_ORIGIN/sta
 grep -q 'WEEHAWKEN OPERATIONS' "$LOGIN_HTML" || fail "Employee brand marker missing."
 grep -q 'Employee Login' "$LOGIN_HTML" || fail "Employee login marker missing."
 rm -f "$LOGIN_HTML"
-curl -fsS "$PUBLIC_ORIGIN/static/staff.css" | grep -q -- '--staff-brand:#102a43' || fail "Public staff stylesheet is not the unified design."
+STAFF_CSS="$(mktemp)"
+curl -fsS "$PUBLIC_ORIGIN/static/staff.css" > "$STAFF_CSS"
+grep -q -- '--staff-brand:#102a43' "$STAFF_CSS" || fail "Public staff stylesheet is not the unified design."
+rm -f "$STAFF_CSS"
 
 log "Confirming staff port remains localhost-only"
 PORT_LINE="$(ss -lntp | grep -E ':8091\b' || true)"
