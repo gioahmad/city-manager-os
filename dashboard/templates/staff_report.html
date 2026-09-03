@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Report Work · Township Operations</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.staff-wrap{max-width:680px;margin:auto;padding:18px}
+.staff-wrap input,.staff-wrap select,.staff-wrap textarea{font-size:17px;padding:13px}
+.back{display:inline-block;margin-bottom:14px}
+</style>
+</head>
+<body>
+<div class="staff-wrap">
+<a class="back" href="/staff/{{ token }}">← Employee Hub</a>
+<div class="eyebrow">QUICK REPORT</div>
+<h1>Submit Work Request</h1>
+
+<form method="post" action="/staff/{{ token }}/report" class="watch-form">
+
+<label>Your Name
+<input name="employee_name" required autocomplete="name">
+</label>
+
+<label>Department
+<select name="department" required>
+{% for d in departments %}
+<option value="{{ d }}">{{ d }}</option>
+{% endfor %}
+</select>
+</label>
+
+<label>Building / Park / Location
+<input name="location" placeholder="Town Hall, Waterfront Park, 400 Park Ave...">
+</label>
+
+<label>What needs to be done?
+<input name="title" required placeholder="Broken light, cleanup needed, door issue...">
+</label>
+
+<label>Details
+<textarea name="description" rows="4" placeholder="Anything the supervisor or employee should know"></textarea>
+</label>
+
+<label>Urgency
+<select name="priority">
+<option value="1">Routine</option>
+<option value="2">Normal</option>
+<option value="3" selected>Important</option>
+<option value="4">Urgent</option>
+<option value="5">Critical / Immediate</option>
+</select>
+</label>
+
+<label>Add Checklist
+<select name="checklist_template">
+<option value="NONE">No checklist</option>
+<option value="GENERAL">General Work Checklist</option>
+<option value="SITE_CHECK">Site / Facility Check</option>
+<option value="EVENT_SETUP">Event Setup</option>
+<option value="VEHICLE">Vehicle / Equipment</option>
+<option value="OPEN_CLOSE">Opening / Closing</option>
+</select>
+</label>
+
+<button class="primary-button" type="submit">Submit Work Request</button>
+</form>
+</div>
+</body>
+</html>

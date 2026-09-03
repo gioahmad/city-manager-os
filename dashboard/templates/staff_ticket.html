@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>#{{ issue.ticket_code }} · Township Operations</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.staff-wrap{max-width:800px;margin:auto;padding:18px}
+.ticket-box{background:#fff;border:1px solid #ddd;border-radius:14px;padding:18px;margin:14px 0}
+.check-row{display:flex;gap:12px;align-items:center;border-bottom:1px solid #eee;padding:12px 0}
+.check-row:last-child{border-bottom:0}
+.check-button{font-size:20px;min-width:42px;height:42px;border-radius:10px;border:1px solid #ccc;background:#fff}
+.done{text-decoration:line-through;opacity:.55}
+.status-actions{display:flex;flex-wrap:wrap;gap:8px}
+.status-actions form{margin:0}
+.update{border-left:3px solid #ccc;padding:8px 12px;margin:10px 0}
+</style>
+</head>
+<body>
+<div class="staff-wrap">
+
+{% if name %}
+<a href="/staff/{{ token }}/work?name={{ name }}">← My Work</a>
+{% else %}
+<a href="/staff/{{ token }}">← Employee Hub</a>
+{% endif %}
+
+{% if created %}
+<div class="flash" style="margin-top:14px">Work request submitted successfully.</div>
+{% endif %}
+
+<div class="eyebrow" style="margin-top:16px">WORK TICKET #{{ issue.ticket_code }}</div>
+<h1>{{ issue.title }}</h1>
+
+<div class="ticket-box">
+<div class="meta">{{ issue.status.replace('_',' ') }} · P{{ issue.priority }}</div>
+{% if issue.submitted_by %}<p><strong>Submitted by:</strong> {{ issue.submitted_by }}{% if issue.submitted_department %} · {{ issue.submitted_department }}{% endif %}</p>{% endif %}
+{% if issue.employee_location %}<p><strong>Location:</strong> {{ issue.employee_location }}</p>{% endif %}
+{% if issue.assigned_to %}<p><strong>Assigned:</strong> {{ issue.assigned_to }}</p>{% endif %}
+{% if issue.description %}<p>{{ issue.description }}</p>{% endif %}
+{% if issue.next_action %}<p><strong>Next:</strong> {{ issue.next_action }}</p>{% endif %}
+</div>
+
+{% if name %}
+<div class="ticket-box">
+<h2>Status</h2>
+<div class="status-actions">
+{% for status,label in [('IN_PROGRESS','Start Work'),('ON_HOLD','Put On Hold'),('RESOLVED','Mark Complete')] %}
+<form method="post" action="/staff/{{ token }}/ticket/{{ issue.id }}/status">
+<input type="hidden" name="employee_name" value="{{ name }}">
+<input type="hidden" name="status" value="{{ status }}">
+<button class="{% if status == 'RESOLVED' %}primary-button{% else %}secondary-button{% endif %}" type="submit">{{ label }}</button>
+</form>
+{% endfor %}
+</div>
+</div>
+{% endif %}
+
+{% if checklist %}
+<div class="ticket-box">
+<h2>Checklist</h2>
+{% for c in checklist %}
+<div class="check-row">
+{% if name %}
+<form method="post" action="/staff/{{ token }}/ticket/{{ issue.id }}/checklist/{{ c.id }}">
+<input type="hidden" name="employee_name" value="{{ name }}">
+<button class="check-button" type="submit">{{ '✓' if c.completed else '○' }}</button>
+</form>
+{% else %}
+<div class="check-button">{{ '✓' if c.completed else '○' }}</div>
+{% endif %}
+<div class="{% if c.completed %}done{% endif %}">
+<strong>{{ c.label }}</strong>
+{% if c.completed_by %}<div class="meta">Completed by {{ c.completed_by }}</div>{% endif %}
+</div>
+</div>
+{% endfor %}
+</div>
+{% endif %}
+
+{% if name %}
+<div class="ticket-box">
+<h2>Add Update</h2>
+<form method="post" action="/staff/{{ token }}/ticket/{{ issue.id }}/note" class="watch-form">
+<input type="hidden" name="employee_name" value="{{ name }}">
+<textarea name="note" rows="3" required placeholder="Work completed, parts needed, could not access area..."></textarea>
+<button class="primary-button" type="submit">Add Update</button>
+</form>
+</div>
+{% endif %}
+
+<div class="ticket-box">
+<h2>Activity</h2>
+{% for u in updates %}
+<div class="update">
+<strong>{{ u.author }}</strong>
+<div>{{ u.note }}</div>
+<div class="meta">{{ u.created_at.strftime('%m/%d %I:%M %p') if u.created_at else '' }}</div>
+</div>
+{% else %}
+<div class="empty-state small">No updates yet</div>
+{% endfor %}
+</div>
+
+</div>
+</body>
+</html>

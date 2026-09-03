@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My Work · Township Operations</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.staff-wrap{max-width:800px;margin:auto;padding:18px}
+.work-card{display:block;text-decoration:none;color:inherit;background:#fff;border:1px solid #ddd;border-radius:14px;padding:16px;margin:12px 0}
+.work-row{display:flex;justify-content:space-between;gap:12px}
+.ticket{font-weight:700;font-size:12px;opacity:.6}
+</style>
+</head>
+<body>
+<div class="staff-wrap">
+<a href="/staff/{{ token }}">← Employee Hub</a>
+<div class="eyebrow" style="margin-top:14px">EMPLOYEE WORK</div>
+<h1>My Work</h1>
+
+<form method="get" action="/staff/{{ token }}/work" class="watch-form">
+<label>Your Name
+<input name="name" value="{{ name }}" required>
+</label>
+<button class="secondary-button" type="submit">Refresh</button>
+</form>
+
+{% if name %}
+<h2>{{ name }}</h2>
+
+{% for i in items %}
+<a class="work-card" href="/staff/{{ token }}/ticket/{{ i.id }}?name={{ name }}">
+<div class="work-row">
+<div>
+<div class="ticket">#{{ i.ticket_code }}</div>
+<strong>{{ i.title }}</strong>
+<div class="meta">{{ i.status.replace('_',' ') }} · P{{ i.priority }}</div>
+{% if i.employee_location %}<div class="meta">{{ i.employee_location }}</div>{% endif %}
+{% if i.assigned_to %}<div class="meta">Assigned: {{ i.assigned_to }}</div>{% endif %}
+{% if i.next_action %}<div class="meta">Next: {{ i.next_action }}</div>{% endif %}
+</div>
+{% if i.checklist_total %}
+<div><strong>{{ i.checklist_done }}/{{ i.checklist_total }}</strong><div class="meta">checklist</div></div>
+{% endif %}
+</div>
+</a>
+{% else %}
+<div class="empty-state small"><strong>No work found for this name</strong></div>
+{% endfor %}
+{% endif %}
+</div>
+</body>
+</html>
