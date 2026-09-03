@@ -11,6 +11,8 @@ services:
       DB_NAME: citymanager
       DB_USER: citymanager_app
       STAFF_UPLOAD_DIR: /app/uploads
+      TZ: "${APP_TIMEZONE:-America/New_York}"
+      PGTZ: "${APP_TIMEZONE:-America/New_York}"
     ports:
       - "${DASHBOARD_BIND_IP:-127.0.0.1}:8090:8000"
     volumes:
@@ -30,6 +32,8 @@ services:
       DB_NAME: citymanager
       DB_USER: citymanager_app
       STAFF_UPLOAD_DIR: /app/uploads
+      TZ: "${APP_TIMEZONE:-America/New_York}"
+      PGTZ: "${APP_TIMEZONE:-America/New_York}"
       STAFF_SECURE_COOKIES: "${STAFF_SECURE_COOKIES:-false}"
       STAFF_TRUST_PROXY: "${STAFF_TRUST_PROXY:-false}"
       STAFF_PUBLIC_ORIGIN: "${STAFF_PUBLIC_ORIGIN:-}"
