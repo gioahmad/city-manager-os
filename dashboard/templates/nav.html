@@ -1,4 +1,13 @@
 <link rel="stylesheet" href="/static/ops.css?v=20260903-2">
+<style>
+@media (min-width:841px){
+  .desktop-nav{display:block!important;overflow:hidden}
+  .desktop-nav .nav-inner{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;overflow-x:auto;overflow-y:hidden;white-space:nowrap;scrollbar-width:none}
+  .desktop-nav .nav-inner::-webkit-scrollbar{display:none}
+  .desktop-nav a{display:flex!important;flex:0 0 auto}
+  .desktop-nav .nav-divider{display:block;flex:0 0 1px;width:1px;height:18px;background:#d5dee6;margin:0 5px}
+}
+</style>
 <nav class="main-nav desktop-nav" aria-label="Primary navigation">
   <div class="nav-inner">
     <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Overview</a>
