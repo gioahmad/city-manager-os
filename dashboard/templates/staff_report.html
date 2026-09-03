@@ -11,7 +11,7 @@
 
 <div class="staff-top">
 <div>
-<a class="staff-link" href="/staff/{{ token }}/home">← Home</a>
+<a class="staff-link" href="/staff/home">← Home</a>
 <h1 class="staff-name" style="margin-top:12px">Report an Issue</h1>
 <div class="staff-muted">You are reporting as {{ employee.full_name }}</div>
 </div>
@@ -21,7 +21,7 @@
 
 <form
   method="post"
-  action="/staff/{{ token }}/report"
+  action="/staff/report"
   enctype="multipart/form-data"
   class="staff-form"
 >

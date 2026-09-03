@@ -15,23 +15,23 @@
 <h1 class="staff-name">Hello, {{ employee.full_name }}</h1>
 <div class="staff-muted">{{ employee.department }} · ID {{ employee.employee_id }}</div>
 </div>
-<a class="staff-link" href="/staff/{{ token }}/logout">Sign Out</a>
+<a class="staff-link" href="/staff/logout">Sign Out</a>
 </div>
 
 <div class="staff-grid">
 
-<a class="staff-action" href="/staff/{{ token }}/report">
+<a class="staff-action" href="/staff/report">
 <strong>Report an Issue</strong>
 <span>Photo, location and work type</span>
 </a>
 
-<a class="staff-action secondary" href="/staff/{{ token }}/work">
+<a class="staff-action secondary" href="/staff/work">
 <strong>My Work</strong>
 <span>Assignments and submitted requests</span>
 </a>
 
 {% if employee.role == 'SUPERVISOR' %}
-<a class="staff-action secondary" href="/staff/{{ token }}/supervisor">
+<a class="staff-action secondary" href="/staff/supervisor">
 <strong>Supervisor Queue</strong>
 <span>Review and assign work</span>
 </a>

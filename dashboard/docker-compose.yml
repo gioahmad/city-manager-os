@@ -30,9 +30,15 @@ services:
       DB_NAME: citymanager
       DB_USER: citymanager_app
       STAFF_UPLOAD_DIR: /app/uploads
+      STAFF_SECURE_COOKIES: "${STAFF_SECURE_COOKIES:-false}"
+      STAFF_TRUST_PROXY: "${STAFF_TRUST_PROXY:-false}"
+      STAFF_PUBLIC_ORIGIN: "${STAFF_PUBLIC_ORIGIN:-}"
+      STAFF_ALLOWED_HOSTS: "${STAFF_ALLOWED_HOSTS:-*}"
+      STAFF_LOGIN_MAX_FAILURES: "${STAFF_LOGIN_MAX_FAILURES:-8}"
+      STAFF_LOGIN_WINDOW_SECONDS: "${STAFF_LOGIN_WINDOW_SECONDS:-900}"
     command:
       - uvicorn
-      - employee_app:staff_app
+      - employee_public_app:staff_app
       - --host
       - 0.0.0.0
       - --port
@@ -40,7 +46,7 @@ services:
       - --workers
       - "1"
     ports:
-      - "0.0.0.0:8091:8000"
+      - "${STAFF_BIND_IP:-0.0.0.0}:8091:8000"
     volumes:
       - /var/lib/city-manager-os/staff_uploads:/app/uploads
     networks:
