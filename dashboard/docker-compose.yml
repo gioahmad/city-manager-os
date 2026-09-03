@@ -10,8 +10,11 @@ services:
       DB_PORT: 5432
       DB_NAME: citymanager
       DB_USER: citymanager_app
+      STAFF_UPLOAD_DIR: /app/uploads
     ports:
       - "${DASHBOARD_BIND_IP:-127.0.0.1}:8090:8000"
+    volumes:
+      - /var/lib/city-manager-os/staff_uploads:/app/uploads
     networks:
       - citymanager
 
@@ -26,6 +29,7 @@ services:
       DB_PORT: 5432
       DB_NAME: citymanager
       DB_USER: citymanager_app
+      STAFF_UPLOAD_DIR: /app/uploads
     command:
       - uvicorn
       - employee_app:staff_app
@@ -37,6 +41,8 @@ services:
       - "1"
     ports:
       - "0.0.0.0:8091:8000"
+    volumes:
+      - /var/lib/city-manager-os/staff_uploads:/app/uploads
     networks:
       - citymanager
 

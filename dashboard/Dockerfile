@@ -14,6 +14,7 @@ COPY operations_app.py .
 COPY schedule_app.py .
 COPY rules_app.py .
 COPY employee_app.py .
+COPY staff_admin_app.py .
 COPY templates ./templates
 COPY static ./static
 

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Supervisor Queue</title>
+<link rel="stylesheet" href="/static/staff.css">
+</head>
+<body class="staff-body">
+<div class="staff-shell">
+
+<div class="staff-top">
+<div>
+<a class="staff-link" href="/staff/{{ token }}/home">← Home</a>
+<h1 class="staff-name" style="margin-top:12px">Supervisor Queue</h1>
+<div class="staff-muted">{{ employee.full_name }}</div>
+</div>
+</div>
+
+{% for item in queue %}
+
+<div class="staff-card">
+
+<div class="staff-ticket">#{{ item.ticket_code }}</div>
+<div class="staff-work-title">{{ item.title }}</div>
+
+<div class="staff-row">
+<span class="staff-status">{{ item.status.replace('_',' ') }}</span>
+<strong>P{{ item.priority }}</strong>
+</div>
+
+{% if item.employee_location %}
+<div class="staff-muted" style="margin-top:8px">
+{{ item.employee_location }}
+</div>
+{% endif %}
+
+<div class="staff-muted" style="margin-top:5px">
+Reported by {{ item.submitted_by or 'Unknown' }}
+</div>
+
+{% if item.photo_count %}
+<div class="staff-muted" style="margin-top:5px">
+{{ item.photo_count }} photo{{ '' if item.photo_count == 1 else 's' }}
+</div>
+{% endif %}
+
+<form
+  method="post"
+  action="/staff/{{ token }}/supervisor/{{ item.id }}/assign"
+  class="staff-form"
+>
+
+<label>Assign To</label>
+
+<select name="employee_uuid" required>
+<option value="">Choose employee...</option>
+
+{% for emp in employees %}
+<option value="{{ emp.id }}">
+{{ emp.full_name }} — {{ emp.department }}
+</option>
+{% endfor %}
+
+</select>
+
+<button class="staff-button primary" type="submit">
+Assign Work
+</button>
+
+</form>
+
+<div style="margin-top:10px">
+<a
+  class="staff-link"
+  href="/staff/{{ token }}/ticket/{{ item.id }}"
+>
+Open Ticket →
+</a>
+</div>
+
+</div>
+
+{% else %}
+
+<div class="staff-card">
+<strong>No open work in the queue.</strong>
+</div>
+
+{% endfor %}
+
+</div>
+</body>
+</html>

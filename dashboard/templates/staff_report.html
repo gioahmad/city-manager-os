@@ -3,69 +3,119 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Report Work · Township Operations</title>
-<link rel="stylesheet" href="/static/style.css">
-<style>
-.staff-wrap{max-width:680px;margin:auto;padding:18px}
-.staff-wrap input,.staff-wrap select,.staff-wrap textarea{font-size:17px;padding:13px}
-.back{display:inline-block;margin-bottom:14px}
-</style>
+<title>Report Issue</title>
+<link rel="stylesheet" href="/static/staff.css">
 </head>
-<body>
-<div class="staff-wrap">
-<a class="back" href="/staff/{{ token }}">← Employee Hub</a>
-<div class="eyebrow">QUICK REPORT</div>
-<h1>Submit Work Request</h1>
+<body class="staff-body">
+<div class="staff-shell">
 
-<form method="post" action="/staff/{{ token }}/report" class="watch-form">
+<div class="staff-top">
+<div>
+<a class="staff-link" href="/staff/{{ token }}/home">← Home</a>
+<h1 class="staff-name" style="margin-top:12px">Report an Issue</h1>
+<div class="staff-muted">You are reporting as {{ employee.full_name }}</div>
+</div>
+</div>
 
-<label>Your Name
-<input name="employee_name" required autocomplete="name">
-</label>
+<div class="staff-card">
 
-<label>Department
-<select name="department" required>
-{% for d in departments %}
-<option value="{{ d }}">{{ d }}</option>
+<form
+  method="post"
+  action="/staff/{{ token }}/report"
+  enctype="multipart/form-data"
+  class="staff-form"
+>
+
+<label>Where is the problem?</label>
+<select name="location_id" id="location_id" required>
+<option value="">Choose location...</option>
+{% for location in locations %}
+<option value="{{ location.id }}">{{ location.name }}</option>
 {% endfor %}
 </select>
-</label>
 
-<label>Building / Park / Location
-<input name="location" placeholder="Town Hall, Waterfront Park, 400 Park Ave...">
-</label>
+<div id="other_location_wrap" style="display:none">
+<label>Street / Address / Location</label>
+<input
+  name="other_location"
+  id="other_location"
+  placeholder="Enter exact location"
+>
+</div>
 
-<label>What needs to be done?
-<input name="title" required placeholder="Broken light, cleanup needed, door issue...">
-</label>
-
-<label>Details
-<textarea name="description" rows="4" placeholder="Anything the supervisor or employee should know"></textarea>
-</label>
-
-<label>Urgency
-<select name="priority">
-<option value="1">Routine</option>
-<option value="2">Normal</option>
-<option value="3" selected>Important</option>
-<option value="4">Urgent</option>
-<option value="5">Critical / Immediate</option>
+<label>What type of problem is it?</label>
+<select name="work_type_id" required>
+<option value="">Choose work type...</option>
+{% for wt in work_types %}
+<option value="{{ wt.id }}">{{ wt.name }}</option>
+{% endfor %}
 </select>
+
+<label>How urgent is it?</label>
+
+<div class="staff-radio-grid">
+
+<label class="staff-radio">
+<input type="radio" name="urgency" value="NORMAL" checked>
+<span>Routine / Normal</span>
 </label>
 
-<label>Add Checklist
-<select name="checklist_template">
-<option value="NONE">No checklist</option>
-<option value="GENERAL">General Work Checklist</option>
-<option value="SITE_CHECK">Site / Facility Check</option>
-<option value="EVENT_SETUP">Event Setup</option>
-<option value="VEHICLE">Vehicle / Equipment</option>
-<option value="OPEN_CLOSE">Opening / Closing</option>
-</select>
+<label class="staff-radio">
+<input type="radio" name="urgency" value="ATTENTION">
+<span>Needs Prompt Attention</span>
 </label>
 
-<button class="primary-button" type="submit">Submit Work Request</button>
+<label class="staff-radio">
+<input type="radio" name="urgency" value="EMERGENCY">
+<span>Dangerous / Immediate Problem</span>
+</label>
+
+</div>
+
+<label>Photo of the Problem</label>
+<input
+  type="file"
+  name="photos"
+  accept="image/*"
+  capture="environment"
+  multiple
+>
+
+<div class="staff-muted" style="font-size:12px;margin-top:5px">
+Up to 5 photos.
+</div>
+
+<label>Anything else we should know?</label>
+<textarea
+  name="description"
+  placeholder="Optional details"
+></textarea>
+
+<div style="margin-top:20px">
+<button class="staff-button primary" type="submit">
+Submit Work Request
+</button>
+</div>
+
 </form>
 </div>
+
+</div>
+
+<script>
+const locationSelect=document.getElementById('location_id');
+const otherWrap=document.getElementById('other_location_wrap');
+
+function locationChanged(){
+  const text=locationSelect.options[locationSelect.selectedIndex]?.text || '';
+  otherWrap.style.display=
+    (text.includes('Street / Public') || text.includes('Other / Enter'))
+      ? 'block'
+      : 'none';
+}
+
+locationSelect.addEventListener('change',locationChanged);
+</script>
+
 </body>
 </html>

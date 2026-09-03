@@ -3,104 +3,285 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>#{{ issue.ticket_code }} · Township Operations</title>
-<link rel="stylesheet" href="/static/style.css">
-<style>
-.staff-wrap{max-width:800px;margin:auto;padding:18px}
-.ticket-box{background:#fff;border:1px solid #ddd;border-radius:14px;padding:18px;margin:14px 0}
-.check-row{display:flex;gap:12px;align-items:center;border-bottom:1px solid #eee;padding:12px 0}
-.check-row:last-child{border-bottom:0}
-.check-button{font-size:20px;min-width:42px;height:42px;border-radius:10px;border:1px solid #ccc;background:#fff}
-.done{text-decoration:line-through;opacity:.55}
-.status-actions{display:flex;flex-wrap:wrap;gap:8px}
-.status-actions form{margin:0}
-.update{border-left:3px solid #ccc;padding:8px 12px;margin:10px 0}
-</style>
+<title>Work Ticket</title>
+<link rel="stylesheet" href="/static/staff.css">
 </head>
-<body>
-<div class="staff-wrap">
+<body class="staff-body">
+<div class="staff-shell">
 
-{% if name %}
-<a href="/staff/{{ token }}/work?name={{ name }}">← My Work</a>
-{% else %}
-<a href="/staff/{{ token }}">← Employee Hub</a>
-{% endif %}
+<div class="staff-top">
+<div>
+<a class="staff-link" href="/staff/{{ token }}/work">← My Work</a>
+<div class="staff-ticket" style="margin-top:14px">
+TICKET #{{ issue.ticket_code }}
+</div>
+<h1 class="staff-name">{{ issue.title }}</h1>
+</div>
+</div>
 
 {% if created %}
-<div class="flash" style="margin-top:14px">Work request submitted successfully.</div>
+<div class="staff-flash">
+Work request submitted.
+</div>
 {% endif %}
 
-<div class="eyebrow" style="margin-top:16px">WORK TICKET #{{ issue.ticket_code }}</div>
-<h1>{{ issue.title }}</h1>
+<div class="staff-card">
 
-<div class="ticket-box">
-<div class="meta">{{ issue.status.replace('_',' ') }} · P{{ issue.priority }}</div>
-{% if issue.submitted_by %}<p><strong>Submitted by:</strong> {{ issue.submitted_by }}{% if issue.submitted_department %} · {{ issue.submitted_department }}{% endif %}</p>{% endif %}
-{% if issue.employee_location %}<p><strong>Location:</strong> {{ issue.employee_location }}</p>{% endif %}
-{% if issue.assigned_to %}<p><strong>Assigned:</strong> {{ issue.assigned_to }}</p>{% endif %}
-{% if issue.description %}<p>{{ issue.description }}</p>{% endif %}
-{% if issue.next_action %}<p><strong>Next:</strong> {{ issue.next_action }}</p>{% endif %}
+<div class="staff-row">
+<span class="staff-status">{{ issue.status.replace('_',' ') }}</span>
+<strong>P{{ issue.priority }}</strong>
 </div>
 
-{% if name %}
-<div class="ticket-box">
-<h2>Status</h2>
-<div class="status-actions">
-{% for status,label in [('IN_PROGRESS','Start Work'),('ON_HOLD','Put On Hold'),('RESOLVED','Mark Complete')] %}
-<form method="post" action="/staff/{{ token }}/ticket/{{ issue.id }}/status">
-<input type="hidden" name="employee_name" value="{{ name }}">
-<input type="hidden" name="status" value="{{ status }}">
-<button class="{% if status == 'RESOLVED' %}primary-button{% else %}secondary-button{% endif %}" type="submit">{{ label }}</button>
-</form>
+<div class="staff-divider"></div>
+
+{% if issue.work_type_name %}
+<div><strong>Type:</strong> {{ issue.work_type_name }}</div>
+{% endif %}
+
+{% if issue.employee_location %}
+<div style="margin-top:8px">
+<strong>Location:</strong> {{ issue.employee_location }}
+</div>
+{% endif %}
+
+{% if issue.submitted_by %}
+<div style="margin-top:8px">
+<strong>Reported by:</strong> {{ issue.submitted_by }}
+</div>
+{% endif %}
+
+{% if issue.assigned_to %}
+<div style="margin-top:8px">
+<strong>Assigned to:</strong> {{ issue.assigned_to }}
+</div>
+{% endif %}
+
+{% if issue.description %}
+<div style="margin-top:14px">{{ issue.description }}</div>
+{% endif %}
+
+{% if issue.help_reason %}
+<div class="staff-help" style="margin-top:14px">
+<strong>Needs Help</strong><br>
+{{ issue.help_reason }}
+</div>
+{% endif %}
+
+</div>
+
+
+{% if photos %}
+<div class="staff-card">
+<h2 style="margin-top:0">Photos</h2>
+
+<div class="staff-photos">
+{% for photo in photos %}
+<div class="staff-photo">
+<img
+  src="/staff/{{ token }}/photo/{{ photo.id }}"
+  alt="Work ticket photo"
+>
+<div>{{ photo.phase }}</div>
+</div>
 {% endfor %}
 </div>
+
 </div>
 {% endif %}
+
 
 {% if checklist %}
-<div class="ticket-box">
-<h2>Checklist</h2>
+<div class="staff-card">
+
+<h2 style="margin-top:0">Checklist</h2>
+
 {% for c in checklist %}
-<div class="check-row">
-{% if name %}
-<form method="post" action="/staff/{{ token }}/ticket/{{ issue.id }}/checklist/{{ c.id }}">
-<input type="hidden" name="employee_name" value="{{ name }}">
-<button class="check-button" type="submit">{{ '✓' if c.completed else '○' }}</button>
+
+<div class="staff-check">
+
+<form
+  method="post"
+  action="/staff/{{ token }}/ticket/{{ issue.id }}/checklist/{{ c.id }}"
+>
+<button type="submit">
+{{ '✓' if c.completed else '○' }}
+</button>
 </form>
-{% else %}
-<div class="check-button">{{ '✓' if c.completed else '○' }}</div>
-{% endif %}
-<div class="{% if c.completed %}done{% endif %}">
+
+<div class="{% if c.completed %}staff-done{% endif %}">
 <strong>{{ c.label }}</strong>
-{% if c.completed_by %}<div class="meta">Completed by {{ c.completed_by }}</div>{% endif %}
-</div>
-</div>
-{% endfor %}
+
+{% if c.completed_by %}
+<div class="staff-muted" style="font-size:12px">
+Completed by {{ c.completed_by }}
 </div>
 {% endif %}
 
-{% if name %}
-<div class="ticket-box">
-<h2>Add Update</h2>
-<form method="post" action="/staff/{{ token }}/ticket/{{ issue.id }}/note" class="watch-form">
-<input type="hidden" name="employee_name" value="{{ name }}">
-<textarea name="note" rows="3" required placeholder="Work completed, parts needed, could not access area..."></textarea>
-<button class="primary-button" type="submit">Add Update</button>
+</div>
+
+</div>
+
+{% endfor %}
+
+</div>
+{% endif %}
+
+
+{% if issue.status not in ['RESOLVED','CLOSED'] %}
+
+<div class="staff-card">
+
+<h2 style="margin-top:0">Work Actions</h2>
+
+{% if issue.status != 'IN_PROGRESS' %}
+<form
+  method="post"
+  action="/staff/{{ token }}/ticket/{{ issue.id }}/start"
+>
+<button class="staff-button primary" type="submit">
+Start Work
+</button>
 </form>
-</div>
+
+<div style="height:10px"></div>
 {% endif %}
 
-<div class="ticket-box">
-<h2>Activity</h2>
-{% for u in updates %}
-<div class="update">
-<strong>{{ u.author }}</strong>
-<div>{{ u.note }}</div>
-<div class="meta">{{ u.created_at.strftime('%m/%d %I:%M %p') if u.created_at else '' }}</div>
-</div>
-{% else %}
-<div class="empty-state small">No updates yet</div>
+<details>
+<summary class="staff-button light" style="display:flex;align-items:center">
+Need Help / Can't Complete
+</summary>
+
+<form
+  method="post"
+  action="/staff/{{ token }}/ticket/{{ issue.id }}/help"
+  class="staff-form"
+  style="padding-top:10px"
+>
+
+<label>Why?</label>
+<select name="reason" required>
+{% for reason in help_reasons %}
+<option value="{{ reason }}">{{ reason }}</option>
 {% endfor %}
+</select>
+
+<label>Details</label>
+<textarea name="detail" placeholder="Optional explanation"></textarea>
+
+<button class="staff-button warning" type="submit">
+Send to Supervisor
+</button>
+
+</form>
+</details>
+
+<div class="staff-divider"></div>
+
+<form
+  method="post"
+  action="/staff/{{ token }}/ticket/{{ issue.id }}/complete"
+  enctype="multipart/form-data"
+  class="staff-form"
+>
+
+<h3>Complete Work</h3>
+
+<label>Completion Photo</label>
+<input
+  type="file"
+  name="completion_photo"
+  accept="image/*"
+  capture="environment"
+>
+
+<label>Completion Note</label>
+<textarea
+  name="completion_note"
+  placeholder="Optional"
+></textarea>
+
+<button class="staff-button primary" type="submit">
+Mark Complete
+</button>
+
+</form>
+
+</div>
+
+{% endif %}
+
+
+<div class="staff-card">
+
+<h2 style="margin-top:0">Add Update</h2>
+
+<form
+  method="post"
+  action="/staff/{{ token }}/ticket/{{ issue.id }}/note"
+  class="staff-form"
+>
+
+<textarea
+  name="note"
+  required
+  placeholder="Parts needed, work performed, access issue..."
+></textarea>
+
+<button class="staff-button light" type="submit">
+Add Update
+</button>
+
+</form>
+
+<div class="staff-divider"></div>
+
+<form
+  method="post"
+  action="/staff/{{ token }}/ticket/{{ issue.id }}/photo"
+  enctype="multipart/form-data"
+  class="staff-form"
+>
+
+<label>Add Photo</label>
+<input
+  type="file"
+  name="photo"
+  accept="image/*"
+  capture="environment"
+  required
+>
+
+<select name="phase">
+<option value="BEFORE">Issue / Before</option>
+<option value="AFTER">Completion / After</option>
+</select>
+
+<button class="staff-button light" type="submit">
+Upload Photo
+</button>
+
+</form>
+
+</div>
+
+
+<div class="staff-card">
+<h2 style="margin-top:0">Activity</h2>
+
+{% for update in updates %}
+
+<div style="padding:10px 0;border-bottom:1px solid #edf0f2">
+<strong>{{ update.author }}</strong>
+<div>{{ update.note }}</div>
+<div class="staff-muted" style="font-size:11px;margin-top:3px">
+{{ update.created_at.strftime('%m/%d %I:%M %p') if update.created_at else '' }}
+</div>
+</div>
+
+{% else %}
+<div class="staff-muted">No activity yet.</div>
+{% endfor %}
+
 </div>
 
 </div>

@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Staff Admin · City Manager OS</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.admin-row{border-bottom:1px solid #e5e7ea;padding:12px 0}
+.admin-photo{width:100%;max-width:180px;height:120px;object-fit:cover;border-radius:10px}
+@media(max-width:800px){.admin-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+<div class="brand">
+<div class="eyebrow">OPERATIONS ADMINISTRATION</div>
+<div class="brand-row">
+<h1>Staff Admin</h1>
+<span class="private-badge">PRIVATE</span>
+</div>
+<div class="tagline">Employees · Locations · Work Types · Assignments</div>
+</div>
+</header>
+
+{% include "nav.html" %}
+
+<main>
+
+{% if msg %}
+<div class="flash">{{ msg }}</div>
+{% endif %}
+
+
+<section class="grid watch-layout">
+
+<article class="panel">
+
+<div class="panel-head">
+<div>
+<div class="panel-kicker">EMPLOYEES</div>
+<h2>Add Employee</h2>
+</div>
+</div>
+
+<div class="panel-body form-panel">
+
+<form
+  method="post"
+  action="/staff-admin/employee/create"
+  class="watch-form"
+>
+
+<label>
+Employee ID
+<input name="employee_id" required>
+</label>
+
+<label>
+Full Name
+<input name="full_name" required>
+</label>
+
+<label>
+Department
+<select name="department">
+<option>DPW</option>
+<option>Buildings & Grounds</option>
+<option>Parks</option>
+<option>Public Safety</option>
+<option>Administration</option>
+<option>Other</option>
+</select>
+</label>
+
+<label>
+Role
+<select name="role">
+<option value="EMPLOYEE">Employee</option>
+<option value="SUPERVISOR">Supervisor</option>
+</select>
+</label>
+
+<label>
+Initial PIN
+<input
+  name="pin"
+  type="password"
+  inputmode="numeric"
+  minlength="4"
+  required
+>
+</label>
+
+<button class="primary-button" type="submit">
+Add Employee
+</button>
+
+</form>
+
+</div>
+</article>
+
+
+<article class="panel">
+
+<div class="panel-head">
+<div>
+<div class="panel-kicker">DIRECTORY</div>
+<h2>Employees</h2>
+</div>
+<span class="count-pill">{{ employees|length }}</span>
+</div>
+
+<div class="panel-body">
+
+{% for emp in employees %}
+
+<div class="admin-row">
+
+<strong>{{ emp.full_name }}</strong>
+
+<div class="meta">
+ID {{ emp.employee_id }} · {{ emp.department }} · {{ emp.role }}
+</div>
+
+<div class="meta">
+{{ 'ACTIVE' if emp.active else 'INACTIVE' }}
+</div>
+
+<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+
+<form
+  method="post"
+  action="/staff-admin/employee/{{ emp.id }}/toggle"
+>
+<button class="secondary-button" type="submit">
+{{ 'Disable' if emp.active else 'Enable' }}
+</button>
+</form>
+
+<form
+  method="post"
+  action="/staff-admin/employee/{{ emp.id }}/pin"
+  style="display:flex;gap:6px"
+>
+<input
+  name="pin"
+  type="password"
+  inputmode="numeric"
+  placeholder="New PIN"
+  minlength="4"
+  required
+  style="max-width:120px"
+>
+<button class="secondary-button" type="submit">
+Reset PIN
+</button>
+</form>
+
+</div>
+
+</div>
+
+{% else %}
+<div class="empty-state small">
+No employees yet.
+</div>
+{% endfor %}
+
+</div>
+</article>
+
+</section>
+
+
+<section class="section-label lower-label">
+<span>SUPERVISOR QUEUE</span>
+<span class="section-rule"></span>
+</section>
+
+
+<section class="grid primary-grid">
+
+{% for item in queue %}
+
+<article class="panel">
+
+<div class="panel-head">
+<div>
+<div class="panel-kicker">
+{{ item.status }} · P{{ item.priority }}
+</div>
+<h2>{{ item.title }}</h2>
+</div>
+</div>
+
+<div class="panel-body">
+
+{% if item.first_photo_id %}
+<img
+  class="admin-photo"
+  src="/staff-admin/photo/{{ item.first_photo_id }}"
+  alt="Issue photo"
+>
+{% endif %}
+
+<p class="meta">
+{{ item.employee_location or '' }}
+{% if item.employee_location %} · {% endif %}
+Reported by {{ item.submitted_by or 'Unknown' }}
+</p>
+
+{% if item.assigned_to %}
+<p><strong>Assigned:</strong> {{ item.assigned_to }}</p>
+{% endif %}
+
+<form
+  method="post"
+  action="/staff-admin/issue/{{ item.id }}/assign"
+  class="watch-form compact"
+>
+
+<label>
+Assign Employee
+<select name="employee_uuid" required>
+<option value="">Choose employee...</option>
+{% for emp in employees %}
+{% if emp.active %}
+<option value="{{ emp.id }}">
+{{ emp.full_name }} — {{ emp.department }}
+</option>
+{% endif %}
+{% endfor %}
+</select>
+</label>
+
+<button class="primary-button" type="submit">
+Assign
+</button>
+
+</form>
+
+</div>
+</article>
+
+{% else %}
+
+<article class="panel">
+<div class="panel-body">
+No open employee work requests.
+</div>
+</article>
+
+{% endfor %}
+
+</section>
+
+
+<section class="section-label lower-label">
+<span>MANAGED DROPDOWNS</span>
+<span class="section-rule"></span>
+</section>
+
+
+<section class="admin-grid">
+
+<article class="panel">
+<div class="panel-head">
+<div>
+<div class="panel-kicker">LOCATIONS</div>
+<h2>Managed Locations</h2>
+</div>
+</div>
+
+<div class="panel-body">
+
+<form
+  method="post"
+  action="/staff-admin/location/create"
+  class="watch-form compact"
+>
+
+<label>
+Location Name
+<input name="name" required>
+</label>
+
+<label>
+Department
+<input name="department" placeholder="Optional">
+</label>
+
+<label>
+Order
+<input type="number" name="sort_order" value="100">
+</label>
+
+<button class="primary-button" type="submit">
+Add Location
+</button>
+
+</form>
+
+<div class="watch-list" style="margin-top:14px">
+
+{% for loc in locations %}
+
+<div class="admin-row">
+
+<strong>{{ loc.name }}</strong>
+
+<div class="meta">
+{{ 'ACTIVE' if loc.active else 'INACTIVE' }}
+</div>
+
+<form
+  method="post"
+  action="/staff-admin/location/{{ loc.id }}/toggle"
+  style="margin-top:6px"
+>
+<button class="secondary-button" type="submit">
+{{ 'Disable' if loc.active else 'Enable' }}
+</button>
+</form>
+
+</div>
+
+{% endfor %}
+
+</div>
+</div>
+</article>
+
+
+<article class="panel">
+
+<div class="panel-head">
+<div>
+<div class="panel-kicker">WORK TYPES</div>
+<h2>Managed Work Types</h2>
+</div>
+</div>
+
+<div class="panel-body">
+
+<form
+  method="post"
+  action="/staff-admin/work-type/create"
+  class="watch-form compact"
+>
+
+<label>
+Work Type
+<input name="name" required>
+</label>
+
+<label>
+Automatic Checklist
+<select name="checklist_template">
+<option value="GENERAL">General Work</option>
+<option value="SITE_CHECK">Site / Facility Check</option>
+<option value="EVENT_SETUP">Event Setup</option>
+<option value="VEHICLE">Vehicle / Equipment</option>
+<option value="OPEN_CLOSE">Opening / Closing</option>
+<option value="NONE">None</option>
+</select>
+</label>
+
+<label>
+Order
+<input type="number" name="sort_order" value="100">
+</label>
+
+<button class="primary-button" type="submit">
+Add Work Type
+</button>
+
+</form>
+
+<div class="watch-list" style="margin-top:14px">
+
+{% for wt in work_types %}
+
+<div class="admin-row">
+
+<strong>{{ wt.name }}</strong>
+
+<div class="meta">
+{{ wt.checklist_template }}
+· P{{ wt.priority_normal }}/P{{ wt.priority_attention }}/P{{ wt.priority_emergency }}
+· {{ 'ACTIVE' if wt.active else 'INACTIVE' }}
+</div>
+
+<form
+  method="post"
+  action="/staff-admin/work-type/{{ wt.id }}/toggle"
+  style="margin-top:6px"
+>
+<button class="secondary-button" type="submit">
+{{ 'Disable' if wt.active else 'Enable' }}
+</button>
+</form>
+
+</div>
+
+{% endfor %}
+
+</div>
+</div>
+</article>
+
+</section>
+
+</main>
+</body>
+</html>

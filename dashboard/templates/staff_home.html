@@ -3,53 +3,57 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Township Operations</title>
-<link rel="stylesheet" href="/static/style.css">
-<style>
-.staff-wrap{max-width:760px;margin:auto;padding:18px}
-.staff-title{font-size:30px;margin:0}
-.staff-actions{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:22px 0}
-.staff-button{display:block;padding:24px 18px;border-radius:14px;text-decoration:none;font-weight:800;font-size:20px;background:#fff;border:1px solid #ddd;color:#111}
-.staff-button small{display:block;font-size:13px;font-weight:500;margin-top:6px;opacity:.7}
-.staff-find{padding:20px;border-radius:14px;background:#fff;border:1px solid #ddd}
-.staff-find input{font-size:18px;padding:14px}
-@media(max-width:600px){.staff-actions{grid-template-columns:1fr}}
-</style>
+<title>Employee Operations</title>
+<link rel="stylesheet" href="/static/staff.css">
 </head>
-<body>
-<div class="staff-wrap">
-<div class="eyebrow">TOWNSHIP OPERATIONS</div>
-<h1 class="staff-title">Employee Hub</h1>
-<p>Report work, see your assignments, and complete checklists.</p>
+<body class="staff-body">
+<div class="staff-shell">
 
-{% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
-
-<div class="staff-actions">
-<a class="staff-button" href="/staff/{{ token }}/report">
-Report an Issue
-<small>Create a work request in seconds</small>
-</a>
-<a class="staff-button" href="#my-work">
-My Work
-<small>Assignments, submitted requests and checklists</small>
-</a>
+<div class="staff-top">
+<div>
+<div class="staff-brand">WEEHAWKEN OPERATIONS</div>
+<h1 class="staff-name">Hello, {{ employee.full_name }}</h1>
+<div class="staff-muted">{{ employee.department }} · ID {{ employee.employee_id }}</div>
+</div>
+<a class="staff-link" href="/staff/{{ token }}/logout">Sign Out</a>
 </div>
 
-<div id="my-work" class="staff-find">
-<h2>Find My Work</h2>
-<form method="get" action="/staff/{{ token }}/work">
-<label>Your Name
-<input name="name" required placeholder="First and last name">
-</label>
-<button class="primary-button" type="submit">Open My Work</button>
-</form>
+<div class="staff-grid">
+
+<a class="staff-action" href="/staff/{{ token }}/report">
+<strong>Report an Issue</strong>
+<span>Photo, location and work type</span>
+</a>
+
+<a class="staff-action secondary" href="/staff/{{ token }}/work">
+<strong>My Work</strong>
+<span>Assignments and submitted requests</span>
+</a>
+
+{% if employee.role == 'SUPERVISOR' %}
+<a class="staff-action secondary" href="/staff/{{ token }}/supervisor">
+<strong>Supervisor Queue</strong>
+<span>Review and assign work</span>
+</a>
+{% endif %}
+
 </div>
 
-<section class="metrics" style="margin-top:18px">
-<div class="metric"><span>Open</span><strong>{{ counts.open_staff or 0 }}</strong></div>
-<div class="metric"><span>In Progress</span><strong>{{ counts.in_progress or 0 }}</strong></div>
-<div class="metric"><span>Completed</span><strong>{{ counts.completed_week or 0 }}</strong><small>Last 7 days</small></div>
-</section>
+<div class="staff-metrics">
+<div class="staff-metric">
+<strong>{{ counts.open_count or 0 }}</strong>
+<span>Open</span>
+</div>
+<div class="staff-metric">
+<strong>{{ counts.in_progress or 0 }}</strong>
+<span>In Progress</span>
+</div>
+<div class="staff-metric">
+<strong>{{ counts.completed_week or 0 }}</strong>
+<span>Completed 7d</span>
+</div>
+</div>
+
 </div>
 </body>
 </html>
