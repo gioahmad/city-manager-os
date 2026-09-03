@@ -5,184 +5,73 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Operations Board · City Manager OS</title>
 <link rel="stylesheet" href="/static/style.css">
-<style>
-.board-tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:14px 0 16px}
-.board-tab{display:block;text-decoration:none;color:inherit;border:1px solid #dfe3e8;border-radius:12px;padding:11px 10px;background:#fff}
-.board-tab strong{display:block;font-size:1.45rem;line-height:1}
-.board-tab span{display:block;margin-top:5px;font-size:.76rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#667085}
-.board-tab.active{border:2px solid #111827;padding:10px 9px}
-.board-filters{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
-.workload-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:10px}
-.workload-card{border:1px solid #e5e7eb;border-radius:12px;padding:12px;background:#fff}
-.workload-counts{display:flex;gap:12px;margin-top:8px;font-size:.78rem}
-.workload-counts strong{font-size:1rem}
-.ticket-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}
-.ticket-card{border:1px solid #e2e6ea;border-radius:14px;background:#fff;overflow:hidden}
-.ticket-card.help{border-width:2px}
-.ticket-top{display:flex;justify-content:space-between;gap:12px;padding:14px 14px 8px}
-.ticket-kicker{font-size:.72rem;letter-spacing:.06em;font-weight:850;color:#667085}
-.ticket-age{font-size:.78rem;font-weight:850;border:1px solid #dfe3e8;border-radius:999px;padding:4px 8px;height:max-content}
-.ticket-age.aging{border-color:#9a6700}
-.ticket-age.late{border-color:#b42318}
-.ticket-body{padding:0 14px 14px}
-.ticket-body h3{margin:2px 0 8px;font-size:1.08rem}
-.ticket-photo{display:block;width:100%;height:175px;object-fit:cover;border-radius:10px;margin:10px 0}
-.ticket-meta{font-size:.82rem;color:#667085;margin:4px 0}
-.ticket-description{margin:10px 0;white-space:pre-wrap}
-.help-box{border:1px solid #f0c7c7;border-radius:10px;padding:9px 10px;margin:10px 0;background:#fffafa}
-.instruction-box{border-left:3px solid #98a2b3;padding:7px 10px;margin:10px 0;background:#f8fafc}
-.ticket-actions{border-top:1px solid #edf0f2;padding:12px 14px;background:#fafbfc}
-.inline-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end;margin-bottom:10px}
-.inline-form:last-child{margin-bottom:0}
-.inline-form label{margin:0}
-.inline-form input,.inline-form select{width:100%}
-.management-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-.manage-panel{border:1px solid #e5e7eb;border-radius:14px;background:#fff;padding:0 14px}
-.manage-panel summary{cursor:pointer;font-weight:800;padding:14px 0}
-.admin-row{border-top:1px solid #edf0f2;padding:10px 0}
-@media(max-width:950px){.board-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}.management-grid{grid-template-columns:1fr}}
-@media(max-width:650px){.board-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.board-filters{grid-template-columns:1fr}.ticket-grid{grid-template-columns:1fr}.inline-form{grid-template-columns:1fr}}
-</style>
 </head>
 <body>
-
 <header class="topbar">
-<div class="brand">
-<div class="eyebrow">WEEHAWKEN OPERATIONS</div>
-<div class="brand-row">
-<h1>Operations Board</h1>
-<span class="private-badge">PRIVATE</span>
-</div>
-<div class="tagline">Assignments · Workload · Exceptions · Supervisor Instructions</div>
-</div>
+  <div class="brand">
+    <div class="eyebrow">WEEHAWKEN OPERATIONS</div>
+    <div class="brand-row"><h1>Operations Board</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Assignments · Workload · Exceptions · Supervisor Instructions</div>
+  </div>
+  <div class="header-status"><a class="board-external-link" href="https://ops.nhnj.us/staff" target="_blank" rel="noopener">Open Employee Portal ↗</a></div>
 </header>
-
 {% include "nav.html" %}
-
 <main>
-
 {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
-
-<section class="board-tabs">
-<a class="board-tab {{ 'active' if selected_view == 'active' else '' }}" href="{{ view_urls.active }}"><strong>{{ counts.active or 0 }}</strong><span>All Active</span></a>
-<a class="board-tab {{ 'active' if selected_view == 'unassigned' else '' }}" href="{{ view_urls.unassigned }}"><strong>{{ counts.unassigned or 0 }}</strong><span>Unassigned</span></a>
-<a class="board-tab {{ 'active' if selected_view == 'assigned' else '' }}" href="{{ view_urls.assigned }}"><strong>{{ counts.assigned or 0 }}</strong><span>Assigned</span></a>
-<a class="board-tab {{ 'active' if selected_view == 'in_progress' else '' }}" href="{{ view_urls.in_progress }}"><strong>{{ counts.in_progress or 0 }}</strong><span>In Progress</span></a>
-<a class="board-tab {{ 'active' if selected_view == 'needs_help' else '' }}" href="{{ view_urls.needs_help }}"><strong>{{ counts.needs_help or 0 }}</strong><span>Needs Help</span></a>
-<a class="board-tab {{ 'active' if selected_view == 'completed' else '' }}" href="{{ view_urls.completed }}"><strong>{{ counts.completed or 0 }}</strong><span>Completed 30d</span></a>
+<section class="board-tabs" aria-label="Operations work views">
+  <a class="board-tab {{ 'active' if selected_view == 'active' else '' }}" href="{{ view_urls.active }}"><strong>{{ counts.active or 0 }}</strong><span>All Active</span></a>
+  <a class="board-tab {{ 'active' if selected_view == 'unassigned' else '' }}" href="{{ view_urls.unassigned }}"><strong>{{ counts.unassigned or 0 }}</strong><span>Unassigned</span></a>
+  <a class="board-tab {{ 'active' if selected_view == 'assigned' else '' }}" href="{{ view_urls.assigned }}"><strong>{{ counts.assigned or 0 }}</strong><span>Assigned</span></a>
+  <a class="board-tab {{ 'active' if selected_view == 'in_progress' else '' }}" href="{{ view_urls.in_progress }}"><strong>{{ counts.in_progress or 0 }}</strong><span>In Progress</span></a>
+  <a class="board-tab {{ 'active' if selected_view == 'needs_help' else '' }}" href="{{ view_urls.needs_help }}"><strong>{{ counts.needs_help or 0 }}</strong><span>Needs Help</span></a>
+  <a class="board-tab {{ 'active' if selected_view == 'completed' else '' }}" href="{{ view_urls.completed }}"><strong>{{ counts.completed or 0 }}</strong><span>Completed 30d</span></a>
 </section>
-
 <section class="panel">
-<div class="panel-head"><div><div class="panel-kicker">FILTERS</div><h2>Find the work that needs attention</h2></div></div>
-<div class="panel-body">
-<form method="get" action="/staff-admin" class="board-filters">
-<input type="hidden" name="view" value="{{ selected_view }}">
-<label>Department
-<select name="department">
-<option value="">All departments</option>
-{% for dept in departments %}<option value="{{ dept }}" {{ 'selected' if selected_department == dept else '' }}>{{ dept }}</option>{% endfor %}
-</select>
-</label>
-<label>Assigned Employee
-<select name="employee">
-<option value="">All employees</option>
-{% for emp in employees %}{% if emp.active %}<option value="{{ emp.id }}" {{ 'selected' if selected_employee == emp.id|string else '' }}>{{ emp.full_name }} — {{ emp.department }}</option>{% endif %}{% endfor %}
-</select>
-</label>
-<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="primary-button" type="submit">Apply</button><a class="secondary-button" href="/staff-admin?view={{ selected_view }}">Clear</a></div>
-</form>
-</div>
+  <div class="panel-head"><div><div class="panel-kicker">FILTERS</div><h2>Focus the board</h2></div><span class="count-pill">{{ queue|length }}</span></div>
+  <div class="panel-body">
+    <form method="get" action="/staff-admin" class="board-filters">
+      <input type="hidden" name="view" value="{{ selected_view }}">
+      <label>Department<select name="department"><option value="">All departments</option>{% for dept in departments %}<option value="{{ dept }}" {{ 'selected' if selected_department == dept else '' }}>{{ dept }}</option>{% endfor %}</select></label>
+      <label>Assigned Employee<select name="employee"><option value="">All employees</option>{% for emp in employees %}{% if emp.active %}<option value="{{ emp.id }}" {{ 'selected' if selected_employee == emp.id|string else '' }}>{{ emp.full_name }} — {{ emp.department }}</option>{% endif %}{% endfor %}</select></label>
+      <div class="board-filter-actions"><button class="primary-button" type="submit">Apply</button><a class="secondary-button" href="/staff-admin?view={{ selected_view }}">Clear</a></div>
+    </form>
+  </div>
 </section>
-
 <section class="section-label lower-label"><span>TEAM WORKLOAD</span><span class="section-rule"></span></section>
 <section class="workload-grid">
-{% for emp in employees %}
-{% if emp.active %}
-<div class="workload-card">
-<strong>{{ emp.full_name }}</strong>
-<div class="ticket-meta">{{ emp.department }} · {{ emp.role }}</div>
-<div class="workload-counts">
-<span><strong>{{ emp.open_work or 0 }}</strong> open</span>
-<span><strong>{{ emp.in_progress_work or 0 }}</strong> working</span>
-{% if emp.needs_help_work %}<span><strong>{{ emp.needs_help_work }}</strong> help</span>{% endif %}
-</div>
-</div>
-{% endif %}
-{% else %}<div class="empty-state small">No employees configured.</div>{% endfor %}
+{% for emp in employees %}{% if emp.active %}<div class="workload-card"><strong>{{ emp.full_name }}</strong><div class="ticket-meta">{{ emp.department }} · {{ emp.role }}</div><div class="workload-counts"><span><strong>{{ emp.open_work or 0 }}</strong> open</span><span><strong>{{ emp.in_progress_work or 0 }}</strong> working</span>{% if emp.needs_help_work %}<span><strong>{{ emp.needs_help_work }}</strong> help</span>{% endif %}</div></div>{% endif %}{% else %}<div class="empty-state small">No employees configured.</div>{% endfor %}
 </section>
-
 <section class="section-label lower-label"><span>{{ selected_view|replace('_',' ')|upper }} WORK</span><span class="section-rule"></span><span class="count-pill">{{ queue|length }}</span></section>
-
 <section class="ticket-grid">
 {% for item in queue %}
 <article class="ticket-card {{ 'help' if item.status == 'ON_HOLD' else '' }}">
-<div class="ticket-top">
-<div><div class="ticket-kicker">{{ item.board_status }} · P{{ item.priority }}{% if item.work_type_name %} · {{ item.work_type_name }}{% endif %}</div><h3>{{ item.title }}</h3></div>
-<div class="ticket-age {{ item.age_level }}">{{ item.age_label }}</div>
-</div>
-<div class="ticket-body">
-{% if item.first_photo_id %}<a href="/staff-admin/photo/{{ item.first_photo_id }}" target="_blank" rel="noopener"><img class="ticket-photo" src="/staff-admin/photo/{{ item.first_photo_id }}" alt="Issue photo"></a>{% endif %}
-<div class="ticket-meta">{{ item.employee_location or 'Location not specified' }}{% if item.photo_count %} · {{ item.photo_count }} photo{{ '' if item.photo_count == 1 else 's' }}{% endif %}</div>
-<div class="ticket-meta">Reported by {{ item.submitted_by or 'Unknown' }}{% if item.submitted_department %} · {{ item.submitted_department }}{% endif %}</div>
-{% if item.description %}<div class="ticket-description">{{ item.description }}</div>{% endif %}
-{% if item.status == 'ON_HOLD' %}<div class="help-box"><strong>Needs Help</strong><div>{{ item.help_reason or 'Supervisor assistance requested' }}</div>{% if item.waiting_on %}<div class="ticket-meta">Waiting on: {{ item.waiting_on }}</div>{% endif %}</div>{% endif %}
-{% if item.assigned_to %}<div><strong>Assigned:</strong> {{ item.assigned_to }}{% if item.assigned_department %} · {{ item.assigned_department }}{% endif %}</div>{% else %}<div><strong>Assigned:</strong> Unassigned</div>{% endif %}
-{% if item.next_action %}<div class="instruction-box"><strong>Current instruction:</strong> {{ item.next_action }}</div>{% endif %}
-{% if item.latest_supervisor_note %}<div class="ticket-meta">Latest supervisor activity: {{ item.latest_supervisor_note }}</div>{% endif %}
-</div>
-
-{% if item.status not in ['RESOLVED','CLOSED'] %}
-<div class="ticket-actions">
-<form method="post" action="/staff-admin/issue/{{ item.id }}/assign" class="inline-form">
-<input type="hidden" name="return_to" value="{{ current_url }}">
-<label>Assign / Reassign
-<select name="employee_uuid">
-<option value="">Unassigned</option>
-{% for emp in employees %}{% if emp.active %}<option value="{{ emp.id }}" {{ 'selected' if item.assigned_employee_id == emp.id else '' }}>{{ emp.full_name }} — {{ emp.department }}</option>{% endif %}{% endfor %}
-</select>
-</label>
-<button class="secondary-button" type="submit">Save</button>
-</form>
-<form method="post" action="/staff-admin/issue/{{ item.id }}/instruction" class="inline-form">
-<input type="hidden" name="return_to" value="{{ current_url }}">
-<label>Supervisor Instruction<input name="instruction" maxlength="500" placeholder="What should happen next?" required></label>
-<button class="primary-button" type="submit">Send</button>
-</form>
-</div>
-{% endif %}
+  <div class="ticket-top"><div><div class="ticket-kicker">{{ item.board_status }} · P{{ item.priority }}{% if item.work_type_name %} · {{ item.work_type_name }}{% endif %}</div><h3>{{ item.title }}</h3></div><div class="ticket-age {{ item.age_level }}">{{ item.age_label }}</div></div>
+  <div class="ticket-body">
+    {% if item.first_photo_id %}<a href="/staff-admin/photo/{{ item.first_photo_id }}" target="_blank" rel="noopener"><img class="ticket-photo" src="/staff-admin/photo/{{ item.first_photo_id }}" alt="Issue photo"></a>{% endif %}
+    <div class="ticket-meta">{{ item.employee_location or 'Location not specified' }}{% if item.photo_count %} · {{ item.photo_count }} photo{{ '' if item.photo_count == 1 else 's' }}{% endif %}</div>
+    <div class="ticket-meta">Reported by {{ item.submitted_by or 'Unknown' }}{% if item.submitted_department %} · {{ item.submitted_department }}{% endif %}{% if item.created_at %} · {{ item.created_at.strftime('%m/%d/%Y %I:%M %p') }}{% endif %}</div>
+    {% if item.description %}<div class="ticket-description">{{ item.description }}</div>{% endif %}
+    {% if item.status == 'ON_HOLD' %}<div class="help-box"><strong>Needs Help</strong><div>{{ item.help_reason or 'Supervisor assistance requested' }}</div>{% if item.waiting_on %}<div class="ticket-meta">Waiting on: {{ item.waiting_on }}</div>{% endif %}</div>{% endif %}
+    {% if item.assigned_to %}<div><strong>Assigned:</strong> {{ item.assigned_to }}{% if item.assigned_department %} · {{ item.assigned_department }}{% endif %}</div>{% else %}<div><strong>Assigned:</strong> Unassigned</div>{% endif %}
+    {% if item.next_action %}<div class="instruction-box"><strong>Current instruction:</strong> {{ item.next_action }}</div>{% endif %}
+    {% if item.latest_supervisor_note %}<div class="ticket-meta">Latest supervisor activity: {{ item.latest_supervisor_note }}{% if item.latest_supervisor_at %} · {{ item.latest_supervisor_at.strftime('%m/%d %I:%M %p') }}{% endif %}</div>{% endif %}
+  </div>
+  {% if item.status not in ['RESOLVED','CLOSED'] %}
+  <div class="ticket-actions">
+    <form method="post" action="/staff-admin/issue/{{ item.id }}/assign" class="inline-form"><input type="hidden" name="return_to" value="{{ current_url }}"><label>Assign / Reassign<select name="employee_uuid"><option value="">Unassigned</option>{% for emp in employees %}{% if emp.active %}<option value="{{ emp.id }}" {{ 'selected' if item.assigned_employee_id == emp.id else '' }}>{{ emp.full_name }} — {{ emp.department }}</option>{% endif %}{% endfor %}</select></label><button class="secondary-button" type="submit">Save</button></form>
+    <form method="post" action="/staff-admin/issue/{{ item.id }}/instruction" class="inline-form"><input type="hidden" name="return_to" value="{{ current_url }}"><label>Supervisor Instruction<input name="instruction" maxlength="500" placeholder="What should happen next?" required></label><button class="primary-button" type="submit">Send</button></form>
+  </div>
+  {% endif %}
 </article>
 {% else %}<article class="panel"><div class="panel-body"><div class="empty-state small">No work matches this view.</div></div></article>{% endfor %}
 </section>
-
 <section class="section-label lower-label"><span>OPERATIONS SETUP</span><span class="section-rule"></span></section>
 <section class="management-grid">
-
-<details class="manage-panel">
-<summary>Employees</summary>
-<form method="post" action="/staff-admin/employee/create" class="watch-form compact">
-<label>Employee ID<input name="employee_id" required></label>
-<label>Full Name<input name="full_name" required></label>
-<label>Department<select name="department"><option>DPW</option><option>Buildings & Grounds</option><option>Parks</option><option>Public Safety</option><option>Administration</option><option>Other</option></select></label>
-<label>Role<select name="role"><option value="EMPLOYEE">Employee</option><option value="SUPERVISOR">Supervisor</option></select></label>
-<label>Initial PIN<input name="pin" type="password" inputmode="numeric" minlength="4" required></label>
-<button class="primary-button" type="submit">Add Employee</button>
-</form>
-{% for emp in employees %}<div class="admin-row"><strong>{{ emp.full_name }}</strong><div class="ticket-meta">ID {{ emp.employee_id }} · {{ emp.department }} · {{ emp.role }} · {{ 'ACTIVE' if emp.active else 'INACTIVE' }}</div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><form method="post" action="/staff-admin/employee/{{ emp.id }}/toggle"><button class="secondary-button" type="submit">{{ 'Disable' if emp.active else 'Enable' }}</button></form><form method="post" action="/staff-admin/employee/{{ emp.id }}/pin" style="display:flex;gap:6px"><input name="pin" type="password" inputmode="numeric" placeholder="New PIN" minlength="4" required style="max-width:120px"><button class="secondary-button" type="submit">Reset PIN</button></form></div></div>{% endfor %}
-</details>
-
-<details class="manage-panel">
-<summary>Locations</summary>
-<form method="post" action="/staff-admin/location/create" class="watch-form compact"><label>Location Name<input name="name" required></label><label>Department<input name="department" placeholder="Optional"></label><label>Order<input type="number" name="sort_order" value="100"></label><button class="primary-button" type="submit">Add Location</button></form>
-{% for loc in locations %}<div class="admin-row"><strong>{{ loc.name }}</strong><div class="ticket-meta">{{ loc.department or 'All departments' }} · {{ 'ACTIVE' if loc.active else 'INACTIVE' }}</div><form method="post" action="/staff-admin/location/{{ loc.id }}/toggle" style="margin-top:6px"><button class="secondary-button" type="submit">{{ 'Disable' if loc.active else 'Enable' }}</button></form></div>{% endfor %}
-</details>
-
-<details class="manage-panel">
-<summary>Work Types</summary>
-<form method="post" action="/staff-admin/work-type/create" class="watch-form compact"><label>Work Type<input name="name" required></label><label>Automatic Checklist<select name="checklist_template"><option value="GENERAL">General Work</option><option value="SITE_CHECK">Site / Facility Check</option><option value="EVENT_SETUP">Event Setup</option><option value="VEHICLE">Vehicle / Equipment</option><option value="OPEN_CLOSE">Opening / Closing</option><option value="NONE">None</option></select></label><label>Order<input type="number" name="sort_order" value="100"></label><button class="primary-button" type="submit">Add Work Type</button></form>
-{% for wt in work_types %}<div class="admin-row"><strong>{{ wt.name }}</strong><div class="ticket-meta">{{ wt.department or 'All departments' }} · {{ wt.checklist_template }} · P{{ wt.priority_normal }}/P{{ wt.priority_attention }}/P{{ wt.priority_emergency }} · {{ 'ACTIVE' if wt.active else 'INACTIVE' }}</div><form method="post" action="/staff-admin/work-type/{{ wt.id }}/toggle" style="margin-top:6px"><button class="secondary-button" type="submit">{{ 'Disable' if wt.active else 'Enable' }}</button></form></div>{% endfor %}
-</details>
-
+<details class="manage-panel"><summary>Employees</summary><form method="post" action="/staff-admin/employee/create" class="watch-form compact"><label>Employee ID<input name="employee_id" required></label><label>Full Name<input name="full_name" required></label><label>Department<select name="department"><option>DPW</option><option>Buildings & Grounds</option><option>Parks</option><option>Public Safety</option><option>Administration</option><option>Other</option></select></label><label>Role<select name="role"><option value="EMPLOYEE">Employee</option><option value="SUPERVISOR">Supervisor</option></select></label><label>Initial PIN<input name="pin" type="password" inputmode="numeric" minlength="4" required></label><button class="primary-button" type="submit">Add Employee</button></form>{% for emp in employees %}<div class="admin-row"><strong>{{ emp.full_name }}</strong><div class="ticket-meta">ID {{ emp.employee_id }} · {{ emp.department }} · {{ emp.role }} · {{ 'ACTIVE' if emp.active else 'INACTIVE' }}</div><div class="admin-actions"><form method="post" action="/staff-admin/employee/{{ emp.id }}/toggle"><button class="secondary-button" type="submit">{{ 'Disable' if emp.active else 'Enable' }}</button></form><form method="post" action="/staff-admin/employee/{{ emp.id }}/pin" class="admin-inline-form"><input name="pin" type="password" inputmode="numeric" placeholder="New PIN" minlength="4" required><button class="secondary-button" type="submit">Reset PIN</button></form></div></div>{% endfor %}</details>
+<details class="manage-panel"><summary>Locations</summary><form method="post" action="/staff-admin/location/create" class="watch-form compact"><label>Location Name<input name="name" required></label><label>Department<input name="department" placeholder="Optional"></label><label>Order<input type="number" name="sort_order" value="100"></label><button class="primary-button" type="submit">Add Location</button></form>{% for loc in locations %}<div class="admin-row"><strong>{{ loc.name }}</strong><div class="ticket-meta">{{ loc.department or 'All departments' }} · {{ 'ACTIVE' if loc.active else 'INACTIVE' }}</div><form method="post" action="/staff-admin/location/{{ loc.id }}/toggle" class="admin-actions"><button class="secondary-button" type="submit">{{ 'Disable' if loc.active else 'Enable' }}</button></form></div>{% endfor %}</details>
+<details class="manage-panel"><summary>Work Types</summary><form method="post" action="/staff-admin/work-type/create" class="watch-form compact"><label>Work Type<input name="name" required></label><label>Automatic Checklist<select name="checklist_template"><option value="GENERAL">General Work</option><option value="SITE_CHECK">Site / Facility Check</option><option value="EVENT_SETUP">Event Setup</option><option value="VEHICLE">Vehicle / Equipment</option><option value="OPEN_CLOSE">Opening / Closing</option><option value="NONE">None</option></select></label><label>Order<input type="number" name="sort_order" value="100"></label><button class="primary-button" type="submit">Add Work Type</button></form>{% for wt in work_types %}<div class="admin-row"><strong>{{ wt.name }}</strong><div class="ticket-meta">{{ wt.department or 'All departments' }} · {{ wt.checklist_template }} · P{{ wt.priority_normal }}/P{{ wt.priority_attention }}/P{{ wt.priority_emergency }} · {{ 'ACTIVE' if wt.active else 'INACTIVE' }}</div><form method="post" action="/staff-admin/work-type/{{ wt.id }}/toggle" class="admin-actions"><button class="secondary-button" type="submit">{{ 'Disable' if wt.active else 'Enable' }}</button></form></div>{% endfor %}</details>
 </section>
+<footer><span>City Manager OS</span><span>Private municipal operations interface · Eastern Time</span></footer>
 </main>
 </body>
 </html>

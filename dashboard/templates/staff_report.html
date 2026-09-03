@@ -3,119 +3,36 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Report Issue</title>
+<title>Report Issue · Weehawken Operations</title>
 <link rel="stylesheet" href="/static/staff.css">
 </head>
 <body class="staff-body">
 <div class="staff-shell">
-
-<div class="staff-top">
-<div>
-<a class="staff-link" href="/staff/home">← Home</a>
-<h1 class="staff-name" style="margin-top:12px">Report an Issue</h1>
-<div class="staff-muted">You are reporting as {{ employee.full_name }}</div>
-</div>
-</div>
-
+<div class="staff-top"><div><a class="staff-link" href="/staff/home">← Home</a><h1 class="staff-name">Report an Issue</h1><div class="staff-muted">Reporting as {{ employee.full_name }}</div></div></div>
 <div class="staff-card">
-
-<form
-  method="post"
-  action="/staff/report"
-  enctype="multipart/form-data"
-  class="staff-form"
->
-
+<form method="post" action="/staff/report" enctype="multipart/form-data" class="staff-form">
 <label>Where is the problem?</label>
-<select name="location_id" id="location_id" required>
-<option value="">Choose location...</option>
-{% for location in locations %}
-<option value="{{ location.id }}">{{ location.name }}</option>
-{% endfor %}
-</select>
-
-<div id="other_location_wrap" style="display:none">
-<label>Street / Address / Location</label>
-<input
-  name="other_location"
-  id="other_location"
-  placeholder="Enter exact location"
->
-</div>
-
+<select name="location_id" id="location_id" required><option value="">Choose location...</option>{% for location in locations %}<option value="{{ location.id }}">{{ location.name }}</option>{% endfor %}</select>
+<div id="other_location_wrap" hidden><label>Street / Address / Location</label><input name="other_location" id="other_location" placeholder="Enter exact location"></div>
 <label>What type of problem is it?</label>
-<select name="work_type_id" required>
-<option value="">Choose work type...</option>
-{% for wt in work_types %}
-<option value="{{ wt.id }}">{{ wt.name }}</option>
-{% endfor %}
-</select>
-
+<select name="work_type_id" required><option value="">Choose work type...</option>{% for wt in work_types %}<option value="{{ wt.id }}">{{ wt.name }}</option>{% endfor %}</select>
 <label>How urgent is it?</label>
-
 <div class="staff-radio-grid">
-
-<label class="staff-radio">
-<input type="radio" name="urgency" value="NORMAL" checked>
-<span>Routine / Normal</span>
-</label>
-
-<label class="staff-radio">
-<input type="radio" name="urgency" value="ATTENTION">
-<span>Needs Prompt Attention</span>
-</label>
-
-<label class="staff-radio">
-<input type="radio" name="urgency" value="EMERGENCY">
-<span>Dangerous / Immediate Problem</span>
-</label>
-
+<label class="staff-radio"><input type="radio" name="urgency" value="NORMAL" checked><span>Routine / Normal</span></label>
+<label class="staff-radio"><input type="radio" name="urgency" value="ATTENTION"><span>Needs Prompt Attention</span></label>
+<label class="staff-radio"><input type="radio" name="urgency" value="EMERGENCY"><span>Dangerous / Immediate Problem</span></label>
 </div>
-
-<label>Photo of the Problem</label>
-<input
-  type="file"
-  name="photos"
-  accept="image/*"
-  capture="environment"
-  multiple
->
-
-<div class="staff-muted" style="font-size:12px;margin-top:5px">
-Up to 5 photos.
-</div>
-
-<label>Anything else we should know?</label>
-<textarea
-  name="description"
-  placeholder="Optional details"
-></textarea>
-
-<div style="margin-top:20px">
-<button class="staff-button primary" type="submit">
-Submit Work Request
-</button>
-</div>
-
+<label>Photo of the Problem</label><input type="file" name="photos" accept="image/*" capture="environment" multiple><div class="staff-muted staff-small">Up to 5 photos.</div>
+<label>Anything else we should know?</label><textarea name="description" placeholder="Optional details"></textarea>
+<div class="staff-form-gap"><button class="staff-button primary" type="submit">Submit Work Request</button></div>
 </form>
 </div>
-
 </div>
-
 <script>
 const locationSelect=document.getElementById('location_id');
 const otherWrap=document.getElementById('other_location_wrap');
-
-function locationChanged(){
-  const text=locationSelect.options[locationSelect.selectedIndex]?.text || '';
-  otherWrap.style.display=
-    (text.includes('Street / Public') || text.includes('Other / Enter'))
-      ? 'block'
-      : 'none';
-}
-
-locationSelect.addEventListener('change',locationChanged);
+function locationChanged(){const text=locationSelect.options[locationSelect.selectedIndex]?.text || '';otherWrap.hidden=!(text.includes('Street / Public') || text.includes('Other / Enter'));}
+locationSelect.addEventListener('change',locationChanged);locationChanged();
 </script>
-
 </body>
 </html>

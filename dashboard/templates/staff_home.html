@@ -3,57 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Employee Operations</title>
+<title>Employee Operations · Weehawken</title>
 <link rel="stylesheet" href="/static/staff.css">
 </head>
 <body class="staff-body">
 <div class="staff-shell">
-
 <div class="staff-top">
-<div>
-<div class="staff-brand">WEEHAWKEN OPERATIONS</div>
-<h1 class="staff-name">Hello, {{ employee.full_name }}</h1>
-<div class="staff-muted">{{ employee.department }} · ID {{ employee.employee_id }}</div>
+  <div><div class="staff-brand">WEEHAWKEN OPERATIONS</div><h1 class="staff-name">Hello, {{ employee.full_name }}</h1><div class="staff-muted">{{ employee.department }} · ID {{ employee.employee_id }}</div></div>
+  <div class="staff-top-actions"><a class="staff-link" href="/staff/logout">Sign Out</a></div>
 </div>
-<a class="staff-link" href="/staff/logout">Sign Out</a>
-</div>
-
 <div class="staff-grid">
-
-<a class="staff-action" href="/staff/report">
-<strong>Report an Issue</strong>
-<span>Photo, location and work type</span>
-</a>
-
-<a class="staff-action secondary" href="/staff/work">
-<strong>My Work</strong>
-<span>Assignments and submitted requests</span>
-</a>
-
-{% if employee.role == 'SUPERVISOR' %}
-<a class="staff-action secondary" href="/staff/supervisor">
-<strong>Supervisor Queue</strong>
-<span>Review and assign work</span>
-</a>
-{% endif %}
-
+<a class="staff-action" href="/staff/report"><strong>Report an Issue</strong><span>Photo, location and work type</span></a>
+<a class="staff-action secondary" href="/staff/work"><strong>My Work</strong><span>Assignments and submitted requests</span></a>
+{% if employee.role == 'SUPERVISOR' %}<a class="staff-action secondary" href="/staff/supervisor"><strong>Supervisor Queue</strong><span>Review and assign work</span></a>{% endif %}
 </div>
-
 <div class="staff-metrics">
-<div class="staff-metric">
-<strong>{{ counts.open_count or 0 }}</strong>
-<span>Open</span>
+<div class="staff-metric"><strong>{{ counts.open_count or 0 }}</strong><span>Open</span></div>
+<div class="staff-metric"><strong>{{ counts.in_progress or 0 }}</strong><span>In Progress</span></div>
+<div class="staff-metric"><strong>{{ counts.completed_week or 0 }}</strong><span>Completed 7d</span></div>
 </div>
-<div class="staff-metric">
-<strong>{{ counts.in_progress or 0 }}</strong>
-<span>In Progress</span>
-</div>
-<div class="staff-metric">
-<strong>{{ counts.completed_week or 0 }}</strong>
-<span>Completed 7d</span>
-</div>
-</div>
-
 </div>
 </body>
 </html>
