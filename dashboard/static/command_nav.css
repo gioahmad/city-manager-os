@@ -1,4 +1,4 @@
-/* Compact desktop navigation. Keeps the established light City Manager OS palette. */
+/* Desktop navigation restored to the original City Manager OS dark palette. */
 @media (min-width:841px){
   .desktop-nav{
     display:block!important;
@@ -6,11 +6,11 @@
     top:0;
     z-index:19;
     overflow:hidden;
-    background:rgba(255,255,255,.97);
+    background:#0e1620;
     border-top:0;
-    border-bottom:1px solid #dce4ea;
-    box-shadow:0 2px 8px rgba(16,42,67,.045);
-    backdrop-filter:blur(12px);
+    border-bottom:1px solid #223244;
+    box-shadow:none;
+    backdrop-filter:none;
   }
   .desktop-nav .nav-inner{
     width:100%;
@@ -36,41 +36,34 @@
     min-height:40px;
     padding:0 8px;
     border-radius:0;
-    color:#5e7183;
+    color:#91a3b5;
     background:transparent;
     text-decoration:none;
     font-size:10.75px;
     line-height:1;
-    font-weight:760;
+    font-weight:700;
     letter-spacing:0;
-    transition:color .14s ease,background .14s ease;
+    border-bottom:2px solid transparent;
+    transition:color .14s ease,background .14s ease,border-color .14s ease;
   }
   .desktop-nav a:hover{
-    color:#173f63;
-    background:#f6f9fb;
+    color:#dbe6ef;
+    background:#121e2a;
   }
   .desktop-nav a.active{
-    color:#102a43;
-    background:#f8fafc;
-    font-weight:850;
+    color:#eef5fb;
+    background:#121e2a;
+    border-bottom-color:#57b8ff;
+    font-weight:700;
   }
-  .desktop-nav a.active:after{
-    content:"";
-    position:absolute;
-    left:8px;
-    right:8px;
-    bottom:0;
-    height:2px;
-    border-radius:2px 2px 0 0;
-    background:#2b7db8;
-  }
+  .desktop-nav a.active:after{display:none}
   .desktop-nav .nav-divider{
     display:block;
     flex:0 0 1px;
     width:1px;
-    height:16px;
+    height:18px;
     margin:0 5px;
-    background:#d5dee6;
+    background:#2a3a4b;
   }
 }
 
