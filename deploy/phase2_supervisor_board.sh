@@ -79,6 +79,28 @@ done
 [[ "$DASH_OK" -eq 1 ]] || fail "Private dashboard did not become healthy."
 cat /tmp/cmos-dashboard-health.txt
 
+log "Verifying Eastern timezone in dashboard and PostgreSQL sessions"
+TIME_CHECK="$(docker exec -i citymanager-dashboard python - <<'PY'
+import datetime
+import os
+import app
+
+row = app.query_one("SELECT current_setting('TimeZone') AS timezone, now() AS db_now")
+print('TZ=' + os.getenv('TZ',''))
+print('PGTZ=' + os.getenv('PGTZ',''))
+print('PYTHON_NOW=' + datetime.datetime.now().isoformat())
+print('DB_TIMEZONE=' + str(row.get('timezone')))
+print('DB_NOW=' + row.get('db_now').isoformat())
+PY
+)"
+printf '%s\n' "$TIME_CHECK"
+grep -q '^TZ=America/New_York$' <<<"$TIME_CHECK" || fail "Dashboard TZ is not America/New_York."
+grep -q '^PGTZ=America/New_York$' <<<"$TIME_CHECK" || fail "Dashboard PGTZ is not America/New_York."
+grep -q '^DB_TIMEZONE=America/New_York$' <<<"$TIME_CHECK" || fail "PostgreSQL session timezone is not America/New_York."
+if ! grep -Eq '^DB_NOW=.*(-04:00|-05:00)$' <<<"$TIME_CHECK"; then
+  fail "Database timestamp does not show an Eastern UTC offset."
+fi
+
 log "Parsing deployed supervisor template"
 docker exec -i citymanager-dashboard python - <<'PY'
 from pathlib import Path
