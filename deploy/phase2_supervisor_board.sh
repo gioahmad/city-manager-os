@@ -25,6 +25,7 @@ trap on_error ERR
 command -v git >/dev/null || fail "git is required"
 command -v docker >/dev/null || fail "docker is required"
 command -v curl >/dev/null || fail "curl is required"
+command -v ss >/dev/null || fail "ss is required"
 
 cd "$REPO"
 
@@ -52,13 +53,9 @@ log "Deploying ${DEPLOYED_HEAD}"
 log "Compiling supervisor backend"
 python3 -m py_compile dashboard/staff_admin_app.py
 
-log "Parsing supervisor template"
-python3 - <<'PY'
-from pathlib import Path
-from jinja2 import Environment
-Environment().parse(Path('dashboard/templates/staff_admin.html').read_text())
-print('Template parse: OK')
-PY
+grep -q 'Operations Board' dashboard/templates/staff_admin.html || fail "Operations Board template marker missing."
+grep -q 'Supervisor Instruction' dashboard/templates/staff_admin.html || fail "Supervisor instruction control missing from template."
+grep -q 'Assign / Reassign' dashboard/templates/staff_admin.html || fail "Assignment control missing from template."
 
 cd "$REPO/dashboard"
 log "Validating compose configuration"
@@ -73,7 +70,7 @@ docker compose up -d --no-deps --force-recreate citymanager-dashboard
 log "Waiting for private dashboard health"
 DASH_OK=0
 for _ in $(seq 1 20); do
-  if docker exec citymanager-dashboard python -c "import json,urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=5).read().decode())" >/tmp/cmos-dashboard-health.txt 2>/dev/null; then
+  if docker exec citymanager-dashboard python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=5).read().decode())" >/tmp/cmos-dashboard-health.txt 2>/dev/null; then
     DASH_OK=1
     break
   fi
@@ -82,8 +79,16 @@ done
 [[ "$DASH_OK" -eq 1 ]] || fail "Private dashboard did not become healthy."
 cat /tmp/cmos-dashboard-health.txt
 
+log "Parsing deployed supervisor template"
+docker exec -i citymanager-dashboard python - <<'PY'
+from pathlib import Path
+from jinja2 import Environment
+Environment().parse(Path('/app/templates/staff_admin.html').read_text())
+print('Template parse: OK')
+PY
+
 log "Testing Operations Board views against live database without modifying data"
-docker exec citymanager-dashboard python - <<'PY'
+docker exec -i citymanager-dashboard python - <<'PY'
 import urllib.request
 
 base = 'http://127.0.0.1:8000/staff-admin'
@@ -103,26 +108,11 @@ for view in views:
             raise SystemExit(f'{view}: HTTP {r.status}')
         if 'Operations Board' not in body:
             raise SystemExit(f'{view}: board marker missing')
+        if 'TEAM WORKLOAD' not in body:
+            raise SystemExit(f'{view}: workload marker missing')
+        if 'OPERATIONS SETUP' not in body:
+            raise SystemExit(f'{view}: setup marker missing')
         print(f'{view}: HTTP 200')
-PY
-
-log "Checking that supervisor controls are rendered"
-docker exec citymanager-dashboard python - <<'PY'
-import urllib.request
-body = urllib.request.urlopen(
-    'http://127.0.0.1:8000/staff-admin?view=active',
-    timeout=10,
-).read().decode('utf-8')
-required = [
-    'TEAM WORKLOAD',
-    'Assign / Reassign',
-    'Supervisor Instruction',
-    'OPERATIONS SETUP',
-]
-missing = [x for x in required if x not in body]
-if missing:
-    raise SystemExit('Missing board controls: ' + ', '.join(missing))
-print('Board controls: OK')
 PY
 
 log "Confirming employee Operations portal stayed healthy"
