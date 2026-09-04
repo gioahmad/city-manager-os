@@ -131,9 +131,9 @@ function geoOptions(key,color){
     style: feature => {
       if(key==='flood'){
         const sfha=String(feature.properties?.sfha_tf||'').toUpperCase()==='T';
-        return {color:sfha?'#d9534f':'#d7a441',weight:1,fillColor:sfha?'#d9534f':'#d7a441',fillOpacity:sfha?.30:.18};
+        return {color:sfha?'#d9534f':'#d7a441',weight:1,fillColor:sfha?'#d9534f':'#d7a441',fillOpacity:sfha ? .30 : .18};
       }
-      return {color:color||'#4aa3df',weight:key==='parcels'?1:2,fillColor:color||'#4aa3df',fillOpacity:key==='parcels'?.03:.16};
+      return {color:color||'#4aa3df',weight:key==='parcels'?1:2,fillColor:color||'#4aa3df',fillOpacity:key==='parcels' ? .03 : .16};
     },
     pointToLayer:(feature,latlng)=>L.circleMarker(latlng,pointStyle(key)),
     onEachFeature:(feature,layer)=>layer.bindPopup(popupFor(feature.properties||{}))
