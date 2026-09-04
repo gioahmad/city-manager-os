@@ -72,7 +72,7 @@ services:
       OPS_ENGINE_INTERVAL_SECONDS: "${OPS_ENGINE_INTERVAL_SECONDS:-60}"
     command:
       - python
-      - operations_engine.py
+      - operations_engine_windowed.py
     networks:
       - citymanager
 
