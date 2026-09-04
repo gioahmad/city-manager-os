@@ -32,7 +32,7 @@ case "$DATASET" in
     GEOM_ARGS=(-nlt PROMOTE_TO_MULTI)
     ;;
   addresses)
-    SOURCE_FILE="/opt/citymanager-data/gis/raw/addresses/${COUNTY_LOWER}_addresses_ng911.geojson"
+    SOURCE_FILE="/opt/citymanager-data/gis/raw/addresses/${COUNTY_LOWER}_ng911_addresses.geojson"
     TARGET_TABLE="stg_${COUNTY_LOWER}_addresses"
     GEOM_ARGS=(-nlt POINT)
     ;;
