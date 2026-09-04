@@ -107,16 +107,17 @@ DB_STATS="$(docker exec citymanager-postgis \
   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "
 SELECT
   count(*)::text || '|' ||
-  COALESCE(ST_SRID(geom)::text, 'NULL') || '|' ||
+  COALESCE(MIN(ST_SRID(geom)) FILTER (WHERE geom IS NOT NULL)::text, 'NULL') || '|' ||
+  COALESCE(MAX(ST_SRID(geom)) FILTER (WHERE geom IS NOT NULL)::text, 'NULL') || '|' ||
   COALESCE(string_agg(DISTINCT GeometryType(geom), ',' ORDER BY GeometryType(geom)), 'NULL')
 FROM public.${TARGET_TABLE};
 ")"
 
-IFS='|' read -r DB_COUNT DB_SRID DB_GEOMS <<< "$DB_STATS"
+IFS='|' read -r DB_COUNT DB_SRID_MIN DB_SRID_MAX DB_GEOMS <<< "$DB_STATS"
 
 printf '\n=== IMPORT VALIDATION ===\n'
 printf 'Database rows: %s\n' "$DB_COUNT"
-printf 'SRID: %s\n' "$DB_SRID"
+printf 'SRID min/max: %s / %s\n' "$DB_SRID_MIN" "$DB_SRID_MAX"
 printf 'Geometry type(s): %s\n' "$DB_GEOMS"
 
 if [[ "$SOURCE_COUNT" != "unknown" && "$DB_COUNT" != "$SOURCE_COUNT" ]]; then
@@ -124,8 +125,8 @@ if [[ "$SOURCE_COUNT" != "unknown" && "$DB_COUNT" != "$SOURCE_COUNT" ]]; then
   exit 1
 fi
 
-if [[ "$DB_SRID" != "4326" ]]; then
-  echo "ERROR: unexpected SRID: $DB_SRID"
+if [[ "$DB_SRID_MIN" != "4326" || "$DB_SRID_MAX" != "4326" ]]; then
+  echo "ERROR: unexpected or mixed SRID values: ${DB_SRID_MIN}/${DB_SRID_MAX}"
   exit 1
 fi
 
