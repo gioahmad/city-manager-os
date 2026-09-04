@@ -21,6 +21,7 @@ COPY operations_occurrence_controls.py .
 COPY operations_engine.py .
 COPY operations_engine_windowed.py .
 COPY flood_app.py .
+COPY map_app.py .
 COPY phase3_app.py .
 COPY templates ./templates
 COPY static ./static
