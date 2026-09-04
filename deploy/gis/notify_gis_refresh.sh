@@ -30,7 +30,7 @@ for cmd in docker curl; do
   command -v "$cmd" >/dev/null || { echo "ERROR: $cmd is required" >&2; exit 1; }
 done
 
-ROUTE="$(docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -F "|"' <<'SQL'
+ROUTE="$(docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -qAt -F "|"' <<'SQL'
 SELECT id::text, ntfy_topic
 FROM subscribers
 WHERE subscriber_id='GIO_CATCHALL'
@@ -60,7 +60,7 @@ psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -v result="$GIS_RESULT" \
   -v title="$GIS_TITLE" \
   -v message="$GIS_MESSAGE" \
-  -v priority="$GIS_ALERT_PRIORITY" -At
+  -v priority="$GIS_ALERT_PRIORITY" -qAt
 ' <<'SQL'
 INSERT INTO alerts(
   alert_id,source,source_event_id,category,subtype,status,event_action,
@@ -98,7 +98,7 @@ psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -v delivery_key="$GIS_DELIVERY_KEY" \
   -v alert_uuid="$GIS_ALERT_UUID" \
   -v subscriber_uuid="$GIS_SUBSCRIBER_UUID" \
-  -v ntfy_topic="$GIS_NTFY_TOPIC" -At
+  -v ntfy_topic="$GIS_NTFY_TOPIC" -qAt
 ' <<'SQL'
 INSERT INTO deliveries(
   delivery_key,alert_id,subscriber_id,ntfy_topic,status,attempted_at,
