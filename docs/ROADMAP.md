@@ -42,8 +42,6 @@ Normal municipal monitoring and follow-up no longer require opening n8n.
 - [x] Executive Assistant / morning brief / proactive follow-up
 - [x] Unified responsive desktop + mobile interface
 
-The basic live map was intentionally moved out of the original Dashboard v0.1 milestone and now belongs to the GIS work below.
-
 ## Employee / Supervisor Operations — COMPLETE
 
 - [x] Public HTTPS Employee Operations portal
@@ -52,6 +50,7 @@ The basic live map was intentionally moved out of the original Dashboard v0.1 mi
 - [x] Report Issue / My Work
 - [x] Automatic priorities and checklists
 - [x] Before / after photos
+- [x] Inline photo viewer with zoom and explicit download option
 - [x] Start Work
 - [x] Need Help / Can't Complete
 - [x] Completion workflow
@@ -65,75 +64,89 @@ The basic live map was intentionally moved out of the original Dashboard v0.1 mi
 - [x] Per-occurrence Today Notes
 - [x] Eastern Time application/session standardization
 
-## Current finish line — GIS / Property Intelligence
+## GIS / Property Intelligence — COMPLETE
 
-### #8 — Hudson County parcel + address foundation — ACTIVE / NEXT
+### #8 — Hudson County parcel + address foundation — COMPLETE
 
-Already built in GitHub:
+- [x] NJOGIS parcel downloader
+- [x] NJOGIS NG911 address downloader
+- [x] Validated Hudson County production imports
+- [x] Production `gis_parcels` and `gis_addresses`
+- [x] Geometry validation / repair during promotion
+- [x] Spatial and lookup indexes
+- [x] Address → parcel lookup
+- [x] Block / lot lookup
+- [x] Nearby / radius query
+- [x] GIS dataset version tracking
 
-- [x] County-selectable NJOGIS parcel downloader
-- [x] County-selectable NJOGIS NG911 address downloader
-- [x] PostGIS staging importer with row-count / SRID validation
+Production counts validated September 4, 2026:
 
-Still required:
+- parcels: 143,305
+- addresses: 219,780
+- invalid production geometries: 0
 
-- [ ] Verify current Hudson County parcel snapshot on VPS
-- [ ] Verify current Hudson County address snapshot on VPS
-- [ ] Import both datasets into staging
-- [ ] Inspect fields / geometry / row counts
-- [ ] Promote validated production `gis_parcels` and `gis_addresses`
-- [ ] Add production spatial and lookup indexes
-- [ ] Address → parcel lookup
-- [ ] Block / lot lookup
-- [ ] Nearby / radius query
-- [ ] Connect geographic context to dashboard/watchlist where useful
+Tracked by GitHub issue #8 — completed.
 
-Tracked by GitHub issue #8.
+### #9 — Automated GIS refresh — COMPLETE
 
-### #9 — Automated GIS refresh — BLOCKED BY #8
+- [x] Monthly first-Sunday refresh schedule
+- [x] Download / staging / validation / atomic promotion
+- [x] Prior production retained on failure
+- [x] Dataset version / source-health logging
+- [x] Dynamic success / failure notification
+- [x] Archived raw snapshots
 
-After the first production import path is proven:
+Tracked by GitHub issue #9 — completed.
 
-- [ ] Scheduled dataset download
-- [ ] Staging import
-- [ ] Validation
-- [ ] Promote only on success
-- [ ] Retain prior production data on failure
-- [ ] Record dataset version / refresh status
-- [ ] Success / failure notification
+### #10 — Flood intelligence — COMPLETE
 
-Tracked by GitHub issue #9.
+- [x] FEMA NFHL effective flood-zone acquisition / import
+- [x] Local PostGIS flood-zone storage
+- [x] Interactive Flood Intelligence map
+- [x] General Mapping Center with system and custom layers
+- [x] Parcels / NG911 addresses / watch locations / operational issues map layers
+- [x] Custom GeoJSON layers and browser-drawn points / lines / polygons
+- [x] NOAA CO-OPS The Battery station 8518750 live water-level observations
+- [x] NOAA flood thresholds loaded dynamically from authoritative station metadata
+- [x] NWS active flood / coastal alerts for the Weehawken point
+- [x] Live observation storage in `flood_observations`
+- [x] `NOAA_TIDE` and `NWS_FLOOD` source-health monitoring
+- [x] NOAA threshold-change alerts only, avoiding routine-observation notification noise
+- [x] Official NWS flood alerts normalized into the standard alert schema
+- [x] Existing central watchlist matcher and dynamic subscriber routing retained
+- [x] FEMA-zone watched-location context included in flood alerts
+- [x] Live 5-minute n8n production trigger validated successfully
 
-### #10 — Flood intelligence — AFTER GIS FOUNDATION
+Static flood production validation:
 
-- [ ] Static flood-zone acquisition / import
-- [ ] Live rain / tide / flood observation sources
-- [ ] Normalized flood events / alerts
-- [ ] Flood map layer
-- [ ] Spatial watch rules
-- [ ] Critical notification thresholds
-- [ ] Test watched facilities / properties against flood conditions
+- FEMA flood polygons: 1,081
+- SFHA polygons: 149
+- invalid geometries: 0
 
-Tracked by GitHub issue #10.
+Tracked by GitHub issue #10 — completed.
+
+## Core build closeout
+
+The original tracked core build sequence is now complete:
+
+```text
+#8 GIS FOUNDATION ✓
+#9 AUTOMATED GIS REFRESH ✓
+#10 FLOOD / MAP INTELLIGENCE ✓
+```
+
+City Manager OS should now be treated primarily as a production operating system with maintenance and deliberate expansion work rather than an unfinished core build.
 
 ## Optional expansion after closeout
 
 These are enhancements, not blockers for the current City Manager OS:
 
+- move more maintenance / configuration controls from CLI into authenticated web admin screens
 - additional weather / transit / traffic / Port Authority feeds
 - additional delivery channels such as SMS / email
 - deeper asset hierarchy and lifecycle history
 - broader department-specific workflow templates
 - predictive / AI-assisted exception detection
+- expanded GIS editing, layer styling, import/export and spatial analysis tools
 - native mobile app if the web field experience ever proves insufficient
 - public-facing views where appropriate
-
-## Project closeout condition
-
-The core City Manager OS is operational now. The remaining tracked build sequence is:
-
-```text
-#8 FIRST GIS IMPORT → #9 AUTOMATED GIS REFRESH → #10 FLOOD / MAP INTELLIGENCE
-```
-
-When #8, #9 and #10 are complete, there should be no remaining open build issues required for the original core system vision.
