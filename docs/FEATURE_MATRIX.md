@@ -1,43 +1,66 @@
 # Feature Matrix
 
-| Feature | Status | Phase | Priority | Lives In | Next Action |
-|---|---|---|---|---|---|
-| n8n Automation Engine | Working | 1 | Critical | n8n | Keep as backend engine |
-| ntfy Notifications | Working | 1 | Critical | ntfy | Connect central router |
-| Master Watchlist | Designing | 1 | Critical | CSV → Postgres | Finalize schema |
-| Standard Alert Schema | Designed | 1 | High | schemas | Finalize fields |
-| Subscriber Directory | Designing | 1 | High | Postgres | Define table |
-| PostgreSQL/PostGIS | Not Started | 1 | Critical | Server | Deploy |
-| Central Watchlist Matcher | Designed | 2 | Critical | n8n | Build DB-backed matcher |
-| Recipient Resolver | Designed | 2 | High | n8n/Postgres | Build deduplicated resolver |
-| Delivery Logging | Not Started | 2 | High | Postgres | Define and build log |
-| PSEG Outages | Partial/Working | 2 | High | n8n | Route into OS |
-| Fire SDR | Partial | 5 | High | n8n/Raspberry Pi | Normalize output |
-| GIS Parcels | Not Started | 4 | High | PostGIS | Import Hudson County |
-| Address Points | Not Started | 4 | High | PostGIS | Import local dataset |
-| Block/Lot Enrichment | Designed | 4 | Medium | PostGIS | Build lookup |
-| Nearby Property Search | Designed | 4 | Medium | PostGIS | Build radius query |
-| Flood Zones | Planned | 4/5 | High | PostGIS/Dashboard | Acquire/import layer |
-| Live Dashboard | Planned | 3 | High | UI | Choose/build v0.1 |
-| Live Map | Planned | 3 | High | UI/PostGIS | Initial layer design |
-| Intelligence Feed | Planned | 3 | High | UI/Postgres | Define event model |
-| New Issue Intake | Planned | 3 | High | UI/n8n | Build intake form |
-| Source Health | Planned | 3 | Medium | Dashboard | Add heartbeat model |
-| Weather/NWS | Planned | 5 | High | n8n | Identify normalized feed |
-| Flood Gauges/Tides | Planned | 5 | High | n8n | Identify feeds |
-| Traffic/NJ 511 | Planned | 5 | Medium | n8n | Identify feed |
-| PATH/NJ Transit | Planned | 5 | Medium | n8n | Identify feeds |
-| Port Authority | Planned | 5 | Medium | n8n | Identify feeds |
-| Event Intelligence | Research/Design | 5 | Medium | n8n | Define collectors |
-| Internal Issue Tracking | Planned | 3/5 | High | UI/Postgres | Define issue record |
-| Tasks/Follow-up | Planned | 5 | Medium | UI/Postgres | Define workflow |
+_Last reconciled with production/main: September 4, 2026._
+
+| Feature | Status | Priority | Lives In | Next Action |
+|---|---|---:|---|---|
+| n8n Automation Engine | Working | Critical | n8n | Keep as backend engine |
+| PostgreSQL / PostGIS | Working | Critical | Server / PostGIS | Maintain / back up |
+| Master Watchlist | Working | Critical | Postgres / Dashboard | Maintain |
+| Standard Alert Schema | Working | High | schemas / n8n | Maintain compatibility |
+| Subscriber Directory | Working | High | Postgres / Dashboard | Maintain |
+| Central Watchlist Matcher | Working | Critical | n8n / Postgres | Maintain |
+| Recipient Resolver | Working | High | n8n / Postgres | Maintain |
+| Delivery Guard / Deduplication | Working | High | n8n / Postgres | Maintain |
+| Delivery Logging / Audit | Working | High | Postgres / Dashboard | Maintain |
+| ntfy Notifications | Working | Critical | ntfy / n8n | Maintain dynamic routing |
+| Source Health | Working | High | Postgres / Dashboard | Maintain |
+| PSEG Outages | Working | High | n8n / Postgres / Dashboard | Maintain |
+| Multi-source Operational Alerts | Working | High | n8n / Postgres | Expand only when useful |
+| Live Dashboard / Overview | Working | High | FastAPI / Postgres | Maintain |
+| Alerts / Intelligence Feed | Working | High | Dashboard / Postgres | Maintain |
+| Command Center / Issue Tracking | Working | Critical | Dashboard / Postgres | Maintain |
+| My Day | Working | Critical | Dashboard / Postgres | Maintain |
+| Schedule / Meeting Prep | Working | High | Dashboard / Postgres | Maintain |
+| Decision Desk | Working | High | Dashboard / Postgres | Maintain |
+| Visibility Queue | Working | Medium | Dashboard / Postgres | Maintain |
+| Rules Center | Working | High | Dashboard / Postgres | Extend only as needed |
+| Executive Assistant / Morning Brief | Working | High | n8n / Dashboard / Postgres | Maintain |
+| Employee Operations Portal | Working | Critical | FastAPI / Postgres | Maintain |
+| Supervisor Operations Board | Working | Critical | Dashboard / Postgres | Maintain |
+| Employee Photos / Checklists | Working | High | FastAPI / storage / Postgres | Maintain |
+| Supervisor Verification | Working | High | Dashboard / Postgres | Maintain |
+| Recurring Work Engine | Working | High | Operations Engine / Postgres | Configure real routines |
+| Daily Awareness / Expected Activity | Working | High | Operations Engine / Dashboard | Configure real routines |
+| Routine Start / End Dates | Working | Medium | Operations Engine / Postgres | Maintain |
+| Occurrence-specific Today Notes | Working | Medium | Operations Engine / Dashboard | Maintain |
+| GIS Parcel Downloader | Working | High | deploy/gis | Verify current Hudson snapshot |
+| GIS Address Downloader | Working | High | deploy/gis | Verify current Hudson snapshot |
+| GIS Staging Import | Working | High | deploy/gis / PostGIS | Run first Hudson imports |
+| Production GIS Parcels | In Progress | High | PostGIS | Complete issue #8 |
+| Production GIS Addresses | In Progress | High | PostGIS | Complete issue #8 |
+| Block / Lot Enrichment | Pending GIS | Medium | PostGIS | Complete issue #8 |
+| Nearby / Radius Search | Pending GIS | Medium | PostGIS | Complete issue #8 |
+| Live Geographic Map | Pending GIS | High | Dashboard / PostGIS | Build after #8 |
+| Automated GIS Refresh | Blocked | Medium | PostGIS / automation | Complete issue #9 after #8 |
+| Flood Zones / Flood Intelligence | Planned | High | PostGIS / Dashboard / n8n | Complete issue #10 after GIS base |
+| Additional Weather / Transit / Traffic Sources | Optional Expansion | Medium | n8n / Postgres | Add based on operational value |
+| SMS / Email Delivery | Optional Expansion | Low | Routing layer | Add only if needed |
+| Native Mobile App | Optional Expansion | Low | Future | Web experience is current default |
 
 ## Status Definitions
 
-- **Working** — in production/use now
-- **Partial/Working** — useful functionality exists but not integrated into the OS architecture
-- **Designed** — architecture/logic is sufficiently defined to build
-- **Designing** — still making structural decisions
-- **Planned** — accepted feature, not yet designed in detail
-- **Research/Design** — source or method still being evaluated
-- **Not Started** — approved next-stage work with no implementation yet
+- **Working** — deployed and part of the current operating system.
+- **In Progress** — implementation exists but production completion / validation remains.
+- **Pending GIS** — depends on the first production parcel/address import.
+- **Blocked** — intentionally waiting on a prerequisite issue.
+- **Planned** — accepted remaining build work.
+- **Optional Expansion** — useful future enhancement, not required for core closeout.
+
+## Current closeout sequence
+
+1. **#8** — complete and validate Hudson County parcel/address GIS production tables.
+2. **#9** — automate validated GIS refresh/promotion.
+3. **#10** — add flood / geographic intelligence and map behavior.
+
+Everything else in the original core operating-system stack is now treated as production/maintenance rather than unfinished build work.
