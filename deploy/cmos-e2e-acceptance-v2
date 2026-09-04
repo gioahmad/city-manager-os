@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+REPO="/opt/city-manager-os"
+SRC="$REPO/deploy/cmos-e2e-acceptance"
+TMP="/tmp/cmos-e2e-acceptance-v2.$$"
+
+cleanup(){ rm -f "$TMP"; }
+trap cleanup EXIT
+
+[[ -s "$SRC" ]] || { echo "ERROR: $SRC missing" >&2; exit 1; }
+
+python3 - "$SRC" "$TMP" <<'PY'
+from pathlib import Path
+import sys
+
+src = Path(sys.argv[1]).read_text()
+
+start_marker = 'docker exec -i n8n node - "$RUN_ID" <<\'NODE\'\n'
+end_marker = 'NODE\n\nDELIVERY=""\n'
+
+start = src.find(start_marker)
+if start < 0:
+    raise SystemExit('Could not find E2E webhook test block start')
+end = src.find(end_marker, start)
+if end < 0:
+    raise SystemExit('Could not find E2E webhook test block end')
+end += len('NODE\n')
+
+replacement = r'''docker exec -i n8n node - "$RUN_ID" <<'NODE'
+const runId = process.argv[2];
+const port = process.env.N8N_PORT || '5678';
+const url = `http://127.0.0.1:${port}/webhook/CMOS-E2E-ROUTING`;
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+(async () => {
+  let lastError = null;
+  let lastStatus = null;
+  let lastText = '';
+
+  // Docker can report the container as running before n8n has opened its
+  // listener and registered production webhooks. Retry the actual webhook
+  // for up to two minutes so this validates application readiness, not just
+  // container state.
+  for (let attempt = 1; attempt <= 60; attempt++) {
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: {'content-type':'application/json'},
+        body: JSON.stringify({run_id: runId})
+      });
+      lastStatus = r.status;
+      lastText = await r.text();
+
+      if (r.ok) {
+        console.log('E2E webhook HTTP', r.status, lastText.slice(0,200));
+        process.exit(0);
+      }
+
+      // A temporary 404 can occur while active webhooks are still loading
+      // immediately after restart. Retry it as part of readiness.
+      if (r.status !== 404 && r.status < 500) {
+        console.error('E2E webhook returned non-retryable HTTP', r.status, lastText.slice(0,200));
+        process.exit(1);
+      }
+    } catch (e) {
+      lastError = e;
+    }
+
+    if (attempt % 5 === 0) {
+      console.log(`Waiting for n8n webhook readiness (${attempt}/60)...`);
+    }
+    await sleep(2000);
+  }
+
+  if (lastError) console.error(lastError);
+  console.error('E2E webhook never became ready', {url, lastStatus, lastText: lastText.slice(0,200)});
+  process.exit(1);
+})().catch(e => { console.error(e); process.exit(1); });
+NODE'''
+
+patched = src[:start] + replacement + src[end:]
+Path(sys.argv[2]).write_text(patched)
+PY
+
+bash -n "$TMP"
+exec bash "$TMP"
