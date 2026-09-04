@@ -124,7 +124,9 @@ WITH sources(source) AS (
       ('BNN'),
       ('NHRFR_RADIO'),
       ('WPD_RADIO'),
-      ('EXEC_ASSISTANT')
+      ('EXEC_ASSISTANT'),
+      ('NOAA_TIDE'),
+      ('NWS_FLOOD')
 ),
 routes AS (
     SELECT
