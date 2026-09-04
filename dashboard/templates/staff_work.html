@@ -3,76 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>My Work</title>
+<title>My Work · Weehawken Operations</title>
 <link rel="stylesheet" href="/static/staff.css">
 </head>
 <body class="staff-body">
 <div class="staff-shell">
-
-<div class="staff-top">
-<div>
-<a class="staff-link" href="/staff/home">← Home</a>
-<h1 class="staff-name" style="margin-top:12px">My Work</h1>
-<div class="staff-muted">{{ employee.full_name }}</div>
-</div>
-</div>
-
+<div class="staff-top"><div><a class="staff-link" href="/staff/home">← Home</a><h1 class="staff-name">My Work</h1><div class="staff-muted">{{ employee.full_name }}</div></div></div>
 {% for item in items %}
-
-<a
-  class="staff-card staff-work-card"
-  href="/staff/ticket/{{ item.id }}"
->
-
+<a class="staff-card staff-work-card" href="/staff/ticket/{{ item.id }}">
 <div class="staff-row">
-
-<div>
-<div class="staff-ticket">TICKET #{{ item.ticket_code }}</div>
-<div class="staff-work-title">{{ item.title }}</div>
-
-<span class="staff-status">
-{{ item.status.replace('_',' ') }}
-</span>
-
-{% if item.assigned_to %}
-<div class="staff-muted" style="margin-top:8px">
-Assigned: {{ item.assigned_to }}
+<div><div class="staff-ticket">TICKET #{{ item.ticket_code }}</div><div class="staff-work-title">{{ item.title }}</div><span class="staff-status status-{{ item.status|lower }}">{{ item.status.replace('_',' ') }}</span>{% if item.assigned_to %}<div class="staff-muted staff-section-gap">Assigned: {{ item.assigned_to }}</div>{% endif %}{% if item.help_reason %}<div class="staff-help staff-section-gap">Needs help: {{ item.help_reason }}</div>{% endif %}</div>
+<div class="staff-side-stat">{% if item.checklist_total %}<strong>{{ item.checklist_done }}/{{ item.checklist_total }}</strong><div class="staff-muted staff-small">Checklist</div>{% endif %}{% if item.photo_count %}<div class="staff-muted staff-section-gap staff-small">{{ item.photo_count }} photo{{ '' if item.photo_count == 1 else 's' }}</div>{% endif %}</div>
 </div>
-{% endif %}
-
-{% if item.help_reason %}
-<div class="staff-help" style="margin-top:10px">
-Needs help: {{ item.help_reason }}
-</div>
-{% endif %}
-
-</div>
-
-<div style="text-align:right">
-{% if item.checklist_total %}
-<strong>{{ item.checklist_done }}/{{ item.checklist_total }}</strong>
-<div class="staff-muted" style="font-size:11px">Checklist</div>
-{% endif %}
-
-{% if item.photo_count %}
-<div class="staff-muted" style="margin-top:7px;font-size:12px">
-{{ item.photo_count }} photo{{ '' if item.photo_count == 1 else 's' }}
-</div>
-{% endif %}
-</div>
-
-</div>
-
 </a>
-
-{% else %}
-
-<div class="staff-card">
-<strong>No work assigned or submitted.</strong>
-</div>
-
-{% endfor %}
-
+{% else %}<div class="staff-card"><strong>No work assigned or submitted.</strong></div>{% endfor %}
 </div>
 </body>
 </html>

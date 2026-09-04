@@ -1,0 +1,133 @@
+/* Desktop density layer for City Manager OS.
+   Keeps mobile comfortable while using large screens as an operations workspace. */
+
+@media (min-width:841px){
+  .topbar{
+    padding:16px 22px 14px;
+  }
+  .topbar h1{
+    font-size:32px;
+  }
+  .nav-inner{
+    width:100%;
+    max-width:none;
+    margin:0;
+    padding-left:22px;
+    padding-right:22px;
+  }
+  main{
+    width:100%;
+    max-width:none;
+    margin:0;
+    padding:18px 22px 32px;
+  }
+  .metrics{
+    gap:10px;
+  }
+  .metric{
+    padding:14px 16px;
+  }
+  .metric strong{
+    font-size:31px;
+    margin:6px 0 5px;
+  }
+  .section-label{
+    margin-top:20px;
+    margin-bottom:8px;
+  }
+  .lower-label{
+    margin-top:22px;
+  }
+  .grid,
+  .stack,
+  .ticket-grid,
+  .management-grid{
+    gap:12px;
+  }
+  .panel-head{
+    padding:13px 15px;
+  }
+  .panel-body{
+    padding:6px 15px 13px;
+  }
+  .board-tabs{
+    gap:8px;
+    margin-bottom:12px;
+  }
+  .board-tab{
+    border-radius:11px;
+    padding:11px 12px 10px;
+  }
+  .board-tab strong{
+    font-size:1.5rem;
+  }
+  .board-tab span{
+    margin-top:5px;
+  }
+  .workload-grid{
+    grid-template-columns:repeat(auto-fit,minmax(165px,1fr));
+    gap:8px;
+  }
+  .workload-card{
+    padding:10px 12px;
+    border-radius:11px;
+  }
+  .workload-counts{
+    margin-top:6px;
+    gap:10px;
+  }
+  .ticket-card{
+    border-radius:12px;
+  }
+  .ticket-top{
+    padding:12px 13px 7px;
+  }
+  .ticket-body{
+    padding:0 13px 12px;
+  }
+  .ticket-actions{
+    padding:11px 13px;
+  }
+  .ticket-photo{
+    height:165px;
+    margin:8px 0 9px;
+  }
+  .manage-panel{
+    border-radius:12px;
+    padding-left:12px;
+    padding-right:12px;
+  }
+  .manage-panel summary{
+    padding:12px 0;
+  }
+  footer{
+    margin-top:22px;
+  }
+}
+
+@media (min-width:1500px){
+  .ticket-grid{
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+  .module-grid{
+    grid-template-columns:repeat(4,minmax(0,1fr));
+  }
+  .primary-grid{
+    grid-template-columns:minmax(0,1.55fr) minmax(360px,.65fr);
+  }
+  .secondary-grid{
+    grid-template-columns:minmax(0,1.4fr) minmax(380px,.6fr);
+  }
+}
+
+@media (min-width:1900px){
+  .topbar,
+  main{
+    padding-left:28px;
+    padding-right:28px;
+  }
+  .nav-inner{
+    padding-left:28px;
+    padding-right:28px;
+  }
+}

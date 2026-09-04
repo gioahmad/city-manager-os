@@ -1,0 +1,73 @@
+/* Desktop navigation restored to the original City Manager OS dark palette. */
+@media (min-width:841px){
+  .desktop-nav{
+    display:block!important;
+    position:sticky;
+    top:0;
+    z-index:19;
+    overflow:hidden;
+    background:#0e1620;
+    border-top:0;
+    border-bottom:1px solid #223244;
+    box-shadow:none;
+    backdrop-filter:none;
+  }
+  .desktop-nav .nav-inner{
+    width:100%;
+    margin:0;
+    min-height:40px;
+    padding:0 18px;
+    display:flex!important;
+    flex-direction:row!important;
+    flex-wrap:nowrap!important;
+    align-items:center!important;
+    gap:0;
+    overflow-x:auto;
+    overflow-y:hidden;
+    white-space:nowrap;
+    scrollbar-width:none;
+  }
+  .desktop-nav .nav-inner::-webkit-scrollbar{display:none}
+  .desktop-nav a{
+    position:relative;
+    display:flex!important;
+    flex:0 0 auto;
+    align-items:center;
+    min-height:40px;
+    padding:0 8px;
+    border-radius:0;
+    color:#91a3b5;
+    background:transparent;
+    text-decoration:none;
+    font-size:10.75px;
+    line-height:1;
+    font-weight:700;
+    letter-spacing:0;
+    border-bottom:2px solid transparent;
+    transition:color .14s ease,background .14s ease,border-color .14s ease;
+  }
+  .desktop-nav a:hover{
+    color:#dbe6ef;
+    background:#121e2a;
+  }
+  .desktop-nav a.active{
+    color:#eef5fb;
+    background:#121e2a;
+    border-bottom-color:#57b8ff;
+    font-weight:700;
+  }
+  .desktop-nav a.active:after{display:none}
+  .desktop-nav .nav-divider{
+    display:block;
+    flex:0 0 1px;
+    width:1px;
+    height:18px;
+    margin:0 5px;
+    background:#2a3a4b;
+  }
+}
+
+@media (min-width:1500px){
+  .desktop-nav .nav-inner{padding-left:20px;padding-right:20px}
+  .desktop-nav a{padding-left:9px;padding-right:9px;font-size:11px}
+}

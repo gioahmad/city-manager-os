@@ -3,55 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Employee Login</title>
+<title>Employee Login · Weehawken Operations</title>
 <link rel="stylesheet" href="/static/staff.css">
 </head>
 <body class="staff-body">
-<div class="staff-shell" style="max-width:480px;padding-top:8vh">
-
-<div class="staff-brand">WEEHAWKEN OPERATIONS</div>
-<h1 class="staff-name" style="font-size:34px;margin-top:10px">Employee Login</h1>
-<p class="staff-muted">Enter your employee ID and PIN.</p>
-
-{% if error %}
-<div class="staff-error">{{ error }}</div>
-{% endif %}
-
+<div class="staff-shell login">
+<div class="staff-login-brand"><div class="staff-brand">WEEHAWKEN OPERATIONS</div></div>
+<h1 class="staff-name staff-login-title">Employee Login</h1>
+<p class="staff-muted">Enter your employee ID and PIN to open your work dashboard.</p>
+{% if error %}<div class="staff-error">{{ error }}</div>{% endif %}
 <div class="staff-card">
 <form method="post" action="/staff/login" class="staff-form">
-
-<label>Employee ID</label>
-<input
-  name="employee_id"
-  required
-  autocomplete="username"
-  inputmode="numeric"
-  placeholder="Employee ID"
->
-
-<label>PIN</label>
-<input
-  name="pin"
-  type="password"
-  required
-  autocomplete="current-password"
-  inputmode="numeric"
-  placeholder="PIN"
->
-
-<div style="margin-top:20px">
-<button class="staff-button primary" type="submit">
-Sign In
-</button>
-</div>
-
+<label>Employee ID</label><input name="employee_id" required autocomplete="username" inputmode="numeric" placeholder="Employee ID">
+<label>PIN</label><input name="pin" type="password" required autocomplete="current-password" inputmode="numeric" placeholder="PIN">
+<div class="staff-form-gap"><button class="staff-button primary" type="submit">Sign In</button></div>
 </form>
 </div>
-
-<p class="staff-muted" style="font-size:12px;text-align:center">
-Township employee operations system
-</p>
-
+<p class="staff-muted staff-login-note">Township employee operations system</p>
 </div>
 </body>
 </html>
