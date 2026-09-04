@@ -51,3 +51,7 @@ VALUES (
   10
 )
 ON CONFLICT (layer_key) DO NOTHING;
+
+-- Dashboard and employee web services connect as citymanager_app.
+-- Keep web GIS administration inside that existing application role.
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE map_layers, map_features TO citymanager_app;
