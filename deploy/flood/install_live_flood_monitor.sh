@@ -159,24 +159,22 @@ print(f"FLOOD_WORKFLOW active={r['active']} version={r['versionCounter']} active
 con.close()
 PY
 
-log "Executing one live sample immediately"
-set +e
-docker exec -u node n8n n8n execute --id="$WORKFLOW_ID" >/tmp/cmos-flood-live-execute.log 2>&1
-EXEC_RC=$?
-set -e
-cat /tmp/cmos-flood-live-execute.log
-if (( EXEC_RC != 0 )); then
-  log "Direct n8n CLI execution returned ${EXEC_RC}; checking whether scheduled execution already recorded a sample"
-fi
-
-log "Verifying live observations and source health"
-for i in $(seq 1 12); do
-  OBS_COUNT="$(docker exec -i citymanager-postgis sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM flood_observations WHERE source='"'"'NOAA_TIDE'"'"' AND station_id='"'"'8518750'"'"';"')"
-  [[ "${OBS_COUNT:-0}" =~ ^[0-9]+$ ]] && (( OBS_COUNT > 0 )) && break
+log "Waiting for the published 5-minute schedule to record its first NOAA observation"
+OBS_COUNT=0
+for i in $(seq 1 75); do
+  OBS_COUNT="$(docker exec -i citymanager-postgis sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM flood_observations WHERE source='"'"'NOAA_TIDE'"'"' AND station_id='"'"'8518750'"'"';"' 2>/dev/null || echo 0)"
+  if [[ "${OBS_COUNT:-0}" =~ ^[0-9]+$ ]] && (( OBS_COUNT > 0 )); then
+    log "Scheduled NOAA observation recorded"
+    break
+  fi
+  if (( i % 12 == 0 )); then
+    log "Still waiting for scheduled flood workflow..."
+  fi
   sleep 5
 done
-[[ "${OBS_COUNT:-0}" =~ ^[0-9]+$ ]] && (( OBS_COUNT > 0 )) || fail "No NOAA_TIDE observation was recorded"
+[[ "${OBS_COUNT:-0}" =~ ^[0-9]+$ ]] && (( OBS_COUNT > 0 )) || fail "Published flood workflow did not record a NOAA observation within the validation window"
 
+log "Verifying live observations and source health"
 docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
 \pset pager off
 SELECT source,station_id,observed_at,water_level_mhhw_ft,flood_category,title
