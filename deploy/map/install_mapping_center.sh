@@ -24,10 +24,10 @@ log "Using main @ ${HEAD_SHA}"
 log "Syntax-checking web GIS modules"
 python3 -m py_compile dashboard/map_app.py dashboard/flood_app.py dashboard/phase3_app.py
 
-log "Applying Mapping Center schema"
+log "Applying Mapping Center schema and web-role grants"
 docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < deploy/postgis/init/014_mapping_center.sql
 
-log "Verifying map storage and existing FEMA data"
+log "Verifying map storage, FEMA data, and citymanager_app access"
 docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
 \pset pager off
 SELECT 'MAP_LAYERS' AS check,count(*) AS rows FROM map_layers;
@@ -35,6 +35,11 @@ SELECT 'FEMA' AS check,count(*) AS flood_zones,
        count(*) FILTER (WHERE sfha_tf='T') AS sfha,
        count(*) FILTER (WHERE geom IS NULL OR ST_IsEmpty(geom) OR NOT ST_IsValid(geom)) AS bad_geom
 FROM gis_flood_zones;
+SET ROLE citymanager_app;
+SELECT 'WEB_ROLE_MAP_ACCESS' AS check,
+       (SELECT count(*) FROM map_layers) AS layers,
+       (SELECT count(*) FROM map_features) AS features;
+RESET ROLE;
 SQL
 
 log "Building shared dashboard web image"
@@ -63,13 +68,26 @@ wait_inside(){
   fail "${label} did not become ready"
 }
 
+check_page(){
+  local container="$1" url="$2" label="$3"
+  if ! docker exec "$container" python -c "import urllib.request; assert urllib.request.urlopen('${url}',timeout=20).status==200"; then
+    log "${label} failed; dashboard exception follows"
+    docker logs --tail 160 "$container" || true
+    fail "${label} returned an error"
+  fi
+  log "${label} passed"
+}
+
 log "Waiting for private dashboard"
 wait_inside citymanager-dashboard http://127.0.0.1:8000/health "Private dashboard"
 
 log "Checking Mapping Center and Flood Intelligence pages inside container"
-docker exec citymanager-dashboard python -c "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8000/map',timeout=8).status==200"
-docker exec citymanager-dashboard python -c "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8000/flood',timeout=8).status==200"
-docker exec citymanager-dashboard python -c "import urllib.request,json; d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/map/system/flood.geojson',timeout=20)); assert d.get('type')=='FeatureCollection' and len(d.get('features',[]))>0; print('LOCAL_FLOOD_FEATURES='+str(len(d['features'])))"
+check_page citymanager-dashboard http://127.0.0.1:8000/map "Mapping Center page"
+check_page citymanager-dashboard http://127.0.0.1:8000/flood "Flood Intelligence page"
+if ! docker exec citymanager-dashboard python -c "import urllib.request,json; d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/map/system/flood.geojson',timeout=30)); assert d.get('type')=='FeatureCollection' and len(d.get('features',[]))>0; print('LOCAL_FLOOD_FEATURES='+str(len(d['features']))"; then
+  docker logs --tail 160 citymanager-dashboard || true
+  fail "Local flood GeoJSON endpoint failed"
+fi
 
 log "Waiting for employee portal"
 wait_inside citymanager-staff http://127.0.0.1:8000/staff "Employee portal"
