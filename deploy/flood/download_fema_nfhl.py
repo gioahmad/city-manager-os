@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import sys
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -24,14 +25,36 @@ def fetch(params: dict[str, str]) -> dict:
     return data
 
 
+def normalized_argv() -> list[str]:
+    """Allow `--bbox -74,...` as well as `--bbox=-74,...`.
+
+    argparse can interpret a comma-delimited western-hemisphere bbox beginning with
+    a minus sign as another option. Normalize that one known value before parsing.
+    """
+    argv = sys.argv[1:]
+    try:
+        i = argv.index("--bbox")
+    except ValueError:
+        return argv
+    if i + 1 < len(argv):
+        value = argv[i + 1]
+        if value.startswith("-") and value.count(",") == 3:
+            argv[i] = f"--bbox={value}"
+            del argv[i + 1]
+    return argv
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--bbox", required=True, help="xmin,ymin,xmax,ymax in EPSG:4326")
     ap.add_argument("--output", required=True, type=pathlib.Path)
-    args = ap.parse_args()
+    args = ap.parse_args(normalized_argv())
 
     bbox = args.bbox.strip()
-    parts = [float(x) for x in bbox.split(",")]
+    try:
+        parts = [float(x) for x in bbox.split(",")]
+    except ValueError as exc:
+        raise SystemExit("Invalid bbox") from exc
     if len(parts) != 4 or parts[0] >= parts[2] or parts[1] >= parts[3]:
         raise SystemExit("Invalid bbox")
 
