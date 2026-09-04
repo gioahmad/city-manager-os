@@ -62,7 +62,7 @@ fetch('/map/system/flood.geojson',{headers:{'Accept':'application/geo+json'}})
     const layer=L.geoJSON(data,{
       style:f=>{
         const sfha=String(f.properties?.sfha_tf||'').toUpperCase()==='T';
-        return {color:sfha?'#d9534f':'#d7a441',weight:1,fillColor:sfha?'#d9534f':'#d7a441',fillOpacity:sfha?.30:.18};
+        return {color:sfha?'#d9534f':'#d7a441',weight:1,fillColor:sfha?'#d9534f':'#d7a441',fillOpacity:sfha ? .30 : .18};
       },
       onEachFeature:(f,l)=>l.on('click',()=>{
         const p=f.properties||{};
