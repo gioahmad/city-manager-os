@@ -28,39 +28,46 @@ _Last reconciled with production/main: September 4, 2026._
 | Executive Assistant / Morning Brief | Working | High | n8n / Dashboard / Postgres | Maintain |
 | Employee Operations Portal | Working | Critical | FastAPI / Postgres | Maintain |
 | Supervisor Operations Board | Working | Critical | Dashboard / Postgres | Maintain |
-| Employee Photos / Checklists | Working | High | FastAPI / storage / Postgres | Maintain |
+| Employee Photos / Checklists | Working | High | FastAPI / storage / Postgres | Maintain inline viewer / explicit download |
 | Supervisor Verification | Working | High | Dashboard / Postgres | Maintain |
 | Recurring Work Engine | Working | High | Operations Engine / Postgres | Configure real routines |
 | Daily Awareness / Expected Activity | Working | High | Operations Engine / Dashboard | Configure real routines |
 | Routine Start / End Dates | Working | Medium | Operations Engine / Postgres | Maintain |
 | Occurrence-specific Today Notes | Working | Medium | Operations Engine / Dashboard | Maintain |
-| GIS Parcel Downloader | Working | High | deploy/gis | Verify current Hudson snapshot |
-| GIS Address Downloader | Working | High | deploy/gis | Verify current Hudson snapshot |
-| GIS Staging Import | Working | High | deploy/gis / PostGIS | Run first Hudson imports |
-| Production GIS Parcels | In Progress | High | PostGIS | Complete issue #8 |
-| Production GIS Addresses | In Progress | High | PostGIS | Complete issue #8 |
-| Block / Lot Enrichment | Pending GIS | Medium | PostGIS | Complete issue #8 |
-| Nearby / Radius Search | Pending GIS | Medium | PostGIS | Complete issue #8 |
-| Live Geographic Map | Pending GIS | High | Dashboard / PostGIS | Build after #8 |
-| Automated GIS Refresh | Blocked | Medium | PostGIS / automation | Complete issue #9 after #8 |
-| Flood Zones / Flood Intelligence | Planned | High | PostGIS / Dashboard / n8n | Complete issue #10 after GIS base |
+| GIS Parcel Downloader | Working | High | deploy/gis | Monthly refresh maintains data |
+| GIS Address Downloader | Working | High | deploy/gis | Monthly refresh maintains data |
+| GIS Staging Import | Working | High | deploy/gis / PostGIS | Maintain validation gates |
+| Production GIS Parcels | Working | High | PostGIS | Maintain |
+| Production GIS Addresses | Working | High | PostGIS | Maintain |
+| Block / Lot Enrichment | Working | Medium | PostGIS | Extend as needed |
+| Nearby / Radius Search | Working | Medium | PostGIS | Extend as needed |
+| Automated GIS Refresh | Working | Medium | systemd / PostGIS / routing | Monitor monthly run |
+| Mapping Center | Working | High | Dashboard / PostGIS | Expand web GIS controls as useful |
+| System Map Layers | Working | High | Dashboard / PostGIS | Maintain flood / parcel / address / watch / issue layers |
+| Custom GIS Layers | Working | Medium | Dashboard / PostGIS | Add styling / editing tools as useful |
+| GeoJSON Import / Web Drawing | Working | Medium | Dashboard / PostGIS | Expand import/export later if needed |
+| FEMA Flood Zones | Working | High | PostGIS / Dashboard | Maintain static refresh path |
+| Flood Intelligence Dashboard | Working | High | Dashboard / PostGIS | Maintain |
+| NOAA Tide / Water Level Monitor | Working | High | n8n / Postgres | Monitor 5-minute source health |
+| NWS Flood / Coastal Alerts | Working | High | n8n / Postgres | Maintain official alert normalization |
+| Flood Spatial Watch Context | Working | High | PostGIS / n8n | Add real watched facilities as configured |
+| Flood Dynamic Alert Routing | Working | Critical | n8n / Postgres / ntfy | Maintain central matcher path |
 | Additional Weather / Transit / Traffic Sources | Optional Expansion | Medium | n8n / Postgres | Add based on operational value |
+| Web-based Admin Expansion | Optional Expansion | Medium | Dashboard | Move routine CLI maintenance into authenticated UI over time |
 | SMS / Email Delivery | Optional Expansion | Low | Routing layer | Add only if needed |
 | Native Mobile App | Optional Expansion | Low | Future | Web experience is current default |
 
 ## Status Definitions
 
 - **Working** — deployed and part of the current operating system.
-- **In Progress** — implementation exists but production completion / validation remains.
-- **Pending GIS** — depends on the first production parcel/address import.
-- **Blocked** — intentionally waiting on a prerequisite issue.
-- **Planned** — accepted remaining build work.
 - **Optional Expansion** — useful future enhancement, not required for core closeout.
 
-## Current closeout sequence
+## Core build status
 
-1. **#8** — complete and validate Hudson County parcel/address GIS production tables.
-2. **#9** — automate validated GIS refresh/promotion.
-3. **#10** — add flood / geographic intelligence and map behavior.
+The original GIS closeout sequence is complete:
 
-Everything else in the original core operating-system stack is now treated as production/maintenance rather than unfinished build work.
+1. **#8** — Hudson County parcel/address production foundation — COMPLETE.
+2. **#9** — automated validated GIS refresh/promotion — COMPLETE.
+3. **#10** — flood / geographic intelligence and Mapping Center — COMPLETE.
+
+City Manager OS is now in production/maintenance mode for its original core scope. New work should be prioritized by operational value rather than treated as unfinished foundation work.
