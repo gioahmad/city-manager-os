@@ -89,7 +89,7 @@ def mapping_center(request: Request, msg: str = ""):
         WITH e AS (
           SELECT ST_Extent(geom) AS b
           FROM gis_parcels
-          WHERE lower(coalesce(mun_name,'')) LIKE '%weehawken%'
+          WHERE lower(coalesce(mun_name,'')) LIKE '%%weehawken%%'
         )
         SELECT ST_XMin(b) AS minx,ST_YMin(b) AS miny,
                ST_XMax(b) AS maxx,ST_YMax(b) AS maxy
@@ -129,7 +129,7 @@ def map_flood_geojson():
         WITH b AS (
           SELECT ST_UnaryUnion(ST_Collect(geom)) AS geom
           FROM gis_parcels
-          WHERE lower(coalesce(mun_name,'')) LIKE '%weehawken%'
+          WHERE lower(coalesce(mun_name,'')) LIKE '%%weehawken%%'
         )
         SELECT z.id,z.fld_zone,z.zone_subty,z.sfha_tf,z.static_bfe,
                ST_AsGeoJSON(ST_Intersection(z.geom,b.geom))::json AS geometry
@@ -148,7 +148,7 @@ def map_flood_geojson():
 def map_parcels_geojson(bbox: str | None = None):
     box = _bbox(bbox)
     params = []
-    where = ["lower(coalesce(mun_name,'')) LIKE '%weehawken%'"]
+    where = ["lower(coalesce(mun_name,'')) LIKE '%%weehawken%%'"]
     if box:
         where.append("ST_Intersects(geom,ST_MakeEnvelope(%s,%s,%s,%s,4326))")
         params.extend(box)
