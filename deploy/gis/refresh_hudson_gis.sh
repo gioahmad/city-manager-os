@@ -31,39 +31,62 @@ fi
 
 cd "$REPO"
 
-psql_cmd(){
-  docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' -- "$@"
-}
-
 mark_health(){
   local status="$1"
   local err="${2:-}"
-  docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v status="$1" -v err="$2" -v run_id="$3" -Atc "
-INSERT INTO source_health(source_id,status,last_attempt_at,last_success_at,last_error,metadata,updated_at)
+  docker exec -i \
+    -e GIS_REFRESH_STATUS="$status" \
+    -e GIS_REFRESH_ERROR="$err" \
+    -e GIS_REFRESH_RUN_ID="$RUN_ID" \
+    citymanager-postgis sh -lc '
+psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -v status="$GIS_REFRESH_STATUS" \
+  -v err="$GIS_REFRESH_ERROR" \
+  -v run_id="$GIS_REFRESH_RUN_ID"
+' <<'SQL' >/dev/null 2>&1 || true
+INSERT INTO source_health(
+  source_id,status,last_attempt_at,last_success_at,last_error,metadata,updated_at
+)
 VALUES (
-  ''GIS_REFRESH'',
-  :''status'',
+  'GIS_REFRESH',
+  :'status',
   now(),
-  CASE WHEN :''status''=''OK'' THEN now() ELSE NULL END,
-  NULLIF(:''err'',''''),
-  jsonb_build_object(''run_id'', :''run_id''),
+  CASE WHEN :'status'='OK' THEN now() ELSE NULL END,
+  NULLIF(:'err',''),
+  jsonb_build_object('run_id', :'run_id'),
   now()
 )
 ON CONFLICT (source_id) DO UPDATE
 SET status=EXCLUDED.status,
     last_attempt_at=EXCLUDED.last_attempt_at,
-    last_success_at=CASE WHEN EXCLUDED.status=''OK'' THEN EXCLUDED.last_success_at ELSE source_health.last_success_at END,
+    last_success_at=CASE
+      WHEN EXCLUDED.status='OK' THEN EXCLUDED.last_success_at
+      ELSE source_health.last_success_at
+    END,
     last_error=EXCLUDED.last_error,
     metadata=EXCLUDED.metadata,
     updated_at=now();
-"' -- "$status" "$err" "$RUN_ID" >/dev/null 2>&1 || true
+SQL
+}
+
+notify_refresh(){
+  local result="$1"
+  local message="$2"
+  if [[ -f deploy/gis/notify_gis_refresh.sh ]]; then
+    bash deploy/gis/notify_gis_refresh.sh "$result" "$message" "$RUN_ID" \
+      || log "WARNING: GIS refresh ${result,,} notification could not be delivered; refresh state remains authoritative in PostgreSQL/logs."
+  else
+    log "WARNING: GIS refresh notifier is missing; continuing without ntfy delivery."
+  fi
 }
 
 refresh_failed(){
   local rc=$?
+  trap - ERR
   local line="${BASH_LINENO[0]:-unknown}"
   local msg="Hudson GIS refresh failed at line ${line} with exit code ${rc}. Production GIS was retained unless a prior atomic promotion had already completed."
   mark_health "ERROR" "$msg"
+  notify_refresh "FAILURE" "$msg"
   log "$msg"
   exit "$rc"
 }
@@ -138,6 +161,9 @@ FROM gis_addresses;
 SELECT dataset_id,status,row_count,imported_at FROM gis_dataset_versions
 WHERE dataset_id IN ('NJOGIS_HUDSON_PARCELS','NJOGIS_HUDSON_ADDRESSES')
 ORDER BY dataset_id;
+SELECT source_id,status,last_success_at,last_error,updated_at
+FROM source_health
+WHERE source_id='GIS_REFRESH';
 SQL
   log "HUDSON GIS REFRESH VALIDATION PASSED"
   exit 0
@@ -232,7 +258,9 @@ WHERE dataset_id IN ('NJOGIS_HUDSON_PARCELS','NJOGIS_HUDSON_ADDRESSES')
 ORDER BY dataset_id;
 SQL
 
+SUCCESS_MSG="Hudson GIS refresh completed successfully. Parcels: ${NEW_P}; addresses: ${NEW_A}; production validation passed."
 mark_health "OK" ""
+notify_refresh "SUCCESS" "$SUCCESS_MSG"
 log "HUDSON GIS REFRESH PASSED"
 log "Fresh parcel snapshot: ${NEW_P} rows, sha256=${P_SHA}, downloaded=${P_DOWNLOADED}"
 log "Fresh address snapshot: ${NEW_A} rows, sha256=${A_SHA}, downloaded=${A_DOWNLOADED}"
