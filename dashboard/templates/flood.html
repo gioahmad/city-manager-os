@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Flood Intelligence · City Manager OS</title>
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="/static/flood.css">
 </head>
 <body>
@@ -24,11 +25,11 @@
   </section>
 
   <section class="panel flood-map-panel">
-    <div class="panel-head"><div><div class="panel-kicker">LOCAL FLOOD MAP</div><h2>Effective FEMA Flood Hazard Zones</h2></div><span class="status ok">LOCAL DATA</span></div>
+    <div class="panel-head"><div><div class="panel-kicker">LOCAL FLOOD MAP</div><h2>Effective FEMA Flood Hazard Zones</h2></div><div class="flood-map-actions"><span class="status ok">LOCAL DATA</span><a class="secondary-button button-link" href="/map">Open Mapping Center</a></div></div>
     <div class="panel-body">
-      <div class="flood-legend"><span><i class="legend-sfha"></i> Special Flood Hazard Area</span><span><i class="legend-moderate"></i> Moderate / 0.2% annual chance</span><span><i class="legend-other"></i> Other mapped area</span></div>
-      <svg id="flood-map" viewBox="0 0 1000 640" role="img" aria-label="FEMA flood hazard zones around Weehawken"></svg>
-      <div id="flood-map-detail" class="flood-map-detail">Select a mapped flood area for details.</div>
+      <div class="flood-legend"><span><i class="legend-sfha"></i> Special Flood Hazard Area</span><span><i class="legend-moderate"></i> Other FEMA mapped area</span></div>
+      <div id="flood-map" role="application" aria-label="Interactive FEMA flood hazard map around Weehawken"></div>
+      <div id="flood-map-detail" class="flood-map-detail">Click a mapped flood area for details. Pan and zoom like a normal map.</div>
     </div>
   </section>
 
@@ -48,36 +49,29 @@
     <div class="panel-body">{% if flood_alerts %}{% for a in flood_alerts %}<div class="flood-alert"><strong>P{{ a.priority }} · {{ a.title }}</strong><span>{{ a.message }}</span><small>{{ a.source }} · {{ a.received_local.strftime('%m/%d %H:%M') if a.received_local else '' }}</small></div>{% endfor %}{% else %}<p class="muted">No active live flood alerts. NOAA/NWS monitoring is enabled in the final live-source cutover.</p>{% endif %}</div>
   </section>
 
-  <footer><span>City Manager OS</span><span>FEMA NFHL is stored locally; runtime map does not depend on FEMA availability.</span></footer>
+  <footer><span>City Manager OS</span><span>FEMA hazard geometry is stored locally in PostGIS. Street tiles are only a visual basemap.</span></footer>
 </main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script>
-const fc = {{ geojson|safe }};
-const svg = document.getElementById('flood-map');
-const detail = document.getElementById('flood-map-detail');
-const all = [];
-function walk(c){ if(typeof c[0] === 'number'){ all.push(c); } else { c.forEach(walk); } }
-fc.features.forEach(f => walk(f.geometry.coordinates));
-if(all.length){
-  const xs=all.map(p=>p[0]), ys=all.map(p=>p[1]);
-  let minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
-  const dx=(maxX-minX)||1, dy=(maxY-minY)||1, pad=.04;
-  minX-=dx*pad; maxX+=dx*pad; minY-=dy*pad; maxY+=dy*pad;
-  function pt(p){ return [((p[0]-minX)/(maxX-minX))*1000, 640-((p[1]-minY)/(maxY-minY))*640]; }
-  function rings(g){ return g.type==='Polygon' ? [g.coordinates] : g.coordinates; }
-  fc.features.forEach(f => {
-    rings(f.geometry).forEach(poly => {
-      let d='';
-      poly.forEach(ring => { ring.forEach((p,i)=>{const q=pt(p); d+=(i?'L':'M')+q[0].toFixed(1)+','+q[1].toFixed(1);}); d+='Z '; });
-      const path=document.createElementNS('http://www.w3.org/2000/svg','path');
-      path.setAttribute('d',d);
-      const sfha=String(f.properties.sfha_tf||'').toUpperCase()==='T';
-      const subtype=String(f.properties.zone_subty||'').toUpperCase();
-      path.setAttribute('class', sfha?'flood-shape sfha':(subtype.includes('0.2')?'flood-shape moderate':'flood-shape other'));
-      path.addEventListener('click',()=>{ detail.textContent=`Zone ${f.properties.fld_zone||'Unknown'} · ${f.properties.zone_subty||'No subtype'} · SFHA ${f.properties.sfha_tf||'—'}${f.properties.static_bfe!=null?' · Static BFE '+f.properties.static_bfe:''}`; });
-      svg.appendChild(path);
-    });
-  });
-}
+const detail=document.getElementById('flood-map-detail');
+const map=L.map('flood-map',{preferCanvas:true}).setView([40.769,-74.02],14);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);
+fetch('/map/system/flood.geojson',{headers:{'Accept':'application/geo+json'}})
+  .then(r=>{if(!r.ok)throw new Error('Flood layer unavailable');return r.json();})
+  .then(data=>{
+    const layer=L.geoJSON(data,{
+      style:f=>{
+        const sfha=String(f.properties?.sfha_tf||'').toUpperCase()==='T';
+        return {color:sfha?'#d9534f':'#d7a441',weight:1,fillColor:sfha?'#d9534f':'#d7a441',fillOpacity:sfha?.30:.18};
+      },
+      onEachFeature:(f,l)=>l.on('click',()=>{
+        const p=f.properties||{};
+        detail.textContent=`Zone ${p.fld_zone||'Unknown'} · ${p.zone_subty||'No subtype'} · SFHA ${p.sfha_tf||'—'}${p.static_bfe!==null&&p.static_bfe!==undefined?' · Static BFE '+p.static_bfe:''}`;
+      })
+    }).addTo(map);
+    if(layer.getBounds().isValid()) map.fitBounds(layer.getBounds(),{padding:[18,18]});
+  })
+  .catch(err=>{detail.textContent=err.message;});
 </script>
 </body>
 </html>
