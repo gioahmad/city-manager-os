@@ -63,7 +63,7 @@ log "FEMA bbox: $BBOX"
 
 mkdir -p "$DATA_DIR" "$TMP_DIR"
 log "Downloading effective FEMA NFHL flood zones"
-python3 deploy/flood/download_fema_nfhl.py --bbox "$BBOX" --output "$TMP_FILE"
+python3 deploy/flood/download_fema_nfhl.py --bbox="$BBOX" --output "$TMP_FILE"
 [[ -s "$TMP_FILE" ]] || fail "FEMA download is empty"
 [[ -s "$TMP_META" ]] || fail "FEMA metadata is missing"
 FEATURES="$(ogrinfo -ro -so -al "$TMP_FILE" 2>/dev/null | awk -F': ' '/Feature Count:/ {print $2; exit}')"
