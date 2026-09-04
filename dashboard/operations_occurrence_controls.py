@@ -5,7 +5,7 @@ from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 import operations_routines_app as routines
-from app import app, execute, query_all, query_one, templates
+from app import app, execute, query_all, query_one
 
 
 def _date_or_none(value):
@@ -60,8 +60,38 @@ def _today_operations_with_notes():
     )
 
 
-# Make every Phase 3 view use the occurrence-aware timeline.
+def _operations_counts_with_window():
+    return query_one(
+        """
+        SELECT
+          count(*) AS scheduled_today,
+          count(*) FILTER (
+            WHERE rr.status IN ('MISSED','EXCEPTION','NEEDS_HELP')
+          ) AS exceptions,
+          count(*) FILTER (
+            WHERE rr.status='AWAITING_VERIFICATION'
+          ) AS awaiting_verification,
+          count(*) FILTER (
+            WHERE r.routine_kind='WORK'
+              AND rr.status NOT IN ('COMPLETE')
+          ) AS work_open,
+          count(*) FILTER (
+            WHERE r.routine_kind='AWARENESS'
+              AND rr.status IN ('EXPECTED','UPCOMING','ACKNOWLEDGED')
+          ) AS awareness_now
+        FROM operations_routine_runs rr
+        JOIN operations_routines r ON r.id=rr.routine_id
+        WHERE rr.service_date=(now() AT TIME ZONE 'America/New_York')::date
+          AND r.active=true
+          AND (r.starts_on IS NULL OR rr.service_date >= r.starts_on)
+          AND (r.ends_on IS NULL OR rr.service_date <= r.ends_on)
+        """
+    )
+
+
+# Make every Phase 3 view use the occurrence-aware timeline and counts.
 routines._today_operations = _today_operations_with_notes
+routines._operations_counts = _operations_counts_with_window
 
 
 # Wrap the setup page so date-window and today-note controls are added without
@@ -74,6 +104,7 @@ def operations_routines_occurrence_page(request: Request, msg: str = ""):
     response = routines.operations_routines_page(request=request, msg=msg)
     context = dict(response.context)
     context["today_operations"] = _today_operations_with_notes()
+    context["operations_counts"] = _operations_counts_with_window()
     return routines._render_injected(
         response,
         "operations_occurrence_controls.html",
