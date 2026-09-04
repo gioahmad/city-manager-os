@@ -1,0 +1,109 @@
+{
+  "id": "CMOSE2ERoute01",
+  "name": "TEST - City Manager OS E2E Routing Harness",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "CMOS-E2E-ROUTING",
+        "options": {}
+      },
+      "name": "E2E Test Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [-600, 0],
+      "id": "cmos-e2e-webhook",
+      "webhookId": "d1a6e2c4-8b55-4ec6-9e2b-cmos-e2e-route"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $json.body || {};\nconst runId = String(b.run_id || '').trim();\nif (!runId || !/^CMOS_E2E_[A-Za-z0-9_-]+$/.test(runId)) throw new Error('Valid CMOS_E2E run_id required');\nconst now = new Date().toISOString();\nconst alert = {\n  schema_version: '1.0',\n  alert_id: `SYSTEM_TEST:${runId}`,\n  source: 'SYSTEM_TEST',\n  source_event_id: runId,\n  category: 'TEST',\n  subtype: 'E2E_ACCEPTANCE',\n  status: 'ACTIVE',\n  event_action: 'NEW',\n  title: 'City Manager OS acceptance test',\n  message: `SYSTEM TEST - DO NOT DISPATCH. End-to-end routing validation ${runId}.`,\n  priority: 2,\n  county: 'Hudson',\n  municipality: 'Weehawken',\n  location: {label:'City Manager OS test harness',address:'',state:'NJ',zip:'',latitude:null,longitude:null,block:'',lot:'',qualifier:'',parcel_id:''},\n  tags: ['system_test','e2e','acceptance'],\n  click_url: '',\n  source_url: '',\n  observed_at: now,\n  source_updated_at: now,\n  received_at: now,\n  expires_at: null,\n  metadata: {run_id:runId, synthetic:true}\n};\nalert.search_text = [alert.source,alert.category,alert.subtype,alert.title,alert.message,...alert.tags].join(' ');\nreturn [{json:alert}];"
+      },
+      "name": "Build Standard E2E Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-360, 0],
+      "id": "cmos-e2e-build"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH d AS (SELECT $1::jsonb AS j), upserted AS ( INSERT INTO alerts (schema_version, alert_id, source, source_event_id, category, subtype, status, event_action, title, message, priority, county, municipality, location, tags, click_url, source_url, observed_at, source_updated_at, received_at, expires_at, metadata, raw_payload, search_text, updated_at) SELECT COALESCE(j->>'schema_version','1.0'), j->>'alert_id', j->>'source', NULLIF(j->>'source_event_id',''), j->>'category', j->>'subtype', j->>'status', j->>'event_action', j->>'title', j->>'message', (j->>'priority')::integer, NULLIF(j->>'county',''), NULLIF(j->>'municipality',''), COALESCE(j->'location','{}'::jsonb), ARRAY(SELECT jsonb_array_elements_text(COALESCE(j->'tags','[]'::jsonb))), NULLIF(j->>'click_url',''), NULLIF(j->>'source_url',''), NULLIF(j->>'observed_at','')::timestamptz, NULLIF(j->>'source_updated_at','')::timestamptz, COALESCE(NULLIF(j->>'received_at','')::timestamptz,NOW()), NULLIF(j->>'expires_at','')::timestamptz, COALESCE(j->'metadata','{}'::jsonb), j, NULLIF(j->>'search_text',''), NOW() FROM d ON CONFLICT (alert_id) DO UPDATE SET status=EXCLUDED.status, event_action=EXCLUDED.event_action, title=EXCLUDED.title, message=EXCLUDED.message, priority=EXCLUDED.priority, county=EXCLUDED.county, municipality=EXCLUDED.municipality, location=EXCLUDED.location, tags=EXCLUDED.tags, click_url=EXCLUDED.click_url, metadata=EXCLUDED.metadata, raw_payload=EXCLUDED.raw_payload, search_text=EXCLUDED.search_text, updated_at=NOW() RETURNING id::text AS alert_db_uuid ) SELECT d.j AS alert, upserted.alert_db_uuid FROM d CROSS JOIN upserted;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "name": "Upsert E2E Alert to City Manager OS",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-100, 0],
+      "id": "cmos-e2e-upsert",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => ({ json: item.json.alert || {} }));"
+      },
+      "name": "Restore Standard E2E Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [160, 0],
+      "id": "cmos-e2e-restore"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ESH9c2pZ8QfkMosO",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ESH9c2pZ8QfkMosO",
+          "cachedResultName": "CORE - Watchlist Matcher v1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "name": "Send E2E Alert to Central Watchlist Matcher",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [420, 0],
+      "id": "cmos-e2e-matcher",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "E2E Test Webhook": {"main": [[{"node":"Build Standard E2E Alert","type":"main","index":0}]]},
+    "Build Standard E2E Alert": {"main": [[{"node":"Upsert E2E Alert to City Manager OS","type":"main","index":0}]]},
+    "Upsert E2E Alert to City Manager OS": {"main": [[{"node":"Restore Standard E2E Alert","type":"main","index":0}]]},
+    "Restore Standard E2E Alert": {"main": [[{"node":"Send E2E Alert to Central Watchlist Matcher","type":"main","index":0}]]},
+    "Send E2E Alert to Central Watchlist Matcher": {"main": [[]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "pinData": {},
+  "versionId": "71c5e65d-f140-4d27-b5d5-9d0c3a5f7e11",
+  "triggerCount": 1,
+  "meta": null,
+  "parentFolderId": null,
+  "isArchived": false,
+  "description": "Inactive production-safe harness for controlled City Manager OS end-to-end routing acceptance tests."
+}
