@@ -5,6 +5,10 @@ REPO="/opt/city-manager-os"
 DATA_DIR="/opt/citymanager-data/gis/raw/flood"
 FEMA_FILE="$DATA_DIR/weehawken_fema_nfhl.geojson"
 LOG_PREFIX="STATIC FLOOD INTELLIGENCE"
+RUN_ID="$(date +%Y%m%d%H%M%S)"
+TMP_DIR="/opt/citymanager-data/gis/refresh/flood-${RUN_ID}"
+TMP_FILE="$TMP_DIR/weehawken_fema_nfhl.geojson"
+TMP_META="$TMP_DIR/weehawken_fema_nfhl.metadata.json"
 
 log(){ printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 fail(){ log "ERROR: $*"; exit 1; }
@@ -37,11 +41,11 @@ SQL
 [[ -n "$BBOX" ]] || fail "Could not calculate Weehawken parcel bounds"
 log "FEMA bbox: $BBOX"
 
-mkdir -p "$DATA_DIR"
-TMP_FILE="${FEMA_FILE}.new.$(date +%s)"
+mkdir -p "$DATA_DIR" "$TMP_DIR"
 log "Downloading effective FEMA NFHL flood zones"
 python3 deploy/flood/download_fema_nfhl.py --bbox "$BBOX" --output "$TMP_FILE"
 [[ -s "$TMP_FILE" ]] || fail "FEMA download is empty"
+[[ -s "$TMP_META" ]] || fail "FEMA metadata is missing"
 FEATURES="$(ogrinfo -ro -so -al "$TMP_FILE" 2>/dev/null | awk -F': ' '/Feature Count:/ {print $2; exit}')"
 [[ "${FEATURES:-0}" =~ ^[0-9]+$ ]] || fail "Unable to read FEMA feature count"
 (( FEATURES > 0 )) || fail "FEMA returned zero features"
@@ -119,9 +123,11 @@ VALUES('FEMA_FLOOD','OK',now(),now(),NULL,jsonb_build_object('rows',(SELECT coun
 ON CONFLICT(source_id) DO UPDATE SET status='OK',last_attempt_at=now(),last_success_at=now(),last_error=NULL,metadata=EXCLUDED.metadata,updated_at=now();
 SQL
 
-mv -f "$TMP_FILE" "$FEMA_FILE"
-META_TMP="${TMP_FILE%.geojson}.metadata.json"
-[[ -f "$META_TMP" ]] && mv -f "$META_TMP" "${FEMA_FILE%.geojson}.metadata.json" || true
+log "Installing validated FEMA raw snapshot"
+cp --reflink=auto "$TMP_FILE" "${FEMA_FILE}.new"
+cp --reflink=auto "$TMP_META" "${FEMA_FILE%.geojson}.metadata.json.new"
+mv -f "${FEMA_FILE}.new" "$FEMA_FILE"
+mv -f "${FEMA_FILE%.geojson}.metadata.json.new" "${FEMA_FILE%.geojson}.metadata.json"
 
 log "Building dashboard image with local flood view"
 cd "$REPO/dashboard"
