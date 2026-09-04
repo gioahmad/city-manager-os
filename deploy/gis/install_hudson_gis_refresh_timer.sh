@@ -4,6 +4,7 @@ set -Eeuo pipefail
 REPO="/opt/city-manager-os"
 SERVICE="/etc/systemd/system/cmos-hudson-gis-refresh.service"
 TIMER="/etc/systemd/system/cmos-hudson-gis-refresh.timer"
+INSTALL_RUN_ID="INSTALL-$(date '+%Y%m%d%H%M%S')"
 
 log(){ printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 fail(){ log "ERROR: $*"; exit 1; }
@@ -98,6 +99,12 @@ FROM gis_dataset_versions
 WHERE dataset_id IN ('NJOGIS_HUDSON_PARCELS','NJOGIS_HUDSON_ADDRESSES')
 ORDER BY dataset_id;
 SQL
+
+log "Validating audited ntfy delivery with the real installation event"
+bash deploy/gis/notify_gis_refresh.sh \
+  SUCCESS \
+  "Monthly Hudson GIS refresh automation installed and validation passed. The next refresh will run automatically on the first Sunday of the month overnight." \
+  "$INSTALL_RUN_ID"
 
 log "HUDSON GIS MONTHLY REFRESH TIMER PASSED"
 log "Schedule: first Sunday of each month at 03:15 America/New_York, randomized up to 15 minutes"
