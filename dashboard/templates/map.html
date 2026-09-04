@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mapping Center · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
+  <link rel="stylesheet" href="/static/map.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">GIS · OPERATIONS · INTELLIGENCE</div>
+    <div class="brand-row"><h1>Mapping Center</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Local operational layers · custom maps · browser-based GIS</div>
+  </div>
+</header>
+{% include "nav.html" %}
+<main class="map-main">
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+  <section class="map-shell">
+    <aside class="map-sidebar">
+      <div class="map-side-head"><div><div class="panel-kicker">LAYERS</div><h2>Map Contents</h2></div><button id="fit-town" class="secondary-button" type="button">Fit Town</button></div>
+
+      <div class="map-section">
+        <h3>System Layers</h3>
+        {% for layer in system_layers %}
+        <label class="map-layer-row">
+          <input class="system-layer-toggle" type="checkbox" data-key="{{ layer.key }}" data-endpoint="{{ layer.endpoint }}" data-viewport="{{ '1' if layer.viewport else '0' }}" {{ 'checked' if layer.default_visible else '' }}>
+          <span><strong>{{ layer.name }}</strong><small>City Manager OS</small></span>
+        </label>
+        {% endfor %}
+      </div>
+
+      <div class="map-section">
+        <div class="map-section-title"><h3>Your Layers</h3><span>{{ custom_layers|length }}</span></div>
+        {% for layer in custom_layers %}
+        <div class="map-custom-row {{ '' if layer.active else 'inactive' }}">
+          <label>
+            {% if layer.active %}<input class="custom-layer-toggle" type="checkbox" data-id="{{ layer.id }}" data-type="{{ layer.layer_type }}" data-url="{{ layer.source_url or '' }}" data-attribution="{{ layer.attribution or '' }}" data-color="{{ (layer.style or {}).get('color','#4aa3df') }}" {{ 'checked' if layer.default_visible else '' }}>{% endif %}
+            <span><strong>{{ layer.name }}</strong><small>{{ layer.layer_type|replace('_',' ') }}{% if layer.layer_type == 'CUSTOM_GEOJSON' %} · {{ layer.feature_count or 0 }} features{% endif %}</small></span>
+          </label>
+          <form method="post" action="/map/layer/{{ layer.id }}/toggle"><button class="map-mini-button" type="submit">{{ 'Disable' if layer.active else 'Enable' }}</button></form>
+          {% if layer.layer_type == 'CUSTOM_GEOJSON' and layer.active %}
+          <form method="post" action="/map/layer/{{ layer.id }}/upload" enctype="multipart/form-data" class="map-upload-form">
+            <input type="file" name="file" accept=".geojson,.json,application/geo+json,application/json" required>
+            <button class="map-mini-button" type="submit">Import GeoJSON</button>
+          </form>
+          {% endif %}
+        </div>
+        {% else %}<p class="muted">No custom layers yet.</p>{% endfor %}
+      </div>
+
+      <details class="map-section map-create" open>
+        <summary>Create Layer</summary>
+        <form method="post" action="/map/layer/create" class="map-form">
+          <label>Name<input name="name" placeholder="Snow routes, Projects, Parks..." required></label>
+          <label>Type<select name="layer_type" id="new-layer-type"><option value="CUSTOM_GEOJSON">Editable / GeoJSON</option><option value="XYZ">External XYZ Basemap</option></select></label>
+          <label id="xyz-url-field" hidden>XYZ Tile URL<input name="source_url" placeholder="https://.../{z}/{x}/{y}.png"></label>
+          <label>Attribution<input name="attribution" placeholder="Optional"></label>
+          <label>Layer Color<input type="color" name="color" value="#4aa3df"></label>
+          <label class="map-check"><input type="checkbox" name="default_visible"> Show by default</label>
+          <button class="primary-button" type="submit">Create Layer</button>
+        </form>
+      </details>
+
+      <div class="map-section">
+        <h3>Draw on Map</h3>
+        {% if editable_layers %}
+        <label class="map-form-label">Save drawings to
+          <select id="draw-layer-select">
+            {% for layer in editable_layers %}<option value="{{ layer.id }}">{{ layer.name }}</option>{% endfor %}
+          </select>
+        </label>
+        <p class="muted small-copy">Use the drawing buttons on the map to add a point, line or area. Drawings save directly to the selected layer.</p>
+        {% else %}<p class="muted">Create an Editable / GeoJSON layer first to save drawings.</p>{% endif %}
+      </div>
+
+      <div class="map-section">
+        <h3>Operational GIS</h3>
+        <a class="secondary-button button-link map-full-button" href="/flood">Flood Intelligence</a>
+        <p class="muted small-copy">Critical overlays are served from local PostGIS. The street basemap is replaceable and is not required for flood calculations.</p>
+      </div>
+    </aside>
+
+    <div class="map-stage">
+      <div id="city-map" aria-label="City Manager OS interactive map"></div>
+      <div id="map-status" class="map-status">Loading map...</div>
+    </div>
+  </section>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script>
+const townBounds = [
+  [{{ bounds.miny if bounds else 40.752 }}, {{ bounds.minx if bounds else -74.035 }}],
+  [{{ bounds.maxy if bounds else 40.783 }}, {{ bounds.maxx if bounds else -74.008 }}]
+];
+const map = L.map('city-map', {preferCanvas:true, zoomControl:true});
+map.fitBounds(townBounds, {padding:[20,20]});
+const statusEl = document.getElementById('map-status');
+const groups = {};
+const viewportKeys = new Set();
+
+function status(msg){ statusEl.textContent = msg; }
+function safeText(v){ return v === null || v === undefined || v === '' ? '—' : String(v); }
+function popupFor(props){
+  const wrap=document.createElement('div');
+  wrap.className='map-popup';
+  const keys=Object.keys(props||{}).filter(k=>props[k]!==null && props[k]!=='' && k!=='properties');
+  keys.slice(0,12).forEach(k=>{
+    const row=document.createElement('div');
+    const strong=document.createElement('strong'); strong.textContent=k.replaceAll('_',' ')+': ';
+    const span=document.createElement('span'); span.textContent=safeText(props[k]);
+    row.append(strong,span); wrap.appendChild(row);
+  });
+  if(props && props.properties){
+    const row=document.createElement('div'); row.textContent=JSON.stringify(props.properties); wrap.appendChild(row);
+  }
+  return wrap;
+}
+function pointStyle(key){
+  const color = key==='operations' ? '#f2994a' : key==='watchlist' ? '#c792ea' : '#66c2a5';
+  return {radius:key==='operations'?7:5,color:'#ffffff',weight:1,fillColor:color,fillOpacity:.9};
+}
+function geoOptions(key,color){
+  return {
+    style: feature => {
+      if(key==='flood'){
+        const sfha=String(feature.properties?.sfha_tf||'').toUpperCase()==='T';
+        return {color:sfha?'#d9534f':'#d7a441',weight:1,fillColor:sfha?'#d9534f':'#d7a441',fillOpacity:sfha?.30:.18};
+      }
+      return {color:color||'#4aa3df',weight:key==='parcels'?1:2,fillColor:color||'#4aa3df',fillOpacity:key==='parcels'?.03:.16};
+    },
+    pointToLayer:(feature,latlng)=>L.circleMarker(latlng,pointStyle(key)),
+    onEachFeature:(feature,layer)=>layer.bindPopup(popupFor(feature.properties||{}))
+  };
+}
+function boundsParam(){
+  const b=map.getBounds();
+  return [b.getWest(),b.getSouth(),b.getEast(),b.getNorth()].join(',');
+}
+async function loadGeo(key,endpoint,color,viewport=false){
+  status('Loading '+key+'...');
+  let url=endpoint;
+  if(viewport) url += (url.includes('?')?'&':'?')+'bbox='+encodeURIComponent(boundsParam());
+  const res=await fetch(url,{headers:{'Accept':'application/geo+json'}});
+  if(!res.ok) throw new Error(key+' layer failed: '+res.status);
+  const data=await res.json();
+  if(groups[key]) groups[key].clearLayers();
+  else groups[key]=L.geoJSON(null,geoOptions(key,color)).addTo(map);
+  groups[key].addData(data);
+  status(key+' · '+(data.features?.length||0)+' features');
+}
+function removeLayer(key){ if(groups[key]){ map.removeLayer(groups[key]); groups[key]=null; } }
+
+const systemConfig={};
+document.querySelectorAll('.system-layer-toggle').forEach(el=>{
+  systemConfig[el.dataset.key]={endpoint:el.dataset.endpoint,viewport:el.dataset.viewport==='1'};
+  if(el.dataset.viewport==='1') viewportKeys.add(el.dataset.key);
+  el.addEventListener('change',async()=>{
+    if(el.checked){ try{ await loadGeo(el.dataset.key,el.dataset.endpoint,null,el.dataset.viewport==='1'); }catch(e){status(e.message);} }
+    else removeLayer(el.dataset.key);
+  });
+});
+
+const customConfig={};
+document.querySelectorAll('.custom-layer-toggle').forEach(el=>{
+  const key='custom-'+el.dataset.id;
+  customConfig[key]=el;
+  el.addEventListener('change',async()=>{
+    if(!el.checked){removeLayer(key);return;}
+    try{
+      if(el.dataset.type==='XYZ'){
+        groups[key]=L.tileLayer(el.dataset.url,{maxZoom:20,attribution:el.dataset.attribution||''}).addTo(map);
+        status('Basemap '+key+' enabled');
+      }else{
+        await loadGeo(key,'/map/layer/'+el.dataset.id+'.geojson',el.dataset.color,false);
+      }
+    }catch(e){status(e.message);}
+  });
+});
+
+async function initialLoad(){
+  for(const el of document.querySelectorAll('.custom-layer-toggle:checked')) el.dispatchEvent(new Event('change'));
+  for(const el of document.querySelectorAll('.system-layer-toggle:checked')) el.dispatchEvent(new Event('change'));
+  status('Map ready');
+}
+initialLoad();
+
+let viewportTimer=null;
+map.on('moveend',()=>{
+  clearTimeout(viewportTimer);
+  viewportTimer=setTimeout(()=>{
+    document.querySelectorAll('.system-layer-toggle:checked').forEach(el=>{
+      if(el.dataset.viewport==='1') loadGeo(el.dataset.key,el.dataset.endpoint,null,true).catch(e=>status(e.message));
+    });
+  },250);
+});
+document.getElementById('fit-town').addEventListener('click',()=>map.fitBounds(townBounds,{padding:[20,20]}));
+
+const typeSelect=document.getElementById('new-layer-type');
+const xyzField=document.getElementById('xyz-url-field');
+function syncLayerForm(){ xyzField.hidden=typeSelect.value!=='XYZ'; }
+typeSelect.addEventListener('change',syncLayerForm); syncLayerForm();
+
+const drawLayerSelect=document.getElementById('draw-layer-select');
+if(drawLayerSelect && window.L.Control.Draw){
+  const drawControl=new L.Control.Draw({
+    position:'topleft',
+    edit:false,
+    draw:{circle:false,circlemarker:false,rectangle:true,marker:true,polyline:true,polygon:true}
+  });
+  map.addControl(drawControl);
+  map.on(L.Draw.Event.CREATED, async ev=>{
+    const layerId=drawLayerSelect.value;
+    if(!layerId){status('Choose a custom layer first');return;}
+    const feature=ev.layer.toGeoJSON();
+    status('Saving drawing...');
+    const res=await fetch('/map/layer/'+layerId+'/feature',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({geometry:feature.geometry,properties:{source:'web-draw'}})
+    });
+    if(!res.ok){status('Could not save drawing');return;}
+    const toggle=document.querySelector('.custom-layer-toggle[data-id="'+layerId+'"]');
+    if(toggle){ toggle.checked=true; await loadGeo('custom-'+layerId,'/map/layer/'+layerId+'.geojson',toggle.dataset.color,false); }
+    status('Drawing saved');
+  });
+}
+</script>
+</body>
+</html>
