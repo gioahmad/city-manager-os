@@ -84,7 +84,7 @@ wait_inside citymanager-dashboard http://127.0.0.1:8000/health "Private dashboar
 log "Checking Mapping Center and Flood Intelligence pages inside container"
 check_page citymanager-dashboard http://127.0.0.1:8000/map "Mapping Center page"
 check_page citymanager-dashboard http://127.0.0.1:8000/flood "Flood Intelligence page"
-if ! docker exec citymanager-dashboard python -c "import urllib.request,json; d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/map/system/flood.geojson',timeout=30)); assert d.get('type')=='FeatureCollection' and len(d.get('features',[]))>0; print('LOCAL_FLOOD_FEATURES='+str(len(d['features']))"; then
+if ! docker exec citymanager-dashboard python -c "import urllib.request,json; d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/map/system/flood.geojson',timeout=30)); assert d.get('type')=='FeatureCollection' and len(d.get('features',[]))>0; print('LOCAL_FLOOD_FEATURES='+str(len(d['features'])))"; then
   docker logs --tail 160 citymanager-dashboard || true
   fail "Local flood GeoJSON endpoint failed"
 fi
