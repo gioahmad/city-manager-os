@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Operations Board · City Manager OS</title>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/photo_viewer.css">
 </head>
 <body>
 <header class="topbar">
@@ -47,7 +48,7 @@
 <article class="ticket-card {{ 'help' if item.status == 'ON_HOLD' else '' }}">
   <div class="ticket-top"><div><div class="ticket-kicker">{{ item.board_status }} · P{{ item.priority }}{% if item.work_type_name %} · {{ item.work_type_name }}{% endif %}</div><h3>{{ item.title }}</h3></div><div class="ticket-age {{ item.age_level }}">{{ item.age_label }}</div></div>
   <div class="ticket-body">
-    {% if item.first_photo_id %}<a href="/staff-admin/photo/{{ item.first_photo_id }}" target="_blank" rel="noopener"><img class="ticket-photo" src="/staff-admin/photo/{{ item.first_photo_id }}" alt="Issue photo"></a>{% endif %}
+    {% if item.first_photo_id %}<a class="photo-view-trigger" href="/staff-admin/photo/{{ item.first_photo_id }}" data-photo-view data-photo-title="{{ item.title }}" data-download="/staff-admin/photo/{{ item.first_photo_id }}" aria-label="Open issue photo"><img class="ticket-photo" src="/staff-admin/photo/{{ item.first_photo_id }}" alt="Issue photo"></a><a class="photo-download-inline" href="/staff-admin/photo/{{ item.first_photo_id }}">Download photo</a>{% endif %}
     <div class="ticket-meta">{{ item.employee_location or 'Location not specified' }}{% if item.photo_count %} · {{ item.photo_count }} photo{{ '' if item.photo_count == 1 else 's' }}{% endif %}</div>
     <div class="ticket-meta">Reported by {{ item.submitted_by or 'Unknown' }}{% if item.submitted_department %} · {{ item.submitted_department }}{% endif %}{% if item.created_at %} · {{ item.created_at.strftime('%m/%d/%Y %I:%M %p') }}{% endif %}</div>
     {% if item.description %}<div class="ticket-description">{{ item.description }}</div>{% endif %}
@@ -73,5 +74,6 @@
 </section>
 <footer><span>City Manager OS</span><span>Private municipal operations interface · Eastern Time</span></footer>
 </main>
+<script src="/static/photo_viewer.js"></script>
 </body>
 </html>
