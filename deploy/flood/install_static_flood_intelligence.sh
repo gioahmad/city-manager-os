@@ -157,12 +157,27 @@ log "Recreating private dashboard only"
 docker compose up -d --no-deps --force-recreate citymanager-dashboard
 
 log "Waiting for private dashboard health"
-for i in $(seq 1 30); do
-  if curl -fsS http://127.0.0.1:8090/health >/dev/null 2>&1; then break; fi
+DASHBOARD_READY=0
+for i in $(seq 1 90); do
+  if curl -fsS --max-time 3 http://127.0.0.1:8090/health >/dev/null 2>&1; then
+    DASHBOARD_READY=1
+    break
+  fi
+  STATE="$(docker inspect citymanager-dashboard --format '{{.State.Status}}' 2>/dev/null || true)"
+  if [[ "$STATE" == "exited" || "$STATE" == "dead" ]]; then
+    log "Dashboard container entered state=${STATE} before health check passed"
+    docker logs --tail 120 citymanager-dashboard || true
+    fail "Private dashboard container stopped during startup"
+  fi
   sleep 2
 done
-curl -fsS http://127.0.0.1:8090/health >/dev/null
-curl -fsS http://127.0.0.1:8090/flood >/dev/null
+if (( DASHBOARD_READY == 0 )); then
+  log "Dashboard did not become healthy within startup window"
+  docker inspect citymanager-dashboard --format 'status={{.State.Status}} exit={{.State.ExitCode}} restarts={{.RestartCount}} error={{.State.Error}}' || true
+  docker logs --tail 120 citymanager-dashboard || true
+  fail "Private dashboard health check timed out"
+fi
+curl -fsS --max-time 10 http://127.0.0.1:8090/flood >/dev/null
 
 cd "$REPO"
 ./deploy/cmos-health
