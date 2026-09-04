@@ -28,17 +28,37 @@ log "Using main @ $HEAD_SHA"
 log "Applying idempotent flood intelligence schema"
 docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < deploy/postgis/init/013_flood_intelligence.sql
 
-log "Calculating FEMA query bounds from local Weehawken parcel geometry"
-BBOX="$(docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<'SQL'
-WITH e AS (
-  SELECT ST_Expand(ST_Extent(geom),0.01) AS b
+log "Discovering Weehawken geometry from local parcel and NG911 data"
+DISCOVERY="$(docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -F "|"' <<'SQL'
+WITH parcel_matches AS (
+  SELECT geom
   FROM gis_parcels
-  WHERE lower(trim(mun_name))='weehawken'
+  WHERE lower(coalesce(mun_name,'')) LIKE '%weehawken%'
+     OR lower(coalesce(city_state,'')) LIKE '%weehawken%'
+),
+address_matches AS (
+  SELECT geom
+  FROM gis_addresses
+  WHERE lower(trim(coalesce(post_comm,''))) = 'weehawken'
+),
+all_matches AS (
+  SELECT geom FROM parcel_matches
+  UNION ALL
+  SELECT geom FROM address_matches
+),
+e AS (
+  SELECT ST_Expand(ST_Extent(geom),0.01) AS b FROM all_matches
 )
-SELECT ST_XMin(b)||','||ST_YMin(b)||','||ST_XMax(b)||','||ST_YMax(b) FROM e WHERE b IS NOT NULL;
+SELECT
+  (SELECT count(*) FROM parcel_matches),
+  (SELECT count(*) FROM address_matches),
+  CASE WHEN b IS NULL THEN '' ELSE ST_XMin(b)||','||ST_YMin(b)||','||ST_XMax(b)||','||ST_YMax(b) END
+FROM e;
 SQL
 )"
-[[ -n "$BBOX" ]] || fail "Could not calculate Weehawken parcel bounds"
+IFS='|' read -r PARCEL_MATCHES ADDRESS_MATCHES BBOX <<< "$DISCOVERY"
+log "Weehawken local matches: parcels=${PARCEL_MATCHES:-0}, addresses=${ADDRESS_MATCHES:-0}"
+[[ -n "${BBOX:-}" ]] || fail "Could not calculate Weehawken bounds from local parcel/address data"
 log "FEMA bbox: $BBOX"
 
 mkdir -p "$DATA_DIR" "$TMP_DIR"
@@ -119,7 +139,7 @@ SELECT 'FEMA_NFHL_WEEHAWKEN','FEMA NFHL Flood Hazard Zones - Weehawken Area',
 FROM gis_flood_zones
 ON CONFLICT(dataset_id) DO UPDATE SET imported_at=EXCLUDED.imported_at,row_count=EXCLUDED.row_count,status=EXCLUDED.status,notes=EXCLUDED.notes,source_url=EXCLUDED.source_url,dataset_name=EXCLUDED.dataset_name;
 INSERT INTO source_health(source_id,status,last_attempt_at,last_success_at,last_error,metadata,updated_at)
-VALUES('FEMA_FLOOD','OK',now(),now(),NULL,jsonb_build_object('rows',(SELECT count(*) FROM gis_flood_zones),'bbox','${BBOX}'),now())
+VALUES('FEMA_FLOOD','OK',now(),now(),NULL,jsonb_build_object('rows',(SELECT count(*) FROM gis_flood_zones),'bbox','${BBOX}','parcel_matches',${PARCEL_MATCHES:-0},'address_matches',${ADDRESS_MATCHES:-0}),now())
 ON CONFLICT(source_id) DO UPDATE SET status='OK',last_attempt_at=now(),last_success_at=now(),last_error=NULL,metadata=EXCLUDED.metadata,updated_at=now();
 SQL
 
