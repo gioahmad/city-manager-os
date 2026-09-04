@@ -16,9 +16,14 @@ COPY rules_app.py .
 COPY employee_app.py .
 COPY employee_public_app.py .
 COPY staff_admin_app.py .
+COPY operations_routines_app.py .
+COPY operations_occurrence_controls.py .
+COPY operations_engine.py .
+COPY operations_engine_windowed.py .
+COPY phase3_app.py .
 COPY templates ./templates
 COPY static ./static
 
 EXPOSE 8000
 
-CMD ["uvicorn", "schedule_app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["uvicorn", "phase3_app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

@@ -1,0 +1,45 @@
+<style>
+.ops-v3-window-form{display:grid;grid-template-columns:145px 145px auto;gap:7px;align-items:end}.ops-v3-window-form label{display:grid;gap:4px;font-size:9px;font-weight:800;text-transform:uppercase;color:#697c8e}.ops-v3-window-form input,.ops-v3-note-form input{min-height:36px;border:1px solid #cad5df;border-radius:8px;padding:7px 8px;font:inherit;background:#fff;color:#172536}.ops-v3-note-form{display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:7px;align-items:center;min-width:min(420px,42vw)}@media(max-width:840px){.ops-v3-window-form{grid-template-columns:1fr 1fr;grid-column:1/-1;width:100%}.ops-v3-window-form button{grid-column:1/-1}.ops-v3-note-form{grid-template-columns:1fr;min-width:0;width:100%;grid-column:1/-1}.feed-row{flex-wrap:wrap}}
+</style>
+<section class="section-label lower-label"><span>DATE WINDOWS &amp; TODAY NOTES</span><span class="section-rule"></span></section>
+<section class="grid primary-grid">
+  <article class="panel">
+    <div class="panel-head"><div><div class="panel-kicker">RECURRENCE WINDOW</div><h2>Start / End Dates</h2></div></div>
+    <div class="panel-body compact-list">
+      {% for r in routines %}
+      <div class="feed-row">
+        <div class="feed-main">
+          <strong>{{ r.name }}</strong>
+          <div class="meta">{{ r.routine_kind }} · {{ r.scheduled_time.strftime('%I:%M %p') }} · {{ 'ACTIVE' if r.active else 'INACTIVE' }}</div>
+        </div>
+        <form method="post" action="/operations-routines/{{ r.id }}/window" class="ops-v3-window-form">
+          <label>Starts<input type="date" name="starts_on" value="{{ r.starts_on.isoformat() if r.starts_on else '' }}"></label>
+          <label>Ends<input type="date" name="ends_on" value="{{ r.ends_on.isoformat() if r.ends_on else '' }}"></label>
+          <button class="secondary-button compact-button" type="submit">Save Dates</button>
+        </form>
+      </div>
+      {% else %}<div class="empty-state small"><strong>No routines configured</strong></div>{% endfor %}
+      <div class="meta" style="margin-top:10px">Leave either date blank for no boundary. A Tuesday route with no end date continues indefinitely.</div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-head"><div><div class="panel-kicker">THIS OCCURRENCE ONLY</div><h2>Today Notes</h2></div><span class="count-pill">{{ today_operations|length }}</span></div>
+    <div class="panel-body compact-list">
+      {% for run in today_operations %}
+      <div class="feed-row">
+        <div class="feed-main">
+          <strong>{{ run.scheduled_local.strftime('%I:%M %p') if run.scheduled_local else '' }} · {{ run.name }}</strong>
+          <div class="meta">{{ run.location_label or run.managed_location or run.department or run.routine_kind }}</div>
+          {% if run.run_note %}<div class="ops-v3-note"><strong>Today:</strong> {{ run.run_note }}{% if run.run_note_local %} · {{ run.run_note_local.strftime('%I:%M %p') }}{% endif %}</div>{% endif %}
+        </div>
+        <form method="post" action="/operations-runs/{{ run.run_id }}/note" class="ops-v3-note-form">
+          <input type="hidden" name="return_to" value="/operations-routines">
+          <input name="note" value="{{ run.run_note or '' }}" placeholder="Today only, e.g. truck broke down">
+          <button class="secondary-button compact-button" type="submit">Save Today Note</button>
+        </form>
+      </div>
+      {% else %}<div class="empty-state small"><strong>No occurrences today</strong></div>{% endfor %}
+    </div>
+  </article>
+</section>
