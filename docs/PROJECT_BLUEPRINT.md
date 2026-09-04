@@ -1,4 +1,4 @@
-# City Manager OS — Project Blueprint
+# City Manager OS - Project Blueprint
 
 ## Purpose
 
@@ -6,144 +6,185 @@ This is the single source of truth for what City Manager OS is intended to becom
 
 ## System Vision
 
-City Manager OS combines live external intelligence, internal issue intake, GIS/property intelligence, master watchlists, alerts and notifications, operational dashboards, tasks/follow-up, and automation.
+City Manager OS is the municipal operating system and executive second brain for Weehawken.
 
 Core concept:
 
 ```text
-SEE IT → TRACK IT → TELL ME
+SEE IT -> TRACK IT -> TELL ME
 ```
+
+Operational interpretation:
+
+```text
+SIGNAL -> CONTEXT -> ACTION -> ACCOUNTABILITY -> MEMORY
+```
+
+The system should combine live intelligence, internal issues, employee and supervisor field operations, recurring municipal work, GIS/property context, events, external APIs, watchlists, dynamic notification routing, executive follow-up and institutional memory.
+
+## Production Core
+
+The original core is accepted and in production.
+
+- PostgreSQL + PostGIS
+- Command Center / existing `issues` table
+- Employee Operations
+- Supervisor Operations Board
+- recurring Operations Engine
+- Master Watchlist
+- Subscriber Directory
+- dynamic recipient routing
+- Delivery Guard / deduplication / audit
+- GIS parcels and NG911 addresses
+- Mapping Center
+- FEMA flood intelligence
+- NOAA/NWS live flood monitoring
+- Executive Assistant / proactive workflows
+- monthly GIS refresh
+
+Do not rebuild accepted components unless explicitly requested or a verified defect requires it.
 
 ## Core Architecture
 
 ```text
-DATA SOURCES
-     ↓
-    n8n
+EXTERNAL / INTERNAL SOURCES
+          ↓
+         n8n
 collection / parsing / normalization
-     ↓
+          ↓
 PostgreSQL + PostGIS
-     ↓
-City Manager OS Dashboard
-     ↓
-Watchlist / Rules / Intelligence
-     ↓
-n8n Trigger Engine
-     ↓
-ntfy / future SMS / Email
+          ↓
+City Manager OS Web Interface
+          ↓
+Watchlists / Rules / Events / Operations / Command Center
+          ↓
+Dynamic Recipient Routing
+          ↓
+ntfy / future approved delivery channels
+          ↓
+Audit / Institutional Memory
 ```
 
-## Major Modules
+## Operational Data Rule
 
-| Module | Status | Purpose |
-|---|---|---|
-| n8n Automation Engine | Existing | Collect and process data |
-| ntfy Notifications | Existing | Push alerts |
-| Standard Alert Schema | Designed | Common format for every alert |
-| Central Alert Router | Designed | Watchlist-first routing |
-| Master Watchlist | Designing | Central list of important things |
-| Subscriber Directory | Designing | Users and delivery destinations |
-| GIS / Property Layer | Designing | Parcels, block/lot, proximity |
-| PostgreSQL/PostGIS | Not built | Central data store |
-| Live Dashboard | Not built | Main operating picture |
-| Intake System | Not built | Manual issues/requests |
-| Intelligence Feed | Not built | Unified event timeline |
-| Flood / Weather Layers | Not built | Live and GIS flood intelligence |
-| Utility Monitoring | Partial | PSEG automation exists |
-| Fire Intelligence | Partial | SDR / transcription work |
-| Traffic / Transit | Planned | Regional disruptions |
-| Event Intelligence | Research/design | Regional event collection |
-| Task / Follow-up | Planned | Operational issue management |
+The existing `issues` table / Command Center remains the single operational issue/task source of truth.
 
-## Watchlist Design
+Do not create a parallel issue or task database for Events, integrations, commitments, field work or executive follow-up.
 
-The Master Watchlist is the central intelligence list. Example watch items include addresses, facilities, areas, phrases, sources, and incident types.
+Other records may represent awareness, events, commitments, source state or municipal entities, but when accountable action is required it should link to or create a normal Command Center issue.
 
-Each watch item can carry: watch ID, active status, type, search term, display name, aliases, match mode, category/subcategory, address, municipality/county/state/ZIP, block/lot/qualifier, parcel ID, latitude/longitude, radius, GIS/nearby flags, notes, and recipient assignments.
+## Administration Rule
+
+n8n remains the automation engine, not the normal administration interface.
+
+Frequently changed municipal configuration should move toward authenticated web administration.
+
+This includes:
+- watchlists
+- subscribers
+- routing
+- routines
+- events
+- external integrations
+- source health
+- alert thresholds / rule metadata where safe
+
+## Next-Phase Modules
+
+### Watchlist / Subscriber Admin v2
+Improve the existing web management experience without replacing the working database-backed matcher or recipient resolver.
+
+### Events Center
+Track municipal events, meetings, deadlines and preparation. Events are not issues by default; actionable follow-up uses Command Center.
+
+### Integrations Center
+Provide one web location to manage external APIs and data sources, see health, test connectivity, enable/disable integrations and understand where each source feeds the system.
+
+Secrets remain protected server-side and are never committed to GitHub.
+
+### NJ Transit
+Add useful NJ Transit operational intelligence through the Integrations Center pattern and existing Standard Alert Schema / Watchlist / Subscriber pipeline.
+
+### Executive Operating Layer
+Improve Daily Manager Brief, Waiting On / commitments, deadlines, exceptions and changed-since-last-review awareness.
+
+### In-App Help
+Short contextual instructions and examples inside administrative pages rather than large manuals.
+
+### Obsidian / Local Documents
+Deferred until the active operational and integrations work is stable. Obsidian should eventually serve as a knowledge/document source, not replace operational records.
 
 ## GIS Strategy
 
-Do not depend on live ArcGIS calls during incidents.
+Static or slow-changing GIS should be stored locally in PostGIS rather than depended upon live during incidents.
 
 ```text
-NJ GIS / County GIS
-      ↓
-Scheduled download
-      ↓
-Local PostGIS
-      ↓
-n8n / Dashboard
+AUTHORITATIVE GIS SOURCE
+        ↓
+validated scheduled acquisition
+        ↓
+local PostGIS
+        ↓
+Mapping / enrichment / watch context
 ```
 
-Potential local datasets include parcels, block/lot, address points, flood zones, municipal buildings, schools, senior facilities, hospitals, roads, building footprints, critical infrastructure, and watch areas.
+Location-aware external feeds should reuse the existing GIS layer when route, station, stop, facility, parcel, area or proximity context is available.
 
 ## Notification Architecture
 
 Rejected model:
 
 ```text
-PSEG → separate subscriber list
-Fire → separate subscriber list
-Weather → separate subscriber list
+PSEG -> separate subscribers
+NJ Transit -> separate subscribers
+Weather -> separate subscribers
 ```
 
-Preferred model:
+Accepted model:
 
 ```text
-Alert
- ↓
-Master Watchlist
- ↓
-Find matching watch items
- ↓
-Collect recipients from matched rows
- ↓
-Remove duplicate recipients
- ↓
-Subscriber Directory
- ↓
+Normalized signal
+      ↓
+Master Watchlist / Rules
+      ↓
+Matched watch items
+      ↓
+Dynamic recipient resolution
+      ↓
+Delivery Guard
+      ↓
 ntfy
- ↓
-Delivery Log
+      ↓
+Audit
 ```
 
-## Dashboard Role
+No source-specific hard-coded recipients.
 
-The dashboard is the operating interface. n8n remains the automation engine behind it.
+## Awareness vs Action
 
-Initial dashboard concept:
+Not every signal should become an issue.
 
-```text
-CITY MANAGER OS
+- **Awareness** - useful information, no action required
+- **Watch** - condition may matter if it changes
+- **Action** - accountable work is required and belongs in Command Center
 
-LIVE MAP            ACTIVE ALERTS
-UTILITIES           WEATHER / FLOOD
-TRAFFIC             TRANSIT
-WATCHLIST           EVENTS
-INTELLIGENCE FEED
+A good test for creating an issue is:
 
-+ NEW ISSUE
-```
+> An action is required + someone can own it + completion can be verified + delay matters.
 
-## Existing / Partial Data Sources
+## Role Views
 
-### PSEG
-- Customer outages
-- Municipal outage status
-- ETR
-- Outage start
-- Jobs/circuits
+### Township Manager
+Needs exceptions, decisions, commitments, deadlines, changes and cross-department visibility.
 
-### Fire SDR
-- SDR / Raspberry Pi
-- Audio capture
-- Speech-to-text
-- Incident parsing
+### Supervisor
+Needs team workload, unassigned work, overdue work, verification and operational exceptions.
 
-## Planned Sources
-
-ORU, NWS, flood gauges, tide information, NJ 511, NJ Transit, PATH, Port Authority, events/venues, air quality, road closures, construction, and internal municipal issues.
+### Field Employee
+Needs only assigned work, location, instructions, checklist, photos and completion controls.
 
 ## Security Boundary
 
-GitHub stores architecture, sanitized examples, schemas, documentation, and workflow exports. Production operational data belongs on the controlled server/database and should not be committed to this repository.
+GitHub stores architecture, sanitized examples, schemas, documentation and exported workflows.
+
+Do not commit passwords, API keys, production credentials, confidential resident information or live sensitive municipal intelligence.
