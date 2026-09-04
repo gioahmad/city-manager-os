@@ -1,0 +1,239 @@
+{
+  "id": "FloodLiveMon01",
+  "name": "FLOOD - NOAA/NWS Live Monitor",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "name": "Flood Monitor Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [-1120, 0],
+      "id": "flood-schedule"
+    },
+    {
+      "parameters": {
+        "url": "https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations/8518750/floodlevels.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {"name": "units", "value": "english"}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Accept", "value": "application/json"},
+            {"name": "User-Agent", "value": "CityManagerOS/1.0 Weehawken-Township"}
+          ]
+        },
+        "options": {}
+      },
+      "name": "Fetch NOAA Flood Thresholds",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-896, 0],
+      "id": "flood-noaa-thresholds"
+    },
+    {
+      "parameters": {
+        "url": "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {"name": "date", "value": "latest"},
+            {"name": "station", "value": "8518750"},
+            {"name": "product", "value": "water_level"},
+            {"name": "datum", "value": "MHHW"},
+            {"name": "time_zone", "value": "gmt"},
+            {"name": "units", "value": "english"},
+            {"name": "application", "value": "CityManagerOS"},
+            {"name": "format", "value": "json"}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Accept", "value": "application/json"},
+            {"name": "User-Agent", "value": "CityManagerOS/1.0 Weehawken-Township"}
+          ]
+        },
+        "options": {}
+      },
+      "name": "Fetch NOAA Water Level",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-672, 0],
+      "id": "flood-noaa-water"
+    },
+    {
+      "parameters": {
+        "url": "https://api.weather.gov/alerts/active",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {"name": "point", "value": "40.7690,-74.0200"}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Accept", "value": "application/geo+json"},
+            {"name": "User-Agent", "value": "CityManagerOS/1.0 Weehawken-Township"}
+          ]
+        },
+        "options": {}
+      },
+      "name": "Fetch NWS Active Alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-448, 0],
+      "id": "flood-nws-alerts"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE((SELECT flood_category FROM flood_observations WHERE source='NOAA_TIDE' AND station_id='8518750' ORDER BY observed_at DESC LIMIT 1),'NONE') AS previous_category, COALESCE((SELECT jsonb_agg(jsonb_build_object('watch_id',watch_id,'display_name',display_name,'address',address,'fld_zone',fld_zone,'zone_subty',zone_subty,'sfha_tf',sfha_tf) ORDER BY display_name) FROM gis_watch_items_in_flood_zones()),'[]'::jsonb) AS watched;",
+        "options": {}
+      },
+      "name": "Load Flood Watch Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-224, 0],
+      "id": "flood-load-context",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function hashId(value) {\n  let h = 2166136261;\n  value = String(value || '');\n  for (let i = 0; i < value.length; i++) {\n    h ^= value.charCodeAt(i);\n    h = Math.imul(h, 16777619);\n  }\n  return (h >>> 0).toString(16).padStart(8, '0');\n}\n\nfunction findNumeric(root, names) {\n  const wanted = new Set(names.map(x => String(x).toLowerCase()));\n  const seen = new Set();\n  function walk(value) {\n    if (!value || typeof value !== 'object' || seen.has(value)) return null;\n    seen.add(value);\n    if (!Array.isArray(value)) {\n      for (const [k, v] of Object.entries(value)) {\n        if (wanted.has(String(k).toLowerCase())) {\n          const n = Number(v);\n          if (Number.isFinite(n)) return n;\n        }\n      }\n    }\n    for (const v of Object.values(value)) {\n      if (v && typeof v === 'object') {\n        const got = walk(v);\n        if (got !== null) return got;\n      }\n    }\n    return null;\n  }\n  return walk(root);\n}\n\nconst thresholdRaw = $('Fetch NOAA Flood Thresholds').first().json || {};\nconst waterRaw = $('Fetch NOAA Water Level').first().json || {};\nconst nwsRaw = $('Fetch NWS Active Alerts').first().json || {};\nconst ctx = $('Load Flood Watch Context').first().json || {};\nconst watched = Array.isArray(ctx.watched) ? ctx.watched : [];\nconst previousCategory = String(ctx.previous_category || 'NONE').toUpperCase();\n\nconst thresholds = {\n  action: findNumeric(thresholdRaw, ['action']),\n  nos_minor: findNumeric(thresholdRaw, ['nos_minor', 'nosMinor']),\n  nos_moderate: findNumeric(thresholdRaw, ['nos_moderate', 'nosModerate']),\n  nos_major: findNumeric(thresholdRaw, ['nos_major', 'nosMajor']),\n  nws_minor: findNumeric(thresholdRaw, ['nws_minor', 'nwsMinor']),\n  nws_moderate: findNumeric(thresholdRaw, ['nws_moderate', 'nwsModerate']),\n  nws_major: findNumeric(thresholdRaw, ['nws_major', 'nwsMajor'])\n};\n\nconst waterRows = Array.isArray(waterRaw.data) ? waterRaw.data : [];\nif (!waterRows.length) throw new Error('NOAA water-level response had no data rows.');\nconst latest = waterRows[waterRows.length - 1] || {};\nconst level = Number(latest.v);\nif (!Number.isFinite(level)) throw new Error('NOAA latest water level was not numeric.');\nif (!Number.isFinite(thresholds.nos_minor) && !Number.isFinite(thresholds.nws_minor)) {\n  throw new Error('NOAA flood threshold response did not contain a usable minor threshold.');\n}\n\nconst observedAt = latest.t ? new Date(String(latest.t).replace(' ', 'T') + (String(latest.t).includes('Z') ? '' : ':00Z')).toISOString() : new Date().toISOString();\nconst minor = Number.isFinite(thresholds.nos_minor) ? thresholds.nos_minor : thresholds.nws_minor;\nconst moderate = Number.isFinite(thresholds.nos_moderate) ? thresholds.nos_moderate : thresholds.nws_moderate;\nconst major = Number.isFinite(thresholds.nos_major) ? thresholds.nos_major : thresholds.nws_major;\nlet category = 'NONE';\nif (Number.isFinite(major) && level >= major) category = 'MAJOR';\nelse if (Number.isFinite(moderate) && level >= moderate) category = 'MODERATE';\nelse if (Number.isFinite(minor) && level >= minor) category = 'MINOR';\nelse if (Number.isFinite(thresholds.action) && level >= thresholds.action) category = 'ACTION';\n\nconst rank = {NONE:0, ACTION:1, MINOR:2, MODERATE:3, MAJOR:4};\nconst priorityFor = c => ({NONE:2, ACTION:2, MINOR:3, MODERATE:4, MAJOR:5}[c] || 3);\nconst watchedList = watched.slice(0, 12).map(w => {\n  const name = String(w.display_name || w.watch_id || 'Watched location');\n  const address = String(w.address || '').trim();\n  return address ? `${name} (${address})` : name;\n});\nconst watchedText = watched.length ? ` Watched FEMA-zone locations: ${watchedList.join('; ')}${watched.length > watchedList.length ? `; +${watched.length - watchedList.length} more` : ''}.` : '';\nconst alerts = [];\n\nif (category !== previousCategory) {\n  const thresholdText = [\n    Number.isFinite(minor) ? `Minor ${minor.toFixed(2)} ft` : null,\n    Number.isFinite(moderate) ? `Moderate ${moderate.toFixed(2)} ft` : null,\n    Number.isFinite(major) ? `Major ${major.toFixed(2)} ft` : null\n  ].filter(Boolean).join(', ');\n  const recovery = category === 'NONE' && previousCategory !== 'NONE';\n  const direction = (rank[category] || 0) > (rank[previousCategory] || 0) ? 'up' : 'down';\n  const title = recovery\n    ? 'Hudson River water level back below flood threshold'\n    : `Hudson River water level: ${category} flood category`;\n  const message = `NOAA station 8518750 The Battery observed ${level.toFixed(2)} ft relative to MHHW at ${observedAt}. Previous category: ${previousCategory}; current category: ${category}. Official NOAA/NWS station thresholds used dynamically${thresholdText ? `: ${thresholdText}` : ''}.${watchedText}`;\n  const sourceEventId = `${observedAt}|${previousCategory}|${category}`;\n  alerts.push({\n    schema_version: '1.0',\n    alert_id: `NOAA_TIDE:${hashId(sourceEventId)}`,\n    source: 'NOAA_TIDE',\n    source_event_id: sourceEventId,\n    category: 'OEM',\n    subtype: recovery ? 'FLOOD_RECOVERY' : 'WATER_LEVEL_THRESHOLD',\n    status: recovery ? 'RESOLVED' : 'ACTIVE',\n    event_action: recovery ? 'UPDATE' : 'NEW',\n    title,\n    message,\n    priority: priorityFor(category),\n    county: 'Hudson',\n    municipality: 'Weehawken',\n    location: {label:'Weehawken Waterfront / Hudson River',address:'',state:'NJ',zip:'',latitude:40.7690,longitude:-74.0200,block:'',lot:'',qualifier:'',parcel_id:''},\n    tags: ['flood','coastal','water_level','hudson_river',category.toLowerCase()],\n    click_url: 'https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750',\n    source_url: 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter',\n    observed_at: observedAt,\n    source_updated_at: observedAt,\n    received_at: new Date().toISOString(),\n    expires_at: null,\n    metadata: {station_id:'8518750',station_name:'The Battery, NY',water_level_mhhw_ft:level,previous_category:previousCategory,current_category:category,direction,thresholds,watched_count:watched.length,watched}\n  });\n}\n\nconst relevantEvents = new Set([\n  'Coastal Flood Advisory','Coastal Flood Warning','Coastal Flood Watch','Coastal Flood Statement',\n  'Flood Advisory','Flood Warning','Flood Watch','Flash Flood Warning','Flash Flood Statement',\n  'Storm Surge Warning','Storm Surge Watch'\n]);\nconst nwsFeatures = Array.isArray(nwsRaw.features) ? nwsRaw.features : [];\nfor (const feature of nwsFeatures) {\n  const p = feature.properties || {};\n  const event = String(p.event || '').trim();\n  if (!relevantEvents.has(event)) continue;\n  const officialId = String(feature.id || p.id || `${event}|${p.sent || p.effective || ''}|${p.areaDesc || ''}`);\n  let priority = 3;\n  if (/Warning|Flash Flood/i.test(event)) priority = 5;\n  else if (/Watch/i.test(event)) priority = 4;\n  else if (/Advisory/i.test(event)) priority = 3;\n  else priority = 2;\n  const headline = String(p.headline || '').trim();\n  const description = String(p.description || '').trim();\n  const instruction = String(p.instruction || '').trim();\n  const area = String(p.areaDesc || '').trim();\n  const pieces = [headline, description, instruction].filter(Boolean);\n  let message = pieces.join('\\n\\n');\n  if (area) message += `${message ? '\\n\\n' : ''}Affected area: ${area}.`;\n  message += watchedText;\n  alerts.push({\n    schema_version: '1.0',\n    alert_id: `NWS_FLOOD:${hashId(officialId)}`,\n    source: 'NWS_FLOOD',\n    source_event_id: officialId,\n    category: 'OEM',\n    subtype: event.toUpperCase().replace(/[^A-Z0-9]+/g,'_'),\n    status: 'ACTIVE',\n    event_action: 'NEW',\n    title: headline || event,\n    message: message.slice(0, 12000),\n    priority,\n    county: 'Hudson',\n    municipality: 'Weehawken',\n    location: {label:'Weehawken, NJ',address:'',state:'NJ',zip:'',latitude:40.7690,longitude:-74.0200,block:'',lot:'',qualifier:'',parcel_id:''},\n    tags: ['flood','nws','weather',event.toLowerCase().replace(/[^a-z0-9]+/g,'_')],\n    click_url: String(p.web || p['@id'] || feature.id || 'https://www.weather.gov/'),\n    source_url: 'https://api.weather.gov/alerts/active?point=40.7690,-74.0200',\n    observed_at: p.sent || p.effective || new Date().toISOString(),\n    source_updated_at: p.sent || null,\n    received_at: new Date().toISOString(),\n    expires_at: p.expires || p.ends || null,\n    metadata: {event,severity:p.severity||null,certainty:p.certainty||null,urgency:p.urgency||null,area_desc:area,watched_count:watched.length,watched}\n  });\n}\n\nfor (const alert of alerts) {\n  alert.search_text = [alert.source,alert.category,alert.subtype,alert.title,alert.message,...alert.tags].filter(Boolean).join(' ');\n}\n\nreturn [{json:{\n  observation:{source:'NOAA_TIDE',station_id:'8518750',observed_at:observedAt,water_level_mhhw_ft:level,predicted_level_mhhw_ft:null,flood_category:category,title:'The Battery, NY',payload:{quality:latest.q||null,flags:latest.f||null,sigma:latest.s||null,thresholds,previous_category:previousCategory,watched_count:watched.length}},\n  thresholds,\n  watched_count: watched.length,\n  nws_active_count: nwsFeatures.filter(f => relevantEvents.has(String((f.properties||{}).event||'').trim())).length,\n  alerts\n}}];"
+      },
+      "name": "Build Standard Flood Alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "id": "flood-build-standard"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH d AS (SELECT $1::jsonb AS j), o AS (SELECT j->'observation' AS o, j FROM d), ins AS (INSERT INTO flood_observations(source,station_id,observed_at,water_level_mhhw_ft,predicted_level_mhhw_ft,flood_category,title,payload) SELECT o->>'source',o->>'station_id',(o->>'observed_at')::timestamptz,(o->>'water_level_mhhw_ft')::double precision,NULLIF(o->>'predicted_level_mhhw_ft','')::double precision,o->>'flood_category',o->>'title',COALESCE(o->'payload','{}'::jsonb) FROM o ON CONFLICT(source,station_id,observed_at) DO UPDATE SET water_level_mhhw_ft=EXCLUDED.water_level_mhhw_ft,predicted_level_mhhw_ft=EXCLUDED.predicted_level_mhhw_ft,flood_category=EXCLUDED.flood_category,title=EXCLUDED.title,payload=EXCLUDED.payload RETURNING id), h1 AS (INSERT INTO source_health(source_id,status,last_attempt_at,last_success_at,last_event_at,last_error,metadata,updated_at) SELECT 'NOAA_TIDE','OK',now(),now(),(o->>'observed_at')::timestamptz,NULL,jsonb_build_object('station_id','8518750','thresholds',j->'thresholds','watched_count',j->'watched_count'),now() FROM o ON CONFLICT(source_id) DO UPDATE SET status='OK',last_attempt_at=now(),last_success_at=now(),last_event_at=EXCLUDED.last_event_at,last_error=NULL,metadata=EXCLUDED.metadata,updated_at=now() RETURNING source_id), h2 AS (INSERT INTO source_health(source_id,status,last_attempt_at,last_success_at,last_event_at,last_error,metadata,updated_at) SELECT 'NWS_FLOOD','OK',now(),now(),CASE WHEN COALESCE((j->>'nws_active_count')::integer,0)>0 THEN now() ELSE NULL END,NULL,jsonb_build_object('active_alerts',COALESCE((j->>'nws_active_count')::integer,0),'point','40.7690,-74.0200','watched_count',j->'watched_count'),now() FROM d ON CONFLICT(source_id) DO UPDATE SET status='OK',last_attempt_at=now(),last_success_at=now(),last_event_at=CASE WHEN COALESCE((EXCLUDED.metadata->>'active_alerts')::integer,0)>0 THEN now() ELSE source_health.last_event_at END,last_error=NULL,metadata=EXCLUDED.metadata,updated_at=now() RETURNING source_id) SELECT (SELECT count(*) FROM ins) AS observation_rows,(SELECT count(*) FROM h1) AS noaa_health,(SELECT count(*) FROM h2) AS nws_health;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "name": "Record Flood Observation and Health",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [224, 0],
+      "id": "flood-record-observation",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const batch = $('Build Standard Flood Alerts').first().json || {}; const alerts = Array.isArray(batch.alerts) ? batch.alerts : []; return alerts.map(alert => ({json: alert}));"
+      },
+      "name": "Split Standard Flood Alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [448, 0],
+      "id": "flood-split-alerts"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH d AS (SELECT $1::jsonb AS j), upserted AS (INSERT INTO alerts(schema_version,alert_id,source,source_event_id,category,subtype,status,event_action,title,message,priority,county,municipality,location,tags,click_url,source_url,observed_at,source_updated_at,received_at,expires_at,metadata,raw_payload,search_text,geom,updated_at) SELECT COALESCE(j->>'schema_version','1.0'),j->>'alert_id',j->>'source',NULLIF(j->>'source_event_id',''),j->>'category',j->>'subtype',j->>'status',j->>'event_action',j->>'title',j->>'message',(j->>'priority')::integer,NULLIF(j->>'county',''),NULLIF(j->>'municipality',''),COALESCE(j->'location','{}'::jsonb),ARRAY(SELECT jsonb_array_elements_text(COALESCE(j->'tags','[]'::jsonb))),NULLIF(j->>'click_url',''),NULLIF(j->>'source_url',''),NULLIF(j->>'observed_at','')::timestamptz,NULLIF(j->>'source_updated_at','')::timestamptz,COALESCE(NULLIF(j->>'received_at','')::timestamptz,now()),NULLIF(j->>'expires_at','')::timestamptz,COALESCE(j->'metadata','{}'::jsonb),j,NULLIF(j->>'search_text',''),CASE WHEN NULLIF(j->'location'->>'latitude','') IS NOT NULL AND NULLIF(j->'location'->>'longitude','') IS NOT NULL THEN ST_SetSRID(ST_MakePoint((j->'location'->>'longitude')::double precision,(j->'location'->>'latitude')::double precision),4326) ELSE NULL END,now() FROM d ON CONFLICT(alert_id) DO UPDATE SET status=EXCLUDED.status,event_action=EXCLUDED.event_action,title=EXCLUDED.title,message=EXCLUDED.message,priority=EXCLUDED.priority,county=EXCLUDED.county,municipality=EXCLUDED.municipality,location=EXCLUDED.location,tags=EXCLUDED.tags,click_url=EXCLUDED.click_url,source_url=EXCLUDED.source_url,observed_at=EXCLUDED.observed_at,source_updated_at=EXCLUDED.source_updated_at,expires_at=EXCLUDED.expires_at,metadata=EXCLUDED.metadata,raw_payload=EXCLUDED.raw_payload,search_text=EXCLUDED.search_text,geom=EXCLUDED.geom,updated_at=now() RETURNING id::text AS alert_db_uuid) SELECT d.j AS alert,upserted.alert_db_uuid FROM d CROSS JOIN upserted;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "name": "Upsert Flood Alert to City Manager OS",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [672, 0],
+      "id": "flood-upsert-alert",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => ({json:item.json.alert || {}}));"
+      },
+      "name": "Restore Standard Flood Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [896, 0],
+      "id": "flood-restore-alert"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ESH9c2pZ8QfkMosO",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ESH9c2pZ8QfkMosO",
+          "cachedResultName": "CORE - Watchlist Matcher v1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "name": "Send Flood Alert to Central Watchlist Matcher",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1120, 0],
+      "id": "flood-central-matcher",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Flood Monitor Schedule": {"main": [[{"node": "Fetch NOAA Flood Thresholds", "type": "main", "index": 0}]]},
+    "Fetch NOAA Flood Thresholds": {"main": [[{"node": "Fetch NOAA Water Level", "type": "main", "index": 0}]]},
+    "Fetch NOAA Water Level": {"main": [[{"node": "Fetch NWS Active Alerts", "type": "main", "index": 0}]]},
+    "Fetch NWS Active Alerts": {"main": [[{"node": "Load Flood Watch Context", "type": "main", "index": 0}]]},
+    "Load Flood Watch Context": {"main": [[{"node": "Build Standard Flood Alerts", "type": "main", "index": 0}]]},
+    "Build Standard Flood Alerts": {"main": [[{"node": "Record Flood Observation and Health", "type": "main", "index": 0}]]},
+    "Record Flood Observation and Health": {"main": [[{"node": "Split Standard Flood Alerts", "type": "main", "index": 0}]]},
+    "Split Standard Flood Alerts": {"main": [[{"node": "Upsert Flood Alert to City Manager OS", "type": "main", "index": 0}]]},
+    "Upsert Flood Alert to City Manager OS": {"main": [[{"node": "Restore Standard Flood Alert", "type": "main", "index": 0}]]},
+    "Restore Standard Flood Alert": {"main": [[{"node": "Send Flood Alert to Central Watchlist Matcher", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
