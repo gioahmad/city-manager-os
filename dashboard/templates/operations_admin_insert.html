@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="/static/operations_v3.css?v=20260904-1">
+<link rel="stylesheet" href="/static/operations_v3.css?v=20260904-2">
 <section class="section-label"><span>TODAY'S OPERATIONS</span><span class="section-rule"></span><a class="text-link" href="/operations-routines">Daily &amp; Recurring Setup</a></section>
 
 <section class="ops-v3-summary">
@@ -18,11 +18,13 @@
         <div class="ops-v3-title"><span class="priority-chip p{{ run.priority }}">P{{ run.priority }}</span><strong>{{ run.name }}</strong><span class="status">{{ run.status|replace('_',' ') }}</span></div>
         <div class="meta">{{ run.routine_kind }}{% if run.managed_location or run.location_label %} · {{ run.location_label or run.managed_location }}{% endif %}{% if run.department %} · {{ run.department }}{% endif %}{% if run.employee_name %} · {{ run.employee_name }}{% endif %}</div>
         {% if run.issue_status %}<div class="meta">Work: {{ run.issue_status|replace('_',' ') }}{% if run.help_reason %} · {{ run.help_reason }}{% endif %}</div>{% endif %}
+        {% if run.run_note %}<div class="ops-v3-note"><strong>Today:</strong> {{ run.run_note }}{% if run.run_note_local %} · {{ run.run_note_local.strftime('%I:%M %p') }}{% endif %}</div>{% endif %}
         {% if run.exception_note %}<div class="ops-v3-exception">{{ run.exception_note }}</div>{% endif %}
       </div>
       <div class="ops-v3-actions">
         {% if run.routine_kind == 'AWARENESS' and not run.acknowledged_at and run.status not in ['EXCEPTION','MISSED','PASSED'] %}<form method="post" action="/operations-runs/{{ run.run_id }}/ack"><input type="hidden" name="return_to" value="{{ current_url }}"><button class="secondary-button compact-button" type="submit">Confirm OK</button></form>{% endif %}
         {% if run.routine_kind == 'AWARENESS' and run.status != 'EXCEPTION' %}<details class="ops-v3-report"><summary>Report issue</summary><form method="post" action="/operations-runs/{{ run.run_id }}/exception"><input type="hidden" name="return_to" value="{{ current_url }}"><textarea name="note" placeholder="What is wrong?" required></textarea><button class="primary-button compact-button" type="submit">Escalate</button></form></details>{% endif %}
+        <details class="ops-v3-report"><summary>Today note</summary><form method="post" action="/operations-runs/{{ run.run_id }}/note"><input type="hidden" name="return_to" value="{{ current_url }}"><textarea name="note" placeholder="Only this occurrence">{{ run.run_note or '' }}</textarea><button class="secondary-button compact-button" type="submit">Save Note</button></form></details>
       </div>
     </div>
     {% else %}<div class="empty-state small"><strong>No daily operations configured yet</strong><span>Use Daily &amp; Recurring Setup to add expected activities and recurring work.</span></div>{% endfor %}
