@@ -5,6 +5,7 @@ REPO="/opt/city-manager-os"
 BUILD_ID="$(date '+%Y%m%d%H%M%S')"
 PARCEL_BUILD="gis_parcels_build_${BUILD_ID}"
 ADDRESS_BUILD="gis_addresses_build_${BUILD_ID}"
+PARCEL_REPAIR_COUNT=0
 
 log(){ printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 fail(){ log "ERROR: $*"; exit 1; }
@@ -68,34 +69,94 @@ fi
 log "Validating staging counts, geometry and SRID"
 STAGE_CHECK="$(docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<'SQL'
 WITH stats AS (
-  SELECT 'parcels' AS dataset,count(*) AS rows,
-         count(*) FILTER (WHERE geom IS NULL OR NOT ST_IsValid(geom)) AS bad_geom,
-         min(ST_SRID(geom)) AS min_srid,max(ST_SRID(geom)) AS max_srid
+  SELECT 'parcels' AS dataset,
+         count(*) AS rows,
+         count(*) FILTER (WHERE geom IS NULL OR ST_IsEmpty(geom)) AS null_or_empty_geom,
+         count(*) FILTER (WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom) AND NOT ST_IsValid(geom)) AS invalid_geom,
+         min(ST_SRID(geom)) AS min_srid,
+         max(ST_SRID(geom)) AS max_srid
   FROM stg_hudson_parcels
   UNION ALL
-  SELECT 'addresses',count(*),
-         count(*) FILTER (WHERE geom IS NULL OR NOT ST_IsValid(geom)),
-         min(ST_SRID(geom)),max(ST_SRID(geom))
+  SELECT 'addresses',
+         count(*),
+         count(*) FILTER (WHERE geom IS NULL OR ST_IsEmpty(geom)),
+         count(*) FILTER (WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom) AND NOT ST_IsValid(geom)),
+         min(ST_SRID(geom)),
+         max(ST_SRID(geom))
   FROM stg_hudson_addresses
 )
-SELECT dataset || '|' || rows || '|' || bad_geom || '|' || min_srid || '|' || max_srid
+SELECT dataset || '|' || rows || '|' || null_or_empty_geom || '|' || invalid_geom || '|' || min_srid || '|' || max_srid
 FROM stats ORDER BY dataset;
 SQL
 )"
 printf '%s\n' "$STAGE_CHECK"
-while IFS='|' read -r dataset rows bad_geom min_srid max_srid; do
+while IFS='|' read -r dataset rows null_or_empty invalid_geom min_srid max_srid; do
   [[ -n "$dataset" ]] || continue
   (( rows > 0 )) || fail "$dataset staging table is empty"
-  (( bad_geom == 0 )) || fail "$dataset has $bad_geom null/invalid geometries"
+  (( null_or_empty == 0 )) || fail "$dataset has $null_or_empty null/empty geometries"
   [[ "$min_srid" == "4326" && "$max_srid" == "4326" ]] || fail "$dataset has unexpected SRID range ${min_srid}-${max_srid}"
+  if [[ "$dataset" == "addresses" ]]; then
+    (( invalid_geom == 0 )) || fail "addresses has $invalid_geom invalid geometries"
+  else
+    PARCEL_REPAIR_COUNT="$invalid_geom"
+  fi
 done <<< "$STAGE_CHECK"
 
-log "Building indexed candidate production tables"
+if (( PARCEL_REPAIR_COUNT > 0 )); then
+  log "Source staging contains ${PARCEL_REPAIR_COUNT} invalid parcel geometries. Raw staging will remain unchanged; candidate production geometry will be repaired with ST_MakeValid."
+  docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+\pset pager off
+SELECT objectid,pams_pin,ST_IsValidReason(geom) AS invalid_reason
+FROM stg_hudson_parcels
+WHERE geom IS NOT NULL
+  AND NOT ST_IsEmpty(geom)
+  AND NOT ST_IsValid(geom)
+ORDER BY objectid
+LIMIT 25;
+SQL
+fi
+
+log "Building candidate production tables"
 docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<SQL
 DROP TABLE IF EXISTS public.${PARCEL_BUILD};
 DROP TABLE IF EXISTS public.${ADDRESS_BUILD};
 
 CREATE TABLE public.${PARCEL_BUILD} AS TABLE public.stg_hudson_parcels;
+
+UPDATE public.${PARCEL_BUILD}
+SET geom = ST_Multi(ST_CollectionExtract(ST_MakeValid(geom),3))
+WHERE geom IS NOT NULL
+  AND NOT ST_IsEmpty(geom)
+  AND NOT ST_IsValid(geom);
+
+CREATE TABLE public.${ADDRESS_BUILD} AS TABLE public.stg_hudson_addresses;
+SQL
+
+log "Revalidating candidate geometry after parcel repair"
+CANDIDATE_GEOM_CHECK="$(docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<SQL
+WITH stats AS (
+  SELECT 'parcels' AS dataset,
+         count(*) FILTER (WHERE geom IS NULL OR ST_IsEmpty(geom) OR NOT ST_IsValid(geom)) AS bad_geom,
+         count(*) FILTER (WHERE GeometryType(geom) <> 'MULTIPOLYGON') AS wrong_type
+  FROM public.${PARCEL_BUILD}
+  UNION ALL
+  SELECT 'addresses',
+         count(*) FILTER (WHERE geom IS NULL OR ST_IsEmpty(geom) OR NOT ST_IsValid(geom)),
+         count(*) FILTER (WHERE GeometryType(geom) <> 'POINT')
+  FROM public.${ADDRESS_BUILD}
+)
+SELECT dataset || '|' || bad_geom || '|' || wrong_type FROM stats ORDER BY dataset;
+SQL
+)"
+printf '%s\n' "$CANDIDATE_GEOM_CHECK"
+while IFS='|' read -r dataset bad_geom wrong_type; do
+  [[ -n "$dataset" ]] || continue
+  (( bad_geom == 0 )) || fail "$dataset candidate still has $bad_geom null/empty/invalid geometries after repair"
+  (( wrong_type == 0 )) || fail "$dataset candidate has $wrong_type unexpected geometry types"
+done <<< "$CANDIDATE_GEOM_CHECK"
+
+log "Creating candidate indexes"
+docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<SQL
 CREATE INDEX ${PARCEL_BUILD}_geom_gix ON public.${PARCEL_BUILD} USING GIST (geom);
 CREATE INDEX ${PARCEL_BUILD}_objectid_idx ON public.${PARCEL_BUILD} (objectid);
 CREATE INDEX ${PARCEL_BUILD}_pcl_guid_idx ON public.${PARCEL_BUILD} (pcl_guid) WHERE pcl_guid IS NOT NULL;
@@ -106,7 +167,6 @@ CREATE INDEX ${PARCEL_BUILD}_mun_name_idx ON public.${PARCEL_BUILD} (lower(mun_n
 CREATE INDEX ${PARCEL_BUILD}_prop_loc_idx ON public.${PARCEL_BUILD} (lower(prop_loc));
 ANALYZE public.${PARCEL_BUILD};
 
-CREATE TABLE public.${ADDRESS_BUILD} AS TABLE public.stg_hudson_addresses;
 CREATE INDEX ${ADDRESS_BUILD}_geom_gix ON public.${ADDRESS_BUILD} USING GIST (geom);
 CREATE INDEX ${ADDRESS_BUILD}_geog_gix ON public.${ADDRESS_BUILD} USING GIST ((geom::geography));
 CREATE INDEX ${ADDRESS_BUILD}_objectid_idx ON public.${ADDRESS_BUILD} (objectid);
@@ -280,7 +340,7 @@ SELECT
   'NJOGIS_HUDSON_PARCELS',
   'NJOGIS Hudson County Parcels / MOD-IV',
   'https://services2.arcgis.com/XVOqAjTOJ5P6ngMu/ArcGIS/rest/services/Parcels_Composite_NJ_WM/FeatureServer/0',
-  now(),count(*),'ACTIVE','Production promotion ${BUILD_ID}; repository ${HEAD_SHA}'
+  now(),count(*),'ACTIVE','Production promotion ${BUILD_ID}; repaired ${PARCEL_REPAIR_COUNT} source-invalid parcel geometries in candidate only; repository ${HEAD_SHA}'
 FROM gis_parcels
 ON CONFLICT (dataset_id) DO UPDATE
 SET dataset_name=EXCLUDED.dataset_name,
@@ -312,6 +372,10 @@ docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES
 SELECT 'PRODUCTION_COUNTS' AS test,
        (SELECT count(*) FROM gis_parcels) AS parcels,
        (SELECT count(*) FROM gis_addresses) AS addresses;
+
+SELECT 'PRODUCTION_GEOMETRY_VALIDATION' AS test,
+       (SELECT count(*) FROM gis_parcels WHERE geom IS NULL OR ST_IsEmpty(geom) OR NOT ST_IsValid(geom)) AS bad_parcels,
+       (SELECT count(*) FROM gis_addresses WHERE geom IS NULL OR ST_IsEmpty(geom) OR NOT ST_IsValid(geom)) AS bad_addresses;
 
 WITH sample AS (
   SELECT mun_name,pclblock,pcllot
@@ -353,4 +417,5 @@ SQL
 log "HUDSON GIS PRODUCTION PASSED"
 log "Production tables: gis_parcels, gis_addresses"
 log "Lookups: gis_parcel_by_block_lot, gis_parcel_for_address, gis_nearby_addresses"
+log "Parcel geometries repaired in candidate only: ${PARCEL_REPAIR_COUNT}"
 log "Repository commit: ${HEAD_SHA}"
