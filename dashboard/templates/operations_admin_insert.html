@@ -1,0 +1,48 @@
+<link rel="stylesheet" href="/static/operations_v3.css?v=20260904-1">
+<section class="section-label"><span>TODAY'S OPERATIONS</span><span class="section-rule"></span><a class="text-link" href="/operations-routines">Daily &amp; Recurring Setup</a></section>
+
+<section class="ops-v3-summary">
+  <div class="ops-v3-stat"><span>Expected Today</span><strong>{{ operations_counts.scheduled_today or 0 }}</strong></div>
+  <div class="ops-v3-stat"><span>Open Routine Work</span><strong>{{ operations_counts.work_open or 0 }}</strong></div>
+  <div class="ops-v3-stat {{ 'warn' if operations_counts.exceptions else '' }}"><span>Exceptions</span><strong>{{ operations_counts.exceptions or 0 }}</strong></div>
+  <div class="ops-v3-stat {{ 'verify' if operations_counts.awaiting_verification else '' }}"><span>Verify</span><strong>{{ operations_counts.awaiting_verification or 0 }}</strong></div>
+</section>
+
+<section class="panel ops-v3-panel">
+  <div class="panel-head"><div><div class="panel-kicker">EXPECTED / SCHEDULED</div><h2>Operational Timeline</h2></div><span class="count-pill">{{ today_operations|length }}</span></div>
+  <div class="panel-body ops-v3-list">
+    {% for run in today_operations %}
+    <div class="ops-v3-row status-{{ run.status|lower }}">
+      <div class="ops-v3-time">{{ run.scheduled_local.strftime('%I:%M %p') if run.scheduled_local else '' }}</div>
+      <div class="ops-v3-main">
+        <div class="ops-v3-title"><span class="priority-chip p{{ run.priority }}">P{{ run.priority }}</span><strong>{{ run.name }}</strong><span class="status">{{ run.status|replace('_',' ') }}</span></div>
+        <div class="meta">{{ run.routine_kind }}{% if run.managed_location or run.location_label %} · {{ run.location_label or run.managed_location }}{% endif %}{% if run.department %} · {{ run.department }}{% endif %}{% if run.employee_name %} · {{ run.employee_name }}{% endif %}</div>
+        {% if run.issue_status %}<div class="meta">Work: {{ run.issue_status|replace('_',' ') }}{% if run.help_reason %} · {{ run.help_reason }}{% endif %}</div>{% endif %}
+        {% if run.exception_note %}<div class="ops-v3-exception">{{ run.exception_note }}</div>{% endif %}
+      </div>
+      <div class="ops-v3-actions">
+        {% if run.routine_kind == 'AWARENESS' and not run.acknowledged_at and run.status not in ['EXCEPTION','MISSED','PASSED'] %}<form method="post" action="/operations-runs/{{ run.run_id }}/ack"><input type="hidden" name="return_to" value="{{ current_url }}"><button class="secondary-button compact-button" type="submit">Confirm OK</button></form>{% endif %}
+        {% if run.routine_kind == 'AWARENESS' and run.status != 'EXCEPTION' %}<details class="ops-v3-report"><summary>Report issue</summary><form method="post" action="/operations-runs/{{ run.run_id }}/exception"><input type="hidden" name="return_to" value="{{ current_url }}"><textarea name="note" placeholder="What is wrong?" required></textarea><button class="primary-button compact-button" type="submit">Escalate</button></form></details>{% endif %}
+      </div>
+    </div>
+    {% else %}<div class="empty-state small"><strong>No daily operations configured yet</strong><span>Use Daily &amp; Recurring Setup to add expected activities and recurring work.</span></div>{% endfor %}
+  </div>
+</section>
+
+{% if verification_queue %}
+<section class="section-label lower-label"><span>SUPERVISOR VERIFICATION</span><span class="section-rule"></span><span class="count-pill">{{ verification_queue|length }}</span></section>
+<section class="ops-v3-verify-grid">
+  {% for item in verification_queue %}
+  <article class="ops-v3-verify-card">
+    <div class="ops-v3-title"><span class="priority-chip p{{ item.priority }}">P{{ item.priority }}</span><strong>{{ item.title }}</strong></div>
+    <div class="meta">{{ item.assigned_to or 'Unassigned' }}{% if item.employee_location %} · {{ item.employee_location }}{% endif %}{% if item.work_type_name %} · {{ item.work_type_name }}{% endif %}</div>
+    {% if item.latest_update %}<div class="ops-v3-note">{{ item.latest_update }}</div>{% endif %}
+    {% if item.after_photo_id %}<a href="/staff-admin/photo/{{ item.after_photo_id }}" target="_blank" rel="noopener"><img class="ops-v3-proof" src="/staff-admin/photo/{{ item.after_photo_id }}" alt="Completion photo"></a>{% endif %}
+    <div class="ops-v3-verify-actions">
+      <form method="post" action="/staff-admin/issue/{{ item.id }}/verify"><input type="hidden" name="return_to" value="{{ current_url }}"><input name="note" placeholder="Optional verification note"><button class="primary-button" type="submit">Verify Complete</button></form>
+      <form method="post" action="/staff-admin/issue/{{ item.id }}/reject"><input type="hidden" name="return_to" value="{{ current_url }}"><input name="instruction" placeholder="What needs to be corrected?" required><button class="secondary-button" type="submit">Return to Work</button></form>
+    </div>
+  </article>
+  {% endfor %}
+</section>
+{% endif %}
