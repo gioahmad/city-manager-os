@@ -1,0 +1,507 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+REPO="/opt/city-manager-os"
+DASH_URL="${CMOS_DASH_URL:-http://100.94.203.47:8090}"
+STAFF_URL="${CMOS_STAFF_URL:-http://127.0.0.1:8091}"
+HARNESS_ID="CMOSE2ERoute01"
+HARNESS_FILE="$REPO/workflows/test/CMOS_E2E_ROUTING.json"
+RUN_ID="CMOS_E2E_$(date '+%Y%m%d%H%M%S')"
+EMPLOYEE_ID="E2E$(date '+%m%d%H%M%S')"
+TEST_PIN="4827"
+COOKIE_JAR="/tmp/${RUN_ID}.cookies"
+TEST_PNG="/tmp/${RUN_ID}.png"
+BACKUP_DIR="/var/backups/city-manager-os/e2e/${RUN_ID}"
+UPLOAD_ROOT="/var/lib/city-manager-os/staff_uploads"
+HARNESS_ACTIVE=0
+CLEANED=0
+PASS_COUNT=0
+
+log(){ printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
+pass(){ PASS_COUNT=$((PASS_COUNT+1)); printf 'PASS  %s\n' "$*"; }
+fail(){ printf 'FAIL  %s\n' "$*" >&2; exit 1; }
+
+dbq(){
+  local sql="$1"
+  printf '%s\n' "$sql" | docker exec -i citymanager-postgis sh -lc \
+    'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atq'
+}
+
+dbexec(){ dbq "$1" >/dev/null; }
+
+wait_running(){
+  local container="$1"
+  for _ in $(seq 1 60); do
+    [[ "$(docker inspect "$container" --format '{{.State.Status}}' 2>/dev/null || true)" == "running" ]] && return 0
+    sleep 2
+  done
+  return 1
+}
+
+deactivate_harness(){
+  (( HARNESS_ACTIVE == 1 )) || return 0
+  log "Deactivating E2E routing harness"
+  if docker exec -u node n8n n8n unpublish:workflow --help >/dev/null 2>&1; then
+    docker exec -u node n8n n8n unpublish:workflow --id="$HARNESS_ID" >/dev/null 2>&1 || true
+  else
+    docker exec -u node n8n n8n update:workflow --id="$HARNESS_ID" --active=false >/dev/null 2>&1 || true
+  fi
+  docker restart n8n >/dev/null 2>&1 || true
+  wait_running n8n || true
+  sleep 4
+  HARNESS_ACTIVE=0
+}
+
+cleanup_synthetic(){
+  (( CLEANED == 0 )) || return 0
+  log "Cleaning synthetic E2E records"
+  set +e
+
+  while IFS= read -r stored; do
+    [[ -n "$stored" ]] && rm -f "$UPLOAD_ROOT/$stored"
+  done < <(dbq "
+    SELECT p.stored_name
+    FROM issue_photos p
+    JOIN issues i ON i.id=p.issue_id
+    WHERE coalesce(i.description,'') LIKE '%${RUN_ID}%'
+       OR coalesce(i.title,'') LIKE '%${RUN_ID}%';
+  " 2>/dev/null)
+
+  dbexec "
+    DELETE FROM alerts WHERE alert_id='SYSTEM_TEST:${RUN_ID}';
+    DELETE FROM watch_items WHERE watch_id='CMOS_E2E_ROUTE';
+    DELETE FROM issues
+      WHERE coalesce(description,'') LIKE '%${RUN_ID}%'
+         OR coalesce(title,'') LIKE '%${RUN_ID}%';
+    DELETE FROM operations_routines WHERE notes='${RUN_ID}';
+    DELETE FROM staff_employees WHERE employee_id='${EMPLOYEE_ID}';
+  " 2>/dev/null || true
+
+  rm -f "$COOKIE_JAR" "$TEST_PNG"
+  CLEANED=1
+  set -e
+}
+
+emergency_cleanup(){
+  local rc=$?
+  trap - EXIT
+  set +e
+  deactivate_harness
+  cleanup_synthetic
+  if (( rc != 0 )); then
+    log "E2E ACCEPTANCE FAILED. Synthetic database/file records were cleaned where possible."
+  fi
+  exit "$rc"
+}
+trap emergency_cleanup EXIT
+
+cd "$REPO"
+log "CITY MANAGER OS CONTROLLED E2E ACCEPTANCE"
+log "Run ID: $RUN_ID"
+log "This test creates only clearly tagged synthetic records and one SYSTEM TEST notification."
+
+[[ "$(git branch --show-current)" == "main" ]] || fail "Production checkout must be on main"
+[[ -z "$(git status --porcelain)" ]] || fail "Repository must be clean"
+git fetch -q origin main || fail "Could not fetch origin/main"
+[[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || fail "Local main does not match origin/main"
+pass "Repository is clean and matches origin/main"
+
+for c in citymanager-postgis citymanager-dashboard citymanager-staff citymanager-ops-engine n8n ntfy; do
+  [[ "$(docker inspect "$c" --format '{{.State.Status}}' 2>/dev/null || true)" == "running" ]] \
+    || fail "Required container not running: $c"
+done
+pass "Required production containers are running"
+
+curl -fsS "$DASH_URL/health" >/dev/null || fail "Private dashboard health failed"
+curl -fsS "$STAFF_URL/health" >/dev/null || fail "Employee portal health failed"
+pass "Dashboard and employee web apps are reachable"
+
+python3 - <<PY
+import base64, pathlib
+pathlib.Path("$TEST_PNG").write_bytes(base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+))
+PY
+[[ -s "$TEST_PNG" ]] || fail "Could not create synthetic test image"
+
+# -----------------------------------------------------------------------------
+# 1. Alert -> central matcher -> dynamic recipient -> delivery
+# -----------------------------------------------------------------------------
+log "TEST 1/4: source -> alert -> central matcher -> dynamic delivery"
+[[ -s "$HARNESS_FILE" ]] || fail "E2E routing harness file missing"
+python3 -m json.tool "$HARNESS_FILE" >/dev/null || fail "E2E routing harness JSON invalid"
+
+N8N_DIR="$(docker inspect n8n --format '{{range .Mounts}}{{if eq .Destination "/home/node/.n8n"}}{{.Source}}{{end}}{{end}}')"
+N8N_DB="$N8N_DIR/database.sqlite"
+[[ -f "$N8N_DB" ]] || fail "n8n persistent database not found"
+mkdir -p "$BACKUP_DIR"
+python3 - "$N8N_DB" "$BACKUP_DIR/database.sqlite" <<'PY'
+import sqlite3,sys
+src=sqlite3.connect(sys.argv[1]); dst=sqlite3.connect(sys.argv[2]); src.backup(dst); dst.close(); src.close()
+PY
+pass "n8n SQLite online backup created"
+
+HARNESS_EXISTS="$(python3 - "$N8N_DB" "$HARNESS_ID" <<'PY'
+import sqlite3,sys
+con=sqlite3.connect(sys.argv[1])
+print(con.execute('SELECT count(*) FROM workflow_entity WHERE id=?',(sys.argv[2],)).fetchone()[0])
+con.close()
+PY
+)"
+if [[ "$HARNESS_EXISTS" == "0" ]]; then
+  docker cp "$HARNESS_FILE" n8n:/tmp/CMOS_E2E_ROUTING.json
+  docker exec -u node n8n n8n import:workflow --input=/tmp/CMOS_E2E_ROUTING.json >/dev/null
+  pass "Inactive E2E routing harness imported"
+else
+  pass "Inactive E2E routing harness already installed"
+fi
+
+# Ensure the synthetic source has exactly one dynamic Gio route.
+dbexec "
+INSERT INTO watch_items(
+  watch_id,active,watch_type,display_name,search_term,aliases,
+  match_mode,match_field,category,tags,source_filter,alert_category_filter,
+  min_priority,gis_enabled,nearby_enabled,source_notes,notes,updated_at
+)
+VALUES (
+  'CMOS_E2E_ROUTE',true,'SOURCE','City Manager OS E2E Test','SYSTEM_TEST',ARRAY['SYSTEM_TEST'],
+  'FIELD','source','TEST',ARRAY['system_test','e2e'],ARRAY[]::text[],ARRAY[]::text[],
+  1,false,false,'Controlled acceptance harness','Synthetic test route only',now()
+)
+ON CONFLICT(watch_id) DO UPDATE SET active=true,search_term='SYSTEM_TEST',match_mode='FIELD',match_field='source',updated_at=now();
+
+INSERT INTO watch_item_recipients(watch_item_id,subscriber_id,active)
+SELECT w.id,s.id,true
+FROM watch_items w
+JOIN subscribers s ON s.subscriber_id='GIO_CATCHALL' AND s.active=true
+WHERE w.watch_id='CMOS_E2E_ROUTE'
+ON CONFLICT(watch_item_id,subscriber_id) DO UPDATE SET active=true;
+"
+[[ "$(dbq "SELECT count(*) FROM watch_items w JOIN watch_item_recipients r ON r.watch_item_id=w.id AND r.active JOIN subscribers s ON s.id=r.subscriber_id AND s.subscriber_id='GIO_CATCHALL' AND s.active WHERE w.watch_id='CMOS_E2E_ROUTE' AND w.active;")" == "1" ]] \
+  || fail "Synthetic routing watch was not linked to GIO_CATCHALL"
+pass "Synthetic source routes through existing dynamic subscriber record"
+
+if docker exec -u node n8n n8n publish:workflow --help >/dev/null 2>&1; then
+  docker exec -u node n8n n8n publish:workflow --id="$HARNESS_ID" >/dev/null
+else
+  docker exec -u node n8n n8n update:workflow --id="$HARNESS_ID" --active=true >/dev/null
+fi
+HARNESS_ACTIVE=1
+docker restart n8n >/dev/null
+wait_running n8n || fail "n8n did not return after enabling test harness"
+sleep 5
+
+# Call the dedicated local-only test webhook. It has no raw public-safety path.
+docker exec -i n8n node - "$RUN_ID" <<'NODE'
+const runId = process.argv[2];
+(async () => {
+  const r = await fetch('http://127.0.0.1:5678/webhook/CMOS-E2E-ROUTING', {
+    method: 'POST',
+    headers: {'content-type':'application/json'},
+    body: JSON.stringify({run_id: runId})
+  });
+  const text = await r.text();
+  console.log('E2E webhook HTTP', r.status, text.slice(0,200));
+  if (!r.ok) process.exit(1);
+})().catch(e => { console.error(e); process.exit(1); });
+NODE
+
+DELIVERY=""
+for _ in $(seq 1 30); do
+  DELIVERY="$(dbq "
+    SELECT d.status
+    FROM alerts a
+    JOIN deliveries d ON d.alert_id=a.id
+    JOIN subscribers s ON s.id=d.subscriber_id
+    WHERE a.alert_id='SYSTEM_TEST:${RUN_ID}'
+      AND s.subscriber_id='GIO_CATCHALL'
+    ORDER BY d.created_at DESC LIMIT 1;
+  " 2>/dev/null || true)"
+  [[ "$DELIVERY" == "SENT" ]] && break
+  sleep 1
+done
+[[ "$DELIVERY" == "SENT" ]] || fail "Synthetic central delivery did not reach SENT state (status=${DELIVERY:-missing})"
+[[ "$(dbq "SELECT count(*) FROM alerts a JOIN alert_watch_matches m ON m.alert_id=a.id JOIN watch_items w ON w.id=m.watch_item_id WHERE a.alert_id='SYSTEM_TEST:${RUN_ID}' AND w.watch_id='CMOS_E2E_ROUTE';")" -gt 0 ]] \
+  || fail "Central matcher did not record the synthetic watch match"
+pass "SYSTEM_TEST traversed alert -> watchlist matcher -> GIO_CATCHALL -> SENT delivery"
+
+# Remove the test webhook from the live n8n process immediately after its test.
+deactivate_harness
+pass "E2E n8n harness returned to inactive state"
+
+# -----------------------------------------------------------------------------
+# 2. Employee report -> assign -> checklist/photo -> complete -> verify
+# -----------------------------------------------------------------------------
+log "TEST 2/4: employee operations lifecycle"
+REF="$(dbq "
+SELECT l.id||'|'||w.id
+FROM staff_locations l
+CROSS JOIN LATERAL (
+  SELECT id FROM staff_work_types
+  WHERE active=true AND (department IS NULL OR trim(department)='')
+  ORDER BY sort_order,name LIMIT 1
+) w
+WHERE l.active=true
+ORDER BY l.sort_order,l.name
+LIMIT 1;
+")"
+[[ -n "$REF" ]] || fail "Could not resolve managed location/work type"
+IFS='|' read -r LOCATION_ID WORK_TYPE_ID <<<"$REF"
+
+curl -fsS -o /dev/null -X POST "$DASH_URL/staff-admin/employee/create" \
+  --data-urlencode "employee_id=$EMPLOYEE_ID" \
+  --data-urlencode "full_name=CMOS E2E Test Employee" \
+  --data-urlencode "department=E2E TEST" \
+  --data-urlencode "role=EMPLOYEE" \
+  --data-urlencode "pin=$TEST_PIN"
+EMP_UUID="$(dbq "SELECT id FROM staff_employees WHERE employee_id='${EMPLOYEE_ID}' LIMIT 1;")"
+[[ -n "$EMP_UUID" ]] || fail "Temporary employee was not created"
+pass "Private Operations Board created temporary employee"
+
+LOGIN_CODE="$(curl -sS -o /dev/null -c "$COOKIE_JAR" -w '%{http_code}' -X POST "$STAFF_URL/staff/login" \
+  --data-urlencode "employee_id=$EMPLOYEE_ID" --data-urlencode "pin=$TEST_PIN")"
+[[ "$LOGIN_CODE" == "303" ]] || fail "Employee login failed (HTTP $LOGIN_CODE)"
+pass "Employee ID/PIN login succeeded"
+
+REPORT_CODE="$(curl -sS -o /dev/null -b "$COOKIE_JAR" -c "$COOKIE_JAR" -w '%{http_code}' -X POST "$STAFF_URL/staff/report" \
+  -F "location_id=$LOCATION_ID" \
+  -F "other_location=" \
+  -F "work_type_id=$WORK_TYPE_ID" \
+  -F "urgency=NORMAL" \
+  -F "description=$RUN_ID employee portal acceptance issue" \
+  -F "photos=@$TEST_PNG;type=image/png;filename=e2e-before.png")"
+[[ "$REPORT_CODE" == "303" ]] || fail "Employee report submission failed (HTTP $REPORT_CODE)"
+EMP_ISSUE_ID="$(dbq "SELECT id FROM issues WHERE source='EMPLOYEE_PORTAL' AND submitted_employee_id='${EMP_UUID}' AND description LIKE '%${RUN_ID}%' ORDER BY created_at DESC LIMIT 1;")"
+[[ -n "$EMP_ISSUE_ID" ]] || fail "Employee report did not create issue"
+[[ "$(dbq "SELECT count(*) FROM issue_photos WHERE issue_id='${EMP_ISSUE_ID}' AND phase='BEFORE';")" -gt 0 ]] || fail "Before photo not recorded"
+[[ "$(dbq "SELECT count(*) FROM issue_checklist_items WHERE issue_id='${EMP_ISSUE_ID}';")" -gt 0 ]] || fail "Checklist was not generated"
+pass "Employee report created existing issues record with photo + checklist"
+
+curl -fsS -o /dev/null -X POST "$DASH_URL/staff-admin/issue/${EMP_ISSUE_ID}/assign" \
+  --data-urlencode "employee_uuid=$EMP_UUID" --data-urlencode "return_to=/staff-admin"
+[[ "$(dbq "SELECT count(*) FROM issues WHERE id='${EMP_ISSUE_ID}' AND assigned_employee_id='${EMP_UUID}';")" == "1" ]] || fail "Supervisor assignment failed"
+pass "Supervisor assignment updated the same Command Center issue"
+
+START_CODE="$(curl -sS -o /dev/null -b "$COOKIE_JAR" -w '%{http_code}' -X POST "$STAFF_URL/staff/ticket/${EMP_ISSUE_ID}/start")"
+[[ "$START_CODE" == "303" ]] || fail "Start Work failed (HTTP $START_CODE)"
+[[ "$(dbq "SELECT status FROM issues WHERE id='${EMP_ISSUE_ID}';")" == "IN_PROGRESS" ]] || fail "Issue did not enter IN_PROGRESS"
+pass "Employee Start Work succeeded"
+
+CHECK_IDS="$(dbq "SELECT id FROM issue_checklist_items WHERE issue_id='${EMP_ISSUE_ID}' ORDER BY sort_order,id;")"
+[[ -n "$CHECK_IDS" ]] || fail "No checklist IDs found"
+while IFS= read -r CHECK_ID; do
+  [[ -n "$CHECK_ID" ]] || continue
+  CODE="$(curl -sS -o /dev/null -b "$COOKIE_JAR" -w '%{http_code}' -X POST "$STAFF_URL/staff/ticket/${EMP_ISSUE_ID}/checklist/${CHECK_ID}")"
+  [[ "$CODE" == "303" ]] || fail "Checklist update failed for $CHECK_ID (HTTP $CODE)"
+done <<<"$CHECK_IDS"
+[[ "$(dbq "SELECT count(*) FROM issue_checklist_items WHERE issue_id='${EMP_ISSUE_ID}' AND completed=false;")" == "0" ]] || fail "Checklist did not fully complete"
+pass "Employee checklist updates persisted"
+
+COMPLETE_CODE="$(curl -sS -o /dev/null -b "$COOKIE_JAR" -w '%{http_code}' -X POST "$STAFF_URL/staff/ticket/${EMP_ISSUE_ID}/complete" \
+  -F "completion_note=$RUN_ID employee completion test" \
+  -F "completion_photo=@$TEST_PNG;type=image/png;filename=e2e-after.png")"
+[[ "$COMPLETE_CODE" == "303" ]] || fail "Employee completion failed (HTTP $COMPLETE_CODE)"
+STATE="$(dbq "SELECT status||'|'||verification_pending::text FROM issues WHERE id='${EMP_ISSUE_ID}';")"
+[[ "$STATE" == "PENDING_VERIFICATION|true" || "$STATE" == "PENDING_VERIFICATION|t" ]] || fail "Completion did not enter supervisor verification ($STATE)"
+AFTER_PHOTO="$(dbq "SELECT id FROM issue_photos WHERE issue_id='${EMP_ISSUE_ID}' AND phase='AFTER' ORDER BY created_at DESC LIMIT 1;")"
+[[ -n "$AFTER_PHOTO" ]] || fail "Completion photo missing"
+PHOTO_CODE="$(curl -sS -o /dev/null -b "$COOKIE_JAR" -w '%{http_code}' "$STAFF_URL/staff/photo/${AFTER_PHOTO}")"
+[[ "$PHOTO_CODE" == "200" ]] || fail "Protected employee photo endpoint failed (HTTP $PHOTO_CODE)"
+pass "Completion held for verification and protected photo is viewable"
+
+curl -fsS -o /dev/null -X POST "$DASH_URL/staff-admin/issue/${EMP_ISSUE_ID}/verify" \
+  --data-urlencode "note=$RUN_ID supervisor verification" --data-urlencode "return_to=/staff-admin"
+VERIFY_STATE="$(dbq "SELECT status||'|'||verification_pending::text||'|'||(verified_at IS NOT NULL)::text FROM issues WHERE id='${EMP_ISSUE_ID}';")"
+[[ "$VERIFY_STATE" == "RESOLVED|false|true" || "$VERIFY_STATE" == "RESOLVED|f|t" ]] || fail "Supervisor verification did not resolve issue ($VERIFY_STATE)"
+pass "Supervisor verified completion through the private Operations Board"
+
+# -----------------------------------------------------------------------------
+# 3. Operations Engine: WORK generation + AWARENESS missed exception
+# -----------------------------------------------------------------------------
+log "TEST 3/4: recurring operations engine"
+LOCAL_TIME="$(TZ=America/New_York date '+%H:%M')"
+DOW="$(TZ=America/New_York date '+%u')"
+WORK_NAME="$RUN_ID WORK ROUTINE"
+AWARE_NAME="$RUN_ID AWARENESS ROUTINE"
+
+curl -fsS -o /dev/null -X POST "$DASH_URL/operations-routines/create" \
+  --data-urlencode "name=$WORK_NAME" \
+  --data-urlencode "routine_kind=WORK" \
+  --data-urlencode "department=E2E TEST" \
+  --data-urlencode "location_id=$LOCATION_ID" \
+  --data-urlencode "work_type_id=$WORK_TYPE_ID" \
+  --data-urlencode "assigned_employee_id=$EMP_UUID" \
+  --data-urlencode "scheduled_time=$LOCAL_TIME" \
+  --data-urlencode "days=$DOW" \
+  --data-urlencode "lead_minutes=1440" \
+  --data-urlencode "grace_minutes=5" \
+  --data-urlencode "display_before_minutes=30" \
+  --data-urlencode "display_after_minutes=60" \
+  --data-urlencode "priority=2" \
+  --data-urlencode "verification_required=on" \
+  --data-urlencode $'checklist_items=E2E routine check one\nE2E routine check two' \
+  --data-urlencode "description=$RUN_ID generated work acceptance" \
+  --data-urlencode "notes=$RUN_ID"
+WORK_ROUTINE_ID="$(dbq "SELECT id FROM operations_routines WHERE name='${WORK_NAME}' AND notes='${RUN_ID}' LIMIT 1;")"
+[[ -n "$WORK_ROUTINE_ID" ]] || fail "WORK routine was not created"
+
+ROUTINE_ISSUE_ID=""
+for _ in $(seq 1 50); do
+  ROUTINE_ISSUE_ID="$(dbq "SELECT issue_id FROM operations_routine_runs WHERE routine_id='${WORK_ROUTINE_ID}' AND service_date=(now() AT TIME ZONE 'America/New_York')::date AND issue_id IS NOT NULL LIMIT 1;" 2>/dev/null || true)"
+  [[ -n "$ROUTINE_ISSUE_ID" ]] && break
+  sleep 2
+ done
+[[ -n "$ROUTINE_ISSUE_ID" ]] || fail "Operations Engine did not generate WORK issue within test window"
+[[ "$(dbq "SELECT count(*) FROM issues WHERE id='${ROUTINE_ISSUE_ID}' AND source='EMPLOYEE_PORTAL' AND operations_routine_id='${WORK_ROUTINE_ID}' AND assigned_employee_id='${EMP_UUID}';")" == "1" ]] || fail "Generated WORK issue is not linked/assigned correctly"
+[[ "$(dbq "SELECT count(*) FROM issue_checklist_items WHERE issue_id='${ROUTINE_ISSUE_ID}';")" -gt 0 ]] || fail "Generated WORK issue has no checklist"
+ROUTINE_TICKET_CODE="$(curl -sS -o /dev/null -b "$COOKIE_JAR" -w '%{http_code}' "$STAFF_URL/staff/ticket/${ROUTINE_ISSUE_ID}")"
+[[ "$ROUTINE_TICKET_CODE" == "200" ]] || fail "Routine-generated employee ticket is not visible in employee portal"
+pass "WORK routine generated linked employee work with checklist and portal visibility"
+
+curl -fsS -o /dev/null -X POST "$DASH_URL/operations-routines/create" \
+  --data-urlencode "name=$AWARE_NAME" \
+  --data-urlencode "routine_kind=AWARENESS" \
+  --data-urlencode "department=E2E TEST" \
+  --data-urlencode "location_id=$LOCATION_ID" \
+  --data-urlencode "scheduled_time=$LOCAL_TIME" \
+  --data-urlencode "days=$DOW" \
+  --data-urlencode "lead_minutes=0" \
+  --data-urlencode "grace_minutes=0" \
+  --data-urlencode "display_before_minutes=0" \
+  --data-urlencode "display_after_minutes=10" \
+  --data-urlencode "priority=3" \
+  --data-urlencode "confirmation_required=on" \
+  --data-urlencode "escalate_if_missed=on" \
+  --data-urlencode "description=$RUN_ID expected awareness acceptance" \
+  --data-urlencode "notes=$RUN_ID"
+AWARE_ROUTINE_ID="$(dbq "SELECT id FROM operations_routines WHERE name='${AWARE_NAME}' AND notes='${RUN_ID}' LIMIT 1;")"
+[[ -n "$AWARE_ROUTINE_ID" ]] || fail "AWARENESS routine was not created"
+
+EXCEPTION_ISSUE_ID=""
+for _ in $(seq 1 50); do
+  EXCEPTION_ISSUE_ID="$(dbq "SELECT exception_issue_id FROM operations_routine_runs WHERE routine_id='${AWARE_ROUTINE_ID}' AND service_date=(now() AT TIME ZONE 'America/New_York')::date AND exception_issue_id IS NOT NULL LIMIT 1;" 2>/dev/null || true)"
+  [[ -n "$EXCEPTION_ISSUE_ID" ]] && break
+  sleep 2
+ done
+[[ -n "$EXCEPTION_ISSUE_ID" ]] || fail "Missed AWARENESS routine did not escalate within test window"
+[[ "$(dbq "SELECT count(*) FROM issues WHERE id='${EXCEPTION_ISSUE_ID}' AND source='OPERATIONS_ENGINE' AND status='OPEN';")" == "1" ]] || fail "AWARENESS exception did not create normal Command Center exception"
+[[ "$(dbq "SELECT status FROM operations_routine_runs WHERE routine_id='${AWARE_ROUTINE_ID}' AND service_date=(now() AT TIME ZONE 'America/New_York')::date LIMIT 1;")" == "EXCEPTION" ]] || fail "AWARENESS run did not reach EXCEPTION status"
+pass "Missed AWARENESS routine escalated to Command Center exception"
+
+# -----------------------------------------------------------------------------
+# 4. GIS: flood-area address -> parcel -> nearby -> map layers
+# -----------------------------------------------------------------------------
+log "TEST 4/4: GIS/property/flood/map chain"
+GIS_SAMPLE="$(dbq "
+SELECT a.fulladdr||'|'||a.post_comm||'|'||ST_Y(a.geom)::text||'|'||ST_X(a.geom)::text
+FROM gis_addresses a
+JOIN gis_parcels p ON a.pcl_guid IS NOT NULL AND p.pcl_guid=a.pcl_guid
+JOIN gis_flood_zones f ON ST_Covers(f.geom,a.geom)
+WHERE lower(trim(coalesce(a.post_comm,'')))='weehawken'
+  AND a.geom IS NOT NULL
+  AND nullif(trim(a.fulladdr),'') IS NOT NULL
+ORDER BY CASE WHEN a.status='A' THEN 0 ELSE 1 END,a.objectid
+LIMIT 1;
+")"
+[[ -n "$GIS_SAMPLE" ]] || fail "No Weehawken address with parcel + FEMA flood intersection was found"
+IFS='|' read -r SAMPLE_ADDR SAMPLE_COMM SAMPLE_LAT SAMPLE_LON <<<"$GIS_SAMPLE"
+
+PARCEL_MATCH="$(dbq "
+WITH sample AS (
+  SELECT a.fulladdr,a.post_comm
+  FROM gis_addresses a
+  JOIN gis_parcels p ON a.pcl_guid IS NOT NULL AND p.pcl_guid=a.pcl_guid
+  JOIN gis_flood_zones f ON ST_Covers(f.geom,a.geom)
+  WHERE lower(trim(coalesce(a.post_comm,'')))='weehawken'
+    AND a.geom IS NOT NULL AND nullif(trim(a.fulladdr),'') IS NOT NULL
+  ORDER BY CASE WHEN a.status='A' THEN 0 ELSE 1 END,a.objectid LIMIT 1
+)
+SELECT count(*) FROM sample s CROSS JOIN LATERAL gis_parcel_for_address(s.fulladdr,s.post_comm) r
+WHERE r.match_method IN ('PCL_GUID','SPATIAL');
+")"
+[[ "$PARCEL_MATCH" -gt 0 ]] || fail "Address -> parcel lookup failed"
+
+NEARBY_COUNT="$(dbq "
+WITH sample AS (
+  SELECT ST_Y(a.geom) lat,ST_X(a.geom) lon
+  FROM gis_addresses a
+  JOIN gis_parcels p ON a.pcl_guid IS NOT NULL AND p.pcl_guid=a.pcl_guid
+  JOIN gis_flood_zones f ON ST_Covers(f.geom,a.geom)
+  WHERE lower(trim(coalesce(a.post_comm,'')))='weehawken' AND a.geom IS NOT NULL
+  ORDER BY CASE WHEN a.status='A' THEN 0 ELSE 1 END,a.objectid LIMIT 1
+)
+SELECT count(*) FROM sample s CROSS JOIN LATERAL gis_nearby_addresses(s.lat,s.lon,500,20) n;
+")"
+[[ "$NEARBY_COUNT" -gt 0 ]] || fail "Nearby address lookup returned no results"
+
+FLOOD_COUNT="$(dbq "
+WITH sample AS (
+  SELECT ST_Y(a.geom) lat,ST_X(a.geom) lon
+  FROM gis_addresses a
+  JOIN gis_parcels p ON a.pcl_guid IS NOT NULL AND p.pcl_guid=a.pcl_guid
+  JOIN gis_flood_zones f ON ST_Covers(f.geom,a.geom)
+  WHERE lower(trim(coalesce(a.post_comm,'')))='weehawken' AND a.geom IS NOT NULL
+  ORDER BY CASE WHEN a.status='A' THEN 0 ELSE 1 END,a.objectid LIMIT 1
+)
+SELECT count(*) FROM sample s CROSS JOIN LATERAL gis_flood_risk_for_point(s.lat,s.lon) r;
+")"
+[[ "$FLOOD_COUNT" -gt 0 ]] || fail "Flood risk lookup did not return FEMA zone"
+
+# Verify the same vicinity is renderable through live Mapping Center system layers.
+docker exec -i citymanager-dashboard python - "$SAMPLE_LAT" "$SAMPLE_LON" <<'PY'
+import json,sys,urllib.parse,urllib.request
+lat=float(sys.argv[1]); lon=float(sys.argv[2])
+bbox=f"{lon-0.002},{lat-0.002},{lon+0.002},{lat+0.002}"
+for layer in ('addresses','parcels'):
+    url='http://127.0.0.1:8000/map/system/'+layer+'.geojson?bbox='+urllib.parse.quote(bbox,safe=',.-')
+    with urllib.request.urlopen(url,timeout=30) as r:
+        data=json.load(r)
+    assert data.get('type')=='FeatureCollection' and len(data.get('features',[]))>0, (layer,len(data.get('features',[])))
+with urllib.request.urlopen('http://127.0.0.1:8000/map/system/flood.geojson',timeout=30) as r:
+    flood=json.load(r)
+assert flood.get('type')=='FeatureCollection' and len(flood.get('features',[]))>0
+print('MAP_LAYERS_OK')
+PY
+pass "GIS sample '$SAMPLE_ADDR' resolved parcel + nearby addresses + FEMA risk + live map layers"
+
+# -----------------------------------------------------------------------------
+# Cleanup and final post-test health
+# -----------------------------------------------------------------------------
+cleanup_synthetic
+pass "Synthetic database records and uploaded test files cleaned"
+
+RESIDUE="$(dbq "
+SELECT
+  (SELECT count(*) FROM alerts WHERE alert_id='SYSTEM_TEST:${RUN_ID}')+
+  (SELECT count(*) FROM watch_items WHERE watch_id='CMOS_E2E_ROUTE')+
+  (SELECT count(*) FROM issues WHERE coalesce(description,'') LIKE '%${RUN_ID}%' OR coalesce(title,'') LIKE '%${RUN_ID}%')+
+  (SELECT count(*) FROM operations_routines WHERE notes='${RUN_ID}')+
+  (SELECT count(*) FROM staff_employees WHERE employee_id='${EMPLOYEE_ID}');
+")"
+[[ "$RESIDUE" == "0" ]] || fail "Synthetic database residue remains ($RESIDUE rows)"
+pass "No synthetic E2E database residue remains"
+
+# Harness stays installed but must be inactive so it never appears as a production active workflow.
+HARNESS_STATE="$(python3 - "$N8N_DB" "$HARNESS_ID" <<'PY'
+import sqlite3,sys
+con=sqlite3.connect(sys.argv[1]); r=con.execute('SELECT active FROM workflow_entity WHERE id=?',(sys.argv[2],)).fetchone(); print('missing' if not r else r[0]); con.close()
+PY
+)"
+[[ "$HARNESS_STATE" == "0" ]] || fail "E2E routing harness is not inactive after test (state=$HARNESS_STATE)"
+pass "E2E routing harness is installed but inactive"
+
+HEALTH_LOG="/tmp/${RUN_ID}.health"
+./deploy/cmos-health >"$HEALTH_LOG" 2>&1 || { cat "$HEALTH_LOG"; fail "Post-test cmos-health failed"; }
+grep -q 'NONE.*all active workflows accounted for' "$HEALTH_LOG" || { cat "$HEALTH_LOG"; fail "Unexpected active workflow after E2E cleanup"; }
+rm -f "$HEALTH_LOG"
+pass "Post-test City Manager OS health check is clean"
+
+trap - EXIT
+printf '\n============================================================\n'
+printf 'CITY MANAGER OS E2E ACCEPTANCE: PASS\n'
+printf 'Run: %s\n' "$RUN_ID"
+printf 'Checks passed: %s\n' "$PASS_COUNT"
+printf 'Synthetic records: CLEANED\n'
+printf 'E2E routing harness: INACTIVE\n'
+printf 'One clearly labeled SYSTEM TEST notification may remain in ntfy history.\n'
+printf '============================================================\n'
