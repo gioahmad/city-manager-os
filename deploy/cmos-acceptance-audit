@@ -1,0 +1,404 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+REPO="/opt/city-manager-os"
+PASS_COUNT=0
+WARN_COUNT=0
+FAIL_COUNT=0
+
+pass(){ PASS_COUNT=$((PASS_COUNT+1)); printf 'PASS  %s\n' "$*"; }
+warn(){ WARN_COUNT=$((WARN_COUNT+1)); printf 'WARN  %s\n' "$*"; }
+fail(){ FAIL_COUNT=$((FAIL_COUNT+1)); printf 'FAIL  %s\n' "$*"; }
+section(){ printf '\n=== %s ===\n' "$*"; }
+
+dbq(){
+  local sql="$1"
+  printf '%s\n' "$sql" | docker exec -i citymanager-postgis sh -lc \
+    'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atq'
+}
+
+container_http(){
+  local container="$1" url="$2" label="$3"
+  if docker exec "$container" python -c \
+    "import urllib.request; r=urllib.request.urlopen('$url',timeout=15); assert 200 <= r.status < 400" \
+    >/dev/null 2>&1; then
+    pass "$label"
+  else
+    fail "$label"
+  fi
+}
+
+section "CITY MANAGER OS ACCEPTANCE AUDIT"
+printf 'Started: %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+printf 'Mode: READ-ONLY acceptance / completeness audit\n'
+
+for cmd in git docker python3 curl find awk sed grep; do
+  command -v "$cmd" >/dev/null 2>&1 && pass "Required command available: $cmd" || fail "Required command missing: $cmd"
+done
+
+if [[ ! -d "$REPO/.git" ]]; then
+  fail "Repository missing at $REPO"
+  exit 2
+fi
+cd "$REPO" || exit 2
+
+section "1. REPOSITORY / RELEASE STATE"
+BRANCH="$(git branch --show-current 2>/dev/null || true)"
+[[ "$BRANCH" == "main" ]] && pass "Production checkout is on main" || fail "Production checkout is on '$BRANCH', expected main"
+
+if [[ -z "$(git status --porcelain 2>/dev/null)" ]]; then
+  pass "Repository working tree is clean"
+else
+  fail "Repository has uncommitted/untracked changes"
+  git status --short
+fi
+
+if git fetch -q origin main; then
+  LOCAL_HEAD="$(git rev-parse HEAD 2>/dev/null || true)"
+  ORIGIN_HEAD="$(git rev-parse origin/main 2>/dev/null || true)"
+  [[ -n "$LOCAL_HEAD" && "$LOCAL_HEAD" == "$ORIGIN_HEAD" ]] \
+    && pass "Local main matches origin/main ($LOCAL_HEAD)" \
+    || fail "Local HEAD does not match origin/main (local=${LOCAL_HEAD:-?}, origin=${ORIGIN_HEAD:-?})"
+else
+  warn "Could not fetch origin/main; remote release parity not verified"
+fi
+
+required_files=(
+  deploy/cmos-health deploy/cmos-source dashboard/docker-compose.yml
+  dashboard/phase3_app.py dashboard/map_app.py dashboard/flood_app.py
+  workflows/live/FLOOD_live.json deploy/flood/install_live_flood_monitor.sh
+  deploy/gis/refresh_hudson_gis.sh deploy/gis/install_hudson_gis_refresh_timer.sh
+  deploy/map/install_mapping_center.sh docs/ROADMAP.md docs/FEATURE_MATRIX.md
+)
+missing=0
+for f in "${required_files[@]}"; do
+  [[ -s "$f" ]] || { fail "Required release file missing/empty: $f"; missing=$((missing+1)); }
+done
+(( missing == 0 )) && pass "All required release files are present"
+
+if git ls-files | grep -Eq '(^|/)\.env$|\.pem$|\.key$|database\.sqlite$'; then
+  fail "Potential secret/private runtime file is tracked by Git"
+  git ls-files | grep -E '(^|/)\.env$|\.pem$|\.key$|database\.sqlite$' || true
+else
+  pass "No .env/private-key/n8n SQLite runtime files are tracked"
+fi
+
+grep -q "Phase 1.*Foundation" README.md 2>/dev/null \
+  && warn "README.md still describes Phase 1 and should be reconciled with the completed system" \
+  || pass "README phase text is current enough for closeout"
+
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  OI="$(gh issue list --repo gioahmad/city-manager-os --state open --limit 100 --json number --jq 'length' 2>/dev/null || echo '?')"
+  OP="$(gh pr list --repo gioahmad/city-manager-os --state open --limit 100 --json number --jq 'length' 2>/dev/null || echo '?')"
+  [[ "$OI" == "0" ]] && pass "No open GitHub issues" || warn "Open GitHub issues: $OI"
+  [[ "$OP" == "0" ]] && pass "No open GitHub pull requests" || warn "Open GitHub pull requests: $OP"
+else
+  warn "GitHub CLI not authenticated; open issues/PRs not verified from VPS"
+fi
+
+section "2. CONTAINERS / NETWORK"
+containers=(citymanager-postgis citymanager-dashboard citymanager-staff citymanager-ops-engine n8n caddy ntfy)
+for c in "${containers[@]}"; do
+  if ! docker inspect "$c" >/dev/null 2>&1; then
+    fail "Container missing: $c"
+    continue
+  fi
+  state="$(docker inspect "$c" --format '{{.State.Status}}' 2>/dev/null || true)"
+  restarts="$(docker inspect "$c" --format '{{.RestartCount}}' 2>/dev/null || echo '?')"
+  policy="$(docker inspect "$c" --format '{{.HostConfig.RestartPolicy.Name}}' 2>/dev/null || true)"
+  [[ "$state" == "running" ]] && pass "$c running (restarts=$restarts)" || fail "$c state=$state"
+  [[ "$policy" == "always" || "$policy" == "unless-stopped" ]] \
+    && pass "$c restart policy=$policy" || warn "$c restart policy='$policy'"
+done
+
+docker network inspect citymanager >/dev/null 2>&1 \
+  && pass "Docker network 'citymanager' exists" || fail "Docker network 'citymanager' missing"
+
+section "3. WEB / ACCESS / SECURITY"
+container_http citymanager-dashboard http://127.0.0.1:8000/health "Private dashboard health"
+container_http citymanager-dashboard http://127.0.0.1:8000/issues "Command Center"
+container_http citymanager-dashboard http://127.0.0.1:8000/staff-admin "Operations Board"
+container_http citymanager-dashboard http://127.0.0.1:8000/rules "Rules Center"
+container_http citymanager-dashboard http://127.0.0.1:8000/map "Mapping Center"
+container_http citymanager-dashboard http://127.0.0.1:8000/flood "Flood Intelligence"
+container_http citymanager-staff http://127.0.0.1:8000/staff "Employee Operations portal"
+
+if docker exec citymanager-dashboard python -c \
+  "import urllib.request,json; d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/map/system/flood.geojson',timeout=30)); assert d.get('type')=='FeatureCollection' and len(d.get('features',[]))>0; print(len(d['features']))" \
+  >/tmp/cmos-audit-flood-count 2>/dev/null; then
+  pass "Mapping Center FEMA GeoJSON returns $(cat /tmp/cmos-audit-flood-count) local features"
+else
+  fail "Mapping Center FEMA GeoJSON endpoint failed/empty"
+fi
+rm -f /tmp/cmos-audit-flood-count
+
+HDR="$(mktemp)"
+CODE="$(curl -fsS -L -D "$HDR" -o /dev/null -w '%{http_code}' https://ops.nhnj.us/staff 2>/dev/null || echo 000)"
+[[ "$CODE" =~ ^2|^3 ]] && pass "Public Employee Operations HTTPS reachable (HTTP $CODE)" || fail "Public Employee Operations HTTPS failed (HTTP $CODE)"
+for h in strict-transport-security content-security-policy x-content-type-options cache-control; do
+  tr -d '\r' < "$HDR" | grep -qi "^${h}:" && pass "Public security header present: $h" || warn "Public security header not observed: $h"
+done
+rm -f "$HDR"
+
+STAFF_ENV="$(docker inspect citymanager-staff --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null || true)"
+grep -qx 'STAFF_SECURE_COOKIES=true' <<<"$STAFF_ENV" && pass "Secure staff cookies enabled" || fail "STAFF_SECURE_COOKIES is not true"
+grep -qx 'STAFF_TRUST_PROXY=true' <<<"$STAFF_ENV" && pass "Staff proxy trust enabled" || fail "STAFF_TRUST_PROXY is not true"
+grep -qx 'STAFF_PUBLIC_ORIGIN=https://ops.nhnj.us' <<<"$STAFF_ENV" && pass "Canonical staff public origin configured" || fail "STAFF_PUBLIC_ORIGIN mismatch"
+if grep -q '^STAFF_ALLOWED_HOSTS=.*ops\.nhnj\.us' <<<"$STAFF_ENV" && ! grep -qx 'STAFF_ALLOWED_HOSTS=\*' <<<"$STAFF_ENV"; then
+  pass "Staff allowed-host restriction configured"
+else
+  fail "Staff allowed hosts are missing or unrestricted"
+fi
+grep -qx 'TZ=America/New_York' <<<"$STAFF_ENV" && pass "Staff timezone is America/New_York" || warn "Staff TZ not explicitly America/New_York"
+
+N8N_ENV="$(docker inspect n8n --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null || true)"
+grep -Eq '^(GENERIC_TIMEZONE|TZ)=America/New_York$' <<<"$N8N_ENV" \
+  && pass "n8n timezone explicitly America/New_York" \
+  || warn "n8n timezone not visibly America/New_York; verify cron-trigger timezone"
+
+section "4. POSTGRES / CORE DATA MODEL"
+docker exec citymanager-postgis sh -lc 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1 \
+  && pass "PostgreSQL accepts connections" || fail "PostgreSQL readiness failed"
+
+EXTS="$(dbq "SELECT string_agg(extname,',' ORDER BY extname) FROM pg_extension WHERE extname IN ('postgis','pgcrypto');" 2>/dev/null || true)"
+[[ "$EXTS" == *postgis* && "$EXTS" == *pgcrypto* ]] && pass "PostGIS + pgcrypto installed" || fail "Required PostgreSQL extensions missing ($EXTS)"
+
+MISSING_TABLES="$(dbq "WITH req(name) AS (VALUES
+('watch_items'),('subscribers'),('watch_item_recipients'),('alerts'),('alert_watch_matches'),('deliveries'),('source_health'),('issues'),
+('staff_employees'),('staff_locations'),('staff_work_types'),('issue_checklist_items'),('issue_updates'),('issue_photos'),
+('operations_routines'),('operations_routine_runs'),('gis_parcels'),('gis_addresses'),('gis_flood_zones'),('flood_observations'),
+('gis_dataset_versions'),('map_layers'),('map_features'))
+SELECT COALESCE(string_agg(name,',' ORDER BY name),'') FROM req WHERE to_regclass('public.'||name) IS NULL;" 2>/dev/null || echo QUERY_FAILED)"
+[[ -z "$MISSING_TABLES" ]] && pass "All required production tables exist" || fail "Missing/unreadable tables: $MISSING_TABLES"
+
+GIO="$(dbq "SELECT CASE WHEN active AND NULLIF(ntfy_topic,'') IS NOT NULL THEN 'OK' ELSE 'BAD' END FROM subscribers WHERE subscriber_id='GIO_CATCHALL' LIMIT 1;" 2>/dev/null || true)"
+[[ "$GIO" == "OK" ]] && pass "GIO_CATCHALL active with dynamic ntfy destination" || fail "GIO_CATCHALL missing/inactive/destination missing"
+
+CORE="$(dbq "SELECT (SELECT count(*) FROM watch_items WHERE active),(SELECT count(*) FROM subscribers WHERE active),(SELECT count(*) FROM watch_item_recipients WHERE active),(SELECT count(*) FROM alerts),(SELECT count(*) FROM deliveries);" 2>/dev/null || true)"
+[[ -n "$CORE" ]] && pass "Core model readable: watch,subscribers,routes,alerts,deliveries=$CORE" || fail "Core routing/data counts could not be read"
+
+DF="$(dbq "SELECT count(*) FROM deliveries WHERE attempted_at > now()-interval '24 hours' AND status <> 'SENT';" 2>/dev/null || echo '?')"
+if [[ "$DF" =~ ^[0-9]+$ ]]; then
+  (( DF == 0 )) && pass "No non-SENT deliveries in last 24 hours" || warn "$DF non-SENT deliveries in last 24 hours"
+else
+  warn "Recent delivery failures could not be evaluated"
+fi
+
+BAD_HEALTH="$(dbq "SELECT COALESCE(string_agg(source_id||'='||status,', ' ORDER BY source_id),'') FROM source_health WHERE upper(status) NOT IN ('OK','ACTIVE');" 2>/dev/null || echo QUERY_FAILED)"
+[[ -z "$BAD_HEALTH" ]] && pass "No source_health error states" || warn "Source-health items to review: $BAD_HEALTH"
+
+section "5. N8N / CENTRAL ROUTING / EXECUTIVE AUTOMATION"
+if [[ -x deploy/cmos-health ]]; then
+  HOUT="$(mktemp)"
+  ./deploy/cmos-health >"$HOUT" 2>&1 && pass "cmos-health completed" || fail "cmos-health returned nonzero"
+  grep -q 'NONE.*all active workflows accounted for' "$HOUT" && pass "No unexpected active n8n workflows" || fail "Unexpected/unaccounted active n8n workflow detected"
+  grep -q 'EXEC_ASSISTANT active=1 published=1' "$HOUT" && pass "Executive Assistant active/published" || fail "Executive Assistant active/published state not confirmed"
+  printf '%s\n' '--- cmos-health detail ---'; cat "$HOUT"; printf '%s\n' '--- end cmos-health detail ---'
+  rm -f "$HOUT"
+else
+  fail "deploy/cmos-health is not executable"
+fi
+
+N8N_DIR="$(docker inspect n8n --format '{{range .Mounts}}{{if eq .Destination "/home/node/.n8n"}}{{.Source}}{{end}}{{end}}' 2>/dev/null || true)"
+if [[ -n "$N8N_DIR" && -f "$N8N_DIR/database.sqlite" ]]; then
+  pass "n8n persistent database located"
+  python3 - "$N8N_DIR/database.sqlite" <<'PY'
+import sqlite3,sys
+con=sqlite3.connect(sys.argv[1]); con.row_factory=sqlite3.Row
+bad=[]
+for wid in ('ESH9c2pZ8QfkMosO','EAChiefOfStaff01','FloodLiveMon01'):
+    r=con.execute('SELECT id,name,active,activeVersionId FROM workflow_entity WHERE id=?',(wid,)).fetchone()
+    if not r or not r['active'] or not r['activeVersionId']: bad.append(wid)
+if bad:
+    print('Missing/inactive/unpublished:',','.join(bad)); raise SystemExit(1)
+r=con.execute("SELECT status,startedAt,mode FROM execution_entity WHERE workflowId='FloodLiveMon01' ORDER BY id DESC LIMIT 1").fetchone()
+if not r or r['status']!='success':
+    print('Latest flood execution is not success:',dict(r) if r else None); raise SystemExit(1)
+print('Latest flood execution:',dict(r)); con.close()
+PY
+  [[ $? -eq 0 ]] && pass "Core matcher, Executive Assistant, Flood monitor published; latest flood trigger succeeded" || fail "Required n8n workflow validation failed"
+else
+  fail "n8n persistent database not found"
+fi
+
+section "6. EMPLOYEE / SUPERVISOR OPERATIONS"
+SC="$(dbq "SELECT (SELECT count(*) FROM staff_employees WHERE active),(SELECT count(*) FROM staff_employees WHERE active AND role='SUPERVISOR'),(SELECT count(*) FROM staff_locations WHERE active),(SELECT count(*) FROM staff_work_types WHERE active);" 2>/dev/null || true)"
+if [[ -n "$SC" ]]; then
+  IFS='|' read -r EC SUP LC WC <<<"$SC"
+  (( LC > 0 )) && pass "Managed locations configured ($LC)" || fail "No active staff locations"
+  (( WC > 0 )) && pass "Managed work types configured ($WC)" || fail "No active work types"
+  (( EC > 0 )) && pass "Active employees configured ($EC)" || warn "No active employees configured yet"
+  (( SUP > 0 )) && pass "Active supervisor configured ($SUP)" || warn "No active supervisor configured"
+else
+  fail "Staff configuration counts unreadable"
+fi
+
+TRG="$(dbq "SELECT count(*) FROM pg_trigger WHERE tgname='trg_cmos_hold_completion_for_verification' AND NOT tgisinternal;" 2>/dev/null || echo 0)"
+[[ "$TRG" == "1" ]] && pass "Supervisor completion-verification trigger exists" || fail "Completion-verification trigger missing"
+
+for c in citymanager-dashboard citymanager-staff; do
+  docker exec "$c" test -f /app/static/photo_viewer.js >/dev/null 2>&1 && pass "$c includes inline photo viewer" || fail "$c missing photo_viewer.js"
+done
+
+UPLOAD_DIR="/var/lib/city-manager-os/staff_uploads"
+if [[ -d "$UPLOAD_DIR" && -r "$UPLOAD_DIR" ]]; then
+  pass "Persistent operations photo directory exists/readable"
+  PR="$(dbq "SELECT count(*) FROM issue_photos;" 2>/dev/null || echo 0)"
+  MP=0
+  while IFS= read -r stored; do
+    [[ -z "$stored" ]] && continue
+    [[ -f "$UPLOAD_DIR/$stored" ]] || MP=$((MP+1))
+  done < <(dbq "SELECT stored_name FROM issue_photos ORDER BY created_at;" 2>/dev/null || true)
+  (( MP == 0 )) && pass "All $PR database-referenced operation photos exist" || fail "$MP database-referenced operation photo files are missing"
+else
+  fail "Persistent operations photo directory missing/unreadable"
+fi
+
+AR="$(dbq "SELECT count(*) FROM operations_routines WHERE active;" 2>/dev/null || echo 0)"
+if [[ "$AR" =~ ^[0-9]+$ ]] && (( AR > 0 )); then
+  pass "Recurring/awareness routines configured ($AR active)"
+  MR="$(dbq "WITH dates AS (SELECT current_date d UNION ALL SELECT current_date+1)
+SELECT count(*) FROM operations_routines r CROSS JOIN dates
+WHERE r.active
+AND extract(isodow from dates.d)::smallint=ANY(r.days_of_week)
+AND (r.starts_on IS NULL OR dates.d>=r.starts_on)
+AND (r.ends_on IS NULL OR dates.d<=r.ends_on)
+AND NOT EXISTS (SELECT 1 FROM operations_routine_runs rr WHERE rr.routine_id=r.id AND rr.service_date=dates.d);" 2>/dev/null || echo '?')"
+  [[ "$MR" == "0" ]] && pass "All eligible today/tomorrow routine occurrences generated" || fail "$MR eligible routine occurrences are missing"
+else
+  warn "Operations Engine installed, but no real active recurring/awareness routines are configured"
+fi
+
+section "7. GIS / PROPERTY INTELLIGENCE"
+GR="$(dbq "SELECT (SELECT count(*) FROM gis_parcels),(SELECT count(*) FROM gis_addresses),(SELECT count(*) FROM gis_parcels WHERE geom IS NULL OR ST_IsEmpty(geom) OR NOT ST_IsValid(geom)),(SELECT count(*) FROM gis_addresses WHERE geom IS NULL OR ST_IsEmpty(geom) OR NOT ST_IsValid(geom));" 2>/dev/null || true)"
+if [[ -n "$GR" ]]; then
+  IFS='|' read -r PC AC PB AB <<<"$GR"
+  (( PC > 100000 )) && pass "Production parcels populated ($PC)" || fail "Parcel count unexpectedly low ($PC)"
+  (( AC > 100000 )) && pass "Production addresses populated ($AC)" || fail "Address count unexpectedly low ($AC)"
+  (( PB == 0 )) && pass "Parcel geometries valid" || fail "Bad parcel geometries: $PB"
+  (( AB == 0 )) && pass "Address geometries valid" || fail "Bad address geometries: $AB"
+else
+  fail "Production GIS validation query failed"
+fi
+
+GV="$(dbq "WITH req(id) AS (VALUES ('NJOGIS_HUDSON_PARCELS'),('NJOGIS_HUDSON_ADDRESSES'),('FEMA_NFHL_WEEHAWKEN'))
+SELECT COALESCE(string_agg(req.id||'='||coalesce(g.status,'MISSING'),', ' ORDER BY req.id),'')
+FROM req LEFT JOIN gis_dataset_versions g ON g.dataset_id=req.id
+WHERE g.dataset_id IS NULL OR upper(g.status)<>'ACTIVE';" 2>/dev/null || echo QUERY_FAILED)"
+[[ -z "$GV" ]] && pass "Parcel/address/FEMA dataset versions ACTIVE" || fail "GIS dataset-version problem: $GV"
+
+GF="$(dbq "WITH req(name) AS (VALUES ('gis_parcel_by_block_lot'),('gis_parcel_for_address'),('gis_nearby_addresses'),('gis_flood_risk_for_point'),('gis_watch_items_in_flood_zones'))
+SELECT COALESCE(string_agg(req.name,',' ORDER BY req.name),'') FROM req
+WHERE NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.proname=req.name);" 2>/dev/null || echo QUERY_FAILED)"
+[[ -z "$GF" ]] && pass "Required GIS lookup/spatial functions exist" || fail "Missing GIS functions: $GF"
+
+for f in \
+ /opt/citymanager-data/gis/raw/parcels/hudson_parcels_mod4.geojson \
+ /opt/citymanager-data/gis/raw/parcels/hudson_parcels_mod4.metadata.json \
+ /opt/citymanager-data/gis/raw/addresses/hudson_ng911_addresses.geojson \
+ /opt/citymanager-data/gis/raw/addresses/hudson_ng911_addresses.metadata.json \
+ /opt/citymanager-data/gis/raw/flood/weehawken_fema_nfhl.geojson \
+ /opt/citymanager-data/gis/raw/flood/weehawken_fema_nfhl.metadata.json; do
+  [[ -s "$f" ]] && pass "GIS artifact present: $f" || fail "GIS artifact missing/empty: $f"
+done
+
+GIS_REFRESH_MODE=validate bash deploy/gis/refresh_hudson_gis.sh >/tmp/cmos-audit-gis.log 2>&1 \
+  && pass "GIS monthly-refresh validation preflight passes" \
+  || { fail "GIS refresh validation preflight failed"; tail -80 /tmp/cmos-audit-gis.log || true; }
+rm -f /tmp/cmos-audit-gis.log
+systemctl is-enabled cmos-hudson-gis-refresh.timer >/dev/null 2>&1 && pass "Monthly GIS timer enabled" || fail "Monthly GIS timer not enabled"
+systemctl is-active cmos-hudson-gis-refresh.timer >/dev/null 2>&1 && pass "Monthly GIS timer active" || fail "Monthly GIS timer not active"
+systemctl list-timers cmos-hudson-gis-refresh.timer --all --no-pager 2>/dev/null || true
+
+section "8. FLOOD / MAPPING"
+FR="$(dbq "SELECT (SELECT count(*) FROM gis_flood_zones),(SELECT count(*) FROM gis_flood_zones WHERE sfha_tf='T'),(SELECT count(*) FROM gis_flood_zones WHERE geom IS NULL OR ST_IsEmpty(geom) OR NOT ST_IsValid(geom));" 2>/dev/null || true)"
+if [[ -n "$FR" ]]; then
+  IFS='|' read -r FC SF FB <<<"$FR"
+  (( FC > 0 )) && pass "FEMA flood zones populated ($FC)" || fail "FEMA flood table empty"
+  (( SF > 0 )) && pass "SFHA polygons present ($SF)" || warn "No SFHA polygons found"
+  (( FB == 0 )) && pass "Flood geometries valid" || fail "Bad flood geometries: $FB"
+else
+  fail "Flood validation query failed"
+fi
+
+FA="$(dbq "SELECT COALESCE(extract(epoch FROM now()-max(observed_at))::bigint,-1) FROM flood_observations WHERE source='NOAA_TIDE' AND station_id='8518750';" 2>/dev/null || echo -1)"
+if [[ "$FA" =~ ^[0-9]+$ ]]; then
+  (( FA <= 900 )) && pass "NOAA water-level observation fresh (${FA}s)" \
+    || { (( FA <= 1800 )) && warn "NOAA observation aging (${FA}s)" || fail "NOAA observation stale (${FA}s)"; }
+else
+  fail "No NOAA live water-level observation found"
+fi
+
+FH="$(dbq "SELECT COALESCE(string_agg(source_id||'='||status,',' ORDER BY source_id),'') FROM source_health WHERE source_id IN ('NOAA_TIDE','NWS_FLOOD');" 2>/dev/null || true)"
+[[ "$FH" == *NOAA_TIDE=OK* && "$FH" == *NWS_FLOOD=OK* ]] && pass "NOAA_TIDE + NWS_FLOOD source health OK" || fail "Flood source-health mismatch: $FH"
+
+MB="$(dbq "SELECT count(*) FROM map_layers WHERE layer_key='BASE_OSM' AND active;" 2>/dev/null || echo 0)"
+[[ "$MB" == "1" ]] && pass "Mapping Center base layer active" || fail "Mapping Center base layer missing/inactive"
+MP="$(dbq "SELECT CASE WHEN has_table_privilege('citymanager_app','map_layers','SELECT') AND has_table_privilege('citymanager_app','map_features','SELECT') THEN 'OK' ELSE 'BAD' END;" 2>/dev/null || true)"
+[[ "$MP" == "OK" ]] && pass "Web role has Mapping Center access" || fail "Mapping Center web-role privileges incomplete"
+WF="$(dbq "SELECT count(*) FROM gis_watch_items_in_flood_zones();" 2>/dev/null || echo '?')"
+[[ "$WF" =~ ^[0-9]+$ ]] && pass "Spatial flood watch query works ($WF current intersections)" || fail "Spatial flood watch query failed"
+
+section "9. BACKUP / DISASTER RECOVERY / CAPACITY"
+if [[ -d /var/backups/city-manager-os ]]; then
+  RB="$(find /var/backups/city-manager-os -type f -mtime -30 -print -quit 2>/dev/null || true)"
+  [[ -n "$RB" ]] && pass "City Manager OS backup artifacts exist within 30 days" || warn "No City Manager OS backup artifact found within 30 days"
+else
+  warn "Backup root /var/backups/city-manager-os missing"
+fi
+
+PGD="$(find /var/backups /opt -type f \( -name '*.dump' -o -name '*.sql.gz' -o -name '*postgres*.sql' -o -name '*citymanager*.dump' \) -mtime -14 -print -quit 2>/dev/null || true)"
+[[ -n "$PGD" ]] && pass "Recent PostgreSQL-style backup artifact detected" || warn "No obvious recent pg_dump/database backup found; deployment backups are not a full DR plan"
+BT="$(systemctl list-timers --all --no-pager 2>/dev/null | grep -Ei 'backup|pg_dump|postgres' | head -1 || true)"
+[[ -n "$BT" ]] && pass "Backup-related systemd timer detected" || warn "No obvious scheduled database backup timer detected"
+
+RU="$(df -P / | awk 'NR==2{gsub("%","",$5);print $5}')"
+if [[ "$RU" =~ ^[0-9]+$ ]]; then
+  (( RU < 80 )) && pass "Root filesystem utilization healthy (${RU}%)" || { (( RU < 90 )) && warn "Root filesystem elevated (${RU}%)" || fail "Root filesystem critical (${RU}%)"; }
+fi
+IU="$(df -Pi / | awk 'NR==2{gsub("%","",$5);print $5}')"
+[[ "$IU" =~ ^[0-9]+$ ]] && { (( IU < 85 )) && pass "Root inode utilization healthy (${IU}%)" || warn "Root inode utilization elevated (${IU}%)"; }
+
+if [[ -f dashboard/.env ]]; then
+  MODE="$(stat -c '%a' dashboard/.env 2>/dev/null || echo '?')"
+  [[ "$MODE" == "600" || "$MODE" == "640" ]] && pass "dashboard/.env permissions restrictive ($MODE)" || warn "dashboard/.env permissions=$MODE; consider 600/640"
+else
+  fail "dashboard/.env missing"
+fi
+
+section "10. CODE / CONFIG SANITY"
+python3 - <<'PY'
+import ast,json,pathlib
+root=pathlib.Path('/opt/city-manager-os'); errors=[]
+for p in (root/'dashboard').glob('*.py'):
+    try: ast.parse(p.read_text(encoding='utf-8'),filename=str(p))
+    except Exception as e: errors.append(f'{p}: {e}')
+for p in (root/'workflows').rglob('*.json'):
+    try: json.loads(p.read_text(encoding='utf-8'))
+    except Exception as e: errors.append(f'{p}: {e}')
+if errors:
+    print('\n'.join(errors)); raise SystemExit(1)
+print('Python AST and workflow JSON syntax OK')
+PY
+[[ $? -eq 0 ]] && pass "Dashboard Python + workflow JSON syntax valid" || fail "Code/config syntax validation failed"
+
+SB=0
+while IFS= read -r -d '' f; do
+  bash -n "$f" >/dev/null 2>&1 || { printf 'Shell syntax error: %s\n' "$f"; SB=$((SB+1)); }
+done < <(find deploy -type f -name '*.sh' -print0)
+(( SB == 0 )) && pass "All deploy shell scripts pass bash -n" || fail "$SB deploy shell scripts have syntax errors"
+
+section "AUDIT SUMMARY"
+printf 'PASS=%d  WARN=%d  FAIL=%d\n' "$PASS_COUNT" "$WARN_COUNT" "$FAIL_COUNT"
+printf 'Completed: %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+
+if (( FAIL_COUNT > 0 )); then
+  printf '\nAUDIT RESULT: FAIL — fix FAIL items before final acceptance.\n'
+  exit 2
+elif (( WARN_COUNT > 0 )); then
+  printf '\nAUDIT RESULT: PASS WITH WARNINGS — core system is healthy; review WARN items for closeout.\n'
+  exit 0
+else
+  printf '\nAUDIT RESULT: PASS — no missing acceptance checks detected.\n'
+  exit 0
+fi
