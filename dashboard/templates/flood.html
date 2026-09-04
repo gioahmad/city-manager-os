@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flood Intelligence · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/flood.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">OPERATIONAL INTELLIGENCE</div>
+    <div class="brand-row"><h1>Flood Intelligence</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Local FEMA risk · live harbor conditions · official flood alerts</div>
+  </div>
+</header>
+{% include "nav.html" %}
+<main>
+  <section class="flood-grid flood-summary">
+    <article class="panel"><div class="panel-head"><div><div class="panel-kicker">STATIC RISK</div><h2>FEMA NFHL</h2></div></div><div class="panel-body"><strong>{{ zone_counts|sum(attribute='polygons') if zone_counts else 0 }}</strong><p>Local effective flood-zone polygons loaded into PostGIS.</p></div></article>
+    <article class="panel"><div class="panel-head"><div><div class="panel-kicker">WATCHED LOCATIONS</div><h2>Inside Flood Zones</h2></div></div><div class="panel-body"><strong>{{ watched|length }}</strong><p>Active watched items currently intersecting a FEMA flood zone.</p></div></article>
+    <article class="panel"><div class="panel-head"><div><div class="panel-kicker">HARBOR</div><h2>The Battery</h2></div></div><div class="panel-body">{% if latest %}<strong>{{ '%.2f'|format(latest.water_level_mhhw_ft) if latest.water_level_mhhw_ft is not none else '—' }} ft</strong><p>{{ latest.flood_category or 'Latest water level' }}{% if latest.observed_local %} · {{ latest.observed_local.strftime('%m/%d %H:%M') }}{% endif %}</p>{% else %}<strong>Pending</strong><p>Live NOAA monitor is the next cutover step.</p>{% endif %}</div></article>
+  </section>
+
+  <section class="panel flood-map-panel">
+    <div class="panel-head"><div><div class="panel-kicker">LOCAL FLOOD MAP</div><h2>Effective FEMA Flood Hazard Zones</h2></div><span class="status ok">LOCAL DATA</span></div>
+    <div class="panel-body">
+      <div class="flood-legend"><span><i class="legend-sfha"></i> Special Flood Hazard Area</span><span><i class="legend-moderate"></i> Moderate / 0.2% annual chance</span><span><i class="legend-other"></i> Other mapped area</span></div>
+      <svg id="flood-map" viewBox="0 0 1000 640" role="img" aria-label="FEMA flood hazard zones around Weehawken"></svg>
+      <div id="flood-map-detail" class="flood-map-detail">Select a mapped flood area for details.</div>
+    </div>
+  </section>
+
+  <section class="flood-grid">
+    <article class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">ZONE BREAKDOWN</div><h2>Mapped Risk</h2></div></div>
+      <div class="panel-body flood-table-wrap"><table><thead><tr><th>Zone</th><th>Subtype</th><th>SFHA</th><th>Areas</th></tr></thead><tbody>{% for z in zone_counts %}<tr><td>{{ z.fld_zone }}</td><td>{{ z.zone_subty or '—' }}</td><td>{{ z.sfha_tf or '—' }}</td><td>{{ z.polygons }}</td></tr>{% endfor %}</tbody></table></div>
+    </article>
+    <article class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">WATCHLIST SPATIAL CHECK</div><h2>Watched Locations in Flood Zones</h2></div></div>
+      <div class="panel-body">{% if watched %}<div class="flood-watch-list">{% for w in watched %}<div class="flood-watch-item"><strong>{{ w.display_name }}</strong><span>{{ w.address or 'Mapped watch location' }}</span><small>Zone {{ w.fld_zone }}{% if w.zone_subty %} · {{ w.zone_subty }}{% endif %}</small></div>{% endfor %}</div>{% else %}<p class="muted">No active watched point currently intersects the loaded FEMA zones.</p>{% endif %}</div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div><div class="panel-kicker">LIVE FLOOD ALERTS</div><h2>Active Conditions</h2></div></div>
+    <div class="panel-body">{% if flood_alerts %}{% for a in flood_alerts %}<div class="flood-alert"><strong>P{{ a.priority }} · {{ a.title }}</strong><span>{{ a.message }}</span><small>{{ a.source }} · {{ a.received_local.strftime('%m/%d %H:%M') if a.received_local else '' }}</small></div>{% endfor %}{% else %}<p class="muted">No active live flood alerts. NOAA/NWS monitoring is enabled in the final live-source cutover.</p>{% endif %}</div>
+  </section>
+
+  <footer><span>City Manager OS</span><span>FEMA NFHL is stored locally; runtime map does not depend on FEMA availability.</span></footer>
+</main>
+<script>
+const fc = {{ geojson|safe }};
+const svg = document.getElementById('flood-map');
+const detail = document.getElementById('flood-map-detail');
+const all = [];
+function walk(c){ if(typeof c[0] === 'number'){ all.push(c); } else { c.forEach(walk); } }
+fc.features.forEach(f => walk(f.geometry.coordinates));
+if(all.length){
+  const xs=all.map(p=>p[0]), ys=all.map(p=>p[1]);
+  let minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+  const dx=(maxX-minX)||1, dy=(maxY-minY)||1, pad=.04;
+  minX-=dx*pad; maxX+=dx*pad; minY-=dy*pad; maxY+=dy*pad;
+  function pt(p){ return [((p[0]-minX)/(maxX-minX))*1000, 640-((p[1]-minY)/(maxY-minY))*640]; }
+  function rings(g){ return g.type==='Polygon' ? [g.coordinates] : g.coordinates; }
+  fc.features.forEach(f => {
+    rings(f.geometry).forEach(poly => {
+      let d='';
+      poly.forEach(ring => { ring.forEach((p,i)=>{const q=pt(p); d+=(i?'L':'M')+q[0].toFixed(1)+','+q[1].toFixed(1);}); d+='Z '; });
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d',d);
+      const sfha=String(f.properties.sfha_tf||'').toUpperCase()==='T';
+      const subtype=String(f.properties.zone_subty||'').toUpperCase();
+      path.setAttribute('class', sfha?'flood-shape sfha':(subtype.includes('0.2')?'flood-shape moderate':'flood-shape other'));
+      path.addEventListener('click',()=>{ detail.textContent=`Zone ${f.properties.fld_zone||'Unknown'} · ${f.properties.zone_subty||'No subtype'} · SFHA ${f.properties.sfha_tf||'—'}${f.properties.static_bfe!=null?' · Static BFE '+f.properties.static_bfe:''}`; });
+      svg.appendChild(path);
+    });
+  });
+}
+</script>
+</body>
+</html>
