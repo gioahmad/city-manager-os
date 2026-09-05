@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alert Admin · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">ALERT MANAGEMENT</div>
+    <div class="brand-row"><h1>Watch + Subscriber Admin</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Create a watch and choose recipients in one step</div>
+  </div>
+</header>
+{% include "nav.html" %}
+<main>
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+  <section class="metrics">
+    <div class="metric"><span>Active Watches</span><strong>{{ counts.watches or 0 }}</strong><small>Matching now</small></div>
+    <div class="metric"><span>Subscribers</span><strong>{{ counts.subscribers or 0 }}</strong><small>Active destinations</small></div>
+    <div class="metric"><span>Routes</span><strong>{{ counts.routes or 0 }}</strong><small>Active assignments</small></div>
+  </section>
+
+  <section class="grid watch-layout" style="margin-top:16px">
+    <article class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">QUICK SETUP</div><h2>Add Watch + Recipients</h2></div></div>
+      <div class="panel-body form-panel">
+        <p class="muted small-copy"><strong>Use this when:</strong> “Watch for X and tell these people.” For detailed edits, use the original Watchlists, Subscribers and Routing pages.</p>
+        <form method="post" action="/alert-admin/watch" class="watch-form">
+          <label>What should we call it?<input name="display_name" required placeholder="Lincoln Tunnel closure"></label>
+          <label>What should match?<input name="search_term" required placeholder="Lincoln Tunnel"></label>
+          <div class="form-grid two-col">
+            <label>Watch Type
+              <select name="watch_type">
+                {% for wt in ['PHRASE','ADDRESS','FACILITY','AREA','SOURCE','INCIDENT_TYPE','OTHER'] %}<option value="{{ wt }}">{{ wt }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Match Mode
+              <select name="match_mode">
+                <option value="CONTAINS">Contains</option>
+                <option value="WORD">Word</option>
+                <option value="EXACT">Exact</option>
+                <option value="FIELD">Specific field</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-grid two-col">
+            <label>Specific Field <span class="hint">Only for FIELD mode</span><input name="match_field" placeholder="municipality"></label>
+            <label>Minimum Priority
+              <select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}</option>{% endfor %}</select>
+            </label>
+          </div>
+          <div class="form-grid two-col">
+            <label>Municipality<input name="municipality" placeholder="Weehawken"></label>
+            <label>Address<input name="address" placeholder="Optional"></label>
+          </div>
+          <label>Notes<textarea name="notes" rows="2" placeholder="Why this matters or what should happen"></textarea></label>
+          <div>
+            <div class="panel-kicker" style="margin-bottom:8px">WHO SHOULD GET IT?</div>
+            {% for s in subscribers %}
+              {% if s.active %}
+              <label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ s.id }}"> <strong>{{ s.name }}</strong>&nbsp;<span class="meta">{{ s.ntfy_topic }}</span></label>
+              {% endif %}
+            {% else %}
+              <div class="empty-state small"><strong>No subscribers configured</strong></div>
+            {% endfor %}
+          </div>
+          <button class="primary-button" type="submit">Create Watch + Routing</button>
+        </form>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">CURRENT</div><h2>Who Gets What</h2></div><span class="count-pill">{{ watches|length }}</span></div>
+      <div class="panel-body">
+        <div class="watch-list">
+          {% for w in watches %}
+          <details class="watch-card {% if not w.active %}inactive{% endif %}">
+            <summary>
+              <div class="watch-summary-main">
+                <span class="status {% if w.active %}active{% else %}inactive-status{% endif %}">{{ 'ACTIVE' if w.active else 'PAUSED' }}</span>
+                <div><strong>{{ w.display_name }}</strong><div class="meta">{{ w.match_mode }} · {{ w.search_term }} · P{{ w.min_priority }}+</div></div>
+              </div>
+              <span class="watch-id">{{ w.watch_id }}</span>
+            </summary>
+            <div class="watch-card-body">
+              {% if w.municipality or w.address %}<div class="meta">{% if w.municipality %}{{ w.municipality }}{% endif %}{% if w.address %} · {{ w.address }}{% endif %}</div>{% endif %}
+              {% if w.notes %}<p>{{ w.notes }}</p>{% endif %}
+              <div class="panel-kicker">RECIPIENTS</div>
+              {% set active_recipients = w.recipients | selectattr('route_active') | list %}
+              {% if active_recipients %}
+                {% for r in active_recipients %}<div class="feed-row"><div class="feed-main"><strong>{{ r.name }}</strong><div class="meta">{{ r.ntfy_topic }}</div></div><span class="status active">ROUTED</span></div>{% endfor %}
+              {% else %}
+                <div class="empty-state small"><strong>No active recipient route</strong><span>This watch can match, but it will not notify anyone.</span></div>
+              {% endif %}
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+                <a class="secondary-button button-link" href="/watchlist?q={{ w.watch_id }}">Edit Watch</a>
+                <a class="secondary-button button-link" href="/routing">Edit Routing</a>
+              </div>
+            </div>
+          </details>
+          {% else %}<div class="empty-state"><strong>No watch items found</strong></div>{% endfor %}
+        </div>
+      </div>
+    </article>
+  </section>
+  <footer><span>City Manager OS</span><span>Existing matcher and dynamic routing preserved</span></footer>
+</main>
+</body>
+</html>
