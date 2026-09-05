@@ -4,6 +4,16 @@
 <header class="topbar"><div class="brand"><div class="eyebrow">MONITORING</div><div class="brand-row"><h1>Modules</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Operational Source Status</div></div></header>
 {% include "nav.html" %}
 <main>
+  <section class="panel" style="margin-bottom:16px">
+    <div class="panel-head"><div><div class="panel-kicker">ADMINISTRATION</div><h2>Control Center</h2></div></div>
+    <div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap">
+      <a class="primary-button button-link" href="/admin-tools">Admin Tools</a>
+      <a class="secondary-button button-link" href="/integrations">Integrations</a>
+      <a class="secondary-button button-link" href="/api-lab">API Lab</a>
+      <a class="secondary-button button-link" href="/event-intelligence">Event Intelligence</a>
+      <a class="secondary-button button-link" href="/alert-admin">Watch + Subscriber Admin</a>
+    </div>
+  </section>
   <section class="module-grid">
     {% for m in modules %}
     <article class="panel module-card">
@@ -13,6 +23,8 @@
         <div class="module-stats"><div><span>Active Alerts</span><strong>{{ m.active_alerts or 0 }}</strong></div><div><span>Total Alerts</span><strong>{{ m.total_alerts or 0 }}</strong></div></div>
         <dl class="detail-list"><div><dt>Last Success</dt><dd>{{ m.last_success_at.strftime('%m/%d/%Y %H:%M') if m.last_success_at else 'Not reported' }}</dd></div><div><dt>Last Event</dt><dd>{{ m.last_event_at.strftime('%m/%d/%Y %H:%M') if m.last_event_at else 'No event recorded' }}</dd></div>{% if m.last_error %}<div><dt>Last Error</dt><dd class="error-text">{{ m.last_error }}</dd></div>{% endif %}</dl>
         {% if m.key == 'PSEG' %}<a class="secondary-button button-link" href="/alerts?source=PSEG&state=all">View PSEG alerts</a>{% endif %}
+        {% if m.key == 'EVENTS' %}<a class="secondary-button button-link" href="/event-intelligence">Open Event Intelligence</a>{% endif %}
+        {% if m.key == 'TRANSIT' %}<a class="secondary-button button-link" href="/integrations?q=TRANSIT">Manage Transit Integrations</a>{% endif %}
       </div>
     </article>
     {% endfor %}

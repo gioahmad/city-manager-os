@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API Lab · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">SANDBOX</div>
+    <div class="brand-row"><h1>API Lab</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Try external APIs safely before wiring them into City Manager OS</div>
+  </div>
+</header>
+{% include "nav.html" %}
+<main>
+  <section class="panel">
+    <div class="panel-head"><div><div class="panel-kicker">PRESETS</div><h2>Start With a Known Pattern</h2></div></div>
+    <div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap">
+      <a class="secondary-button button-link" href="/api-lab?preset=njt-token">NJT Token</a>
+      <a class="secondary-button button-link" href="/api-lab?preset=njt-rail-data">NJT Rail GTFS</a>
+      <a class="secondary-button button-link" href="/api-lab?preset=nyc-events">NYC Events</a>
+      <a class="secondary-button button-link" href="/api-lab?preset=ticketmaster">Ticketmaster</a>
+      <a class="secondary-button button-link" href="/api-lab">Blank</a>
+    </div>
+  </section>
+
+  <section class="grid watch-layout" style="margin-top:16px">
+    <article class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">REQUEST</div><h2>Build Request</h2></div><span class="status warning">TEST ONLY</span></div>
+      <div class="panel-body form-panel">
+        <p class="muted small-copy">Secrets entered here are used only for this request and are not stored. Private/loopback targets are blocked unless the server is deliberately configured otherwise. Current private-target setting: <strong>{{ private_allowed }}</strong>.</p>
+        <form method="post" action="/api-lab" class="watch-form">
+          <div class="form-grid two-col">
+            <label>Method<select name="method">{% for m in methods %}<option value="{{ m }}" {% if form.method==m %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></label>
+            <label>URL<input type="url" name="url" value="{{ form.url or '' }}" required placeholder="https://api.example.gov/v1/events"></label>
+          </div>
+          <label>Headers <span class="hint">One per line or JSON</span><textarea name="headers_text" rows="5" placeholder="Accept: application/json">{{ form.headers_text or '' }}</textarea></label>
+          <label>Query Parameters <span class="hint">a=1&b=2 or JSON</span><textarea name="query_text" rows="4">{{ form.query_text or '' }}</textarea></label>
+
+          <div class="panel-kicker" style="margin-top:8px">AUTH</div>
+          <label>Authentication
+            <select name="auth_type">
+              {% for a in ['NONE','BEARER','BASIC','API_KEY_HEADER','API_KEY_QUERY'] %}<option value="{{ a }}" {% if form.auth_type==a %}selected{% endif %}>{{ a }}</option>{% endfor %}
+            </select>
+          </label>
+          <div class="form-grid two-col">
+            <label>Username<input name="username" value="" autocomplete="off"></label>
+            <label>Password<input type="password" name="password" value="" autocomplete="new-password"></label>
+          </div>
+          <label>Bearer / Token<input type="password" name="token" value="" autocomplete="new-password" placeholder="Temporary token"></label>
+          <div class="form-grid two-col">
+            <label>API Key Name<input name="api_key_name" value="{{ form.api_key_name or '' }}" placeholder="apikey"></label>
+            <label>API Key Value<input type="password" name="api_key_value" value="" autocomplete="new-password"></label>
+          </div>
+
+          <div class="panel-kicker" style="margin-top:8px">BODY</div>
+          <label>Body Mode
+            <select name="body_mode">
+              {% for b in ['RAW','JSON','FORM_URLENCODED','MULTIPART'] %}<option value="{{ b }}" {% if form.body_mode==b %}selected{% endif %}>{{ b }}</option>{% endfor %}
+            </select>
+          </label>
+          <label>Request Body<textarea name="body" rows="8" placeholder="JSON, raw text, or key=value pairs depending on mode">{{ form.body or '' }}</textarea></label>
+          <p class="muted small-copy">Preset placeholders like <code>{{ '{{USERNAME}}' }}</code>, <code>{{ '{{PASSWORD}}' }}</code>, <code>{{ '{{TOKEN}}' }}</code> and <code>{{ '{{API_KEY}}' }}</code> are replaced in-memory before the request.</p>
+
+          <div class="form-grid two-col">
+            <label>Timeout Seconds<input type="number" min="1" max="60" name="timeout_seconds" value="{{ form.timeout_seconds or 15 }}"></label>
+            <label>Max Response Bytes<input type="number" min="1024" max="5000000" name="max_response_bytes" value="{{ form.max_response_bytes or 1000000 }}"></label>
+          </div>
+          <label class="checkbox-row"><input type="checkbox" name="allow_redirects" value="1" {% if form.allow_redirects is not defined or form.allow_redirects %}checked{% endif %}> Follow redirects</label>
+          <label class="checkbox-row"><input type="checkbox" name="verify_tls" value="1" {% if form.verify_tls is not defined or form.verify_tls %}checked{% endif %}> Verify TLS certificate</label>
+          <button class="primary-button" type="submit">Send Test Request</button>
+        </form>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">RESPONSE</div><h2>Result</h2></div>{% if result %}<span class="status {% if result.ok %}healthy{% else %}error{% endif %}">{{ 'PASS' if result.ok else 'FAIL' }}</span>{% endif %}</div>
+      <div class="panel-body">
+        {% if result %}
+          <div class="module-stats">
+            <div><span>HTTP</span><strong>{{ result.status_code or '—' }}</strong></div>
+            <div><span>Elapsed</span><strong>{{ result.elapsed_ms or 0 }} ms</strong></div>
+          </div>
+          {% if result.final_url %}<p class="meta"><strong>Final URL:</strong> {{ result.final_url }}</p>{% endif %}
+          {% if result.content_type %}<p class="meta"><strong>Content-Type:</strong> {{ result.content_type }}</p>{% endif %}
+          {% if result.body_bytes is defined %}<p class="meta"><strong>Bytes shown:</strong> {{ result.body_bytes }}{% if result.truncated %} · TRUNCATED{% endif %}</p>{% endif %}
+          {% if result.error %}<p class="error-text"><strong>Error:</strong> {{ result.error }}</p>{% endif %}
+
+          <div class="panel-kicker" style="margin-top:12px">BODY</div>
+          <pre style="white-space:pre-wrap;word-break:break-word;overflow:auto;max-height:620px">{{ result.body }}</pre>
+
+          <details style="margin-top:12px"><summary>Response headers</summary><pre style="white-space:pre-wrap;overflow:auto">{{ result.headers | tojson(indent=2) }}</pre></details>
+          <details style="margin-top:12px"><summary>Redacted cURL equivalent</summary><pre style="white-space:pre-wrap;overflow:auto">{{ result.curl }}</pre></details>
+        {% else %}
+          <div class="empty-state"><strong>No request sent yet</strong><span>Pick a preset or build a request on the left.</span></div>
+        {% endif %}
+      </div>
+    </article>
+  </section>
+
+  <section class="panel" style="margin-top:16px">
+    <div class="panel-head"><div><div class="panel-kicker">NEXT STEP</div><h2>When the Test Works</h2></div></div>
+    <div class="panel-body">
+      <p>Move the endpoint into <a href="/integrations">Integrations Center</a>, replace literal secrets with environment-variable references, choose a parser only if City Manager OS should continuously ingest the data, test the saved integration, then enable it.</p>
+    </div>
+  </section>
+  <footer><span>City Manager OS</span><span>API testing sandbox</span></footer>
+</main>
+</body>
+</html>

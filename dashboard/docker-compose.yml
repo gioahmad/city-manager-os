@@ -13,6 +13,7 @@ services:
       STAFF_UPLOAD_DIR: /app/uploads
       TZ: "${APP_TIMEZONE:-America/New_York}"
       PGTZ: "${APP_TIMEZONE:-America/New_York}"
+      API_LAB_ALLOW_PRIVATE: "${API_LAB_ALLOW_PRIVATE:-false}"
     ports:
       - "${DASHBOARD_BIND_IP:-127.0.0.1}:8090:8000"
     volumes:
@@ -73,6 +74,26 @@ services:
     command:
       - python
       - operations_engine_windowed.py
+    networks:
+      - citymanager
+
+  citymanager-integration-engine:
+    image: dashboard-citymanager-dashboard:latest
+    container_name: citymanager-integration-engine
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_HOST: citymanager-postgis
+      DB_PORT: 5432
+      DB_NAME: citymanager
+      DB_USER: citymanager_app
+      TZ: "${APP_TIMEZONE:-America/New_York}"
+      PGTZ: "${APP_TIMEZONE:-America/New_York}"
+      INTEGRATION_ENGINE_INTERVAL_SECONDS: "${INTEGRATION_ENGINE_INTERVAL_SECONDS:-60}"
+    command:
+      - python
+      - integration_worker.py
     networks:
       - citymanager
 
