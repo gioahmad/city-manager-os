@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Event Intelligence · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">REGIONAL AWARENESS</div>
+    <div class="brand-row"><h1>Event Intelligence</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Outside events ranked by likely operational impact on Weehawken</div>
+  </div>
+</header>
+{% include "nav.html" %}
+<main>
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+
+  <section class="metrics">
+    <div class="metric metric-alerts"><span>Alerts</span><strong>{{ counts.alerts or 0 }}</strong><small>High-impact</small></div>
+    <div class="metric"><span>Watch</span><strong>{{ counts.watches or 0 }}</strong><small>Elevated awareness</small></div>
+    <div class="metric"><span>Awareness</span><strong>{{ counts.awareness or 0 }}</strong><small>Information only</small></div>
+    <div class="metric"><span>Next 7 Days</span><strong>{{ counts.next7 or 0 }}</strong><small>Upcoming active events</small></div>
+  </section>
+
+  <section class="panel" style="margin-top:16px">
+    <div class="panel-head"><div><div class="panel-kicker">FILTER</div><h2>Regional Scan</h2></div><a class="text-link" href="/integrations">Manage event sources</a></div>
+    <div class="panel-body">
+      <form class="watch-filters" method="get" action="/event-intelligence">
+        <input name="q" value="{{ q }}" placeholder="Search event, venue, municipality, traffic or transit impact">
+        <select name="level">
+          <option value="all" {% if level=='all' %}selected{% endif %}>All impact levels</option>
+          <option value="ALERT" {% if level=='ALERT' %}selected{% endif %}>Alert</option>
+          <option value="WATCH" {% if level=='WATCH' %}selected{% endif %}>Watch</option>
+          <option value="AWARENESS" {% if level=='AWARENESS' %}selected{% endif %}>Awareness</option>
+        </select>
+        <select name="horizon">
+          <option value="today" {% if horizon=='today' %}selected{% endif %}>Today</option>
+          <option value="24h" {% if horizon=='24h' %}selected{% endif %}>Next 24 Hours</option>
+          <option value="7d" {% if horizon=='7d' %}selected{% endif %}>Next 7 Days</option>
+          <option value="30d" {% if horizon=='30d' %}selected{% endif %}>Next 30 Days</option>
+          <option value="all" {% if horizon=='all' %}selected{% endif %}>All</option>
+        </select>
+        <button class="secondary-button" type="submit">Filter</button>
+      </form>
+      <p class="muted small-copy">Scoring is intended to reduce noise. An outside event is not a Township task unless you explicitly create an action or promote it into the managed Schedule.</p>
+    </div>
+  </section>
+
+  <section class="panel" style="margin-top:16px">
+    <div class="panel-head"><div><div class="panel-kicker">RESULTS</div><h2>Event Intelligence</h2></div><span class="count-pill">{{ rows|length }}</span></div>
+    <div class="panel-body">
+      <div class="watch-list">
+        {% for e in rows %}
+        <details class="watch-card">
+          <summary>
+            <div class="watch-summary-main">
+              <span class="status {% if e.impact_level=='ALERT' %}error{% elif e.impact_level=='WATCH' %}warning{% else %}active{% endif %}">{{ e.impact_level }}</span>
+              <div>
+                <strong>{{ e.title }}</strong>
+                <div class="meta">
+                  {% if e.starts_local %}{{ e.starts_local.strftime('%a %m/%d %I:%M %p') }}{% else %}Time unknown{% endif %}
+                  {% if e.venue %} · {{ e.venue }}{% endif %}
+                  {% if e.municipality %} · {{ e.municipality }}{% endif %}
+                </div>
+              </div>
+            </div>
+            <span class="priority-chip p{% if e.impact_score >= 75 %}5{% elif e.impact_score >= 45 %}4{% else %}3{% endif %}">{{ e.impact_score }}</span>
+          </summary>
+          <div class="watch-card-body">
+            <div class="detail-list">
+              <div><dt>Impact</dt><dd>{{ e.impact_summary or 'Regional awareness' }}</dd></div>
+              {% if e.event_type %}<div><dt>Type</dt><dd>{{ e.event_type }}</dd></div>{% endif %}
+              {% if e.ends_local %}<div><dt>Ends</dt><dd>{{ e.ends_local.strftime('%m/%d/%Y %I:%M %p') }}</dd></div>{% endif %}
+              {% if e.address %}<div><dt>Location</dt><dd>{{ e.address }}</dd></div>{% endif %}
+              {% if e.road_impact %}<div><dt>Road Impact</dt><dd>{{ e.road_impact }}</dd></div>{% endif %}
+              {% if e.transit_impact %}<div><dt>Transit Impact</dt><dd>{{ e.transit_impact }}</dd></div>{% endif %}
+              {% if e.attendance_estimate %}<div><dt>Attendance</dt><dd>{{ e.attendance_estimate }}</dd></div>{% endif %}
+              <div><dt>Source</dt><dd>{{ e.integration_name or e.source_name or 'External source' }}</dd></div>
+              <div><dt>Last checked</dt><dd>{{ e.last_seen_at.strftime('%m/%d/%Y %I:%M %p') if e.last_seen_at else '—' }}</dd></div>
+            </div>
+            {% if e.description %}<p>{{ e.description }}</p>{% endif %}
+            {% if e.source_url %}<p><a class="text-link" href="{{ e.source_url }}" target="_blank" rel="noopener noreferrer">Open source ↗</a></p>{% endif %}
+
+            <div class="panel-kicker" style="margin-top:10px">WHAT DO YOU WANT TO DO?</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <form method="post" action="/event-intelligence/{{ e.id }}/level" style="display:flex;gap:6px;align-items:center">
+                <select name="impact_level"><option value="AWARENESS" {% if e.impact_level=='AWARENESS' %}selected{% endif %}>Awareness</option><option value="WATCH" {% if e.impact_level=='WATCH' %}selected{% endif %}>Watch</option><option value="ALERT" {% if e.impact_level=='ALERT' %}selected{% endif %}>Alert</option></select>
+                <button class="secondary-button" type="submit">Set Level</button>
+              </form>
+              {% if not e.promoted_event_id %}<form method="post" action="/event-intelligence/{{ e.id }}/promote"><button class="secondary-button" type="submit">Track in Schedule</button></form>{% else %}<a class="secondary-button button-link" href="/schedule">Tracked in Schedule</a>{% endif %}
+              <form method="post" action="/event-intelligence/{{ e.id }}/create-action"><button class="secondary-button" type="submit">Create Command Task</button></form>
+              <form method="post" action="/event-intelligence/{{ e.id }}/dismiss"><button class="secondary-button" type="submit">Dismiss</button></form>
+            </div>
+          </div>
+        </details>
+        {% else %}
+        <div class="empty-state"><strong>No events match this view</strong><span>Try a wider horizon or run an active event integration.</span></div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  <footer><span>City Manager OS</span><span>Awareness → Watch → Alert → deliberate action</span></footer>
+</main>
+</body>
+</html>
