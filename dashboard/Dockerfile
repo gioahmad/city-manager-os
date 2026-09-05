@@ -22,6 +22,10 @@ COPY operations_engine.py .
 COPY operations_engine_windowed.py .
 COPY flood_app.py .
 COPY map_app.py .
+COPY integration_runtime.py .
+COPY integration_engine.py .
+COPY integrations_app.py .
+COPY integration_worker.py .
 COPY phase3_app.py .
 COPY templates ./templates
 COPY static ./static
