@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin Tools · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">CONTROL CENTER</div>
+    <div class="brand-row"><h1>Admin Tools</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Configure the operating system without SSH, SQL or routine n8n editing</div>
+  </div>
+</header>
+{% include "nav.html" %}
+<main>
+  <section class="metrics">
+    <div class="metric"><span>Active Watches</span><strong>{{ counts.watches or 0 }}</strong><small>Matching rules</small></div>
+    <div class="metric"><span>Subscribers</span><strong>{{ counts.subscribers or 0 }}</strong><small>Active destinations</small></div>
+    <div class="metric"><span>Routes</span><strong>{{ counts.routes or 0 }}</strong><small>Watch → recipient</small></div>
+    <div class="metric"><span>Integrations</span><strong>{{ counts.integrations or 0 }}</strong><small>Active external sources</small></div>
+    <div class="metric metric-alerts"><span>Event Watch</span><strong>{{ counts.event_watch or 0 }}</strong><small>WATCH / ALERT events</small></div>
+    <div class="metric"><span>Source Warnings</span><strong>{{ counts.unhealthy or 0 }}</strong><small>Needs attention</small></div>
+  </section>
+
+  <section class="module-grid" style="margin-top:16px">
+    <article class="panel module-card">
+      <div class="panel-head"><div><div class="panel-kicker">ALERTS</div><h2>Watch + Subscriber Admin</h2></div></div>
+      <div class="panel-body">
+        <p class="module-description">Add something to watch and choose who should receive it in one step.</p>
+        <a class="primary-button button-link" href="/alert-admin">Open Alert Admin</a>
+        <p class="muted small-copy">Use the original Watchlists, Subscribers and Routing pages for detailed editing.</p>
+      </div>
+    </article>
+
+    <article class="panel module-card">
+      <div class="panel-head"><div><div class="panel-kicker">APIS</div><h2>Integrations Center</h2></div></div>
+      <div class="panel-body">
+        <p class="module-description">Register feeds, test connections, enable polling and see source health.</p>
+        <a class="primary-button button-link" href="/integrations">Open Integrations</a>
+        <p class="muted small-copy">Permanent secrets remain server-side as environment variables.</p>
+      </div>
+    </article>
+
+    <article class="panel module-card">
+      <div class="panel-head"><div><div class="panel-kicker">SANDBOX</div><h2>API Lab</h2></div></div>
+      <div class="panel-body">
+        <p class="module-description">Try an API before connecting it to City Manager OS. Supports common methods, auth, query strings and body types.</p>
+        <a class="primary-button button-link" href="/api-lab">Open API Lab</a>
+        <p class="muted small-copy">Credentials entered here are used for the request only and are not stored.</p>
+      </div>
+    </article>
+
+    <article class="panel module-card">
+      <div class="panel-head"><div><div class="panel-kicker">REGIONAL AWARENESS</div><h2>Event Intelligence</h2></div></div>
+      <div class="panel-body">
+        <p class="module-description">See regional events ranked by likely operational impact on Weehawken.</p>
+        <a class="primary-button button-link" href="/event-intelligence">Open Event Intelligence</a>
+        <p class="muted small-copy">Awareness stays awareness until you promote it or create a Command Center action.</p>
+      </div>
+    </article>
+
+    <article class="panel module-card">
+      <div class="panel-head"><div><div class="panel-kicker">MANAGED EVENTS</div><h2>Operational Schedule</h2></div></div>
+      <div class="panel-body">
+        <p class="module-description">Township-managed events, meetings and items you intentionally choose to track.</p>
+        <a class="secondary-button button-link" href="/schedule">Open Schedule</a>
+      </div>
+    </article>
+
+    <article class="panel module-card">
+      <div class="panel-head"><div><div class="panel-kicker">HEALTH</div><h2>Sources + Deliveries</h2></div></div>
+      <div class="panel-body">
+        <p class="module-description">Check whether collectors are healthy and verify what notifications were delivered.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="secondary-button button-link" href="/source-health">Source Health</a><a class="secondary-button button-link" href="/deliveries">Deliveries</a></div>
+      </div>
+    </article>
+  </section>
+
+  <section class="panel" style="margin-top:16px">
+    <div class="panel-head"><div><div class="panel-kicker">HOW TO THINK ABOUT IT</div><h2>Three Simple Rules</h2></div></div>
+    <div class="panel-body">
+      <p><strong>1. Want to try an API?</strong> Start in API Lab.</p>
+      <p><strong>2. Want City Manager OS to keep checking it?</strong> Add it in Integrations Center and test it before activating.</p>
+      <p><strong>3. Want a notification?</strong> Let the source normalize into the existing Watchlist and Subscriber routing system. Do not hard-code recipients.</p>
+    </div>
+  </section>
+
+  <footer><span>City Manager OS</span><span>Web administration control center</span></footer>
+</main>
+</body>
+</html>
