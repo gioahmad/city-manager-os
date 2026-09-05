@@ -145,7 +145,7 @@ check_page http://127.0.0.1:8000/api-lab "API Lab"
 check_page http://127.0.0.1:8000/event-intelligence "Event Intelligence"
 
 log "Running authoritative NYC permitted-events collector once"
-docker exec citymanager-integration-engine python - <<'PY'
+docker exec -i citymanager-integration-engine python - <<'PY'
 from integration_engine import load_integration, run_integration
 integration=load_integration(integration_key='NYC_PERMITTED_EVENTS')
 outcome=run_integration(integration,run_type='MANUAL',parse_and_store=True)
