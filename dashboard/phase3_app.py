@@ -8,5 +8,7 @@ import operations_occurrence_controls  # noqa: F401,E402
 import flood_app  # noqa: F401,E402
 # Adds the browser-based Mapping Center and web-managed GIS layers.
 import map_app  # noqa: F401,E402
+# Adds the next-phase web control plane: integrations, API Lab and regional event intelligence.
+import integrations_app  # noqa: F401,E402
 
 app = schedule_app.app
