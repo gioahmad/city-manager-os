@@ -1,0 +1,159 @@
+{
+  "id": "EvtIntelAlertsV1",
+  "name": "EVENT INTELLIGENCE - High Impact Alerts v1",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "name": "Event Alert Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "id": "event-intel-schedule"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id::text AS event_intelligence_id, source_event_key, title, description, event_type, venue, address, municipality, county, state, starts_at, ends_at, source_url, impact_score, impact_summary, road_impact, transit_impact, source_name, alert_emitted_at, last_changed_at FROM event_intelligence WHERE active=true AND alert_pending=true AND impact_level='ALERT' AND (starts_at IS NULL OR starts_at <= now() + interval '72 hours') ORDER BY impact_score DESC, starts_at NULLS FIRST LIMIT 50;",
+        "options": {}
+      },
+      "name": "Load Pending Event Alerts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [240, 0],
+      "id": "event-intel-load-pending",
+      "alwaysOutputData": false,
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => {\n  const e = item.json || {};\n  const now = new Date().toISOString();\n  const score = Number(e.impact_score || 75);\n  const locationParts = [e.venue, e.address, e.municipality, e.state].filter(Boolean);\n  const messageParts = [e.impact_summary, e.road_impact, e.transit_impact, e.description].filter(Boolean);\n  const alert = {\n    schema_version: '1.0',\n    alert_id: `EVENT_INTEL:${e.source_event_key}`,\n    source: 'EVENT_INTELLIGENCE',\n    source_event_id: e.source_event_key || e.event_intelligence_id,\n    category: 'EVENT',\n    subtype: String(e.event_type || 'REGIONAL_EVENT').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '') || 'REGIONAL_EVENT',\n    status: 'ACTIVE',\n    event_action: e.alert_emitted_at ? 'UPDATE' : 'NEW',\n    title: e.title || 'Regional event impact',\n    message: messageParts.join(' · ') || 'High-impact regional event detected.',\n    priority: score >= 90 ? 5 : 4,\n    county: e.county || '',\n    municipality: e.municipality || '',\n    location: {\n      label: locationParts.join(' · '),\n      address: e.address || '',\n      state: e.state || '',\n      zip: '',\n      latitude: null,\n      longitude: null,\n      block: '',\n      lot: '',\n      qualifier: '',\n      parcel_id: ''\n    },\n    tags: ['event-intelligence', 'regional-event', 'high-impact'],\n    click_url: e.source_url || '',\n    source_url: e.source_url || '',\n    observed_at: e.last_changed_at || now,\n    source_updated_at: e.last_changed_at || null,\n    received_at: now,\n    expires_at: e.ends_at || null,\n    metadata: {\n      event_intelligence_id: e.event_intelligence_id,\n      impact_score: score,\n      impact_summary: e.impact_summary || '',\n      source_name: e.source_name || '',\n      starts_at: e.starts_at || null,\n      ends_at: e.ends_at || null\n    }\n  };\n  alert.search_text = [\n    alert.source, alert.category, alert.subtype, alert.title, alert.message,\n    e.venue, e.address, e.municipality, e.county, e.state, ...alert.tags\n  ].filter(Boolean).join(' ');\n  return { json: alert };\n});"
+      },
+      "name": "Build Standard Event Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "id": "event-intel-build-alert"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH d AS (SELECT $1::jsonb AS j), upserted AS ( INSERT INTO alerts (schema_version, alert_id, source, source_event_id, category, subtype, status, event_action, title, message, priority, county, municipality, location, tags, click_url, source_url, observed_at, source_updated_at, received_at, expires_at, metadata, raw_payload, search_text, updated_at) SELECT COALESCE(j->>'schema_version','1.0'), j->>'alert_id', j->>'source', NULLIF(j->>'source_event_id',''), j->>'category', j->>'subtype', j->>'status', j->>'event_action', j->>'title', j->>'message', (j->>'priority')::integer, NULLIF(j->>'county',''), NULLIF(j->>'municipality',''), COALESCE(j->'location','{}'::jsonb), ARRAY(SELECT jsonb_array_elements_text(COALESCE(j->'tags','[]'::jsonb))), NULLIF(j->>'click_url',''), NULLIF(j->>'source_url',''), NULLIF(j->>'observed_at','')::timestamptz, NULLIF(j->>'source_updated_at','')::timestamptz, COALESCE(NULLIF(j->>'received_at','')::timestamptz,NOW()), NULLIF(j->>'expires_at','')::timestamptz, COALESCE(j->'metadata','{}'::jsonb), j, NULLIF(j->>'search_text',''), NOW() FROM d ON CONFLICT (alert_id) DO UPDATE SET status=EXCLUDED.status, event_action=EXCLUDED.event_action, title=EXCLUDED.title, message=EXCLUDED.message, priority=EXCLUDED.priority, county=EXCLUDED.county, municipality=EXCLUDED.municipality, location=EXCLUDED.location, tags=EXCLUDED.tags, click_url=EXCLUDED.click_url, source_url=EXCLUDED.source_url, observed_at=EXCLUDED.observed_at, source_updated_at=EXCLUDED.source_updated_at, expires_at=EXCLUDED.expires_at, metadata=EXCLUDED.metadata, raw_payload=EXCLUDED.raw_payload, search_text=EXCLUDED.search_text, updated_at=NOW() RETURNING id::text AS alert_db_uuid ) SELECT d.j AS alert, upserted.alert_db_uuid FROM d CROSS JOIN upserted;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "name": "Upsert Event Alert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [720, 0],
+      "id": "event-intel-upsert-alert",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => ({ json: item.json.alert || {} }));"
+      },
+      "name": "Restore Standard Event Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 0],
+      "id": "event-intel-restore-alert"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ESH9c2pZ8QfkMosO",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ESH9c2pZ8QfkMosO",
+          "cachedResultName": "CORE - Watchlist Matcher v1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "name": "Send Event to Central Watchlist Matcher",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1200, 0],
+      "id": "event-intel-send-matcher"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE event_intelligence SET alert_pending=false, alert_emitted_at=now(), updated_at=now() WHERE id = NULLIF($1::jsonb->'alert'->'metadata'->>'event_intelligence_id','')::uuid RETURNING id::text AS event_intelligence_id, alert_emitted_at;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "name": "Mark Event Alert Emitted",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1440, 0],
+      "id": "event-intel-mark-emitted",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Event Alert Schedule": {
+      "main": [[{"node":"Load Pending Event Alerts","type":"main","index":0}]]
+    },
+    "Load Pending Event Alerts": {
+      "main": [[{"node":"Build Standard Event Alert","type":"main","index":0}]]
+    },
+    "Build Standard Event Alert": {
+      "main": [[{"node":"Upsert Event Alert","type":"main","index":0}]]
+    },
+    "Upsert Event Alert": {
+      "main": [[{"node":"Restore Standard Event Alert","type":"main","index":0}]]
+    },
+    "Restore Standard Event Alert": {
+      "main": [[{"node":"Send Event to Central Watchlist Matcher","type":"main","index":0}]]
+    },
+    "Send Event to Central Watchlist Matcher": {
+      "main": [[{"node":"Mark Event Alert Emitted","type":"main","index":0}]]
+    },
+    "Mark Event Alert Emitted": {
+      "main": [[]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}
