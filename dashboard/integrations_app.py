@@ -702,53 +702,275 @@ def api_lab_run(
 
 
 @app.get("/event-intelligence", response_class=HTMLResponse)
-def event_intelligence_page(request: Request, level: str = "all", horizon: str = "7d", q: str = "", msg: str = ""):
+def event_intelligence_page(
+    request: Request,
+    level: str = "all",
+    horizon: str = "7d",
+    scope: str = "all",
+    changed: str = "all",
+    q: str = "",
+    msg: str = "",
+):
     where = ["e.active=true"]
     params: list[Any] = []
+
     if level in {"AWARENESS", "WATCH", "ALERT"}:
         where.append("e.impact_level=%s")
         params.append(level)
+
     if horizon == "today":
-        where.append("e.starts_at >= date_trunc('day',now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York'")
-        where.append("e.starts_at < (date_trunc('day',now() AT TIME ZONE 'America/New_York') + interval '1 day') AT TIME ZONE 'America/New_York'")
+        where.append(
+            "COALESCE(e.ends_at,e.starts_at) >= "
+            "(date_trunc('day',now() AT TIME ZONE 'America/New_York') "
+            "AT TIME ZONE 'America/New_York')"
+        )
+        where.append(
+            "e.starts_at < "
+            "((date_trunc('day',now() AT TIME ZONE 'America/New_York') "
+            "+ interval '1 day') AT TIME ZONE 'America/New_York')"
+        )
     elif horizon == "24h":
-        where.append("e.starts_at BETWEEN now() - interval '2 hours' AND now() + interval '24 hours'")
+        where.append(
+            "COALESCE(e.ends_at,e.starts_at) >= now() - interval '2 hours'"
+        )
+        where.append(
+            "e.starts_at <= now() + interval '24 hours'"
+        )
+    elif horizon == "weekend":
+        where.append(
+            "COALESCE(e.ends_at,e.starts_at) >= "
+            "((date_trunc('week',now() AT TIME ZONE 'America/New_York') "
+            "+ interval '5 days') AT TIME ZONE 'America/New_York')"
+        )
+        where.append(
+            "e.starts_at < "
+            "((date_trunc('week',now() AT TIME ZONE 'America/New_York') "
+            "+ interval '7 days') AT TIME ZONE 'America/New_York')"
+        )
     elif horizon == "7d":
-        where.append("COALESCE(e.starts_at,now()) <= now() + interval '7 days'")
-        where.append("COALESCE(e.ends_at,e.starts_at,now()) >= now() - interval '12 hours'")
+        where.append(
+            "COALESCE(e.starts_at,now()) <= now() + interval '7 days'"
+        )
+        where.append(
+            "COALESCE(e.ends_at,e.starts_at,now()) >= now() - interval '12 hours'"
+        )
     elif horizon == "30d":
-        where.append("COALESCE(e.starts_at,now()) <= now() + interval '30 days'")
+        where.append(
+            "COALESCE(e.starts_at,now()) <= now() + interval '30 days'"
+        )
+        where.append(
+            "COALESCE(e.ends_at,e.starts_at,now()) >= now() - interval '12 hours'"
+        )
+
+    if scope == "high":
+        where.append("e.impact_score >= 45")
+
+    elif scope == "weehawken":
+        where.append(
+            "("
+            "upper(COALESCE(e.municipality,''))='WEEHAWKEN' "
+            "OR upper(COALESCE(e.address,'')) LIKE '%%WEEHAWKEN%%'"
+            ")"
+        )
+
+    elif scope == "hudson":
+        where.append(
+            "("
+            "upper(COALESCE(e.county,'')) IN ('HUDSON','HUDSON COUNTY') "
+            "OR upper(COALESCE(e.municipality,'')) IN ("
+            "'WEEHAWKEN','UNION CITY','HOBOKEN','WEST NEW YORK',"
+            "'NORTH BERGEN','GUTTENBERG','JERSEY CITY','SECAUCUS'"
+            ")"
+            ")"
+        )
+
+    elif scope == "nyc":
+        where.append(
+            "("
+            "upper(COALESCE(e.municipality,'')) IN ("
+            "'NEW YORK','NEW YORK CITY','MANHATTAN','BROOKLYN',"
+            "'BRONX','QUEENS','STATEN ISLAND'"
+            ") "
+            "OR upper(COALESCE(e.address,'')) LIKE '%%NEW YORK%%' "
+            "OR upper(COALESCE(e.venue,'')) LIKE '%%MANHATTAN%%'"
+            ")"
+        )
+
+    elif scope == "transit":
+        where.append(
+            "("
+            "NULLIF(trim(COALESCE(e.transit_impact,'')),'') IS NOT NULL "
+            "OR concat_ws(' ',e.title,e.description,e.venue,e.address,"
+            "e.road_impact,e.transit_impact) ~* "
+            "'NJ TRANSIT|PATH|FERRY|PORT AUTHORITY|PABT|"
+            "LINCOLN TUNNEL|ROUTE 495|NJ-495|BUS TERMINAL'"
+            ")"
+        )
+
+    if changed == "24h":
+        where.append(
+            "e.last_changed_at > e.first_seen_at + interval '5 seconds'"
+        )
+        where.append(
+            "e.last_changed_at >= now() - interval '24 hours'"
+        )
+    elif changed == "7d":
+        where.append(
+            "e.last_changed_at > e.first_seen_at + interval '5 seconds'"
+        )
+        where.append(
+            "e.last_changed_at >= now() - interval '7 days'"
+        )
+
     if q.strip():
         needle = f"%{q.strip()}%"
-        where.append("(e.title ILIKE %s OR e.venue ILIKE %s OR e.municipality ILIKE %s OR e.impact_summary ILIKE %s OR e.transit_impact ILIKE %s OR e.road_impact ILIKE %s)")
+        where.append(
+            "("
+            "e.title ILIKE %s OR "
+            "e.venue ILIKE %s OR "
+            "e.municipality ILIKE %s OR "
+            "e.impact_summary ILIKE %s OR "
+            "e.transit_impact ILIKE %s OR "
+            "e.road_impact ILIKE %s"
+            ")"
+        )
         params.extend([needle] * 6)
+
     rows = query_all(
         f"""
-        SELECT e.*,i.name AS integration_name,i.integration_key,
-               e.starts_at AT TIME ZONE 'America/New_York' AS starts_local,
-               e.ends_at AT TIME ZONE 'America/New_York' AS ends_local
-        FROM event_intelligence e
-        LEFT JOIN integrations i ON i.id=e.source_integration_id
-        WHERE {' AND '.join(where)}
-        ORDER BY CASE e.impact_level WHEN 'ALERT' THEN 0 WHEN 'WATCH' THEN 1 ELSE 2 END,
-                 e.impact_score DESC,e.starts_at NULLS LAST,e.updated_at DESC
+        WITH ranked AS (
+          SELECT
+            e.*,
+            i.name AS integration_name,
+            i.integration_key,
+            e.starts_at AT TIME ZONE 'America/New_York' AS starts_local,
+            e.ends_at AT TIME ZONE 'America/New_York' AS ends_local,
+
+            CASE
+              WHEN upper(COALESCE(e.municipality,''))='WEEHAWKEN'
+                OR upper(COALESCE(e.address,'')) LIKE '%%WEEHAWKEN%%'
+                THEN 'TIER 1 · WEEHAWKEN'
+
+              WHEN upper(COALESCE(e.municipality,'')) IN (
+                'UNION CITY','HOBOKEN','WEST NEW YORK','NORTH BERGEN',
+                'GUTTENBERG','JERSEY CITY','SECAUCUS'
+              )
+                THEN 'TIER 2 · IMMEDIATE HUDSON'
+
+              WHEN upper(COALESCE(e.county,'')) IN ('HUDSON','HUDSON COUNTY')
+                THEN 'TIER 3 · HUDSON COUNTY'
+
+              WHEN upper(COALESCE(e.municipality,'')) IN (
+                'NEW YORK','NEW YORK CITY','MANHATTAN','BROOKLYN',
+                'BRONX','QUEENS','STATEN ISLAND'
+              )
+                THEN 'TIER 4 · NYC / METRO'
+
+              WHEN upper(COALESCE(e.state,'')) IN ('NJ','NEW JERSEY')
+                THEN 'TIER 5 · NEW JERSEY'
+
+              ELSE 'REGIONAL'
+            END AS geographic_tier,
+
+            CASE
+              WHEN e.last_changed_at >
+                   e.first_seen_at + interval '5 seconds'
+                THEN 'UPDATED'
+              ELSE 'DISCOVERED'
+            END AS change_state,
+
+            row_number() OVER (
+              PARTITION BY e.fingerprint
+              ORDER BY
+                e.impact_score DESC,
+                e.last_changed_at DESC,
+                e.updated_at DESC
+            ) AS dedupe_rank,
+
+            count(*) OVER (
+              PARTITION BY e.fingerprint
+            ) AS source_matches
+
+          FROM event_intelligence e
+          LEFT JOIN integrations i
+            ON i.id=e.source_integration_id
+
+          WHERE {' AND '.join(where)}
+        )
+
+        SELECT *
+        FROM ranked
+        WHERE dedupe_rank=1
+
+        ORDER BY
+          CASE impact_level
+            WHEN 'ALERT' THEN 0
+            WHEN 'WATCH' THEN 1
+            ELSE 2
+          END,
+          impact_score DESC,
+          starts_at NULLS LAST,
+          updated_at DESC
+
         LIMIT 500
         """,
         params,
     )
+
     counts = query_one(
         """
-        SELECT count(*) FILTER (WHERE active AND impact_level='ALERT') AS alerts,
-               count(*) FILTER (WHERE active AND impact_level='WATCH') AS watches,
-               count(*) FILTER (WHERE active AND impact_level='AWARENESS') AS awareness,
-               count(*) FILTER (WHERE active AND starts_at BETWEEN now() AND now()+interval '7 days') AS next7
+        SELECT
+          count(DISTINCT fingerprint)
+            FILTER (
+              WHERE active
+                AND impact_level='ALERT'
+            ) AS alerts,
+
+          count(DISTINCT fingerprint)
+            FILTER (
+              WHERE active
+                AND impact_level='WATCH'
+            ) AS watches,
+
+          count(DISTINCT fingerprint)
+            FILTER (
+              WHERE active
+                AND impact_level='AWARENESS'
+            ) AS awareness,
+
+          count(DISTINCT fingerprint)
+            FILTER (
+              WHERE active
+                AND starts_at BETWEEN now()
+                AND now()+interval '7 days'
+            ) AS next7,
+
+          count(DISTINCT fingerprint)
+            FILTER (
+              WHERE active
+                AND last_changed_at >
+                    first_seen_at + interval '5 seconds'
+                AND last_changed_at >= now()-interval '24 hours'
+            ) AS changed24
+
         FROM event_intelligence
         """
     )
+
     return templates.TemplateResponse(
         request=request,
         name="event_intelligence.html",
-        context={"rows": rows, "counts": counts, "level": level, "horizon": horizon, "q": q, "msg": msg, "page": "event-intelligence"},
+        context={
+            "rows": rows,
+            "counts": counts,
+            "level": level,
+            "horizon": horizon,
+            "scope": scope,
+            "changed": changed,
+            "q": q,
+            "msg": msg,
+            "page": "event-intelligence",
+        },
     )
 
 

@@ -147,37 +147,99 @@ def _update_health(integration: dict[str, Any], *, ok: bool, error: str | None, 
 
 
 def _event_change_hash(event: dict[str, Any]) -> str:
+    # Only source-significant event facts belong in the meaningful-change hash.
+    # Derived scoring is deliberately excluded so a scoring-model adjustment
+    # cannot make unchanged public events look newly changed.
     selected = {
         "title": event.get("title"),
         "starts_at": event.get("starts_at").isoformat() if event.get("starts_at") else None,
         "ends_at": event.get("ends_at").isoformat() if event.get("ends_at") else None,
         "status": event.get("status"),
-        "impact_level": event.get("impact_level"),
-        "impact_score": event.get("impact_score"),
-        "impact_summary": event.get("impact_summary"),
-        "road_impact": event.get("road_impact"),
-        "transit_impact": event.get("transit_impact"),
+        "event_type": event.get("event_type"),
         "venue": event.get("venue"),
         "address": event.get("address"),
+        "municipality": event.get("municipality"),
+        "county": event.get("county"),
+        "state": event.get("state"),
+        "attendance_estimate": event.get("attendance_estimate"),
+        "road_impact": event.get("road_impact"),
+        "transit_impact": event.get("transit_impact"),
+        "latitude": event.get("latitude"),
+        "longitude": event.get("longitude"),
     }
-    return hashlib.sha256(json.dumps(selected, sort_keys=True, default=str).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(selected, sort_keys=True, default=str).encode()
+    ).hexdigest()
+
+
+def _stored_source_change_hash(row: dict[str, Any] | None) -> str | None:
+    if not row:
+        return None
+
+    metadata = row.get("metadata") or {}
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except Exception:
+            return None
+
+    if not isinstance(metadata, dict):
+        return None
+
+    internal = metadata.get("_cmos") or {}
+    if not isinstance(internal, dict):
+        return None
+
+    value = internal.get("source_change_hash")
+    return str(value) if value else None
+
+
+def _source_event_changed(
+    before: dict[str, Any] | None,
+    source_change_hash: str,
+) -> bool:
+    # A completely new event is a discovery/change.
+    if not before:
+        return True
+
+    previous = _stored_source_change_hash(before)
+
+    # Existing rows created before source-based hashing are quietly baselined
+    # on their first poll. This prevents a deployment from fabricating hundreds
+    # of "changed" events.
+    if not previous:
+        return False
+
+    return previous != source_change_hash
 
 
 def _upsert_event(conn, integration: dict[str, Any], event: dict[str, Any]) -> bool:
     external_key = event.get("external_key") or event["fingerprint"]
     source_event_key = f"{integration['integration_key']}:{external_key}"
     change_hash = _event_change_hash(event)
-    metadata = event.get("metadata") or {}
+
+    metadata = _json(event.get("metadata"))
+    internal_metadata = metadata.get("_cmos") or {}
+    if not isinstance(internal_metadata, dict):
+        internal_metadata = {}
+    internal_metadata = dict(internal_metadata)
+    internal_metadata["source_change_hash"] = change_hash
+    metadata["_cmos"] = internal_metadata
+
     lat = event.get("latitude")
     lon = event.get("longitude")
 
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT change_hash FROM event_intelligence WHERE source_event_key=%s",
+            """
+            SELECT change_hash, metadata
+            FROM event_intelligence
+            WHERE source_event_key=%s
+            """,
             (source_event_key,),
         )
         before = cur.fetchone()
-        changed = not before or before["change_hash"] != change_hash
+        changed = _source_event_changed(before, change_hash)
         starts_at = event.get("starts_at")
         near_term_alert = bool(
             event.get("impact_level") == "ALERT"
@@ -244,11 +306,18 @@ def _upsert_event(conn, integration: dict[str, Any], event: dict[str, Any]) -> b
               metadata=EXCLUDED.metadata,
               last_seen_at=now(),
               last_changed_at=CASE
-                WHEN event_intelligence.change_hash IS DISTINCT FROM EXCLUDED.change_hash THEN now()
+                WHEN event_intelligence.metadata #>> '{_cmos,source_change_hash}' IS NOT NULL
+                 AND event_intelligence.metadata #>> '{_cmos,source_change_hash}'
+                     IS DISTINCT FROM
+                     EXCLUDED.metadata #>> '{_cmos,source_change_hash}'
+                  THEN now()
                 ELSE event_intelligence.last_changed_at
               END,
               alert_pending=CASE
-                WHEN event_intelligence.change_hash IS DISTINCT FROM EXCLUDED.change_hash
+                WHEN event_intelligence.metadata #>> '{_cmos,source_change_hash}' IS NOT NULL
+                 AND event_intelligence.metadata #>> '{_cmos,source_change_hash}'
+                     IS DISTINCT FROM
+                     EXCLUDED.metadata #>> '{_cmos,source_change_hash}'
                   THEN EXCLUDED.alert_pending
                 ELSE event_intelligence.alert_pending
               END,
