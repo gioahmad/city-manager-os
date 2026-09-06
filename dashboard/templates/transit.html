@@ -1,0 +1,225 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transit Intelligence · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">REGIONAL TRANSPORTATION</div>
+    <div class="brand-row"><h1>Transit Intelligence</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">What transportation conditions could affect Weehawken right now or soon?</div>
+  </div>
+</header>
+{% include "nav.html" %}
+
+<main>
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+
+  <section class="panel" style="margin-bottom:16px">
+    <div class="panel-head">
+      <div><div class="panel-kicker">OVERVIEW</div><h2>Regional Transit State</h2></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a class="secondary-button button-link" href="/integrations?q=TRANSIT">Transit Integrations</a>
+        <a class="secondary-button button-link" href="/map">Mapping Center</a>
+        <a class="secondary-button button-link" href="/event-intelligence?scope=transit&horizon=7d">Event Transit Context</a>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="module-stats" style="grid-template-columns:repeat(6,minmax(0,1fr))">
+        <div><span>Alerts</span><strong>{{ metrics.alerts or 0 }}</strong></div>
+        <div><span>Watches</span><strong>{{ metrics.watches or 0 }}</strong></div>
+        <div><span>Awareness</span><strong>{{ metrics.awareness or 0 }}</strong></div>
+        <div><span>Fresh 60m</span><strong>{{ metrics.fresh or 0 }}</strong></div>
+        <div><span>Active Assets</span><strong>{{ metrics.assets or 0 }}</strong></div>
+        <div><span>Watched Targets</span><strong>{{ metrics.watched or 0 }}</strong></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" style="margin-bottom:16px">
+    <div class="panel-head"><div><div class="panel-kicker">FILTERS</div><h2>Operational Conditions</h2></div></div>
+    <div class="panel-body">
+      <form method="get" action="/transit" class="watch-filters" style="grid-template-columns:1fr 180px 220px auto">
+        <input name="q" value="{{ q }}" placeholder="Search route, station, terminal, provider or condition">
+        <select name="level">
+          <option value="all" {% if level=='all' %}selected{% endif %}>All levels</option>
+          <option value="alert" {% if level=='alert' %}selected{% endif %}>Alerts</option>
+          <option value="watch" {% if level=='watch' %}selected{% endif %}>Watches</option>
+          <option value="awareness" {% if level=='awareness' %}selected{% endif %}>Awareness</option>
+        </select>
+        <select name="provider">
+          <option value="ALL" {% if provider_filter=='ALL' %}selected{% endif %}>All providers</option>
+          {% for p in providers %}
+          <option value="{{ p.provider_key }}" {% if provider_filter==p.provider_key %}selected{% endif %}>{{ p.name }}</option>
+          {% endfor %}
+        </select>
+        <button class="primary-button" type="submit">Filter</button>
+      </form>
+
+      <div class="watch-list">
+        {% for o in observations %}
+        <article class="watch-card">
+          <div class="watch-card-body">
+            <div style="display:flex;justify-content:space-between;gap:14px;align-items:flex-start">
+              <div>
+                <div class="panel-kicker">{{ o.provider_name }} · {{ o.mode or 'TRANSIT' }} · {{ o.integration_key }}</div>
+                <h3 style="margin:5px 0 7px">{{ o.title }}</h3>
+                {% if o.description %}<p style="margin:0 0 10px;white-space:pre-wrap">{{ o.description }}</p>{% endif %}
+              </div>
+              <span class="status {{ (o.impact_level or 'awareness')|lower }}">{{ o.impact_level }} {{ o.impact_score }}</span>
+            </div>
+            <dl class="detail-list">
+              {% if o.route_name %}<div><dt>Route / Line</dt><dd>{{ o.route_name }}</dd></div>{% endif %}
+              {% if o.asset_name %}<div><dt>Stop / Station / Asset</dt><dd>{{ o.asset_name }}</dd></div>{% endif %}
+              {% if o.municipality %}<div><dt>Area</dt><dd>{{ o.municipality }}{% if o.state %}, {{ o.state }}{% endif %}</dd></div>{% endif %}
+              <div><dt>Last Seen</dt><dd>{{ o.last_seen_at.strftime('%m/%d/%Y %H:%M') if o.last_seen_at else 'Unknown' }}</dd></div>
+              <div><dt>Last Changed</dt><dd>{{ o.last_changed_at.strftime('%m/%d/%Y %H:%M') if o.last_changed_at else 'Unknown' }}</dd></div>
+            </dl>
+            <div class="form-actions" style="margin-top:12px">
+              <form method="post" action="/transit/{{ o.id }}/level" style="display:flex;gap:7px">
+                <select name="impact_level">
+                  <option value="AWARENESS" {% if o.impact_level=='AWARENESS' %}selected{% endif %}>Awareness</option>
+                  <option value="WATCH" {% if o.impact_level=='WATCH' %}selected{% endif %}>Watch</option>
+                  <option value="ALERT" {% if o.impact_level=='ALERT' %}selected{% endif %}>Alert</option>
+                </select>
+                <button class="secondary-button" type="submit">Set Level</button>
+              </form>
+              <form method="post" action="/transit/{{ o.id }}/create-action">
+                <button class="secondary-button" type="submit">Create Command Center Action</button>
+              </form>
+              {% if o.source_url %}<a class="secondary-button button-link" href="{{ o.source_url }}" target="_blank" rel="noopener">Source</a>{% endif %}
+            </div>
+          </div>
+        </article>
+        {% else %}
+        <div class="empty-state"><strong>No transit observations match this view.</strong><span>That is expected until a transit integration is configured and activated.</span></div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" style="margin-bottom:16px">
+    <div class="panel-head"><div><div class="panel-kicker">PROVIDERS</div><h2>Multi-Agency Foundation</h2></div></div>
+    <div class="panel-body">
+      <div class="module-grid">
+        {% for p in providers %}
+        <article class="panel module-card" style="box-shadow:none">
+          <div class="panel-head"><div><div class="panel-kicker">PHASE {{ p.phase }}</div><h2>{{ p.name }}</h2></div><span class="status {{ 'live' if p.active else 'paused' }}">{{ 'ACTIVE' if p.active else 'FUTURE' }}</span></div>
+          <div class="panel-body">
+            <p class="module-description">{{ p.notes or '' }}</p>
+            <div class="module-stats">
+              <div><span>Assets</span><strong>{{ p.asset_count or 0 }}</strong></div>
+              <div><span>Watch / Alert</span><strong>{{ p.active_impact_count or 0 }}</strong></div>
+            </div>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" style="margin-bottom:16px">
+    <div class="panel-head"><div><div class="panel-kicker">SOURCE HEALTH</div><h2>Transit Integrations</h2></div></div>
+    <div class="panel-body">
+      <div style="overflow:auto">
+        <table>
+          <thead><tr><th>Integration</th><th>Adapter</th><th>State</th><th>Last Run</th><th>Health</th><th>Last Error</th></tr></thead>
+          <tbody>
+            {% for i in integrations %}
+            <tr>
+              <td><strong>{{ i.name }}</strong><div class="watch-id">{{ i.integration_key }}</div></td>
+              <td>{{ i.adapter_type }}</td>
+              <td>{{ 'ACTIVE' if i.active else 'PAUSED / SETUP' }}</td>
+              <td>{{ i.last_run_at.strftime('%m/%d/%Y %H:%M') if i.last_run_at else 'Never' }}</td>
+              <td>{{ i.health_status or i.last_run_status or 'Not tested' }}</td>
+              <td>{{ i.last_error or '' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" style="margin-bottom:16px">
+    <div class="panel-head"><div><div class="panel-kicker">WATCH CONFIGURATION</div><h2>Operationally Important Transit Targets</h2></div></div>
+    <div class="panel-body">
+      <form method="post" action="/transit/watch/create" class="watch-form">
+        <div class="form-grid three-col">
+          <label>Provider
+            <select name="provider_key">
+              {% for p in providers %}<option value="{{ p.provider_key }}">{{ p.name }}</option>{% endfor %}
+            </select>
+          </label>
+          <label>Target Type
+            <select name="target_type">
+              {% for t in target_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+            </select>
+          </label>
+          <label>Minimum Level
+            <select name="min_impact_level">
+              <option value="WATCH">Watch</option>
+              <option value="ALERT">Alert</option>
+              <option value="AWARENESS">Awareness</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-grid two-col">
+          <label>Target Key<input name="target_key" placeholder="HOBOKEN, 126, PORT IMPERIAL, LINCOLN TUNNEL"></label>
+          <label>Display Name<input name="display_name" placeholder="Hoboken Terminal"></label>
+        </div>
+        <div class="form-grid two-col">
+          <label>Municipality<input name="municipality" placeholder="Weehawken"></label>
+          <label>Corridor<input name="corridor" placeholder="Lincoln Tunnel / Route 495 / PABT"></label>
+        </div>
+        <label>Notes<textarea name="notes" rows="2"></textarea></label>
+        <button class="primary-button" type="submit">Save Transit Watch</button>
+      </form>
+
+      <div class="watch-list">
+        {% for w in watches %}
+        <article class="watch-card {% if not w.active %}inactive{% endif %}">
+          <div class="watch-card-body">
+            <div style="display:flex;justify-content:space-between;gap:12px">
+              <div>
+                <div class="panel-kicker">{{ w.provider_name or 'ANY PROVIDER' }} · {{ w.target_type }}</div>
+                <strong>{{ w.display_name }}</strong>
+                <div class="watch-id">{{ w.target_key }}</div>
+                {% if w.corridor %}<div class="hint">{{ w.corridor }}</div>{% endif %}
+              </div>
+              <div><span class="status">{{ w.min_impact_level }}</span></div>
+            </div>
+            <form method="post" action="/transit/watch/{{ w.id }}/toggle" class="toggle-form">
+              <button class="secondary-button" type="submit">{{ 'Pause' if w.active else 'Activate' }}</button>
+            </form>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div><div class="panel-kicker">CROSS-MODULE CONTEXT</div><h2>Regional Events That May Affect Transit</h2></div></div>
+    <div class="panel-body">
+      {% for e in event_context %}
+      <div class="admin-row">
+        <strong>{{ e.title }}</strong>
+        <div class="hint">{{ e.impact_level }} {{ e.impact_score }}{% if e.venue %} · {{ e.venue }}{% endif %}{% if e.municipality %} · {{ e.municipality }}{% endif %}</div>
+        {% if e.transit_impact %}<div style="margin-top:4px">{{ e.transit_impact }}</div>{% endif %}
+      </div>
+      {% else %}
+      <div class="empty-state small"><strong>No near-term event/transit correlation to show.</strong></div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <footer><span>City Manager OS</span><span>Regional Transit Intelligence</span></footer>
+</main>
+</body>
+</html>

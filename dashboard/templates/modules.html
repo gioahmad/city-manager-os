@@ -24,7 +24,7 @@
         <dl class="detail-list"><div><dt>Last Success</dt><dd>{{ m.last_success_at.strftime('%m/%d/%Y %H:%M') if m.last_success_at else 'Not reported' }}</dd></div><div><dt>Last Event</dt><dd>{{ m.last_event_at.strftime('%m/%d/%Y %H:%M') if m.last_event_at else 'No event recorded' }}</dd></div>{% if m.last_error %}<div><dt>Last Error</dt><dd class="error-text">{{ m.last_error }}</dd></div>{% endif %}</dl>
         {% if m.key == 'PSEG' %}<a class="secondary-button button-link" href="/alerts?source=PSEG&state=all">View PSEG alerts</a>{% endif %}
         {% if m.key == 'EVENTS' %}<a class="secondary-button button-link" href="/event-intelligence">Open Event Intelligence</a>{% endif %}
-        {% if m.key == 'TRANSIT' %}<a class="secondary-button button-link" href="/integrations?q=TRANSIT">Manage Transit Integrations</a>{% endif %}
+        {% if m.key == 'TRANSIT' %}<div class="form-actions"><a class="primary-button button-link" href="/transit">Open Transit Intelligence</a><a class="secondary-button button-link" href="/integrations?q=TRANSIT">Manage Transit Integrations</a></div>{% endif %}
       </div>
     </article>
     {% endfor %}

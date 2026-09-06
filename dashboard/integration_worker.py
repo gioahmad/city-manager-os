@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 
 from integration_engine import mark_stale_events, run_due_integrations
+from transit_engine import mark_stale_transit_observations, run_due_transit_integrations
 
 
 def log(message: str) -> None:
@@ -26,6 +27,19 @@ def main() -> None:
                 for row in summaries:
                     if not row["ok"]:
                         log(f"ERROR {row['integration_key']}: {row.get('error')}")
+            transit_summaries = run_due_transit_integrations(limit=12)
+            if transit_summaries:
+                good = sum(1 for row in transit_summaries if row["ok"])
+                bad = len(transit_summaries) - good
+                items = sum(int(row.get("items") or 0) for row in transit_summaries)
+                changed = sum(int(row.get("changed") or 0) for row in transit_summaries)
+                log(f"transit poll complete integrations={len(transit_summaries)} ok={good} error={bad} items={items} changed={changed}")
+                for row in transit_summaries:
+                    if not row["ok"]:
+                        log(f"TRANSIT ERROR {row['integration_key']}: {row.get('error')}")
+            stale_transit = mark_stale_transit_observations()
+            if stale_transit:
+                log(f"transit stale clear complete observations={stale_transit}")
             mark_stale_events()
         except Exception as exc:
             log(f"engine cycle error: {exc}")

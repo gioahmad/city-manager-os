@@ -63,6 +63,13 @@ SYSTEM_LAYERS = [
         "default_visible": False,
         "point": True,
     },
+    {
+        "key": "transit-intelligence",
+        "name": "Transit Intelligence",
+        "endpoint": "/map/system/transit.geojson",
+        "default_visible": False,
+        "point": True,
+    },
 ]
 
 
