@@ -10,5 +10,7 @@ import flood_app  # noqa: F401,E402
 import map_app  # noqa: F401,E402
 # Adds the next-phase web control plane: integrations, API Lab and regional event intelligence.
 import integrations_app  # noqa: F401,E402
+# Upgrades Alert Admin in place while preserving the existing matcher and routing tables.
+import alert_admin_v2  # noqa: F401,E402
 
 app = schedule_app.app
