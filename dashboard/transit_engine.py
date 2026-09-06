@@ -20,6 +20,7 @@ from psycopg.rows import dict_row
 from transit_runtime import (
     TransitResult,
     get_bytes,
+    get_cached_bus_token,
     get_cached_rail_token,
     invalidate_token,
     json_value,
@@ -227,6 +228,10 @@ def _json_list(value: Any) -> list[dict[str, Any]]:
         for key in ("items", "ITEMS", "data", "DATA", "results", "RESULTS"):
             if isinstance(value.get(key), list):
                 return [x for x in value[key] if isinstance(x, dict)]
+        # NJ TRANSIT APIs have used several wrapper names over time.
+        for candidate in value.values():
+            if isinstance(candidate, list) and all(isinstance(x, dict) for x in candidate):
+                return list(candidate)
         return [value]
     return []
 
@@ -613,59 +618,201 @@ def _import_gtfs_zip(
 
 def _run_busdata(conn, integration: dict[str, Any], *, store: bool) -> tuple[TransitResult, int, int]:
     env = _required_values(integration)
-    result = post_urlencoded(
-        integration["endpoint_url"],
-        {"username": env["username_env"], "password": env["password_env"]},
-        timeout_seconds=int(integration.get("timeout_seconds") or 30),
-        max_response_bytes=25_000_000,
-    )
-    if not result.ok:
-        raise RuntimeError(result.error or f"BUSDATA HTTP {result.status_code}")
+    username, password = env["username_env"], env["password_env"]
+    host = os.getenv("NJT_BUS_HOST", "https://pcsdata.njtransit.com").rstrip("/")
+    west, south, east, north = _bbox()
+    center_lat = (south + north) / 2.0
+    center_lon = (west + east) / 2.0
+    radius = int(os.getenv("NJT_BUS_RADIUS", "15"))
 
-    records = _xml_records(result.body_text)
+    collected: list[dict[str, Any]] = []
+    bus_result: TransitResult | None = None
+    bus_ok = False
+    token: str | None = None
+    token_error: Exception | None = None
+
+    # Prefer current token-based BUSDV2, but token acquisition itself must not
+    # prevent the known legacy BUSDATA fallback from being attempted.
+    try:
+        token = get_cached_bus_token(
+            host=host,
+            family="BUSDV2",
+            username=username,
+            password=password,
+        )
+    except Exception as exc:
+        token_error = exc
+
+    if token:
+        for requested_mode in ("BUS", "HBLR"):
+            result = post_multipart(
+                f"{host}/api/BUSDV2/getVehicleLocations",
+                {
+                    "token": token,
+                    "lat": center_lat,
+                    "lon": center_lon,
+                    "radius": radius,
+                    "mode": requested_mode,
+                },
+                timeout_seconds=int(integration.get("timeout_seconds") or 30),
+                max_response_bytes=25_000_000,
+            )
+
+            if not result.ok and result.status_code in {400, 401, 403}:
+                invalidate_token(host, "BUSDV2", username)
+                try:
+                    token = get_cached_bus_token(
+                        host=host,
+                        family="BUSDV2",
+                        username=username,
+                        password=password,
+                        force_refresh=True,
+                    )
+                    result = post_multipart(
+                        f"{host}/api/BUSDV2/getVehicleLocations",
+                        {
+                            "token": token,
+                            "lat": center_lat,
+                            "lon": center_lon,
+                            "radius": radius,
+                            "mode": requested_mode,
+                        },
+                        timeout_seconds=int(integration.get("timeout_seconds") or 30),
+                        max_response_bytes=25_000_000,
+                    )
+                except Exception as exc:
+                    token_error = exc
+
+            if not result.ok:
+                if requested_mode == "BUS":
+                    break
+                continue
+
+            rows = _json_list(json_value(result))
+            if requested_mode == "BUS":
+                bus_ok = True
+                # Run/source health follows the required BUS request, not a
+                # later optional HBLR failure.
+                bus_result = result
+
+            for row in rows:
+                item = dict(row)
+                item["_CMOS_REQUESTED_MODE"] = requested_mode
+                collected.append(item)
+
+    # Preserve legacy BUSDATA as operational fallback.
+    if not bus_ok:
+        legacy = post_urlencoded(
+            "https://busdata.njtransit.com/NJTBusData.asmx/getBusVehicleDataXML2",
+            {"username": username, "password": password},
+            timeout_seconds=int(integration.get("timeout_seconds") or 30),
+            max_response_bytes=25_000_000,
+        )
+        if not legacy.ok:
+            detail = (
+                f"; BUSDV2 auth error: {token_error}"
+                if token_error is not None
+                else ""
+            )
+            raise RuntimeError(
+                (
+                    legacy.error
+                    or (
+                        "BUSDV2 and legacy BUSDATA both failed; "
+                        f"legacy HTTP {legacy.status_code}"
+                    )
+                )
+                + detail
+            )
+
+        bus_result = legacy
+        for row in _xml_records(legacy.body_text):
+            item = dict(row)
+            item["_CMOS_REQUESTED_MODE"] = "BUS"
+            collected.append(item)
+
+    if bus_result is None:
+        raise RuntimeError("NJ TRANSIT BUSDATA produced no successful BUS response")
+
     if not store:
-        return result, len(records), 0
+        return bus_result, len(collected), 0
 
     provider_id = _provider_id(conn)
     changed = 0
     kept = 0
-    for row in records:
-        lat = _float(_pick(row, "LATITUDE", "LAT", "GPSLATITUDE"))
-        lon = _float(_pick(row, "LONGITUDE", "LON", "LONG", "GPSLONGITUDE"))
+
+    for row in collected:
+        lat = _float(
+            _pick(row, "VehicleLat", "LATITUDE", "LAT", "GPSLATITUDE")
+        )
+        lon = _float(
+            _pick(row, "VehicleLong", "LONGITUDE", "LON", "LONG", "GPSLONGITUDE")
+        )
         if not _in_bbox(lat, lon):
             continue
-        vehicle = _text(_pick(row, "VEHICLE_NO", "VEHICLE", "VEHICLEID", "BUSID", "BUS_ID"))
+
+        vehicle = _text(
+            _pick(
+                row,
+                "VehicleID",
+                "VEHICLE_NO",
+                "VEHICLE",
+                "VEHICLEID",
+                "BUSID",
+                "BUS_ID",
+            )
+        )
         if not vehicle:
             continue
-        route = _text(_pick(row, "ROUTE", "ROUTE_ID", "ROUTEID", "ROUTE_NO", "ROUTENO"))
+
+        route = _text(
+            _pick(
+                row,
+                "VehicleRoute",
+                "ROUTE",
+                "ROUTE_ID",
+                "ROUTEID",
+                "ROUTE_NO",
+                "ROUTENO",
+            )
+        )
+        requested_mode = _text(row.get("_CMOS_REQUESTED_MODE")).upper()
+        mode = "LIGHT_RAIL" if requested_mode == "HBLR" else "BUS"
+
         kept += 1
-        changed += int(_upsert_asset(
-            conn,
-            provider_id=provider_id,
-            integration_id=integration["id"],
-            asset_key=f"VEHICLE:BUS:{vehicle}",
-            asset_type="VEHICLE",
-            mode="BUS",
-            name=f"NJ TRANSIT Bus {vehicle}",
-            short_name=vehicle,
-            parent_asset_key=f"ROUTE:{route}" if route else None,
-            latitude=lat,
-            longitude=lon,
-            metadata=row,
-        ))
+        changed += int(
+            _upsert_asset(
+                conn,
+                provider_id=provider_id,
+                integration_id=integration["id"],
+                asset_key=f"VEHICLE:{mode}:{vehicle}",
+                asset_type="VEHICLE",
+                mode=mode,
+                name=(
+                    f"NJ TRANSIT HBLR Vehicle {vehicle}"
+                    if mode == "LIGHT_RAIL"
+                    else f"NJ TRANSIT Bus {vehicle}"
+                ),
+                short_name=vehicle,
+                parent_asset_key=f"ROUTE:{route}" if route else None,
+                latitude=lat,
+                longitude=lon,
+                metadata=row,
+            )
+        )
 
     with conn.cursor() as cur:
         cur.execute(
-            """
-            UPDATE transit_assets
-            SET active=false,updated_at=now()
-            WHERE provider_id=%s AND asset_type='VEHICLE' AND mode='BUS'
-              AND last_seen_at < now() - interval '15 minutes'
-            """,
+            "UPDATE transit_assets "
+            "SET active=false,updated_at=now() "
+            "WHERE provider_id=%s "
+            "AND asset_type='VEHICLE' "
+            "AND mode IN ('BUS','LIGHT_RAIL') "
+            "AND last_seen_at < now() - interval '15 minutes'",
             (provider_id,),
         )
-    return result, kept, changed
 
+    return bus_result, kept, changed
 
 def _station_matches_watch(station: dict[str, Any], watches: list[dict[str, Any]]) -> bool:
     code = _norm(_pick(station, "STATION_2CHAR", "STATION_14CHAR"))
@@ -683,7 +830,7 @@ def _station_matches_watch(station: dict[str, Any], watches: list[dict[str, Any]
 def _run_raildata(conn, integration: dict[str, Any], *, store: bool) -> tuple[TransitResult, int, int]:
     env = _required_values(integration)
     username, password = env["username_env"], env["password_env"]
-    host = os.getenv("NJT_RAIL_HOST", "https://raildata.njt.gov").rstrip("/")
+    host = os.getenv("NJT_RAIL_HOST", "https://raildata.njtransit.com").rstrip("/")
     token = get_cached_rail_token(host=host, family="TrainData", username=username, password=password)
 
     result = post_multipart(
@@ -794,7 +941,7 @@ def _run_raildata(conn, integration: dict[str, Any], *, store: bool) -> tuple[Tr
 def _run_rail_gtfs(conn, integration: dict[str, Any], *, store: bool) -> tuple[TransitResult, int, int]:
     env = _required_values(integration)
     username, password = env["username_env"], env["password_env"]
-    host = os.getenv("NJT_RAIL_HOST", "https://raildata.njt.gov").rstrip("/")
+    host = os.getenv("NJT_RAIL_HOST", "https://raildata.njtransit.com").rstrip("/")
     token = get_cached_rail_token(host=host, family="GTFSRT", username=username, password=password)
     result = post_multipart(
         f"{host}/api/GTFSRT/getGTFS",
@@ -830,26 +977,94 @@ def _run_rail_gtfs(conn, integration: dict[str, Any], *, store: bool) -> tuple[T
 
 def _run_bus_gtfs(conn, integration: dict[str, Any], *, store: bool) -> tuple[TransitResult, int, int]:
     env = _required_values(integration)
-    url = env["download_url_env"]
-    result = get_bytes(
-        url,
-        timeout_seconds=int(integration.get("timeout_seconds") or 60),
-        max_response_bytes=50_000_000,
-    )
-    if not result.ok:
-        raise RuntimeError(result.error or f"Bus GTFS HTTP {result.status_code}")
+    username, password = env["username_env"], env["password_env"]
+    host = os.getenv("NJT_BUS_HOST", "https://pcsdata.njtransit.com").rstrip("/")
+
+    configured_prefix = os.getenv("NJT_BUS_GTFS_PREFIX", "/api/GTFSG2").strip()
+    if not configured_prefix.startswith("/"):
+        configured_prefix = "/" + configured_prefix
+
+    prefixes: list[str] = []
+    for prefix in (configured_prefix, "/api/GTFSG2", "/api/GTFS"):
+        if prefix not in prefixes:
+            prefixes.append(prefix)
+
+    errors: list[str] = []
+    selected_result: TransitResult | None = None
+    selected_raw: bytes | None = None
+
+    for prefix in prefixes:
+        family = "GTFSG2" if "GTFSG2" in prefix.upper() else "GTFS"
+        try:
+            token = get_cached_bus_token(
+                host=host,
+                family=family,
+                username=username,
+                password=password,
+            )
+        except Exception as exc:
+            errors.append(f"{prefix} auth: {exc}")
+            continue
+
+        result = post_multipart(
+            f"{host}{prefix.rstrip('/')}/getGTFS",
+            {"token": token},
+            timeout_seconds=int(integration.get("timeout_seconds") or 60),
+            max_response_bytes=50_000_000,
+        )
+
+        if not result.ok and result.status_code in {400, 401, 403}:
+            invalidate_token(host, family, username)
+            try:
+                token = get_cached_bus_token(
+                    host=host,
+                    family=family,
+                    username=username,
+                    password=password,
+                    force_refresh=True,
+                )
+                result = post_multipart(
+                    f"{host}{prefix.rstrip('/')}/getGTFS",
+                    {"token": token},
+                    timeout_seconds=int(integration.get("timeout_seconds") or 60),
+                    max_response_bytes=50_000_000,
+                )
+            except Exception as exc:
+                errors.append(f"{prefix} reauth: {exc}")
+                continue
+
+        if not result.ok:
+            errors.append(f"{prefix}: {result.error or 'HTTP ' + str(result.status_code)}")
+            continue
+
+        try:
+            raw = _gtfs_payload_bytes(result)
+        except Exception as exc:
+            errors.append(f"{prefix}: {exc}")
+            continue
+
+        selected_result = result
+        selected_raw = raw
+        break
+
+    if selected_result is None or selected_raw is None:
+        raise RuntimeError(
+            "NJ TRANSIT GTFS-BUS failed across GTFSG2/GTFS endpoints: "
+            + " | ".join(errors)
+        )
+
     if not store:
-        return result, 1, 0
+        return selected_result, 1, 0
+
     provider_id = _provider_id(conn)
     found, changed = _import_gtfs_zip(
         conn,
-        raw=_gtfs_payload_bytes(result),
+        raw=selected_raw,
         provider_id=provider_id,
         integration_id=integration["id"],
         fallback_mode="BUS",
     )
-    return result, found, changed
-
+    return selected_result, found, changed
 
 def run_transit_integration(
     integration: dict[str, Any],
