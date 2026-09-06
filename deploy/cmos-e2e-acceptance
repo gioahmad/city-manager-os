@@ -38,6 +38,16 @@ wait_running(){
   return 1
 }
 
+wait_n8n_ready(){
+  for _ in $(seq 1 60); do
+    if docker exec n8n node -e "fetch('http://127.0.0.1:5678/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
 deactivate_harness(){
   (( HARNESS_ACTIVE == 1 )) || return 0
   log "Deactivating E2E routing harness"
@@ -188,8 +198,9 @@ else
 fi
 HARNESS_ACTIVE=1
 docker restart n8n >/dev/null
-wait_running n8n || fail "n8n did not return after enabling test harness"
-sleep 5
+wait_running n8n || fail "n8n container did not return after enabling test harness"
+wait_n8n_ready || fail "n8n HTTP service did not become ready after enabling test harness"
+sleep 2
 
 # Call the dedicated local-only test webhook. It has no raw public-safety path.
 docker exec -i n8n node - "$RUN_ID" <<'NODE'
