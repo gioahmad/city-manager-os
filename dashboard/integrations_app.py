@@ -769,7 +769,7 @@ def event_intelligence_page(
         where.append(
             "("
             "upper(COALESCE(e.municipality,''))='WEEHAWKEN' "
-            "OR upper(COALESCE(e.address,'')) LIKE '%WEEHAWKEN%'"
+            "OR upper(COALESCE(e.address,'')) LIKE '%%WEEHAWKEN%%'"
             ")"
         )
 
@@ -791,8 +791,8 @@ def event_intelligence_page(
             "'NEW YORK','NEW YORK CITY','MANHATTAN','BROOKLYN',"
             "'BRONX','QUEENS','STATEN ISLAND'"
             ") "
-            "OR upper(COALESCE(e.address,'')) LIKE '%NEW YORK%' "
-            "OR upper(COALESCE(e.venue,'')) LIKE '%MANHATTAN%'"
+            "OR upper(COALESCE(e.address,'')) LIKE '%%NEW YORK%%' "
+            "OR upper(COALESCE(e.venue,'')) LIKE '%%MANHATTAN%%'"
             ")"
         )
 
@@ -848,7 +848,7 @@ def event_intelligence_page(
 
             CASE
               WHEN upper(COALESCE(e.municipality,''))='WEEHAWKEN'
-                OR upper(COALESCE(e.address,'')) LIKE '%WEEHAWKEN%'
+                OR upper(COALESCE(e.address,'')) LIKE '%%WEEHAWKEN%%'
                 THEN 'TIER 1 · WEEHAWKEN'
 
               WHEN upper(COALESCE(e.municipality,'')) IN (
