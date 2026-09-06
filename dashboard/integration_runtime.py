@@ -483,50 +483,72 @@ def score_event(event: dict[str, Any]) -> tuple[int, str, str]:
         for key in ("title", "description", "event_type", "venue", "address", "municipality", "road_impact", "transit_impact")
     ).upper()
 
+    # Geography establishes relevance, but proximity alone must not interrupt.
+    # Routine local and neighboring events remain Awareness until scale,
+    # transportation, timing, safety, venue or other impact factors elevate them.
     if "WEEHAWKEN" in municipality or "WEEHAWKEN" in blob:
-        score += 80
+        score += 30
         reasons.append("Weehawken")
     elif municipality in {"UNION CITY", "HOBOKEN", "WEST NEW YORK", "NORTH BERGEN", "GUTTENBERG", "JERSEY CITY", "SECAUCUS"}:
-        score += 48
+        score += 20
         reasons.append("immediate Hudson neighbor")
     elif county == "HUDSON" or "HUDSON COUNTY" in blob:
-        score += 38
+        score += 15
         reasons.append("Hudson County")
     elif municipality in {"NEW YORK", "NEW YORK CITY", "MANHATTAN"} or "MANHATTAN" in blob or "NEW YORK CITY" in blob:
-        score += 28
+        score += 10
         reasons.append("NYC")
     elif state in {"NJ", "NEW JERSEY"}:
-        score += 10
+        score += 5
         reasons.append("New Jersey")
 
-    keyword_weights = {
-        "LINCOLN TUNNEL": 28,
-        "ROUTE 495": 25,
-        "NJ-495": 25,
-        "PORT AUTHORITY BUS TERMINAL": 24,
-        "PABT": 24,
-        "FERRY": 12,
-        "PATH": 12,
-        "NJ TRANSIT": 12,
-        "ROAD CLOSURE": 16,
-        "STREET CLOSURE": 16,
-        "PARADE": 10,
-        "MARATHON": 12,
-        "DEMONSTRATION": 12,
-        "PROTEST": 12,
-        "FIREWORKS": 8,
-        "METLIFE": 40,
-        "METLIFE STADIUM": 40,
-        "JAVITS": 18,
-        "MADISON SQUARE GARDEN": 20,
-        "YANKEE STADIUM": 18,
-        "CITI FIELD": 16,
-        "BARCLAYS CENTER": 10,
-    }
-    for keyword, weight in keyword_weights.items():
-        if keyword in blob:
+    # Related aliases represent one operational factor and must score once.
+    # Example: "MetLife Stadium" also contains "METLIFE"; without grouping,
+    # one venue would incorrectly receive two separate 40-point boosts.
+    keyword_groups = [
+        (("LINCOLN TUNNEL",), 28, "Lincoln Tunnel"),
+        (("ROUTE 495", "NJ-495"), 25, "Route 495"),
+        (
+            ("PORT AUTHORITY BUS TERMINAL", "PABT"),
+            24,
+            "Port Authority Bus Terminal",
+        ),
+        (("FERRY",), 12, "Ferry"),
+        (("PATH",), 12, "PATH"),
+        (("NJ TRANSIT",), 12, "NJ Transit"),
+        (
+            ("ROAD CLOSURE", "STREET CLOSURE"),
+            16,
+            "Road Closure",
+        ),
+        (("PARADE",), 10, "Parade"),
+        (("MARATHON",), 12, "Marathon"),
+        (
+            ("DEMONSTRATION", "PROTEST"),
+            12,
+            "Demonstration / Protest",
+        ),
+        (("FIREWORKS",), 8, "Fireworks"),
+        (
+            ("METLIFE STADIUM", "METLIFE"),
+            40,
+            "MetLife Stadium",
+        ),
+        (("JAVITS",), 18, "Javits"),
+        (
+            ("MADISON SQUARE GARDEN",),
+            20,
+            "Madison Square Garden",
+        ),
+        (("YANKEE STADIUM",), 18, "Yankee Stadium"),
+        (("CITI FIELD",), 16, "Citi Field"),
+        (("BARCLAYS CENTER",), 10, "Barclays Center"),
+    ]
+
+    for aliases, weight, label in keyword_groups:
+        if any(alias in blob for alias in aliases):
             score += weight
-            reasons.append(keyword.title())
+            reasons.append(label)
 
     attendance = _int(event.get("attendance_estimate"))
     if attendance:
