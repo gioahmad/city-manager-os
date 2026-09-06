@@ -425,6 +425,24 @@ def integration_update(
         poll_seconds=poll_seconds, timeout_seconds=timeout_seconds, max_response_bytes=max_response_bytes,
         allow_redirects=allow_redirects is not None, verify_tls=verify_tls is not None, notes=notes,
     )
+    requested_active = active is not None
+
+    if requested_active:
+        candidate = {
+            "auth_config": p["auth_config"],
+        }
+        missing = _missing_required_secrets(candidate)
+
+        if missing:
+            message = (
+                "Activation blocked - missing required secrets: "
+                + ", ".join(missing)
+            )
+            return RedirectResponse(
+                "/integrations?msg=" + urllib.parse.quote_plus(message),
+                status_code=303,
+            )
+
     execute(
         """
         UPDATE integrations SET
@@ -434,7 +452,7 @@ def integration_update(
           allow_redirects=%s,verify_tls=%s,notes=%s,updated_at=now()
         WHERE id=%s
         """,
-        (p["integration_key"],p["name"],active is not None,p["category"],p["adapter_type"],p["endpoint_url"],p["method"],
+        (p["integration_key"],p["name"],requested_active,p["category"],p["adapter_type"],p["endpoint_url"],p["method"],
          p["auth_type"],p["auth_config"],p["headers"],p["query"],p["request_body"],p["parser_kind"],p["parser_config"],
          p["poll_seconds"],p["timeout_seconds"],p["max_response_bytes"],p["allow_redirects"],p["verify_tls"],p["notes"],integration_id),
     )
