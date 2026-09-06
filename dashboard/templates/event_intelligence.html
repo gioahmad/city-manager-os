@@ -22,7 +22,8 @@
     <div class="metric metric-alerts"><span>Alerts</span><strong>{{ counts.alerts or 0 }}</strong><small>High-impact</small></div>
     <div class="metric"><span>Watch</span><strong>{{ counts.watches or 0 }}</strong><small>Elevated awareness</small></div>
     <div class="metric"><span>Awareness</span><strong>{{ counts.awareness or 0 }}</strong><small>Information only</small></div>
-    <div class="metric"><span>Next 7 Days</span><strong>{{ counts.next7 or 0 }}</strong><small>Upcoming active events</small></div>
+    <div class="metric"><span>Next 7 Days</span><strong>{{ counts.next7 or 0 }}</strong><small>Upcoming events</small></div>
+    <div class="metric"><span>Changed 24h</span><strong>{{ counts.changed24 or 0 }}</strong><small>Meaningful updates</small></div>
   </section>
 
   <section class="panel" style="margin-top:16px">
@@ -30,21 +31,52 @@
     <div class="panel-body">
       <form class="watch-filters" method="get" action="/event-intelligence">
         <input name="q" value="{{ q }}" placeholder="Search event, venue, municipality, traffic or transit impact">
+
         <select name="level">
           <option value="all" {% if level=='all' %}selected{% endif %}>All impact levels</option>
           <option value="ALERT" {% if level=='ALERT' %}selected{% endif %}>Alert</option>
           <option value="WATCH" {% if level=='WATCH' %}selected{% endif %}>Watch</option>
           <option value="AWARENESS" {% if level=='AWARENESS' %}selected{% endif %}>Awareness</option>
         </select>
+
         <select name="horizon">
           <option value="today" {% if horizon=='today' %}selected{% endif %}>Today</option>
           <option value="24h" {% if horizon=='24h' %}selected{% endif %}>Next 24 Hours</option>
+          <option value="weekend" {% if horizon=='weekend' %}selected{% endif %}>This Weekend</option>
           <option value="7d" {% if horizon=='7d' %}selected{% endif %}>Next 7 Days</option>
           <option value="30d" {% if horizon=='30d' %}selected{% endif %}>Next 30 Days</option>
           <option value="all" {% if horizon=='all' %}selected{% endif %}>All</option>
         </select>
+
+        <select name="scope">
+          <option value="all" {% if scope=='all' %}selected{% endif %}>All regions</option>
+          <option value="high" {% if scope=='high' %}selected{% endif %}>High Impact</option>
+          <option value="weehawken" {% if scope=='weehawken' %}selected{% endif %}>Weehawken</option>
+          <option value="hudson" {% if scope=='hudson' %}selected{% endif %}>Hudson County</option>
+          <option value="nyc" {% if scope=='nyc' %}selected{% endif %}>NYC Impact</option>
+          <option value="transit" {% if scope=='transit' %}selected{% endif %}>Transit Impact</option>
+        </select>
+
+        <select name="changed">
+          <option value="all" {% if changed=='all' %}selected{% endif %}>Any change state</option>
+          <option value="24h" {% if changed=='24h' %}selected{% endif %}>Changed in 24 Hours</option>
+          <option value="7d" {% if changed=='7d' %}selected{% endif %}>Changed in 7 Days</option>
+        </select>
+
         <button class="secondary-button" type="submit">Filter</button>
       </form>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <a class="secondary-button button-link" href="/event-intelligence?horizon=today">Today</a>
+        <a class="secondary-button button-link" href="/event-intelligence?horizon=24h">Next 24 Hours</a>
+        <a class="secondary-button button-link" href="/event-intelligence?horizon=weekend">This Weekend</a>
+        <a class="secondary-button button-link" href="/event-intelligence?horizon=7d">Next 7 Days</a>
+        <a class="secondary-button button-link" href="/event-intelligence?scope=high&horizon=7d">High Impact</a>
+        <a class="secondary-button button-link" href="/event-intelligence?scope=nyc&horizon=7d">NYC Impact</a>
+        <a class="secondary-button button-link" href="/event-intelligence?scope=hudson&horizon=7d">Hudson County</a>
+        <a class="secondary-button button-link" href="/event-intelligence?scope=transit&horizon=7d">Transit Impact</a>
+        <a class="secondary-button button-link" href="/event-intelligence?changed=24h&horizon=all">Recent Changes</a>
+      </div>
       <p class="muted small-copy">Scoring is intended to reduce noise. An outside event is not a Township task unless you explicitly create an action or promote it into the managed Schedule.</p>
     </div>
   </section>
@@ -64,6 +96,8 @@
                   {% if e.starts_local %}{{ e.starts_local.strftime('%a %m/%d %I:%M %p') }}{% else %}Time unknown{% endif %}
                   {% if e.venue %} · {{ e.venue }}{% endif %}
                   {% if e.municipality %} · {{ e.municipality }}{% endif %}
+                  {% if e.geographic_tier %} · {{ e.geographic_tier }}{% endif %}
+                  {% if e.change_state == 'UPDATED' %} · UPDATED{% endif %}
                 </div>
               </div>
             </div>
@@ -72,6 +106,9 @@
           <div class="watch-card-body">
             <div class="detail-list">
               <div><dt>Impact</dt><dd>{{ e.impact_summary or 'Regional awareness' }}</dd></div>
+              <div><dt>Geographic Tier</dt><dd>{{ e.geographic_tier }}</dd></div>
+              <div><dt>Change State</dt><dd>{{ e.change_state }}{% if e.change_state == 'UPDATED' and e.last_changed_at %} · {{ e.last_changed_at.strftime('%m/%d/%Y %I:%M %p') }}{% endif %}</dd></div>
+              {% if e.source_matches and e.source_matches > 1 %}<div><dt>Duplicate Sources</dt><dd>{{ e.source_matches }} matching source records consolidated in this view</dd></div>{% endif %}
               {% if e.event_type %}<div><dt>Type</dt><dd>{{ e.event_type }}</dd></div>{% endif %}
               {% if e.ends_local %}<div><dt>Ends</dt><dd>{{ e.ends_local.strftime('%m/%d/%Y %I:%M %p') }}</dd></div>{% endif %}
               {% if e.address %}<div><dt>Location</dt><dd>{{ e.address }}</dd></div>{% endif %}

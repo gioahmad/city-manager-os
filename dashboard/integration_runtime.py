@@ -540,6 +540,31 @@ def score_event(event: dict[str, Any]) -> tuple[int, str, str]:
             score += 8
             reasons.append("2k+ attendance")
 
+    # Explicit transportation impacts matter even when the source does not
+    # use one of our named corridor keywords.
+    if event.get("road_impact"):
+        score += 10
+        reasons.append("road impact")
+
+    if event.get("transit_impact"):
+        score += 10
+        reasons.append("transit impact")
+
+    # Events overlapping weekday commuter peaks are more operationally
+    # relevant to Weehawken even at the same geographic distance.
+    starts_at = event.get("starts_at")
+    if starts_at:
+        try:
+            local_start = starts_at.astimezone(ZoneInfo("America/New_York"))
+            if local_start.weekday() < 5 and (
+                6 <= local_start.hour < 10
+                or 15 <= local_start.hour < 20
+            ):
+                score += 8
+                reasons.append("rush-hour overlap")
+        except Exception:
+            pass
+
     score = min(score, 100)
     level = "ALERT" if score >= 75 else "WATCH" if score >= 45 else "AWARENESS"
     summary = ", ".join(dict.fromkeys(reasons)) if reasons else "Regional awareness"
