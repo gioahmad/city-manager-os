@@ -118,6 +118,7 @@ def alert_admin_v2(
           JOIN deliveries d ON d.alert_id=awm.alert_id
           JOIN subscribers s ON s.id=d.subscriber_id
           WHERE awm.watch_item_id=w.id
+            AND d.matched_watch_ids ? w.watch_id
           ORDER BY COALESCE(d.sent_at,d.attempted_at,d.created_at) DESC
           LIMIT 1
         ) ld ON true
@@ -170,8 +171,9 @@ def alert_admin_v2(
         LEFT JOIN LATERAL (
           SELECT
             count(*) AS total_routes,
-            count(*) FILTER (WHERE wir.active) AS active_routes
+            count(*) FILTER (WHERE wir.active AND w.active AND s.active) AS active_routes
           FROM watch_item_recipients wir
+          JOIN watch_items w ON w.id=wir.watch_item_id
           WHERE wir.subscriber_id=s.id
         ) r ON true
         LEFT JOIN LATERAL (
@@ -248,7 +250,9 @@ def alert_admin_v2(
         FROM alert_watch_matches awm
         JOIN watch_items w ON w.id=awm.watch_item_id
         JOIN alerts a ON a.id=awm.alert_id
-        LEFT JOIN deliveries d ON d.alert_id=a.id
+        LEFT JOIN deliveries d
+          ON d.alert_id=a.id
+         AND d.matched_watch_ids ? w.watch_id
         LEFT JOIN subscribers s ON s.id=d.subscriber_id
         ORDER BY awm.matched_at DESC,
                  COALESCE(d.sent_at,d.attempted_at,d.created_at) DESC NULLS LAST
