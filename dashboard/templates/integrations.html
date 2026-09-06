@@ -102,7 +102,7 @@
           <details class="watch-card {% if not i.active %}inactive{% endif %}">
             <summary>
               <div class="watch-summary-main">
-                <span class="status {% if i.health_status in ['OK','HEALTHY'] %}healthy{% elif i.last_run_status == 'ERROR' %}error{% elif i.active %}warning{% else %}inactive-status{% endif %}">{{ i.health_status or i.last_run_status or ('READY' if i.active else 'OFF') }}</span>
+                <span class="status {% if i.operational_state == 'LIVE' %}healthy{% elif i.operational_state == 'ERROR' %}error{% elif i.operational_state in ['NEEDS SETUP','READY'] %}warning{% else %}inactive-status{% endif %}">{{ i.operational_state }}</span>
                 <div><strong>{{ i.name }}</strong><div class="meta">{{ i.category }} · {{ i.method }} · {{ i.parser_kind }} · every {{ i.poll_seconds }}s</div></div>
               </div>
               <span class="watch-id">{{ i.integration_key }}</span>
@@ -110,20 +110,22 @@
             <div class="watch-card-body">
               <div class="detail-list">
                 <div><dt>Endpoint</dt><dd>{{ i.endpoint_url }}</dd></div>
+                <div><dt>Status</dt><dd>{{ i.operational_detail }}</dd></div>
                 <div><dt>Last run</dt><dd>{{ i.last_run_at.strftime('%m/%d/%Y %I:%M %p') if i.last_run_at else 'Never' }}{% if i.last_http_status %} · HTTP {{ i.last_http_status }}{% endif %}{% if i.last_elapsed_ms %} · {{ i.last_elapsed_ms }} ms{% endif %}</dd></div>
+                {% if i.next_run_at %}<div><dt>Next expected run</dt><dd>{{ i.next_run_at.strftime('%m/%d/%Y %I:%M %p') }}</dd></div>{% endif %}
                 {% if i.last_success_at %}<div><dt>Last success</dt><dd>{{ i.last_success_at.strftime('%m/%d/%Y %I:%M %p') }}</dd></div>{% endif %}
                 {% if i.last_error %}<div><dt>Last error</dt><dd class="error-text">{{ i.last_error }}</dd></div>{% endif %}
               </div>
 
               {% if i.env_state %}
               <div class="panel-kicker" style="margin-top:8px">SECRET REFERENCES</div>
-              {% for e in i.env_state %}<div class="feed-row"><div class="feed-main"><strong>{{ e.env }}</strong><div class="meta">{{ e.field }}</div></div><span class="status {% if e.set %}healthy{% else %}warning{% endif %}">{{ 'SET' if e.set else 'MISSING' }}</span></div>{% endfor %}
+              {% for e in i.env_state %}<div class="feed-row"><div class="feed-main"><strong>{{ e.env }}</strong><div class="meta">{{ e.field }}{% if not e.set %} · Required before activation{% endif %}</div></div><span class="status {% if e.set %}healthy{% else %}error{% endif %}">{{ 'SET' if e.set else 'MISSING' }}</span></div>{% endfor %}
               {% endif %}
 
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
                 <form method="post" action="/integrations/{{ i.id }}/test"><button class="secondary-button" type="submit">Test Connection</button></form>
                 <form method="post" action="/integrations/{{ i.id }}/run"><button class="secondary-button" type="submit">Run Now</button></form>
-                <form method="post" action="/integrations/{{ i.id }}/toggle"><button class="secondary-button" type="submit">{{ 'Disable' if i.active else 'Enable' }}</button></form>
+                <form method="post" action="/integrations/{{ i.id }}/toggle"><button class="secondary-button" type="submit" {% if not i.active and not i.can_activate %}disabled title="Configure required secrets before activation"{% endif %}>{{ 'Pause' if i.active else ('Setup Required' if not i.can_activate else 'Activate') }}</button></form>
               </div>
 
               <details>
