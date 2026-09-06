@@ -1,7 +1,8 @@
+import json
 import uuid
 from datetime import datetime
 
-from fastapi import Form, Request
+from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from operations_app import app, operations_home
@@ -10,53 +11,44 @@ import staff_admin_app  # registers Staff Admin routes
 from app import execute, query_all, query_one, templates
 
 
-def remove_existing_get(path: str):
-    app.router.routes = [
-        route
-        for route in app.router.routes
-        if not (
-            getattr(route, "path", None) == path
-            and "GET" in (getattr(route, "methods", set()) or set())
-        )
-    ]
+def _parse_event_checklist(raw: str) -> str:
+    """Convert simple [ ] / [x] lines into compact event checklist JSON."""
+    items = []
+
+    for raw_line in (raw or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        done = False
+        label = line
+
+        lower = line.lower()
+
+        if lower.startswith("[x]"):
+            done = True
+            label = line[3:].strip()
+        elif lower.startswith("[ ]"):
+            label = line[3:].strip()
+        elif lower.startswith("- [x]"):
+            done = True
+            label = line[5:].strip()
+        elif lower.startswith("- [ ]"):
+            label = line[5:].strip()
+        elif line.startswith("-"):
+            label = line[1:].strip()
+
+        if label:
+            items.append(
+                {
+                    "label": label[:500],
+                    "done": done,
+                }
+            )
+
+    return json.dumps(items)
 
 
-remove_existing_get("/")
-
-
-@app.get("/", response_class=HTMLResponse)
-def schedule_home(request: Request):
-    response = operations_home(request)
-    happening_now = query_all(
-        """
-        SELECT id, title, category, location_name, address, municipality,
-               starts_at AT TIME ZONE 'America/New_York' AS starts_local,
-               ends_at AT TIME ZONE 'America/New_York' AS ends_local,
-               priority, source, notes,
-               CASE
-                 WHEN starts_at <= now()
-                  AND COALESCE(ends_at, starts_at + interval '2 hours') > now()
-                   THEN 'NOW'
-                 WHEN starts_at > now() AND starts_at <= now() + interval '3 hours'
-                   THEN 'NEXT'
-                 ELSE 'UPCOMING'
-               END AS timing_status
-        FROM operational_events
-        WHERE active = true
-          AND starts_at < now() + interval '12 hours'
-          AND COALESCE(ends_at, starts_at + interval '2 hours') > now() - interval '30 minutes'
-        ORDER BY
-          CASE
-            WHEN starts_at <= now()
-             AND COALESCE(ends_at, starts_at + interval '2 hours') > now() THEN 0
-            ELSE 1
-          END,
-          starts_at
-        LIMIT 12
-        """
-    )
-    response.context["happening_now"] = happening_now
-    return response
 
 
 @app.get("/schedule", response_class=HTMLResponse)
@@ -65,7 +57,30 @@ def schedule_page(request: Request, state: str = "upcoming", q: str = "", msg: s
     params = []
 
     if state == "upcoming":
-        where.append("active = true AND COALESCE(ends_at, starts_at + interval '2 hours') >= now()")
+        where.append("active = true AND event_status NOT IN ('COMPLETED','CANCELLED') AND COALESCE(ends_at, starts_at + interval '2 hours') >= now()")
+    elif state == "week":
+        where.append("""
+            active = true
+            AND event_status NOT IN ('COMPLETED','CANCELLED')
+            AND starts_at >= now()
+            AND starts_at < now() + interval '7 days'
+        """)
+    elif state == "needs-prep":
+        where.append("""
+            active = true
+            AND event_status NOT IN ('COMPLETED','CANCELLED')
+            AND COALESCE(ends_at, starts_at + interval '2 hours') >= now()
+            AND preparation_status IN ('NOT_STARTED','IN_PROGRESS')
+        """)
+    elif state == "awaiting":
+        where.append("""
+            active = true
+            AND event_status NOT IN ('COMPLETED','CANCELLED')
+            AND COALESCE(ends_at, starts_at + interval '2 hours') >= now()
+            AND confirmation_status IN ('AWAITING_CONFIRMATION','TENTATIVE')
+        """)
+    elif state == "completed":
+        where.append("event_status = 'COMPLETED'")
     elif state == "past":
         where.append("COALESCE(ends_at, starts_at + interval '2 hours') < now()")
     elif state == "inactive":
@@ -73,8 +88,21 @@ def schedule_page(request: Request, state: str = "upcoming", q: str = "", msg: s
 
     if q.strip():
         needle = f"%{q.strip()}%"
-        where.append("(title ILIKE %s OR category ILIKE %s OR location_name ILIKE %s OR address ILIKE %s OR municipality ILIKE %s OR notes ILIKE %s)")
-        params.extend([needle, needle, needle, needle, needle, needle])
+        where.append("""
+            (
+              title ILIKE %s
+              OR category ILIKE %s
+              OR location_name ILIKE %s
+              OR address ILIKE %s
+              OR municipality ILIKE %s
+              OR notes ILIKE %s
+              OR owner ILIKE %s
+              OR waiting_on ILIKE %s
+              OR agencies_involved ILIKE %s
+              OR attendees ILIKE %s
+            )
+        """)
+        params.extend([needle] * 10)
 
     clause = f"WHERE {' AND '.join(where)}" if where else ""
     rows = query_all(
@@ -84,6 +112,36 @@ def schedule_page(request: Request, state: str = "upcoming", q: str = "", msg: s
                ends_at AT TIME ZONE 'America/New_York' AS ends_local,
                priority, source, notes,
                attendees, objective, prep_notes, decisions_needed, debrief_notes,
+               owner, event_status, event_scope, source_url,
+               expected_attendance, impact_notes,
+               confirmation_status, waiting_on, preparation_status,
+               agencies_involved, reference_links, preparation_checklist,
+               reminder_at AT TIME ZONE 'America/New_York' AS reminder_local,
+               COALESCE(
+                 (
+                   SELECT jsonb_agg(
+                     jsonb_build_object(
+                       'id', i.id,
+                       'title', i.title,
+                       'status', i.status,
+                       'assigned_to', i.assigned_to,
+                       'next_action', i.next_action,
+                       'waiting_on', i.waiting_on,
+                       'due_at', i.due_at AT TIME ZONE 'America/New_York'
+                     )
+                     ORDER BY
+                       CASE
+                         WHEN i.status IN ('RESOLVED','CLOSED') THEN 1
+                         ELSE 0
+                       END,
+                       i.updated_at DESC
+                   )
+                   FROM issues i
+                   WHERE i.operational_event_id=operational_events.id
+                 ),
+                 '[]'::jsonb
+               ) AS linked_issues,
+               event_intelligence_id,
                created_at, updated_at,
                CASE
                  WHEN active = false THEN 'INACTIVE'
@@ -106,19 +164,40 @@ def schedule_page(request: Request, state: str = "upcoming", q: str = "", msg: s
         SELECT
           count(*) FILTER (
             WHERE active = true
+              AND event_status NOT IN ('COMPLETED','CANCELLED')
               AND starts_at <= now()
               AND COALESCE(ends_at, starts_at + interval '2 hours') > now()
           ) AS happening_now,
           count(*) FILTER (
             WHERE active = true
+              AND event_status NOT IN ('COMPLETED','CANCELLED')
               AND starts_at > now()
               AND starts_at < date_trunc('day', now() AT TIME ZONE 'America/New_York')
                   AT TIME ZONE 'America/New_York' + interval '1 day'
           ) AS later_today,
           count(*) FILTER (
             WHERE active = true
+              AND event_status NOT IN ('COMPLETED','CANCELLED')
               AND COALESCE(ends_at, starts_at + interval '2 hours') >= now()
-          ) AS upcoming
+          ) AS upcoming,
+          count(*) FILTER (
+            WHERE active = true
+              AND event_status NOT IN ('COMPLETED','CANCELLED')
+              AND starts_at >= now()
+              AND starts_at < now() + interval '7 days'
+          ) AS this_week,
+          count(*) FILTER (
+            WHERE active = true
+              AND event_status NOT IN ('COMPLETED','CANCELLED')
+              AND COALESCE(ends_at, starts_at + interval '2 hours') >= now()
+              AND preparation_status IN ('NOT_STARTED','IN_PROGRESS')
+          ) AS needs_preparation,
+          count(*) FILTER (
+            WHERE active = true
+              AND event_status NOT IN ('COMPLETED','CANCELLED')
+              AND COALESCE(ends_at, starts_at + interval '2 hours') >= now()
+              AND confirmation_status IN ('AWAITING_CONFIRMATION','TENTATIVE')
+          ) AS awaiting_confirmation
         FROM operational_events
         """
     )
@@ -153,32 +232,65 @@ def schedule_create(
     prep_notes: str = Form(""),
     decisions_needed: str = Form(""),
     debrief_notes: str = Form(""),
+    owner: str = Form(""),
+    event_status: str = Form("PLANNING"),
+    event_scope: str = Form("MANAGED"),
+    source_url: str = Form(""),
+    expected_attendance: str = Form(""),
+    impact_notes: str = Form(""),
+    confirmation_status: str = Form("CONFIRMED"),
+    waiting_on: str = Form(""),
+    preparation_status: str = Form("NOT_STARTED"),
+    agencies_involved: str = Form(""),
+    reference_links: str = Form(""),
+    preparation_checklist_text: str = Form(""),
+    reminder_at: str = Form(""),
 ):
     execute(
         """
         INSERT INTO operational_events (
           title, category, location_name, address, municipality,
           starts_at, ends_at, priority, source, notes,
-          attendees, objective, prep_notes, decisions_needed, debrief_notes
+          attendees, objective, prep_notes, decisions_needed, debrief_notes,
+          owner, event_status, event_scope, source_url,
+          expected_attendance, impact_notes,
+          confirmation_status, waiting_on, preparation_status,
+          agencies_involved, reference_links, preparation_checklist, reminder_at
         )
         VALUES (
           %s, %s, %s, %s, %s,
           %s::timestamp AT TIME ZONE 'America/New_York',
-          CASE WHEN NULLIF(%s, '') IS NULL THEN NULL
-               ELSE %s::timestamp AT TIME ZONE 'America/New_York' END,
+          NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
           %s, 'MANUAL', %s,
-          %s, %s, %s, %s, %s
+          %s, %s, %s, %s, %s,
+          %s, %s, %s, %s,
+          NULLIF(%s, '')::integer,
+          %s, %s, %s, %s, %s, %s, %s::jsonb,
+          NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York'
         )
         """,
         (
             title.strip(), category.strip() or None, location_name.strip() or None,
             address.strip() or None, municipality.strip() or "Weehawken",
-            starts_at, ends_at, ends_at, priority, notes.strip() or None,
+            starts_at, ends_at, priority, notes.strip() or None,
             attendees.strip() or None,
             objective.strip() or None,
             prep_notes.strip() or None,
             decisions_needed.strip() or None,
             debrief_notes.strip() or None,
+            owner.strip() or None,
+            event_status,
+            event_scope,
+            source_url.strip() or None,
+            expected_attendance,
+            impact_notes.strip() or None,
+            confirmation_status,
+            waiting_on.strip() or None,
+            preparation_status,
+            agencies_involved.strip() or None,
+            reference_links.strip() or None,
+            _parse_event_checklist(preparation_checklist_text),
+            reminder_at,
         ),
     )
     return RedirectResponse(url="/schedule?msg=Schedule+item+created", status_code=303)
@@ -201,6 +313,19 @@ def schedule_update(
     prep_notes: str = Form(""),
     decisions_needed: str = Form(""),
     debrief_notes: str = Form(""),
+    owner: str = Form(""),
+    event_status: str = Form("PLANNING"),
+    event_scope: str = Form("MANAGED"),
+    source_url: str = Form(""),
+    expected_attendance: str = Form(""),
+    impact_notes: str = Form(""),
+    confirmation_status: str = Form("CONFIRMED"),
+    waiting_on: str = Form(""),
+    preparation_status: str = Form("NOT_STARTED"),
+    agencies_involved: str = Form(""),
+    reference_links: str = Form(""),
+    preparation_checklist_text: str = Form(""),
+    reminder_at: str = Form(""),
     active: str | None = Form(None),
 ):
     execute(
@@ -213,8 +338,7 @@ def schedule_update(
             address = %s,
             municipality = %s,
             starts_at = %s::timestamp AT TIME ZONE 'America/New_York',
-            ends_at = CASE WHEN NULLIF(%s, '') IS NULL THEN NULL
-                           ELSE %s::timestamp AT TIME ZONE 'America/New_York' END,
+            ends_at = NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
             priority = %s,
             notes = %s,
             attendees = %s,
@@ -222,13 +346,28 @@ def schedule_update(
             prep_notes = %s,
             decisions_needed = %s,
             debrief_notes = %s,
+            owner = %s,
+            event_status = %s,
+            event_scope = %s,
+            source_url = %s,
+            expected_attendance =
+              NULLIF(%s, '')::integer,
+            impact_notes = %s,
+            confirmation_status = %s,
+            waiting_on = %s,
+            preparation_status = %s,
+            agencies_involved = %s,
+            reference_links = %s,
+            preparation_checklist = %s::jsonb,
+            reminder_at =
+              NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
             updated_at = now()
         WHERE id = %s
         """,
         (
             active is not None, title.strip(), category.strip() or None,
             location_name.strip() or None, address.strip() or None,
-            municipality.strip() or "Weehawken", starts_at, ends_at, ends_at,
+            municipality.strip() or "Weehawken", starts_at, ends_at,
             priority,
             notes.strip() or None,
             attendees.strip() or None,
@@ -236,10 +375,171 @@ def schedule_update(
             prep_notes.strip() or None,
             decisions_needed.strip() or None,
             debrief_notes.strip() or None,
+            owner.strip() or None,
+            event_status,
+            event_scope,
+            source_url.strip() or None,
+            expected_attendance,
+            impact_notes.strip() or None,
+            confirmation_status,
+            waiting_on.strip() or None,
+            preparation_status,
+            agencies_involved.strip() or None,
+            reference_links.strip() or None,
+            _parse_event_checklist(preparation_checklist_text),
+            reminder_at,
             event_id,
         ),
     )
     return RedirectResponse(url="/schedule?msg=Schedule+item+updated", status_code=303)
+
+
+
+@app.post("/schedule/{event_id}/checklist/{item_index}/toggle")
+def schedule_toggle_checklist(
+    event_id: uuid.UUID,
+    item_index: int,
+):
+    row = query_one(
+        """
+        SELECT preparation_checklist
+        FROM operational_events
+        WHERE id=%s
+        """,
+        (event_id,),
+    )
+
+    if not row:
+        raise HTTPException(404, "Event not found")
+
+    items = row["preparation_checklist"] or []
+
+    if (
+        not isinstance(items, list)
+        or item_index < 0
+        or item_index >= len(items)
+    ):
+        raise HTTPException(400, "Invalid checklist item")
+
+    item = dict(items[item_index])
+    item["done"] = not bool(item.get("done"))
+    items[item_index] = item
+
+    execute(
+        """
+        UPDATE operational_events
+        SET preparation_checklist=%s::jsonb,
+            updated_at=now()
+        WHERE id=%s
+        """,
+        (
+            json.dumps(items),
+            event_id,
+        ),
+    )
+
+    return RedirectResponse(
+        url="/schedule?msg=Preparation+checklist+updated",
+        status_code=303,
+    )
+
+
+@app.post("/schedule/{event_id}/create-action")
+def schedule_create_action(
+    event_id: uuid.UUID,
+    action_title: str = Form(""),
+    assigned_to: str = Form(""),
+    next_action: str = Form(""),
+    action_due_at: str = Form(""),
+):
+    event = query_one(
+        """
+        SELECT
+          id,
+          title,
+          objective,
+          prep_notes,
+          waiting_on,
+          municipality,
+          priority
+        FROM operational_events
+        WHERE id=%s
+        """,
+        (event_id,),
+    )
+
+    if not event:
+        raise HTTPException(404, "Event not found")
+
+    title = (
+        action_title.strip()
+        or f"Event prep: {event['title']}"
+    )
+
+    description_parts = []
+
+    if event.get("objective"):
+        description_parts.append(
+            "Event objective: " + event["objective"]
+        )
+
+    if event.get("prep_notes"):
+        description_parts.append(
+            "Preparation: " + event["prep_notes"]
+        )
+
+    description = "\n".join(description_parts) or None
+
+    execute(
+        """
+        INSERT INTO issues (
+          title,
+          description,
+          category,
+          priority,
+          status,
+          source,
+          municipality,
+          item_type,
+          operational_event_id,
+          assigned_to,
+          next_action,
+          waiting_on,
+          due_at
+        )
+        VALUES (
+          %s,
+          %s,
+          'EVENT',
+          %s,
+          'OPEN',
+          'EVENTS_CENTER',
+          %s,
+          'FOLLOW_UP',
+          %s,
+          %s,
+          %s,
+          %s,
+          NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York'
+        )
+        """,
+        (
+            title,
+            description,
+            event["priority"],
+            event["municipality"],
+            event_id,
+            assigned_to.strip() or None,
+            next_action.strip() or None,
+            event.get("waiting_on"),
+            action_due_at,
+        ),
+    )
+
+    return RedirectResponse(
+        url="/schedule?msg=Command+Center+action+created",
+        status_code=303,
+    )
 
 
 @app.post("/schedule/{event_id}/toggle")
@@ -263,6 +563,7 @@ def my_day(request: Request):
           attendees, objective, prep_notes, decisions_needed, debrief_notes
         FROM operational_events
         WHERE active = true
+          AND event_status NOT IN ('COMPLETED','CANCELLED')
           AND starts_at >= date_trunc(
                 'day',
                 now() AT TIME ZONE 'America/New_York'

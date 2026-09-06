@@ -154,6 +154,39 @@ def operations_home(request: Request):
         """
     )
 
+    happening_now = query_all(
+        """
+        SELECT id, title, category, location_name, address, municipality,
+               starts_at AT TIME ZONE 'America/New_York' AS starts_local,
+               ends_at AT TIME ZONE 'America/New_York' AS ends_local,
+               priority, source, notes,
+               CASE
+                 WHEN starts_at <= now()
+                  AND COALESCE(ends_at, starts_at + interval '2 hours') > now()
+                   THEN 'NOW'
+                 WHEN starts_at > now()
+                  AND starts_at <= now() + interval '3 hours'
+                   THEN 'NEXT'
+                 ELSE 'UPCOMING'
+               END AS timing_status
+        FROM operational_events
+        WHERE active = true
+          AND event_status NOT IN ('COMPLETED','CANCELLED')
+          AND starts_at < now() + interval '12 hours'
+          AND COALESCE(ends_at, starts_at + interval '2 hours')
+                > now() - interval '30 minutes'
+        ORDER BY
+          CASE
+            WHEN starts_at <= now()
+             AND COALESCE(ends_at, starts_at + interval '2 hours') > now()
+              THEN 0
+            ELSE 1
+          END,
+          starts_at
+        LIMIT 12
+        """
+    )
+
     return templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -165,6 +198,7 @@ def operations_home(request: Request):
             "recent_deliveries": recent_deliveries,
             "command_center": command_center,
             "command_counts": command_counts,
+            "happening_now": happening_now,
             "generated_at": datetime.now(),
             "page": "overview",
         },

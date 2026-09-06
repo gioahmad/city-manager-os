@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from schedule_app import app
 from app import db_conn, execute, query_all, query_one, templates
+from datetime import date, datetime
 
 
 SYSTEM_LAYERS = [
@@ -55,6 +56,13 @@ SYSTEM_LAYERS = [
         "default_visible": False,
         "point": True,
     },
+    {
+        "key": "managed-events",
+        "name": "Managed Events",
+        "endpoint": "/map/system/managed-events.geojson",
+        "default_visible": False,
+        "point": True,
+    },
 ]
 
 
@@ -85,6 +93,8 @@ def _feature_collection(rows, geometry_field="geometry"):
         for key, value in list(props.items()):
             if isinstance(value, uuid.UUID):
                 props[key] = str(value)
+            elif isinstance(value, (datetime, date)):
+                props[key] = value.isoformat()
         features.append({"type": "Feature", "geometry": geom, "properties": props})
     return {"type": "FeatureCollection", "features": features}
 
@@ -487,3 +497,50 @@ async def map_feature_create(layer_id: uuid.UUID, request: Request):
 def map_feature_archive(feature_id: uuid.UUID):
     execute("UPDATE map_features SET active=false,updated_at=now() WHERE id=%s", (feature_id,))
     return RedirectResponse("/map?msg=Feature+archived", status_code=303)
+
+
+
+@app.get("/map/system/managed-events.geojson")
+def map_managed_events_geojson():
+    rows = query_all(
+        """
+        SELECT
+          e.id,
+          e.title,
+          e.event_status,
+          e.event_scope,
+          e.preparation_status,
+          e.confirmation_status,
+          e.priority,
+          e.owner,
+          e.starts_at,
+          e.ends_at,
+          e.location_name,
+          e.address,
+          e.municipality,
+          a.fulladdr AS mapped_address,
+          ST_AsGeoJSON(a.geom)::json AS geometry
+        FROM operational_events e
+        LEFT JOIN LATERAL (
+          SELECT
+            ga.geom,
+            ga.fulladdr
+          FROM gis_addresses ga
+          WHERE nullif(trim(coalesce(e.address,'')),'') IS NOT NULL
+            AND lower(trim(ga.fulladdr))=lower(trim(e.address))
+          ORDER BY
+            CASE WHEN ga.status='A' THEN 0 ELSE 1 END,
+            ga.objectid
+          LIMIT 1
+        ) a ON true
+        WHERE e.active=true
+          AND e.event_status NOT IN ('COMPLETED','CANCELLED')
+          AND a.geom IS NOT NULL
+        ORDER BY
+          e.starts_at,
+          e.priority DESC
+        LIMIT 2000
+        """
+    )
+
+    return JSONResponse(_feature_collection(rows))

@@ -3,133 +3,449 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Schedule · City Manager OS</title>
+  <title>Events Center · City Manager OS</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <div class="eyebrow">WEEHAWKEN OPERATIONS</div>
-      <div class="brand-row"><h1>Operational Schedule</h1><span class="private-badge">PRIVATE</span></div>
-      <div class="tagline">Current and upcoming municipal activity</div>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">WEEHAWKEN OPERATIONS</div>
+    <div class="brand-row"><h1>Events Center</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Managed Township events, meetings, milestones and preparation</div>
+  </div>
+</header>
+
+{% include "nav.html" %}
+
+<main>
+{% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+
+<section class="metrics watch-metrics">
+  <div class="metric metric-alerts">
+    <span>Happening Now</span>
+    <strong>{{ counts.happening_now or 0 }}</strong>
+    <small>Currently underway</small>
+  </div>
+  <div class="metric">
+    <span>This Week</span>
+    <strong>{{ counts.this_week or 0 }}</strong>
+    <small>Next 7 days</small>
+  </div>
+  <div class="metric">
+    <span>Needs Prep</span>
+    <strong>{{ counts.needs_preparation or 0 }}</strong>
+    <small>Not ready yet</small>
+  </div>
+  <div class="metric">
+    <span>Awaiting</span>
+    <strong>{{ counts.awaiting_confirmation or 0 }}</strong>
+    <small>Confirmation pending</small>
+  </div>
+</section>
+
+<div class="quick-actions" style="margin-top:14px">
+  <a class="secondary-button button-link" href="/schedule?state=upcoming">Upcoming</a>
+  <a class="secondary-button button-link" href="/schedule?state=week">This Week</a>
+  <a class="secondary-button button-link" href="/schedule?state=needs-prep">Needs Preparation</a>
+  <a class="secondary-button button-link" href="/schedule?state=awaiting">Awaiting Confirmation</a>
+  <a class="secondary-button button-link" href="/schedule?state=completed">Completed</a>
+  <a class="secondary-button button-link" href="/schedule?state=past">Past</a>
+  <a class="secondary-button button-link" href="/map">Map</a>
+  <a class="secondary-button button-link" href="/event-intelligence">Event Intelligence</a>
+</div>
+
+<section class="grid watch-layout" style="margin-top:16px">
+<article class="panel">
+  <div class="panel-head">
+    <div><div class="panel-kicker">ADD</div><h2>Managed Event</h2></div>
+  </div>
+
+  <div class="panel-body form-panel">
+  <form method="post" action="/schedule/create" class="watch-form">
+
+    <label>Title<input name="title" required placeholder="NHCAC Ribbon Cutting"></label>
+
+    <div class="form-grid two-col">
+      <label>Category<input name="category" placeholder="EVENT, MEETING, HEARING, MILESTONE"></label>
+      <label>Owner<input name="owner" placeholder="Department, supervisor or person"></label>
     </div>
-  </header>
-  {% include "nav.html" %}
 
-  <main>
-    {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+    <div class="form-grid two-col">
+      <label>Status
+        <select name="event_status">
+          <option value="PLANNING">Planning</option>
+          <option value="TRACKING">Tracking</option>
+          <option value="CONFIRMED">Confirmed</option>
+          <option value="COMPLETED">Completed</option>
+          <option value="CANCELLED">Cancelled</option>
+        </select>
+      </label>
+      <label>Scope
+        <select name="event_scope">
+          <option value="MANAGED">Township Managed</option>
+          <option value="EXTERNAL">External / Deliberately Tracked</option>
+        </select>
+      </label>
+    </div>
 
-    <section class="metrics watch-metrics">
-      <div class="metric metric-alerts"><span>Happening Now</span><strong>{{ counts.happening_now or 0 }}</strong><small>Currently underway</small></div>
-      <div class="metric"><span>Later Today</span><strong>{{ counts.later_today or 0 }}</strong><small>Scheduled today</small></div>
-      <div class="metric"><span>Upcoming</span><strong>{{ counts.upcoming or 0 }}</strong><small>Future active items</small></div>
-    </section>
+    <div class="form-grid two-col">
+      <label>Confirmation
+        <select name="confirmation_status">
+          <option value="CONFIRMED">Confirmed</option>
+          <option value="AWAITING_CONFIRMATION">Awaiting Confirmation</option>
+          <option value="TENTATIVE">Tentative</option>
+          <option value="NOT_REQUIRED">Not Required</option>
+        </select>
+      </label>
+      <label>Preparation
+        <select name="preparation_status">
+          <option value="NOT_STARTED">Not Started</option>
+          <option value="IN_PROGRESS">In Progress</option>
+          <option value="READY">Ready</option>
+          <option value="NOT_REQUIRED">Not Required</option>
+        </select>
+      </label>
+    </div>
 
-    <section class="grid watch-layout" style="margin-top:16px">
-      <article class="panel">
-        <div class="panel-head"><div><div class="panel-kicker">ADD</div><h2>Schedule Item</h2></div></div>
-        <div class="panel-body form-panel">
-          <form method="post" action="/schedule/create" class="watch-form">
-            <label>Title<input name="title" required placeholder="School assembly"></label>
-            <div class="form-grid two-col">
-              <label>Category<input name="category" placeholder="SCHOOL, ROADWORK, MEETING"></label>
-              <label>Priority
-                <select name="priority">
-                  {% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == 3 %}selected{% endif %}>P{{ p }}</option>{% endfor %}
-                </select>
-              </label>
-            </div>
-            <label>Location<input name="location_name" placeholder="Weehawken High School"></label>
-            <label>Address<input name="address" placeholder="53 Liberty Place"></label>
-            <label>Municipality<input name="municipality" value="Weehawken"></label>
-            <div class="form-grid two-col">
-              <label>Starts<input type="datetime-local" name="starts_at" required></label>
-              <label>Ends<input type="datetime-local" name="ends_at"></label>
-            </div>
-            <label>Notes<textarea name="notes" rows="3" placeholder="Operational details, expected impact, contact, restrictions"></textarea></label>
+    <label>Waiting On<input name="waiting_on" placeholder="Mayor confirmation, vendor COI, County approval"></label>
 
-            <div class="panel-kicker" style="margin-top:8px">MEETING PREP</div>
-            <label>Attendees<input name="attendees" placeholder="Mayor Turner, Engineer, Township Attorney"></label>
-            <label>Objective<input name="objective" placeholder="What do I need to accomplish?"></label>
-            <label>Prep Notes<textarea name="prep_notes" rows="3" placeholder="Background, context, facts to remember"></textarea></label>
-            <label>Decisions Needed<textarea name="decisions_needed" rows="2" placeholder="What needs to be decided or approved?"></textarea></label>
-            <label>Debrief Notes<textarea name="debrief_notes" rows="2" placeholder="Complete after the meeting"></textarea></label>
+    <label>Location<input name="location_name" placeholder="Town Hall"></label>
+    <label>Address<input name="address" placeholder="400 Park Avenue"></label>
+    <label>Municipality<input name="municipality" value="Weehawken"></label>
 
-            <button class="primary-button" type="submit">Add Schedule Item</button>
-          </form>
-        </div>
-      </article>
+    <div class="form-grid two-col">
+      <label>Starts<input type="datetime-local" name="starts_at" required></label>
+      <label>Ends<input type="datetime-local" name="ends_at"></label>
+    </div>
 
-      <article class="panel">
-        <div class="panel-head"><div><div class="panel-kicker">MANAGE</div><h2>Schedule</h2></div><span class="count-pill">{{ rows|length }}</span></div>
-        <div class="panel-body">
-          <form class="watch-filters" method="get" action="/schedule">
-            <input name="q" value="{{ q }}" placeholder="Search event, location, address, category">
-            <select name="state">
-              <option value="upcoming" {% if state == 'upcoming' %}selected{% endif %}>Upcoming</option>
-              <option value="past" {% if state == 'past' %}selected{% endif %}>Past</option>
-              <option value="inactive" {% if state == 'inactive' %}selected{% endif %}>Inactive</option>
-              <option value="all" {% if state == 'all' %}selected{% endif %}>All</option>
-            </select>
-            <button class="secondary-button" type="submit">Filter</button>
-          </form>
+    <div class="form-grid two-col">
+      <label>Priority
+        <select name="priority">
+          {% for p in [1,2,3,4,5] %}
+          <option value="{{ p }}" {% if p == 3 %}selected{% endif %}>P{{ p }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Expected Attendance<input type="number" min="0" name="expected_attendance"></label>
+    </div>
 
-          <div class="watch-list">
-            {% for e in rows %}
-            <details class="watch-card {% if not e.active %}inactive{% endif %}">
-              <summary>
-                <div class="watch-summary-main">
-                  {% if e.timing_status == 'NOW' %}<span class="status healthy">NOW</span>{% elif e.timing_status == 'UPCOMING' %}<span class="status warning">UPCOMING</span>{% else %}<span class="status inactive-status">{{ e.timing_status }}</span>{% endif %}
-                  <div>
-                    <strong>{{ e.title }}</strong>
-                    <div class="meta">{{ e.starts_local.strftime('%m/%d %I:%M %p') if e.starts_local else '' }}{% if e.ends_local %}–{{ e.ends_local.strftime('%I:%M %p') }}{% endif %}{% if e.location_name %} · {{ e.location_name }}{% endif %}{% if e.category %} · {{ e.category }}{% endif %}</div>
-                  </div>
-                </div>
-                <span class="priority-chip p{{ e.priority }}">P{{ e.priority }}</span>
-              </summary>
-              <div class="watch-card-body">
-                <form method="post" action="/schedule/{{ e.id }}/update" class="watch-form compact">
-                  <label>Title<input name="title" value="{{ e.title }}" required></label>
-                  <div class="form-grid two-col">
-                    <label>Category<input name="category" value="{{ e.category or '' }}"></label>
-                    <label>Priority<select name="priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == e.priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label>
-                  </div>
-                  <label>Location<input name="location_name" value="{{ e.location_name or '' }}"></label>
-                  <div class="form-grid two-col">
-                    <label>Address<input name="address" value="{{ e.address or '' }}"></label>
-                    <label>Municipality<input name="municipality" value="{{ e.municipality or 'Weehawken' }}"></label>
-                  </div>
-                  <div class="form-grid two-col">
-                    <label>Starts<input type="datetime-local" name="starts_at" value="{{ e.starts_local.strftime('%Y-%m-%dT%H:%M') if e.starts_local else '' }}" required></label>
-                    <label>Ends<input type="datetime-local" name="ends_at" value="{{ e.ends_local.strftime('%Y-%m-%dT%H:%M') if e.ends_local else '' }}"></label>
-                  </div>
-                  <label>Notes<textarea name="notes" rows="2">{{ e.notes or '' }}</textarea></label>
+    <label>People / Attendees<input name="attendees" placeholder="Mayor Turner, Council, invited officials"></label>
+    <label>Agencies Involved<input name="agencies_involved" placeholder="Police, DPW, NHCAC, County"></label>
 
-                  <div class="panel-kicker" style="margin-top:8px">MEETING PREP / DEBRIEF</div>
-                  <label>Attendees<input name="attendees" value="{{ e.attendees or '' }}"></label>
-                  <label>Objective<input name="objective" value="{{ e.objective or '' }}"></label>
-                  <label>Prep Notes<textarea name="prep_notes" rows="3">{{ e.prep_notes or '' }}</textarea></label>
-                  <label>Decisions Needed<textarea name="decisions_needed" rows="2">{{ e.decisions_needed or '' }}</textarea></label>
-                  <label>Debrief Notes<textarea name="debrief_notes" rows="3">{{ e.debrief_notes or '' }}</textarea></label>
+    <label>Objective<input name="objective" placeholder="What needs to be accomplished?"></label>
 
-                  <label class="checkbox-row"><input type="checkbox" name="active" value="1" {% if e.active %}checked{% endif %}> Active</label>
-                  <button class="primary-button" type="submit">Save Changes</button>
-                </form>
+    <label>Preparation Notes<textarea name="prep_notes" rows="3" placeholder="Background, setup notes and important context"></textarea></label>
 
-                <form method="post" action="/schedule/{{ e.id }}/create-follow-up" class="toggle-form">
-                  <button class="secondary-button" type="submit">Create Follow-Up</button>
-                </form>
+    <label>Preparation Checklist
+      <textarea name="preparation_checklist_text" rows="5" placeholder="[ ] Invitations&#10;[ ] Police / traffic plan&#10;[ ] Setup confirmed&#10;[ ] Talking points ready"></textarea>
+    </label>
 
-                <form method="post" action="/schedule/{{ e.id }}/toggle" class="toggle-form"><button class="secondary-button" type="submit">{{ 'Deactivate' if e.active else 'Reactivate' }}</button></form>
-              </div>
-            </details>
-            {% else %}<div class="empty-state"><strong>No schedule items found</strong><span>Add an item or change the filter.</span></div>{% endfor %}
-          </div>
-        </div>
-      </article>
-    </section>
+    <div class="meta">Use one item per line. Mark completed items with [x]. Actionable work that needs an owner belongs in Command Center.</div>
 
-    <footer><span>City Manager OS</span><span>Operational schedule · America/New_York</span></footer>
-  </main>
+    <label>Decisions Needed<textarea name="decisions_needed" rows="2"></textarea></label>
+
+    <label>Operational / Impact Notes<textarea name="impact_notes" rows="2" placeholder="Traffic, parking, public safety, staffing, resident impact"></textarea></label>
+
+    <label>General Notes<textarea name="notes" rows="2"></textarea></label>
+
+    <label>Links / Documents<textarea name="reference_links" rows="2" placeholder="One URL per line or document reference"></textarea></label>
+
+    <label>Source URL<input name="source_url" placeholder="Optional source or reference URL"></label>
+
+    <label>Reminder<input type="datetime-local" name="reminder_at"></label>
+
+    <label>Debrief Notes<textarea name="debrief_notes" rows="2" placeholder="Complete after the event"></textarea></label>
+
+    <button class="primary-button" type="submit">Add Event</button>
+  </form>
+  </div>
+</article>
+
+<article class="panel">
+<div class="panel-head">
+  <div><div class="panel-kicker">MANAGE</div><h2>Events</h2></div>
+  <span class="count-pill">{{ rows|length }}</span>
+</div>
+
+<div class="panel-body">
+
+<form class="watch-filters" method="get" action="/schedule">
+  <input name="q" value="{{ q }}" placeholder="Search event, owner, location or notes">
+  <select name="state">
+    <option value="upcoming" {{ 'selected' if state == 'upcoming' else '' }}>Upcoming</option>
+    <option value="week" {{ 'selected' if state == 'week' else '' }}>This Week</option>
+    <option value="needs-prep" {{ 'selected' if state == 'needs-prep' else '' }}>Needs Preparation</option>
+    <option value="awaiting" {{ 'selected' if state == 'awaiting' else '' }}>Awaiting Confirmation</option>
+    <option value="completed" {{ 'selected' if state == 'completed' else '' }}>Completed</option>
+    <option value="past" {{ 'selected' if state == 'past' else '' }}>Past</option>
+    <option value="inactive" {{ 'selected' if state == 'inactive' else '' }}>Inactive</option>
+    <option value="all" {{ 'selected' if state == 'all' else '' }}>All</option>
+  </select>
+  <button class="secondary-button" type="submit">Filter</button>
+</form>
+
+<div class="watch-list">
+{% for e in rows %}
+<details class="watch-card {% if not e.active %}inactive{% endif %}">
+<summary>
+  <div class="watch-summary-main">
+    {% if e.event_status == 'COMPLETED' %}
+      <span class="status healthy">COMPLETED</span>
+    {% elif e.event_status == 'CANCELLED' %}
+      <span class="status inactive-status">CANCELLED</span>
+    {% elif e.confirmation_status in ['AWAITING_CONFIRMATION','TENTATIVE'] %}
+      <span class="status warning">AWAITING</span>
+    {% elif e.preparation_status in ['NOT_STARTED','IN_PROGRESS'] %}
+      <span class="status warning">NEEDS PREP</span>
+    {% elif e.timing_status == 'NOW' %}
+      <span class="status healthy">NOW</span>
+    {% else %}
+      <span class="status">{{ e.event_status|replace('_',' ') }}</span>
+    {% endif %}
+
+    <div>
+      <strong>{{ e.title }}</strong>
+      <div class="meta">
+        {{ e.starts_local.strftime('%m/%d %I:%M %p') if e.starts_local else '' }}
+        {% if e.location_name %} · {{ e.location_name }}{% endif %}
+        {% if e.owner %} · Owner: {{ e.owner }}{% endif %}
+        {% if e.linked_issues %} · {{ e.linked_issues|length }} Command Center action{{ '' if e.linked_issues|length == 1 else 's' }}{% endif %}
+      </div>
+      <div class="meta">
+        {{ e.event_scope|replace('_',' ') }}
+        · {{ e.confirmation_status|replace('_',' ') }}
+        · Prep: {{ e.preparation_status|replace('_',' ') }}
+        {% if e.waiting_on %} · Waiting on: {{ e.waiting_on }}{% endif %}
+      </div>
+    </div>
+  </div>
+  <span class="priority-chip p{{ e.priority }}">P{{ e.priority }}</span>
+</summary>
+
+<div class="watch-card-body">
+
+<form method="post" action="/schedule/{{ e.id }}/update" class="watch-form compact">
+
+<label>Title<input name="title" value="{{ e.title }}" required></label>
+
+<div class="form-grid two-col">
+  <label>Category<input name="category" value="{{ e.category or '' }}"></label>
+  <label>Owner<input name="owner" value="{{ e.owner or '' }}"></label>
+</div>
+
+<div class="form-grid two-col">
+<label>Status
+<select name="event_status">
+{% for v in ['PLANNING','TRACKING','CONFIRMED','COMPLETED','CANCELLED'] %}
+<option value="{{ v }}" {{ 'selected' if e.event_status == v else '' }}>{{ v|replace('_',' ') }}</option>
+{% endfor %}
+</select>
+</label>
+
+<label>Scope
+<select name="event_scope">
+{% for v in ['MANAGED','EXTERNAL'] %}
+<option value="{{ v }}" {{ 'selected' if e.event_scope == v else '' }}>{{ v|replace('_',' ') }}</option>
+{% endfor %}
+</select>
+</label>
+</div>
+
+<div class="form-grid two-col">
+<label>Confirmation
+<select name="confirmation_status">
+{% for v in ['CONFIRMED','AWAITING_CONFIRMATION','TENTATIVE','NOT_REQUIRED'] %}
+<option value="{{ v }}" {{ 'selected' if e.confirmation_status == v else '' }}>{{ v|replace('_',' ') }}</option>
+{% endfor %}
+</select>
+</label>
+
+<label>Preparation
+<select name="preparation_status">
+{% for v in ['NOT_STARTED','IN_PROGRESS','READY','NOT_REQUIRED'] %}
+<option value="{{ v }}" {{ 'selected' if e.preparation_status == v else '' }}>{{ v|replace('_',' ') }}</option>
+{% endfor %}
+</select>
+</label>
+</div>
+
+<label>Waiting On<input name="waiting_on" value="{{ e.waiting_on or '' }}"></label>
+
+<label>Location<input name="location_name" value="{{ e.location_name or '' }}"></label>
+
+<div class="form-grid two-col">
+<label>Address<input name="address" value="{{ e.address or '' }}"></label>
+<label>Municipality<input name="municipality" value="{{ e.municipality or 'Weehawken' }}"></label>
+</div>
+
+<div class="form-grid two-col">
+<label>Starts<input type="datetime-local" name="starts_at" value="{{ e.starts_local.strftime('%Y-%m-%dT%H:%M') if e.starts_local else '' }}" required></label>
+<label>Ends<input type="datetime-local" name="ends_at" value="{{ e.ends_local.strftime('%Y-%m-%dT%H:%M') if e.ends_local else '' }}"></label>
+</div>
+
+<div class="form-grid two-col">
+<label>Priority
+<select name="priority">
+{% for p in [1,2,3,4,5] %}
+<option value="{{ p }}" {{ 'selected' if p == e.priority else '' }}>P{{ p }}</option>
+{% endfor %}
+</select>
+</label>
+<label>Expected Attendance<input type="number" min="0" name="expected_attendance" value="{{ e.expected_attendance if e.expected_attendance is not none else '' }}"></label>
+</div>
+
+<label>People / Attendees<input name="attendees" value="{{ e.attendees or '' }}"></label>
+<label>Agencies Involved<input name="agencies_involved" value="{{ e.agencies_involved or '' }}"></label>
+<label>Objective<input name="objective" value="{{ e.objective or '' }}"></label>
+
+<label>Preparation Notes<textarea name="prep_notes" rows="3">{{ e.prep_notes or '' }}</textarea></label>
+
+<label>Preparation Checklist
+<textarea name="preparation_checklist_text" rows="5">{% for item in e.preparation_checklist or [] %}{{ '[x]' if item.done else '[ ]' }} {{ item.label }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
+</label>
+
+<label>Decisions Needed<textarea name="decisions_needed" rows="2">{{ e.decisions_needed or '' }}</textarea></label>
+<label>Operational / Impact Notes<textarea name="impact_notes" rows="2">{{ e.impact_notes or '' }}</textarea></label>
+<label>General Notes<textarea name="notes" rows="2">{{ e.notes or '' }}</textarea></label>
+<label>Links / Documents<textarea name="reference_links" rows="2">{{ e.reference_links or '' }}</textarea></label>
+<label>Source URL<input name="source_url" value="{{ e.source_url or '' }}"></label>
+
+<label>Reminder<input type="datetime-local" name="reminder_at" value="{{ e.reminder_local.strftime('%Y-%m-%dT%H:%M') if e.reminder_local else '' }}"></label>
+
+{% if e.reminder_local %}
+<div class="meta">
+  Reminder: {{ e.reminder_local.strftime('%m/%d/%Y %I:%M %p') }}
+</div>
+{% endif %}
+
+<label>Debrief Notes<textarea name="debrief_notes" rows="3">{{ e.debrief_notes or '' }}</textarea></label>
+
+<label class="checkbox-row">
+<input type="checkbox" name="active" value="1" {% if e.active %}checked{% endif %}>
+Active
+</label>
+
+<button class="primary-button" type="submit">Save Event</button>
+</form>
+
+{% if e.preparation_checklist %}
+<div class="manage-panel" style="margin-top:12px">
+  <div class="panel-kicker">PREPARATION CHECKLIST</div>
+
+  {% for item in e.preparation_checklist %}
+  <form
+    method="post"
+    action="/schedule/{{ e.id }}/checklist/{{ loop.index0 }}/toggle"
+    class="toggle-form"
+    style="margin-top:6px"
+  >
+    <button class="secondary-button compact-button" type="submit">
+      {{ '✓' if item.done else '○' }}
+      {{ item.label }}
+    </button>
+  </form>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if e.linked_issues %}
+<div class="manage-panel" style="margin-top:12px">
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">COMMAND CENTER</div>
+      <h3>Related Actions</h3>
+    </div>
+    <a class="text-link" href="/issues">Open Command Center</a>
+  </div>
+
+  {% for issue in e.linked_issues %}
+  <div class="meta" style="margin-top:6px">
+    <strong>{{ issue.title }}</strong>
+    · {{ issue.status }}
+    {% if issue.assigned_to %} · {{ issue.assigned_to }}{% endif %}
+    {% if issue.next_action %} · Next: {{ issue.next_action }}{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<details class="manage-panel" style="margin-top:12px">
+  <summary>
+    <strong>Create Command Center Action</strong>
+  </summary>
+
+  <form
+    method="post"
+    action="/schedule/{{ e.id }}/create-action"
+    class="watch-form compact"
+    style="margin-top:10px"
+  >
+    <label>Action
+      <input
+        name="action_title"
+        placeholder="Optional. Defaults to Event prep: {{ e.title }}"
+      >
+    </label>
+
+    <div class="form-grid two-col">
+      <label>Assign To
+        <input name="assigned_to" placeholder="Person or department">
+      </label>
+
+      <label>Due
+        <input type="datetime-local" name="action_due_at">
+      </label>
+    </div>
+
+    <label>Next Action
+      <input
+        name="next_action"
+        placeholder="What specifically needs to happen?"
+      >
+    </label>
+
+    <button class="primary-button" type="submit">
+      Add to Command Center
+    </button>
+  </form>
+</details>
+
+<div class="quick-actions" style="margin-top:10px">
+  {% if e.source_url %}
+  <a class="secondary-button button-link" href="{{ e.source_url }}" target="_blank" rel="noopener">Source</a>
+  {% endif %}
+
+  {% if e.event_intelligence_id %}
+  <a class="secondary-button button-link" href="/event-intelligence">Event Intelligence</a>
+  {% endif %}
+
+  <form method="post" action="/schedule/{{ e.id }}/toggle">
+    <button class="secondary-button" type="submit">
+      {{ 'Deactivate' if e.active else 'Reactivate' }}
+    </button>
+  </form>
+</div>
+
+</div>
+</details>
+
+{% else %}
+<div class="empty-state">
+  <strong>No managed events found</strong>
+  <span>Add an event or change the filter.</span>
+</div>
+{% endfor %}
+</div>
+
+</div>
+</article>
+</section>
+
+<footer>
+<span>City Manager OS</span>
+<span>Events Center · America/New_York</span>
+</footer>
+</main>
 </body>
 </html>

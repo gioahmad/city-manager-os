@@ -981,13 +981,13 @@ def event_intelligence_promote(event_id: uuid.UUID):
         WITH inserted AS (
           INSERT INTO operational_events(
             active,title,category,location_name,address,municipality,starts_at,ends_at,priority,source,notes,
-            owner,event_status,event_scope,source_url,expected_attendance,impact_notes,event_intelligence_id
+            owner,event_status,event_scope,source_url,expected_attendance,impact_notes,confirmation_status,preparation_status,event_intelligence_id
           )
           SELECT true,e.title,e.event_type,e.venue,e.address,COALESCE(e.municipality,'Weehawken'),
                  COALESCE(e.starts_at,now()),e.ends_at,
                  CASE e.impact_level WHEN 'ALERT' THEN 5 WHEN 'WATCH' THEN 4 ELSE 3 END,
                  'EVENT_INTELLIGENCE',e.description,NULL,'TRACKING','EXTERNAL',e.source_url,e.attendance_estimate,
-                 concat_ws(' · ',e.impact_level || ' ' || e.impact_score::text,e.impact_summary,e.road_impact,e.transit_impact),e.id
+                 concat_ws(' · ',e.impact_level || ' ' || e.impact_score::text,e.impact_summary,e.road_impact,e.transit_impact),'NOT_REQUIRED','NOT_REQUIRED',e.id
           FROM event_intelligence e
           WHERE e.id=%s AND e.promoted_event_id IS NULL
           RETURNING id,event_intelligence_id
