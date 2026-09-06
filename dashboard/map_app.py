@@ -48,6 +48,13 @@ SYSTEM_LAYERS = [
         "default_visible": True,
         "point": True,
     },
+    {
+        "key": "event-intelligence",
+        "name": "Event Intelligence",
+        "endpoint": "/map/system/events.geojson",
+        "default_visible": False,
+        "point": True,
+    },
 ]
 
 
@@ -226,6 +233,100 @@ def map_issues_geojson():
         """
     )
     return JSONResponse(_feature_collection(rows))
+
+
+
+@app.get("/map/system/events.geojson")
+def map_system_events():
+    rows = query_all(
+        """
+        WITH ranked AS (
+          SELECT
+            e.id,
+            e.title,
+            e.starts_at,
+            e.ends_at,
+            e.venue,
+            e.address,
+            e.municipality,
+            e.state,
+            e.impact_level,
+            e.impact_score,
+            e.impact_summary,
+            e.road_impact,
+            e.transit_impact,
+            e.source_name,
+            e.source_url,
+            e.fingerprint,
+            ST_AsGeoJSON(
+              COALESCE(
+                e.geom,
+                CASE
+                  WHEN e.longitude IS NOT NULL
+                   AND e.latitude IS NOT NULL
+                  THEN ST_SetSRID(
+                    ST_MakePoint(
+                      e.longitude,
+                      e.latitude
+                    ),
+                    4326
+                  )
+                  ELSE NULL
+                END
+              )
+            )::json AS geometry,
+            row_number() OVER (
+              PARTITION BY e.fingerprint
+              ORDER BY
+                e.impact_score DESC,
+                e.last_changed_at DESC,
+                e.updated_at DESC
+            ) AS dedupe_rank
+          FROM event_intelligence e
+          WHERE e.active=true
+            AND (
+              e.geom IS NOT NULL
+              OR (
+                e.latitude IS NOT NULL
+                AND e.longitude IS NOT NULL
+              )
+            )
+        )
+        SELECT
+          id,
+          title,
+          starts_at,
+          ends_at,
+          venue,
+          address,
+          municipality,
+          state,
+          impact_level,
+          impact_score,
+          impact_summary,
+          road_impact,
+          transit_impact,
+          source_name,
+          source_url,
+          geometry
+        FROM ranked
+        WHERE dedupe_rank=1
+        ORDER BY
+          CASE impact_level
+            WHEN 'ALERT' THEN 0
+            WHEN 'WATCH' THEN 1
+            ELSE 2
+          END,
+          impact_score DESC,
+          starts_at NULLS LAST
+        LIMIT 2000
+        """
+    )
+
+    return JSONResponse(
+        _feature_collection(rows),
+        media_type="application/geo+json",
+    )
 
 
 @app.get("/map/layer/{layer_id}.geojson")
