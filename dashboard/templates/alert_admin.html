@@ -10,24 +10,45 @@
 <header class="topbar">
   <div class="brand">
     <div class="eyebrow">ALERT MANAGEMENT</div>
-    <div class="brand-row"><h1>Watch + Subscriber Admin</h1><span class="private-badge">PRIVATE</span></div>
-    <div class="tagline">Create a watch and choose recipients in one step</div>
+    <div class="brand-row"><h1>Alert Routing Control Center</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">What we watch, who receives it, why it matched, and whether delivery is working</div>
   </div>
 </header>
 {% include "nav.html" %}
+
 <main>
   {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+
   <section class="metrics">
     <div class="metric"><span>Active Watches</span><strong>{{ counts.watches or 0 }}</strong><small>Matching now</small></div>
     <div class="metric"><span>Subscribers</span><strong>{{ counts.subscribers or 0 }}</strong><small>Active destinations</small></div>
-    <div class="metric"><span>Routes</span><strong>{{ counts.routes or 0 }}</strong><small>Active assignments</small></div>
+    <div class="metric"><span>Active Routes</span><strong>{{ counts.routes or 0 }}</strong><small>Watch → subscriber</small></div>
+    <div class="metric"><span>Unrouted</span><strong>{{ counts.unrouted_watches or 0 }}</strong><small>Active watches with nobody assigned</small></div>
+    <div class="metric"><span>Sent 24h</span><strong>{{ counts.sent_24h or 0 }}</strong><small>Successful deliveries</small></div>
+    <div class="metric"><span>Failed 24h</span><strong>{{ counts.failed_24h or 0 }}</strong><small>Delivery failures</small></div>
   </section>
+
+  {% if counts.unrouted_watches or counts.failed_24h %}
+  <section style="margin-top:16px">
+    <article class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">ATTENTION</div><h2>Routing Health</h2></div></div>
+      <div class="panel-body">
+        {% if counts.unrouted_watches %}
+          <div class="empty-state small"><strong>{{ counts.unrouted_watches }} active watch{% if counts.unrouted_watches != 1 %}es{% endif %} have no active recipient</strong><span>They can match alerts but cannot notify anyone until a route is assigned.</span></div>
+        {% endif %}
+        {% if counts.failed_24h %}
+          <div class="empty-state small" style="margin-top:8px"><strong>{{ counts.failed_24h }} delivery failure{% if counts.failed_24h != 1 %}s{% endif %} in the last 24 hours</strong><span>Open the affected watch below to see the latest delivery result.</span></div>
+        {% endif %}
+      </div>
+    </article>
+  </section>
+  {% endif %}
 
   <section class="grid watch-layout" style="margin-top:16px">
     <article class="panel">
       <div class="panel-head"><div><div class="panel-kicker">QUICK SETUP</div><h2>Add Watch + Recipients</h2></div></div>
       <div class="panel-body form-panel">
-        <p class="muted small-copy"><strong>Use this when:</strong> “Watch for X and tell these people.” For detailed edits, use the original Watchlists, Subscribers and Routing pages.</p>
+        <p class="muted small-copy"><strong>Use this when:</strong> “Watch for X and tell these people.” This still feeds the existing central matcher and dynamic PostgreSQL routing.</p>
         <form method="post" action="/alert-admin/watch" class="watch-form">
           <label>What should we call it?<input name="display_name" required placeholder="Lincoln Tunnel closure"></label>
           <label>What should match?<input name="search_term" required placeholder="Lincoln Tunnel"></label>
@@ -47,7 +68,7 @@
             </label>
           </div>
           <div class="form-grid two-col">
-            <label>Specific Field <span class="hint">Only for FIELD mode</span><input name="match_field" placeholder="municipality"></label>
+            <label>Specific Field <span class="hint">Only for FIELD mode</span><input name="match_field" placeholder="source"></label>
             <label>Minimum Priority
               <select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}</option>{% endfor %}</select>
             </label>
@@ -59,12 +80,11 @@
           <label>Notes<textarea name="notes" rows="2" placeholder="Why this matters or what should happen"></textarea></label>
           <div>
             <div class="panel-kicker" style="margin-bottom:8px">WHO SHOULD GET IT?</div>
-            {% for s in subscribers %}
-              {% if s.active %}
+            {% set active_subscribers = subscribers | selectattr('active') | list %}
+            {% for s in active_subscribers %}
               <label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ s.id }}"> <strong>{{ s.name }}</strong>&nbsp;<span class="meta">{{ s.ntfy_topic }}</span></label>
-              {% endif %}
             {% else %}
-              <div class="empty-state small"><strong>No subscribers configured</strong></div>
+              <div class="empty-state small"><strong>No active subscribers configured</strong></div>
             {% endfor %}
           </div>
           <button class="primary-button" type="submit">Create Watch + Routing</button>
@@ -73,40 +93,210 @@
     </article>
 
     <article class="panel">
-      <div class="panel-head"><div><div class="panel-kicker">CURRENT</div><h2>Who Gets What</h2></div><span class="count-pill">{{ watches|length }}</span></div>
+      <div class="panel-head"><div><div class="panel-kicker">DESTINATIONS</div><h2>Subscriber Directory</h2></div><span class="count-pill">{{ subscribers|length }}</span></div>
       <div class="panel-body">
-        <div class="watch-list">
-          {% for w in watches %}
-          <details class="watch-card {% if not w.active %}inactive{% endif %}">
+        <form method="post" action="/alert-admin/subscriber" class="watch-form">
+          <label>Name<input name="name" required placeholder="Public Safety Supervisor"></label>
+          <label>ntfy Topic<input name="ntfy_topic" required placeholder="PUBLIC-SAFETY"></label>
+          <label>Subscriber ID <span class="hint">Optional; generated if blank</span><input name="subscriber_id" placeholder="S_PUBLIC_SAFETY"></label>
+          <label>Notes<textarea name="notes" rows="2" placeholder="Purpose or audience"></textarea></label>
+          <button class="primary-button" type="submit">Add Subscriber</button>
+        </form>
+
+        <div class="watch-list" style="margin-top:14px">
+          {% for s in subscribers %}
+          <details class="watch-card {% if not s.active %}inactive{% endif %}">
             <summary>
               <div class="watch-summary-main">
-                <span class="status {% if w.active %}active{% else %}inactive-status{% endif %}">{{ 'ACTIVE' if w.active else 'PAUSED' }}</span>
-                <div><strong>{{ w.display_name }}</strong><div class="meta">{{ w.match_mode }} · {{ w.search_term }} · P{{ w.min_priority }}+</div></div>
+                <span class="status {% if s.active %}active{% else %}inactive-status{% endif %}">{{ 'ACTIVE' if s.active else 'PAUSED' }}</span>
+                <div><strong>{{ s.name }}</strong><div class="meta">{{ s.ntfy_topic }} · {{ s.active_routes or 0 }} active routes</div></div>
               </div>
-              <span class="watch-id">{{ w.watch_id }}</span>
+              <span class="watch-id">{{ s.subscriber_id }}</span>
             </summary>
             <div class="watch-card-body">
-              {% if w.municipality or w.address %}<div class="meta">{% if w.municipality %}{{ w.municipality }}{% endif %}{% if w.address %} · {{ w.address }}{% endif %}</div>{% endif %}
-              {% if w.notes %}<p>{{ w.notes }}</p>{% endif %}
-              <div class="panel-kicker">RECIPIENTS</div>
-              {% set active_recipients = w.recipients | selectattr('route_active') | list %}
-              {% if active_recipients %}
-                {% for r in active_recipients %}<div class="feed-row"><div class="feed-main"><strong>{{ r.name }}</strong><div class="meta">{{ r.ntfy_topic }}</div></div><span class="status active">ROUTED</span></div>{% endfor %}
+              {% if s.notes %}<p>{{ s.notes }}</p>{% endif %}
+              <div class="meta">Total saved routes: {{ s.total_routes or 0 }}</div>
+              {% if s.last_delivery_at %}
+                <div class="meta">Latest delivery: {{ s.last_delivery_status or 'UNKNOWN' }} · {{ s.last_delivery_at }}</div>
               {% else %}
-                <div class="empty-state small"><strong>No active recipient route</strong><span>This watch can match, but it will not notify anyone.</span></div>
+                <div class="meta">No recorded delivery yet.</div>
               {% endif %}
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-                <a class="secondary-button button-link" href="/watchlist?q={{ w.watch_id }}">Edit Watch</a>
-                <a class="secondary-button button-link" href="/routing">Edit Routing</a>
+                <form method="post" action="/alert-admin/subscriber/{{ s.id }}/toggle">
+                  <button class="secondary-button compact-button" type="submit">{{ 'Pause Subscriber' if s.active else 'Reactivate Subscriber' }}</button>
+                </form>
+                <a class="secondary-button button-link" href="/subscribers?q={{ s.subscriber_id }}">Detailed Edit</a>
               </div>
             </div>
           </details>
-          {% else %}<div class="empty-state"><strong>No watch items found</strong></div>{% endfor %}
+          {% else %}
+            <div class="empty-state small"><strong>No subscribers configured</strong></div>
+          {% endfor %}
         </div>
       </div>
     </article>
   </section>
-  <footer><span>City Manager OS</span><span>Existing matcher and dynamic routing preserved</span></footer>
+
+  <section style="margin-top:16px">
+    <article class="panel">
+      <div class="panel-head">
+        <div><div class="panel-kicker">CONTROL</div><h2>Watch Routing + Why</h2></div>
+        <span class="count-pill">{{ watches|length }}</span>
+      </div>
+      <div class="panel-body">
+        <form class="watch-filters" method="get" action="/alert-admin">
+          <input name="q" value="{{ q }}" placeholder="Search watch name, ID, term, municipality">
+          <select name="state">
+            <option value="all" {% if state == 'all' %}selected{% endif %}>All states</option>
+            <option value="active" {% if state == 'active' %}selected{% endif %}>Active</option>
+            <option value="inactive" {% if state == 'inactive' %}selected{% endif %}>Paused</option>
+          </select>
+          <select name="health">
+            <option value="all" {% if health == 'all' %}selected{% endif %}>All health</option>
+            <option value="unrouted" {% if health == 'unrouted' %}selected{% endif %}>No active route</option>
+            <option value="failed" {% if health == 'failed' %}selected{% endif %}>Latest delivery failed</option>
+            <option value="matched" {% if health == 'matched' %}selected{% endif %}>Has matched</option>
+          </select>
+          <button class="secondary-button" type="submit">Filter</button>
+          <a class="secondary-button button-link" href="/alert-admin">Clear</a>
+        </form>
+
+        <div class="watch-list" style="margin-top:12px">
+          {% for w in watches %}
+          <details class="watch-card {% if not w.active %}inactive{% endif %}">
+            <summary>
+              <div class="watch-summary-main">
+                <span class="status {{ w.health_class }}">{{ w.health_label }}</span>
+                <div>
+                  <strong>{{ w.display_name }}</strong>
+                  <div class="meta">{{ w.watch_type }} · {{ w.match_mode }}{% if w.match_field %} {{ w.match_field }}{% endif %} · “{{ w.search_term }}” · P{{ w.min_priority }}+</div>
+                </div>
+              </div>
+              <span class="watch-id">{{ w.watch_id }}</span>
+            </summary>
+
+            <div class="watch-card-body">
+              {% if w.municipality or w.address %}
+                <div class="meta">{% if w.municipality %}{{ w.municipality }}{% endif %}{% if w.address %} · {{ w.address }}{% endif %}</div>
+              {% endif %}
+              {% if w.notes %}<p>{{ w.notes }}</p>{% endif %}
+
+              <div class="panel-kicker" style="margin-top:10px">WHY WOULD THIS MATCH?</div>
+              <p class="small-copy">
+                Rule: <strong>{{ w.match_mode }}</strong>
+                {% if w.match_field %} against field <strong>{{ w.match_field }}</strong>{% else %} against normalized alert text{% endif %}
+                for <strong>{{ w.search_term }}</strong>, minimum priority <strong>P{{ w.min_priority }}</strong>.
+              </p>
+              {% if w.last_match_at %}
+                <div class="feed-row">
+                  <div class="feed-main">
+                    <strong>Last matched: {{ w.last_match_title or w.last_match_alert_id }}</strong>
+                    <div class="meta">{{ w.last_match_source }} · P{{ w.last_match_priority }} · {{ w.last_match_at }}</div>
+                    <div class="meta">Reason: {{ w.last_match_reason or w.last_match_type or 'Matcher recorded a match' }}</div>
+                  </div>
+                  <span class="status active">MATCHED</span>
+                </div>
+              {% else %}
+                <div class="empty-state small"><strong>No recorded match yet</strong><span>The watch is configured but has not matched a stored alert.</span></div>
+              {% endif %}
+
+              <div class="panel-kicker" style="margin-top:12px">WHO GETS IT?</div>
+              <form method="post" action="/alert-admin/watch/{{ w.id }}/recipients" class="watch-form compact">
+                {% for s in active_subscribers %}
+                  <label class="checkbox-row">
+                    <input type="checkbox" name="subscriber_ids" value="{{ s.id }}"
+                           {% if s.id_text in w.active_recipient_ids %}checked{% endif %}>
+                    <strong>{{ s.name }}</strong>&nbsp;<span class="meta">{{ s.ntfy_topic }}</span>
+                  </label>
+                {% else %}
+                  <div class="empty-state small"><strong>No active subscribers available</strong></div>
+                {% endfor %}
+                <button class="primary-button" type="submit">Save Recipients</button>
+              </form>
+
+              {% if w.recipients %}
+                <div class="meta" style="margin-top:8px">Saved route records:</div>
+                {% for r in w.recipients %}
+                  <div class="feed-row">
+                    <div class="feed-main">
+                      <strong>{{ r.name }}</strong>
+                      <div class="meta">{{ r.ntfy_topic }} · {{ r.subscriber_key }}</div>
+                    </div>
+                    <span class="status {% if r.route_active and r.subscriber_active %}active{% else %}inactive-status{% endif %}">
+                      {% if not r.subscriber_active %}SUBSCRIBER PAUSED{% elif r.route_active %}ROUTED{% else %}ROUTE PAUSED{% endif %}
+                    </span>
+                  </div>
+                {% endfor %}
+              {% endif %}
+
+              <div class="panel-kicker" style="margin-top:12px">DELIVERY HEALTH</div>
+              {% if w.last_delivery_at %}
+                <div class="feed-row">
+                  <div class="feed-main">
+                    <strong>{{ w.last_delivery_status or 'UNKNOWN' }}{% if w.last_delivery_subscriber %} → {{ w.last_delivery_subscriber }}{% endif %}</strong>
+                    <div class="meta">{{ w.last_delivery_at }}</div>
+                    {% if w.last_delivery_error %}<div class="meta">{{ w.last_delivery_error }}</div>{% endif %}
+                  </div>
+                  <span class="status {% if w.last_delivery_status == 'SENT' %}active{% else %}inactive-status{% endif %}">{{ w.last_delivery_status or 'UNKNOWN' }}</span>
+                </div>
+              {% else %}
+                <div class="empty-state small"><strong>No delivery recorded for this watch yet</strong></div>
+              {% endif %}
+
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+                <form method="post" action="/alert-admin/watch/{{ w.id }}/toggle">
+                  <button class="secondary-button compact-button" type="submit">{{ 'Pause Watch' if w.active else 'Reactivate Watch' }}</button>
+                </form>
+                <a class="secondary-button button-link" href="/watchlist?q={{ w.watch_id }}">Detailed Watch Edit</a>
+                <a class="secondary-button button-link" href="/routing">Routing Matrix</a>
+              </div>
+            </div>
+          </details>
+          {% else %}
+            <div class="empty-state"><strong>No watch items match these filters</strong></div>
+          {% endfor %}
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <section style="margin-top:16px">
+    <article class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">AUDIT</div><h2>Recent Match + Delivery Activity</h2></div><span class="count-pill">{{ recent|length }}</span></div>
+      <div class="panel-body table-wrap">
+        <table class="ops-table">
+          <thead><tr><th>Matched</th><th>Watch</th><th>Why</th><th>Alert</th><th>Subscriber</th><th>Delivery</th></tr></thead>
+          <tbody>
+            {% for r in recent %}
+            <tr>
+              <td>{{ r.matched_at }}</td>
+              <td><strong>{{ r.watch_name }}</strong><div class="meta mono">{{ r.watch_id }}</div></td>
+              <td>{{ r.match_reason or r.match_type or 'Matched' }}</td>
+              <td><strong>{{ r.alert_title }}</strong><div class="meta">{{ r.source }} · P{{ r.priority }}</div></td>
+              <td>{% if r.subscriber_name %}<strong>{{ r.subscriber_name }}</strong><div class="meta mono">{{ r.subscriber_key }}</div>{% else %}<span class="meta">No delivery row</span>{% endif %}</td>
+              <td>
+                {% if r.delivery_status %}
+                  <span class="status {% if r.delivery_status == 'SENT' %}active{% else %}inactive-status{% endif %}">{{ r.delivery_status }}</span>
+                  {% if r.delivery_at %}<div class="meta">{{ r.delivery_at }}</div>{% endif %}
+                  {% if r.delivery_error %}<div class="meta">{{ r.delivery_error }}</div>{% endif %}
+                {% else %}
+                  <span class="status inactive-status">NO DELIVERY</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">No watch-match audit records yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+
+  <footer>
+    <span>City Manager OS</span>
+    <span>Existing matcher, delivery guard and dynamic subscriber routing preserved</span>
+  </footer>
 </main>
 </body>
 </html>
