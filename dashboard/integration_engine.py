@@ -200,8 +200,17 @@ def _upsert_event(conn, integration: dict[str, Any], event: dict[str, Any]) -> b
               %s,%s,%s,%s,%s,%s,
               %s,%s,%s,%s,%s,
               %s,%s,
-              CASE WHEN %s IS NOT NULL AND %s IS NOT NULL
-                   THEN ST_SetSRID(ST_MakePoint(%s,%s),4326) ELSE NULL END,
+              CASE WHEN %s::double precision IS NOT NULL
+                        AND %s::double precision IS NOT NULL
+                   THEN ST_SetSRID(
+                       ST_MakePoint(
+                           %s::double precision,
+                           %s::double precision
+                       ),
+                       4326
+                   )
+                   ELSE NULL
+              END,
               %s::jsonb,%s,
               now(),now(),now(),%s,now(),now()
             )
