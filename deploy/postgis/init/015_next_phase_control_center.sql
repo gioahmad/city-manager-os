@@ -148,7 +148,7 @@ VALUES
   'JSON_EVENTS',
   '{"list_path":"","mapping":{"id":"event_id","title":"event_name","start":"start_date_time","end":"end_date_time","event_type":"event_type","venue":"event_location","municipality":"event_borough","road_impact":"street_closure_type"},"defaults":{"municipality":"Manhattan","state":"NY","default_timezone":"America/New_York"}}'::jsonb,
   3600,
-  'Authoritative NYC Open Data permitted-events feed. Query is limited to upcoming Manhattan events.'
+  'Authoritative NYC Open Data permitted-events feed. Query is limited to Manhattan; the source itself is maintained as the current approved-events dataset.'
 ),
 (
   'NJT_RAIL_GTFS_TEMPLATE',
@@ -198,8 +198,9 @@ VALUES
 ON CONFLICT (integration_key) DO NOTHING;
 
 UPDATE integrations
-SET request_query = '{"$limit":3000,"$where":"start_date_time >= current_timestamp AND event_borough = ''Manhattan''","$order":"start_date_time ASC"}'::jsonb,
+SET request_query = '{"$limit":3000,"$where":"event_borough = ''Manhattan''","$order":"start_date_time ASC"}'::jsonb,
     max_response_bytes = 5000000,
+    notes = 'Authoritative NYC Open Data permitted-events feed. Query is limited to Manhattan; the source itself is maintained as the current approved-events dataset.',
     updated_at = now()
 WHERE integration_key='NYC_PERMITTED_EVENTS';
 
