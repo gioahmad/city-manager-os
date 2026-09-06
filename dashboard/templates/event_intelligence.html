@@ -78,7 +78,7 @@
         <a class="secondary-button button-link" href="/event-intelligence?changed=24h&horizon=all">Recent Changes</a>
         <a class="secondary-button button-link" href="/map">Map</a>
       </div>
-      <p class="muted small-copy">Scoring is intended to reduce noise. An outside event is not a Township task unless you explicitly create an action or promote it into the managed Schedule.</p>
+      <p class="muted small-copy">Scoring is intended to reduce noise. An outside event is not a Township task unless you explicitly create an action or promote it into the managed Events Center.</p>
     </div>
   </section>
 
@@ -128,7 +128,7 @@
                 <select name="impact_level"><option value="AWARENESS" {% if e.impact_level=='AWARENESS' %}selected{% endif %}>Awareness</option><option value="WATCH" {% if e.impact_level=='WATCH' %}selected{% endif %}>Watch</option><option value="ALERT" {% if e.impact_level=='ALERT' %}selected{% endif %}>Alert</option></select>
                 <button class="secondary-button" type="submit">Set Level</button>
               </form>
-              {% if not e.promoted_event_id %}<form method="post" action="/event-intelligence/{{ e.id }}/promote"><button class="secondary-button" type="submit">Track in Schedule</button></form>{% else %}<a class="secondary-button button-link" href="/schedule">Tracked in Schedule</a>{% endif %}
+              {% if not e.promoted_event_id %}<form method="post" action="/event-intelligence/{{ e.id }}/promote"><button class="secondary-button" type="submit">Track in Events Center</button></form>{% else %}<a class="secondary-button button-link" href="/schedule">Tracked in Events Center</a>{% endif %}
               <form method="post" action="/event-intelligence/{{ e.id }}/create-action"><button class="secondary-button" type="submit">Create Command Task</button></form>
               <form method="post" action="/event-intelligence/{{ e.id }}/dismiss"><button class="secondary-button" type="submit">Dismiss</button></form>
             </div>
