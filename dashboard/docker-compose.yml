@@ -14,10 +14,12 @@ services:
       TZ: "${APP_TIMEZONE:-America/New_York}"
       PGTZ: "${APP_TIMEZONE:-America/New_York}"
       API_LAB_ALLOW_PRIVATE: "${API_LAB_ALLOW_PRIVATE:-false}"
+      TRANSIT_TOKEN_CACHE_DIR: "${TRANSIT_TOKEN_CACHE_DIR:-/app/transit_tokens}"
     ports:
       - "${DASHBOARD_BIND_IP:-127.0.0.1}:8090:8000"
     volumes:
       - /var/lib/city-manager-os/staff_uploads:/app/uploads
+      - /var/lib/city-manager-os/transit_tokens:/app/transit_tokens
     networks:
       - citymanager
 
@@ -91,9 +93,12 @@ services:
       TZ: "${APP_TIMEZONE:-America/New_York}"
       PGTZ: "${APP_TIMEZONE:-America/New_York}"
       INTEGRATION_ENGINE_INTERVAL_SECONDS: "${INTEGRATION_ENGINE_INTERVAL_SECONDS:-60}"
+      TRANSIT_TOKEN_CACHE_DIR: "${TRANSIT_TOKEN_CACHE_DIR:-/app/transit_tokens}"
     command:
       - python
       - integration_worker.py
+    volumes:
+      - /var/lib/city-manager-os/transit_tokens:/app/transit_tokens
     networks:
       - citymanager
 

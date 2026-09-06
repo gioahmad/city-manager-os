@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from schedule_app import app
 from app import db_conn, execute, make_watch_id, query_all, query_one, templates, validate_watch
 from integration_engine import load_integration, run_integration
+from transit_engine import is_transit_adapter, run_transit_integration
 from integration_runtime import (
     apply_literal_auth,
     build_request_body,
@@ -505,7 +506,11 @@ def integration_toggle(integration_id: uuid.UUID):
 @app.post("/integrations/{integration_id}/test", response_class=HTMLResponse)
 def integration_test(request: Request, integration_id: uuid.UUID):
     integration = load_integration(integration_id=str(integration_id))
-    outcome = run_integration(integration, run_type="TEST", parse_and_store=False)
+    outcome = (
+        run_transit_integration(integration, run_type="TEST", parse_and_store=False)
+        if is_transit_adapter(integration)
+        else run_integration(integration, run_type="TEST", parse_and_store=False)
+    )
     result = outcome.get("result")
     test_result = {
         "name": integration["name"],
@@ -524,11 +529,18 @@ def integration_test(request: Request, integration_id: uuid.UUID):
 @app.post("/integrations/{integration_id}/run")
 def integration_run(integration_id: uuid.UUID):
     integration = load_integration(integration_id=str(integration_id))
-    outcome = run_integration(integration, run_type="MANUAL", parse_and_store=True)
+    outcome = (
+        run_transit_integration(integration, run_type="MANUAL", parse_and_store=True)
+        if is_transit_adapter(integration)
+        else run_integration(integration, run_type="MANUAL", parse_and_store=True)
+    )
     if not outcome["ok"]:
         message = "Integration run failed"
     else:
-        message = f"Integration run complete: {len(outcome.get('events') or [])} items, {outcome.get('changed') or 0} changed"
+        item_count = outcome.get("items")
+        if item_count is None:
+            item_count = len(outcome.get("events") or [])
+        message = f"Integration run complete: {item_count} items, {outcome.get('changed') or 0} changed"
     return RedirectResponse("/integrations?msg=" + message.replace(" ", "+").replace(":", "%3A"), status_code=303)
 
 
