@@ -266,6 +266,7 @@ else
   docker exec -u node n8n n8n update:workflow --id="EvtIntelAlertsV1" --active=true >/dev/null || fail "event workflow activation failed"
 fi
 
+N8N_RUNTIME_SINCE="$(date --iso-8601=seconds)"
 docker restart n8n >/dev/null
 ready=0
 for _ in $(seq 1 60); do
@@ -273,6 +274,32 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 (( ready == 1 )) || fail "n8n did not become ready"
+
+log "Waiting for Event Intelligence workflow runtime activation"
+event_runtime_ready=0
+
+for _ in $(seq 1 60); do
+  runtime_logs="$(docker logs --since "$N8N_RUNTIME_SINCE" n8n 2>&1 || true)"
+
+  if grep -Fq 'Activated workflow "EVENT INTELLIGENCE - High Impact Alerts v1" (ID: EvtIntelAlertsV1)' <<<"$runtime_logs"; then
+    event_runtime_ready=1
+    break
+  fi
+
+  if grep -Fq 'EvtIntelAlertsV1' <<<"$runtime_logs"      && grep -Fq 'Issue on initial workflow activation try' <<<"$runtime_logs"; then
+    printf '%s\n' "$runtime_logs" | tail -120 >&2
+    fail "Event Intelligence workflow failed runtime activation"
+  fi
+
+  sleep 2
+done
+
+if (( event_runtime_ready != 1 )); then
+  docker logs --since "$N8N_RUNTIME_SINCE" n8n 2>&1 | tail -120 >&2 || true
+  fail "Event Intelligence workflow did not complete runtime activation"
+fi
+
+log "Event Intelligence workflow runtime activation passed"
 
 log "Verifying event workflow is active and central matcher remains present"
 python3 - "$N8N_DB" <<'PY'
