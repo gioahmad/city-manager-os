@@ -240,16 +240,16 @@ def invalidate_token(host: str, family: str, username: str) -> None:
         pass
 
 
-def get_cached_rail_token(
+def _get_cached_token(
     *,
     host: str,
-    family: str,
+    cache_family: str,
     username: str,
     password: str,
+    auth_urls: list[str],
     force_refresh: bool = False,
 ) -> str:
-    family = "GTFSRT" if family.upper() == "GTFSRT" else "TrainData"
-    cache_file = _cache_file(host, family, username)
+    cache_file = _cache_file(host, cache_family, username)
     now = time.time()
 
     if not force_refresh and cache_file.exists():
@@ -262,23 +262,115 @@ def get_cached_rail_token(
         except Exception:
             pass
 
-    token_url = f"{host.rstrip('/')}/api/{family}/getToken"
-    result = post_multipart(
-        token_url,
-        {"username": username, "password": password},
-        timeout_seconds=30,
-        max_response_bytes=1_000_000,
-    )
-    if not result.ok:
-        raise RuntimeError(result.error or f"Token request failed with HTTP {result.status_code}")
-    token = extract_token(result)
+    ordered_urls: list[str] = []
+    for url in auth_urls:
+        clean = str(url or "").strip()
+        if clean and clean not in ordered_urls:
+            ordered_urls.append(clean)
 
-    # NJ TRANSIT documents tokens as lasting for hours. Cache conservatively for
-    # 90 minutes and refresh on authentication failure rather than minting on each poll.
-    payload = {"token": token, "expires_at": now + int(os.getenv("NJT_TOKEN_CACHE_SECONDS", "5400"))}
-    cache_file.write_text(json.dumps(payload))
-    try:
-        cache_file.chmod(0o600)
-    except OSError:
-        pass
-    return token
+    if not ordered_urls:
+        raise ValueError("No NJ TRANSIT authentication endpoint configured")
+
+    errors: list[str] = []
+    for token_url in ordered_urls:
+        result = post_multipart(
+            token_url,
+            {"username": username, "password": password},
+            timeout_seconds=30,
+            max_response_bytes=1_000_000,
+        )
+        if not result.ok:
+            errors.append(
+                f"{urllib.parse.urlsplit(token_url).path}: "
+                f"{result.error or 'HTTP ' + str(result.status_code)}"
+            )
+            continue
+        try:
+            token = extract_token(result)
+        except Exception as exc:
+            errors.append(
+                f"{urllib.parse.urlsplit(token_url).path}: token parse failed: {exc}"
+            )
+            continue
+
+        payload = {
+            "token": token,
+            "expires_at": now + int(os.getenv("NJT_TOKEN_CACHE_SECONDS", "5400")),
+        }
+        cache_file.write_text(json.dumps(payload))
+        try:
+            cache_file.chmod(0o600)
+        except OSError:
+            pass
+        return token
+
+    raise RuntimeError(
+        "NJ TRANSIT authentication failed across configured endpoints: "
+        + " | ".join(errors)
+    )
+
+
+def get_cached_rail_token(
+    *,
+    host: str,
+    family: str,
+    username: str,
+    password: str,
+    force_refresh: bool = False,
+) -> str:
+    family = "GTFSRT" if family.upper() == "GTFSRT" else "TrainData"
+    base = host.rstrip("/")
+    auth_urls = [
+        f"{base}/api/{family}/getToken",
+        f"{base}/api/TrainData/getToken",
+        f"{base}/api/getToken",
+    ]
+    return _get_cached_token(
+        host=base,
+        cache_family=family,
+        username=username,
+        password=password,
+        auth_urls=auth_urls,
+        force_refresh=force_refresh,
+    )
+
+
+def get_cached_bus_token(
+    *,
+    host: str,
+    family: str,
+    username: str,
+    password: str,
+    force_refresh: bool = False,
+) -> str:
+    family = family.upper()
+    base = host.rstrip("/")
+
+    if family == "GTFSG2":
+        paths = [
+            "/api/GTFSG2/authenticateUser",
+            "/api/GTFS/authenticateUser",
+            "/api/BUSDV2/authenticateUser",
+        ]
+    elif family == "GTFS":
+        paths = [
+            "/api/GTFS/authenticateUser",
+            "/api/GTFSG2/authenticateUser",
+            "/api/BUSDV2/authenticateUser",
+        ]
+    else:
+        family = "BUSDV2"
+        paths = [
+            "/api/BUSDV2/authenticateUser",
+            "/api/GTFSG2/authenticateUser",
+            "/api/GTFS/authenticateUser",
+        ]
+
+    return _get_cached_token(
+        host=base,
+        cache_family=family,
+        username=username,
+        password=password,
+        auth_urls=[base + path for path in paths],
+        force_refresh=force_refresh,
+    )
