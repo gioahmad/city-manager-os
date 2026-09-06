@@ -6,6 +6,7 @@ import re
 import shlex
 import urllib.parse
 import uuid
+from datetime import timedelta
 from typing import Any
 
 from fastapi import Form, HTTPException, Request
@@ -57,6 +58,65 @@ def _env_state(auth_config: Any) -> list[dict[str, Any]]:
     return rows
 
 
+
+def _integration_operational_state(row: dict[str, Any]) -> dict[str, Any]:
+    env_state = row.get("env_state") or []
+    missing = [
+        item["env"]
+        for item in env_state
+        if not item.get("set")
+    ]
+
+    active = bool(row.get("active"))
+    last_status = str(row.get("last_run_status") or "").upper()
+    health = str(row.get("health_status") or "").upper()
+
+    if missing:
+        state = "NEEDS SETUP"
+        detail = "Missing: " + ", ".join(missing)
+    elif not active:
+        state = "PAUSED"
+        detail = "Integration is inactive"
+    elif last_status == "ERROR" or health in {
+        "ERROR", "FAILED", "UNHEALTHY"
+    }:
+        state = "ERROR"
+        detail = str(row.get("last_error") or "Last run failed")
+    elif last_status == "OK" or health in {"OK", "HEALTHY"}:
+        state = "LIVE"
+        detail = "Running normally"
+    else:
+        state = "READY"
+        detail = "Active, awaiting first successful run"
+
+    next_run_at = None
+    last_run_at = row.get("last_run_at")
+
+    if active and last_run_at:
+        try:
+            next_run_at = last_run_at + timedelta(
+                seconds=int(row.get("poll_seconds") or 0)
+            )
+        except (TypeError, ValueError):
+            pass
+
+    return {
+        "operational_state": state,
+        "operational_detail": detail,
+        "missing_secrets": missing,
+        "can_activate": not missing,
+        "next_run_at": next_run_at,
+    }
+
+
+def _missing_required_secrets(integration: dict[str, Any]) -> list[str]:
+    return [
+        item["env"]
+        for item in _env_state(integration.get("auth_config"))
+        if not item.get("set")
+    ]
+
+
 def _fetch_integrations(q: str = "", state: str = "all") -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     where = []
     params: list[Any] = []
@@ -100,6 +160,7 @@ def _fetch_integrations(q: str = "", state: str = "all") -> tuple[list[dict[str,
         row["query_text"] = _json_text(row.get("request_query"))
         row["parser_config_text"] = _json_text(row.get("parser_config"))
         row["env_state"] = _env_state(row.get("auth_config"))
+        row.update(_integration_operational_state(row))
     counts = query_one(
         """
         SELECT count(*) AS total,
@@ -382,8 +443,45 @@ def integration_update(
 
 @app.post("/integrations/{integration_id}/toggle")
 def integration_toggle(integration_id: uuid.UUID):
-    execute("UPDATE integrations SET active=NOT active,updated_at=now() WHERE id=%s", (integration_id,))
-    return RedirectResponse("/integrations?msg=Integration+status+changed", status_code=303)
+    integration = load_integration(integration_id=str(integration_id))
+
+    if not integration:
+        raise HTTPException(404, "Integration not found")
+
+    activating = not bool(integration.get("active"))
+
+    if activating:
+        missing = _missing_required_secrets(integration)
+
+        if missing:
+            message = (
+                "Activation blocked - missing required secrets: "
+                + ", ".join(missing)
+            )
+            return RedirectResponse(
+                "/integrations?msg=" + urllib.parse.quote_plus(message),
+                status_code=303,
+            )
+
+    execute(
+        """
+        UPDATE integrations
+        SET active=NOT active, updated_at=now()
+        WHERE id=%s
+        """,
+        (integration_id,),
+    )
+
+    message = (
+        "Integration activated"
+        if activating
+        else "Integration paused"
+    )
+
+    return RedirectResponse(
+        "/integrations?msg=" + urllib.parse.quote_plus(message),
+        status_code=303,
+    )
 
 
 @app.post("/integrations/{integration_id}/test", response_class=HTMLResponse)
