@@ -1085,7 +1085,7 @@ def _run_bus_gtfs(conn, integration: dict[str, Any], *, store: bool) -> tuple[Tr
         result = post_multipart(
             f"{host}{prefix.rstrip('/')}/getGTFS",
             {"token": token},
-            timeout_seconds=int(integration.get("timeout_seconds") or 90),
+            timeout_seconds=max(int(integration.get("timeout_seconds") or 0), 90),
             max_response_bytes=max_bytes,
         )
         if not result.ok and result.status_code in {400,401,403}:
@@ -1095,7 +1095,7 @@ def _run_bus_gtfs(conn, integration: dict[str, Any], *, store: bool) -> tuple[Tr
                 result = post_multipart(
                     f"{host}{prefix.rstrip('/')}/getGTFS",
                     {"token": token},
-                    timeout_seconds=int(integration.get("timeout_seconds") or 90),
+                    timeout_seconds=max(int(integration.get("timeout_seconds") or 0), 90),
                     max_response_bytes=max_bytes,
                 )
             except Exception as exc:

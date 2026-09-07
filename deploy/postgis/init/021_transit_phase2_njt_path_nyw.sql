@@ -5,8 +5,8 @@ UPDATE integrations
 SET endpoint_url='https://pcsdata.njtransit.com/api/BUSDV2/getVehicleLocations',
     poll_seconds=120,
     timeout_seconds=30,
-    max_response_bytes=25000000,
-    notes='Regional NJ TRANSIT bus vehicles from BUSDV2. Radius is feet; City Manager OS defaults to 30,000 feet. HBLR vehicles are not inferred from BUSDV2 mode because live acceptance showed BUS/HBLR/ALL returning the same set.',
+    max_response_bytes=5000000,
+    notes='Regional NJ TRANSIT bus vehicles from BUSDV2. Registry response limit remains within the generic 5 MB guardrail; the custom transit adapter applies its validated transport limit internally. Radius is feet; City Manager OS defaults to 30,000 feet. HBLR vehicles are not inferred from BUSDV2 mode because live acceptance showed BUS/HBLR/ALL returning the same set.',
     updated_at=now()
 WHERE integration_key='NJT_BUS_LIVE';
 
@@ -14,9 +14,9 @@ UPDATE integrations
 SET endpoint_url='https://pcsdata.njtransit.com/api/GTFS/getGTFS',
     auth_config='{"username_env":"NJT_USERNAME","password_env":"NJT_PASSWORD","api_family":"GTFS"}'::jsonb,
     poll_seconds=86400,
-    timeout_seconds=90,
-    max_response_bytes=90000000,
-    notes='NJ TRANSIT static Bus GTFS. /api/GTFS is preferred because live 2026 acceptance returned a complete ~59 MB ZIP. Mixed-mode GTFS relationships derive HBLR routes/stops safely.',
+    timeout_seconds=60,
+    max_response_bytes=5000000,
+    notes='NJ TRANSIT static Bus GTFS. Registry timeout/response values remain within generic 60 second / 5 MB guardrails; the custom transit adapter uses its validated larger download limits internally. /api/GTFS is preferred because live 2026 acceptance returned a complete ~59 MB ZIP. Mixed-mode GTFS relationships derive HBLR routes/stops safely.',
     updated_at=now()
 WHERE integration_key='NJT_BUS_GTFS';
 
@@ -29,9 +29,9 @@ INSERT INTO integrations(
 VALUES
 ('NJT_BUS_ALERTS','NJ TRANSIT Bus Advisories',false,'TRANSIT','NJT_RSS','https://www.njtransit.com/rss/BusAdvisories_feed.xml','GET','NONE','{}'::jsonb,'{}'::jsonb,'{}'::jsonb,NULL,'NONE','{"provider_key":"NJ_TRANSIT","mode":"BUS"}'::jsonb,180,30,4000000,true,true,'Official NJ TRANSIT bus advisory RSS. Regional watch matching prevents statewide advisory noise.'),
 ('NJT_LIGHT_RAIL_ALERTS','NJ TRANSIT Light Rail Advisories',false,'TRANSIT','NJT_RSS','https://www.njtransit.com/rss/LightRailAdvisories_feed.xml','GET','NONE','{}'::jsonb,'{}'::jsonb,'{}'::jsonb,NULL,'NONE','{"provider_key":"NJ_TRANSIT","mode":"LIGHT_RAIL","include_terms":["HBLR","HUDSON-BERGEN","BERGENLINE","PORT IMPERIAL","LINCOLN HARBOR","TONNELLE","HOBOKEN"]}'::jsonb,180,30,4000000,true,true,'Official NJ TRANSIT Light Rail advisory RSS, filtered to Hudson-Bergen Light Rail and nearby transfer points.'),
-('PATH_GTFS','PATH Static GTFS',false,'TRANSIT','TRANSIT_GTFS_URL','https://data.trilliumtransit.com/gtfs/path-nj-us/path-nj-us.zip','GET','NONE','{}'::jsonb,'{}'::jsonb,'{}'::jsonb,NULL,'NONE','{"provider_key":"PATH","fallback_mode":"RAIL","force_mode":"RAIL"}'::jsonb,86400,60,25000000,true,true,'PATH static GTFS reference data for station/route map context.'),
+('PATH_GTFS','PATH Static GTFS',false,'TRANSIT','TRANSIT_GTFS_URL','https://data.trilliumtransit.com/gtfs/path-nj-us/path-nj-us.zip','GET','NONE','{}'::jsonb,'{}'::jsonb,'{}'::jsonb,NULL,'NONE','{"provider_key":"PATH","fallback_mode":"RAIL","force_mode":"RAIL"}'::jsonb,86400,60,5000000,true,true,'PATH static GTFS reference data for station/route map context.'),
 ('PATH_REALTIME','PATH Realtime Arrivals',false,'TRANSIT','PATH_REALTIME','https://www.panynj.gov/bin/portauthority/ridepath.json','GET','NONE','{}'::jsonb,'{}'::jsonb,'{}'::jsonb,NULL,'NONE','{"provider_key":"PATH","station_codes":["HOB","NEW","EXP","JSQ","WTC","33S"]}'::jsonb,60,30,4000000,true,true,'Official Port Authority RidePATH realtime JSON. Shows regional arrival context and raises watches when PATH marks an arrival delayed.'),
-('NYW_GTFS','NY Waterway Static GTFS',false,'TRANSIT','TRANSIT_GTFS_URL','https://data.trilliumtransit.com/gtfs/nywaterway-nj-us/nywaterway-nj-us.zip','GET','NONE','{}'::jsonb,'{}'::jsonb,'{}'::jsonb,NULL,'NONE','{"provider_key":"NY_WATERWAY","fallback_mode":"FERRY","allowed_modes":["FERRY"]}'::jsonb,86400,60,25000000,true,true,'NY Waterway GTFS reference feed. Ferry routes/stops only; shuttle-bus routes are excluded.'),
+('NYW_GTFS','NY Waterway Static GTFS',false,'TRANSIT','TRANSIT_GTFS_URL','https://data.trilliumtransit.com/gtfs/nywaterway-nj-us/nywaterway-nj-us.zip','GET','NONE','{}'::jsonb,'{}'::jsonb,'{}'::jsonb,NULL,'NONE','{"provider_key":"NY_WATERWAY","fallback_mode":"FERRY","allowed_modes":["FERRY"]}'::jsonb,86400,60,5000000,true,true,'NY Waterway GTFS reference feed. Ferry routes/stops only; shuttle-bus routes are excluded.'),
 ('NYW_ADVISORIES','NY Waterway Port Imperial Advisories',false,'TRANSIT','NYW_ADVISORIES','https://www.nywaterway.com/advisoriesalerts.aspx','GET','NONE','{}'::jsonb,'{}'::jsonb,'{}'::jsonb,NULL,'NONE','{"provider_key":"NY_WATERWAY"}'::jsonb,300,30,4000000,true,true,'Official NY Waterway advisories. Advisory details are checked and only items mentioning Port Imperial are stored.')
 ON CONFLICT(integration_key) DO UPDATE
 SET name=EXCLUDED.name,category=EXCLUDED.category,adapter_type=EXCLUDED.adapter_type,
