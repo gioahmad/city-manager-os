@@ -25,13 +25,13 @@ def _coords_look_lonlat(bounds: list[float] | tuple[float, ...] | None) -> bool:
 
 
 def _transform_coordinates(value: Any, transformer: Transformer) -> Any:
-    if not isinstance(value, list):
+    if not isinstance(value, (list, tuple)):
         return value
     if value and isinstance(value[0], (int, float)):
         if len(value) < 2:
-            return value
+            return list(value)
         x, y = transformer.transform(float(value[0]), float(value[1]))
-        return [x, y, *value[2:]]
+        return [x, y, *list(value[2:])]
     return [_transform_coordinates(item, transformer) for item in value]
 
 
@@ -98,13 +98,7 @@ def read_csv_points(raw: bytes) -> list[dict[str, Any]]:
         if not (-90 <= lat <= 90 and -180 <= lon <= 180):
             raise ValueError(f"Latitude/longitude out of range on CSV row {row_number}")
         props = {str(k): v for k, v in row.items() if k is not None}
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": {"type": "Point", "coordinates": [lon, lat]},
-                "properties": props,
-            }
-        )
+        features.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [lon, lat]}, "properties": props})
     return features
 
 
@@ -249,10 +243,7 @@ def read_shapefile_zip(raw: bytes) -> list[dict[str, Any]]:
                 if transformer:
                     geometry = _transform_geometry(geometry, transformer)
                 record_values = list(shape_record.record)
-                properties = {
-                    field_names[idx]: record_values[idx]
-                    for idx in range(min(len(field_names), len(record_values)))
-                }
+                properties = {field_names[idx]: record_values[idx] for idx in range(min(len(field_names), len(record_values)))}
                 features.append({"type": "Feature", "geometry": geometry, "properties": properties})
             return features
 
