@@ -7,85 +7,121 @@
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
-  <link rel="stylesheet" href="/static/map.css">
+  <link rel="stylesheet" href="/static/map.css?v=20260907-1">
 </head>
 <body>
 <header class="topbar">
   <div class="brand">
     <div class="eyebrow">GIS · OPERATIONS · INTELLIGENCE</div>
     <div class="brand-row"><h1>Mapping Center</h1><span class="private-badge">PRIVATE</span></div>
-    <div class="tagline">Local operational layers · custom maps · browser-based GIS</div>
+    <div class="tagline">Find a place · understand what is there · add your own GIS layers</div>
   </div>
 </header>
 {% include "nav.html" %}
 <main class="map-main">
   {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
-  <section class="map-shell">
-    <aside class="map-sidebar">
-      <div class="map-side-head"><div><div class="panel-kicker">LAYERS</div><h2>Map Contents</h2></div><button id="fit-town" class="secondary-button" type="button">Fit Town</button></div>
-
-      <div class="map-section">
-        <h3>System Layers</h3>
-        {% for layer in system_layers %}
-        <label class="map-layer-row">
-          <input class="system-layer-toggle" type="checkbox" data-key="{{ layer.key }}" data-endpoint="{{ layer.endpoint }}" data-viewport="{{ '1' if layer.viewport else '0' }}" {{ 'checked' if layer.default_visible else '' }}>
-          <span><strong>{{ layer.name }}</strong><small>City Manager OS</small></span>
-        </label>
-        {% endfor %}
+  <section class="map-shell" id="map-shell">
+    <aside class="map-sidebar" id="map-sidebar">
+      <div class="map-side-head">
+        <div><div class="panel-kicker">MAPPING CENTER</div><h2>Map Workspace</h2></div>
+        <button id="hide-sidebar" class="map-icon-button" type="button">Hide</button>
       </div>
 
-      <div class="map-section">
-        <div class="map-section-title"><h3>Your Layers</h3><span>{{ custom_layers|length }}</span></div>
-        {% for layer in custom_layers %}
-        <div class="map-custom-row {{ '' if layer.active else 'inactive' }}">
-          <label>
-            {% if layer.active %}<input class="custom-layer-toggle" type="checkbox" data-id="{{ layer.id }}" data-type="{{ layer.layer_type }}" data-url="{{ layer.source_url or '' }}" data-attribution="{{ layer.attribution or '' }}" data-color="{{ (layer.style or {}).get('color','#4aa3df') }}" {{ 'checked' if layer.default_visible else '' }}>{% endif %}
-            <span><strong>{{ layer.name }}</strong><small>{{ layer.layer_type|replace('_',' ') }}{% if layer.layer_type == 'CUSTOM_GEOJSON' %} · {{ layer.feature_count or 0 }} features{% endif %}</small></span>
-          </label>
-          <form method="post" action="/map/layer/{{ layer.id }}/toggle"><button class="map-mini-button" type="submit">{{ 'Disable' if layer.active else 'Enable' }}</button></form>
-          {% if layer.layer_type == 'CUSTOM_GEOJSON' and layer.active %}
-          <form method="post" action="/map/layer/{{ layer.id }}/upload" enctype="multipart/form-data" class="map-upload-form">
-            <input type="file" name="file" accept=".geojson,.json,application/geo+json,application/json" required>
-            <button class="map-mini-button" type="submit">Import GeoJSON</button>
-          </form>
-          {% endif %}
-        </div>
-        {% else %}<p class="muted">No custom layers yet.</p>{% endfor %}
+      <div class="map-tabs" role="tablist" aria-label="Mapping tools">
+        <button class="map-tab active" type="button" data-panel="search">Search</button>
+        <button class="map-tab" type="button" data-panel="layers">Layers</button>
+        <button class="map-tab" type="button" data-panel="import">Import</button>
+        <button class="map-tab" type="button" data-panel="draw">Draw</button>
+        <button class="map-tab" type="button" data-panel="tools">Tools</button>
       </div>
 
-      <details class="map-section map-create" open>
-        <summary>Create Layer</summary>
-        <form method="post" action="/map/layer/create" class="map-form">
-          <label>Name<input name="name" placeholder="Snow routes, Projects, Parks..." required></label>
-          <label>Type<select name="layer_type" id="new-layer-type"><option value="CUSTOM_GEOJSON">Editable / GeoJSON</option><option value="XYZ">External XYZ Basemap</option></select></label>
-          <label id="xyz-url-field" hidden>XYZ Tile URL<input name="source_url" placeholder="https://.../{z}/{x}/{y}.png"></label>
-          <label>Attribution<input name="attribution" placeholder="Optional"></label>
-          <label>Layer Color<input type="color" name="color" value="#4aa3df"></label>
-          <label class="map-check"><input type="checkbox" name="default_visible"> Show by default</label>
-          <button class="primary-button" type="submit">Create Layer</button>
+      <section class="map-tool-panel active" data-panel-name="search">
+        <div class="map-section-title"><div><div class="panel-kicker">FIND</div><h3>Address / Parcel Search</h3></div></div>
+        <form id="map-search-form" class="map-search-form">
+          <input id="map-search-input" autocomplete="off" placeholder="Address, block, lot, PAMS PIN..." required>
+          <button class="primary-button" type="submit">Find</button>
         </form>
-      </details>
+        <p class="muted small-copy">Searches Weehawken NG911 addresses, parcels and names/properties in your custom layers.</p>
+        <div id="map-search-results" class="map-search-results"><div class="map-help-card">Try “4100 Park”, a block/lot number, or a PAMS PIN.</div></div>
+      </section>
 
-      <div class="map-section">
-        <h3>Draw on Map</h3>
+      <section class="map-tool-panel" data-panel-name="layers">
+        <div class="map-section-title"><h3>System Layers</h3><button id="fit-town" class="map-mini-button" type="button">Fit Town</button></div>
+        <div class="map-layer-list">
+          {% for layer in system_layers %}
+          <label class="map-layer-row">
+            <input class="system-layer-toggle" type="checkbox" data-key="{{ layer.key }}" data-endpoint="{{ layer.endpoint }}" data-viewport="{{ '1' if layer.viewport else '0' }}" data-color="{{ (layer.style or {}).get('color','') }}" {{ 'checked' if layer.default_visible else '' }}>
+            <span><strong>{{ layer.name }}</strong><small>City Manager OS</small></span>
+          </label>
+          {% endfor %}
+        </div>
+
+        <div class="map-section-title map-subhead"><h3>Your Layers</h3><span class="count-pill">{{ custom_layers|length }}</span></div>
+        {% for layer in custom_layers %}
+        <article class="map-custom-row {{ '' if layer.active else 'inactive' }}">
+          <div class="map-custom-main">
+            <label>
+              {% if layer.active %}<input class="custom-layer-toggle" type="checkbox" data-id="{{ layer.id }}" data-type="{{ layer.layer_type }}" data-url="{{ layer.source_url or '' }}" data-attribution="{{ layer.attribution or '' }}" data-color="{{ (layer.style or {}).get('color','#4aa3df') }}" {{ 'checked' if layer.default_visible else '' }}>{% endif %}
+              <span><strong>{{ layer.name }}</strong><small>{{ layer.layer_type|replace('_',' ') }}{% if layer.layer_type == 'CUSTOM_GEOJSON' %} · {{ layer.feature_count or 0 }} features{% endif %}</small></span>
+            </label>
+            {% if layer.last_feature_at %}<small class="map-layer-date">Data updated {{ layer.last_feature_at.strftime('%m/%d/%y %I:%M %p') }}</small>{% endif %}
+          </div>
+          <div class="map-layer-actions">
+            {% if layer.active and layer.layer_type == 'CUSTOM_GEOJSON' %}<button class="map-mini-button zoom-custom-layer" type="button" data-id="{{ layer.id }}" data-color="{{ (layer.style or {}).get('color','#4aa3df') }}">Zoom</button>{% endif %}
+            <form method="post" action="/map/layer/{{ layer.id }}/default"><button class="map-mini-button" type="submit">{{ 'Default On' if layer.default_visible else 'Default Off' }}</button></form>
+            <form method="post" action="/map/layer/{{ layer.id }}/toggle"><button class="map-mini-button" type="submit">{{ 'Disable' if layer.active else 'Enable' }}</button></form>
+            {% if layer.active %}<form method="post" action="/map/layer/{{ layer.id }}/archive" onsubmit="return confirm('Archive this layer? Existing features will remain in the database but the layer will be disabled.')"><button class="map-mini-button danger-lite" type="submit">Archive</button></form>{% endif %}
+          </div>
+        </article>
+        {% else %}<div class="map-help-card">No custom layers yet. Use Import or Create Layer.</div>{% endfor %}
+      </section>
+
+      <section class="map-tool-panel" data-panel-name="import">
+        <div class="map-section-title"><div><div class="panel-kicker">UPLOAD GIS</div><h3>Import Data</h3></div></div>
         {% if editable_layers %}
-        <label class="map-form-label">Save drawings to
-          <select id="draw-layer-select">
-            {% for layer in editable_layers %}<option value="{{ layer.id }}">{{ layer.name }}</option>{% endfor %}
-          </select>
-        </label>
-        <p class="muted small-copy">Use the drawing buttons on the map to add a point, line or area. Drawings save directly to the selected layer.</p>
-        {% else %}<p class="muted">Create an Editable / GeoJSON layer first to save drawings.</p>{% endif %}
-      </div>
+        <form id="map-import-form" method="post" action="/map/layer/{{ editable_layers[0].id }}/upload" enctype="multipart/form-data" class="map-form">
+          <label>Target Layer<select id="import-layer-select">{% for layer in editable_layers %}<option value="{{ layer.id }}">{{ layer.name }}</option>{% endfor %}</select></label>
+          <label>File<input type="file" name="file" accept=".geojson,.json,.zip,.kml,.kmz,.csv,application/json,application/geo+json" required></label>
+          <label>Import Mode<select name="mode"><option value="append">Append to existing features</option><option value="replace">Replace current layer contents</option></select></label>
+          <button class="primary-button" type="submit">Import GIS File</button>
+        </form>
+        <div class="map-help-card"><strong>Supported:</strong> GeoJSON/JSON, zipped ESRI Shapefile, KML/KMZ, and CSV points with latitude/longitude. Maximum upload {{ max_upload_mb }} MB and 5,000 features. Projected Shapefiles need a .prj file.</div>
+        {% else %}<div class="map-help-card">Create an Editable / GeoJSON layer below before importing GIS data.</div>{% endif %}
 
-      <div class="map-section">
-        <h3>Operational GIS</h3>
+        <details class="map-create" open>
+          <summary>Create Layer</summary>
+          <form method="post" action="/map/layer/create" class="map-form">
+            <label>Name<input name="name" placeholder="Snow Routes, Projects, Parks..." required></label>
+            <label>Type<select name="layer_type" id="new-layer-type"><option value="CUSTOM_GEOJSON">Editable / Imported GIS</option><option value="XYZ">External XYZ Basemap</option></select></label>
+            <label id="xyz-url-field" hidden>XYZ Tile URL<input name="source_url" placeholder="https://.../{z}/{x}/{y}.png"></label>
+            <label>Attribution<input name="attribution" placeholder="Optional"></label>
+            <label>Layer Color<input type="color" name="color" value="#4aa3df"></label>
+            <label class="map-check"><input type="checkbox" name="default_visible"> Show by default</label>
+            <button class="secondary-button" type="submit">Create Layer</button>
+          </form>
+        </details>
+      </section>
+
+      <section class="map-tool-panel" data-panel-name="draw">
+        <div class="map-section-title"><div><div class="panel-kicker">FIELD / PLANNING</div><h3>Draw on Map</h3></div></div>
+        {% if editable_layers %}
+        <label class="map-form-label">Save drawings to<select id="draw-layer-select">{% for layer in editable_layers %}<option value="{{ layer.id }}">{{ layer.name }}</option>{% endfor %}</select></label>
+        <div class="map-help-card">Use the Leaflet drawing buttons on the map to add a point, line, rectangle or polygon. The drawing saves directly to the selected layer.</div>
+        {% else %}<div class="map-help-card">Create an Editable / Imported GIS layer first to save drawings.</div>{% endif %}
+      </section>
+
+      <section class="map-tool-panel" data-panel-name="tools">
+        <div class="map-section-title"><div><div class="panel-kicker">OPERATIONAL GIS</div><h3>Tools</h3></div></div>
+        <button id="fit-town-tools" class="secondary-button map-full-button" type="button">Fit Weehawken</button>
         <a class="secondary-button button-link map-full-button" href="/flood">Flood Intelligence</a>
-        <p class="muted small-copy">Critical overlays are served from local PostGIS. The street basemap is replaceable and is not required for flood calculations.</p>
-      </div>
+        <a class="secondary-button button-link map-full-button" href="/issues">Open Work Items</a>
+        <a class="secondary-button button-link map-full-button" href="/transit">Transit Intelligence</a>
+        <div class="map-help-card">Critical overlays are served from local PostGIS. Custom data stays in the existing Mapping Center layer model instead of creating separate GIS applications.</div>
+      </section>
     </aside>
 
     <div class="map-stage">
+      <button id="show-sidebar" class="map-panel-show" type="button" hidden>Map Tools</button>
       <div id="city-map" aria-label="City Manager OS interactive map"></div>
       <div id="map-status" class="map-status">Loading map...</div>
     </div>
@@ -95,141 +131,55 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 <script>
-const townBounds = [
-  [{{ bounds.miny if bounds else 40.752 }}, {{ bounds.minx if bounds else -74.035 }}],
-  [{{ bounds.maxy if bounds else 40.783 }}, {{ bounds.maxx if bounds else -74.008 }}]
+const townBounds=[
+  [{{ bounds.miny if bounds else 40.752 }},{{ bounds.minx if bounds else -74.035 }}],
+  [{{ bounds.maxy if bounds else 40.783 }},{{ bounds.maxx if bounds else -74.008 }}]
 ];
-const map = L.map('city-map', {preferCanvas:true, zoomControl:true});
-map.fitBounds(townBounds, {padding:[20,20]});
-const statusEl = document.getElementById('map-status');
-const groups = {};
-const viewportKeys = new Set();
+const map=L.map('city-map',{preferCanvas:true,zoomControl:true});
+map.fitBounds(townBounds,{padding:[20,20]});
+const statusEl=document.getElementById('map-status');
+const groups={};
+function status(msg){statusEl.textContent=msg;}
+function safeText(v){return v===null||v===undefined||v===''?'—':String(v);}
 
-function status(msg){ statusEl.textContent = msg; }
-function safeText(v){ return v === null || v === undefined || v === '' ? '—' : String(v); }
-function popupFor(props){
-  const wrap=document.createElement('div');
-  wrap.className='map-popup';
-  const keys=Object.keys(props||{}).filter(k=>props[k]!==null && props[k]!=='' && k!=='properties');
-  keys.slice(0,12).forEach(k=>{
-    const row=document.createElement('div');
-    const strong=document.createElement('strong'); strong.textContent=k.replaceAll('_',' ')+': ';
-    const span=document.createElement('span'); span.textContent=safeText(props[k]);
-    row.append(strong,span); wrap.appendChild(row);
-  });
-  if(props && props.properties){
-    const row=document.createElement('div'); row.textContent=JSON.stringify(props.properties); wrap.appendChild(row);
-  }
+const labels={item_type:'Type',priority:'Priority',status:'Status',assigned_to:'Owner',waiting_on:'Waiting on',next_action:'Next action',mapped_address:'Address',due_at:'Due',follow_up_at:'Follow up',prop_loc:'Property',pams_pin:'PAMS PIN',block:'Block',lot:'Lot',fulladdr:'Address',impact_level:'Impact',impact_score:'Score',impact_summary:'Impact summary',starts_at:'Starts',venue:'Venue',result_type:'Result',label:'Name',detail:'Details'};
+function popupFor(props,key=''){
+  const wrap=document.createElement('div');wrap.className='map-popup';
+  const nested=(props&&typeof props.properties==='object'&&props.properties)||{};
+  const merged={...nested,...props};delete merged.properties;
+  const preferred=key==='operations'?['title','item_type','priority','status','assigned_to','waiting_on','next_action','mapped_address','due_at','follow_up_at']:key==='parcels'?['prop_loc','block','lot','pams_pin']:key==='addresses'?['fulladdr','post_comm','post_code']:key==='search'?['result_type','label','detail']:[];
+  const keys=[...preferred,...Object.keys(merged)].filter((v,i,a)=>a.indexOf(v)===i&&merged[v]!==null&&merged[v]!==''&&v!=='source_id').slice(0,12);
+  keys.forEach(k=>{const row=document.createElement('div');const strong=document.createElement('strong');strong.textContent=(labels[k]||k.replaceAll('_',' '))+': ';const span=document.createElement('span');span.textContent=safeText(merged[k]);row.append(strong,span);wrap.appendChild(row);});
   return wrap;
 }
-function pointStyle(key){
-  const color = key==='operations' ? '#f2994a' : key==='watchlist' ? '#c792ea' : key==='event-intelligence' ? '#e26d6d' : '#66c2a5';
-  return {radius:key==='operations'?7:5,color:'#ffffff',weight:1,fillColor:color,fillOpacity:.9};
-}
-function geoOptions(key,color){
-  return {
-    style: feature => {
-      if(key==='flood'){
-        const sfha=String(feature.properties?.sfha_tf||'').toUpperCase()==='T';
-        return {color:sfha?'#d9534f':'#d7a441',weight:1,fillColor:sfha?'#d9534f':'#d7a441',fillOpacity:sfha ? .30 : .18};
-      }
-      return {color:color||'#4aa3df',weight:key==='parcels'?1:2,fillColor:color||'#4aa3df',fillOpacity:key==='parcels' ? .03 : .16};
-    },
-    pointToLayer:(feature,latlng)=>L.circleMarker(latlng,pointStyle(key)),
-    onEachFeature:(feature,layer)=>layer.bindPopup(popupFor(feature.properties||{}))
-  };
-}
-function boundsParam(){
-  const b=map.getBounds();
-  return [b.getWest(),b.getSouth(),b.getEast(),b.getNorth()].join(',');
-}
-async function loadGeo(key,endpoint,color,viewport=false){
-  status('Loading '+key+'...');
-  let url=endpoint;
-  if(viewport) url += (url.includes('?')?'&':'?')+'bbox='+encodeURIComponent(boundsParam());
-  const res=await fetch(url,{headers:{'Accept':'application/geo+json'}});
-  if(!res.ok) throw new Error(key+' layer failed: '+res.status);
-  const data=await res.json();
-  if(groups[key]) groups[key].clearLayers();
-  else groups[key]=L.geoJSON(null,geoOptions(key,color)).addTo(map);
-  groups[key].addData(data);
-  status(key+' · '+(data.features?.length||0)+' features');
-}
-function removeLayer(key){ if(groups[key]){ map.removeLayer(groups[key]); groups[key]=null; } }
+function pointStyle(key){const color=key==='operations'?'#f2994a':key==='watchlist'?'#c792ea':key==='event-intelligence'?'#e26d6d':key==='search'?'#57b8ff':'#66c2a5';return{radius:key==='operations'||key==='search'?7:5,color:'#fff',weight:1,fillColor:color,fillOpacity:.92};}
+function geoOptions(key,color){return{style:feature=>{if(key==='flood'){const sfha=String(feature.properties?.sfha_tf||'').toUpperCase()==='T';return{color:sfha?'#d9534f':'#d7a441',weight:1,fillColor:sfha?'#d9534f':'#d7a441',fillOpacity:sfha?.30:.18};}return{color:color||'#4aa3df',weight:key==='parcels'?1:2,fillColor:color||'#4aa3df',fillOpacity:key==='parcels'?.03:.16};},pointToLayer:(feature,latlng)=>L.circleMarker(latlng,pointStyle(key)),onEachFeature:(feature,layer)=>layer.bindPopup(popupFor(feature.properties||{},key))};}
+function boundsParam(){const b=map.getBounds();return[b.getWest(),b.getSouth(),b.getEast(),b.getNorth()].join(',');}
+async function loadGeo(key,endpoint,color,viewport=false){status('Loading '+key+'...');let url=endpoint;if(viewport)url+=(url.includes('?')?'&':'?')+'bbox='+encodeURIComponent(boundsParam());const res=await fetch(url,{headers:{Accept:'application/geo+json'}});if(!res.ok)throw new Error(key+' layer failed: '+res.status);const data=await res.json();if(groups[key])groups[key].clearLayers();else groups[key]=L.geoJSON(null,geoOptions(key,color)).addTo(map);groups[key].addData(data);status(key+' · '+(data.features?.length||0)+' features');return groups[key];}
+function removeLayer(key){if(groups[key]){map.removeLayer(groups[key]);groups[key]=null;}}
 
-const systemConfig={};
-document.querySelectorAll('.system-layer-toggle').forEach(el=>{
-  systemConfig[el.dataset.key]={endpoint:el.dataset.endpoint,viewport:el.dataset.viewport==='1'};
-  if(el.dataset.viewport==='1') viewportKeys.add(el.dataset.key);
-  el.addEventListener('change',async()=>{
-    if(el.checked){ try{ await loadGeo(el.dataset.key,el.dataset.endpoint,null,el.dataset.viewport==='1'); }catch(e){status(e.message);} }
-    else removeLayer(el.dataset.key);
-  });
-});
-
-const customConfig={};
-document.querySelectorAll('.custom-layer-toggle').forEach(el=>{
-  const key='custom-'+el.dataset.id;
-  customConfig[key]=el;
-  el.addEventListener('change',async()=>{
-    if(!el.checked){removeLayer(key);return;}
-    try{
-      if(el.dataset.type==='XYZ'){
-        groups[key]=L.tileLayer(el.dataset.url,{maxZoom:20,attribution:el.dataset.attribution||''}).addTo(map);
-        status('Basemap '+key+' enabled');
-      }else{
-        await loadGeo(key,'/map/layer/'+el.dataset.id+'.geojson',el.dataset.color,false);
-      }
-    }catch(e){status(e.message);}
-  });
-});
-
-async function initialLoad(){
-  for(const el of document.querySelectorAll('.custom-layer-toggle:checked')) el.dispatchEvent(new Event('change'));
-  for(const el of document.querySelectorAll('.system-layer-toggle:checked')) el.dispatchEvent(new Event('change'));
-  status('Map ready');
-}
+document.querySelectorAll('.system-layer-toggle').forEach(el=>{el.addEventListener('change',async()=>{if(el.checked){try{await loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,el.dataset.viewport==='1');}catch(e){status(e.message);}}else removeLayer(el.dataset.key);});});
+document.querySelectorAll('.custom-layer-toggle').forEach(el=>{const key='custom-'+el.dataset.id;el.addEventListener('change',async()=>{if(!el.checked){removeLayer(key);return;}try{if(el.dataset.type==='XYZ'){groups[key]=L.tileLayer(el.dataset.url,{maxZoom:20,attribution:el.dataset.attribution||''}).addTo(map);status('Basemap enabled');}else await loadGeo(key,'/map/layer/'+el.dataset.id+'.geojson',el.dataset.color,false);}catch(e){status(e.message);}});});
+async function initialLoad(){for(const el of document.querySelectorAll('.custom-layer-toggle:checked'))el.dispatchEvent(new Event('change'));for(const el of document.querySelectorAll('.system-layer-toggle:checked'))el.dispatchEvent(new Event('change'));status('Map ready');}
 initialLoad();
+let viewportTimer=null;map.on('moveend',()=>{clearTimeout(viewportTimer);viewportTimer=setTimeout(()=>{document.querySelectorAll('.system-layer-toggle:checked').forEach(el=>{if(el.dataset.viewport==='1')loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,true).catch(e=>status(e.message));});},250);});
 
-let viewportTimer=null;
-map.on('moveend',()=>{
-  clearTimeout(viewportTimer);
-  viewportTimer=setTimeout(()=>{
-    document.querySelectorAll('.system-layer-toggle:checked').forEach(el=>{
-      if(el.dataset.viewport==='1') loadGeo(el.dataset.key,el.dataset.endpoint,null,true).catch(e=>status(e.message));
-    });
-  },250);
-});
-document.getElementById('fit-town').addEventListener('click',()=>map.fitBounds(townBounds,{padding:[20,20]}));
+function fitTown(){map.fitBounds(townBounds,{padding:[20,20]});}
+document.getElementById('fit-town')?.addEventListener('click',fitTown);document.getElementById('fit-town-tools')?.addEventListener('click',fitTown);
 
-const typeSelect=document.getElementById('new-layer-type');
-const xyzField=document.getElementById('xyz-url-field');
-function syncLayerForm(){ xyzField.hidden=typeSelect.value!=='XYZ'; }
-typeSelect.addEventListener('change',syncLayerForm); syncLayerForm();
+document.querySelectorAll('.map-tab').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('.map-tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.map-tool-panel').forEach(x=>x.classList.remove('active'));button.classList.add('active');document.querySelector('[data-panel-name="'+button.dataset.panel+'"]').classList.add('active');}));
 
-const drawLayerSelect=document.getElementById('draw-layer-select');
-if(drawLayerSelect && window.L.Control.Draw){
-  const drawControl=new L.Control.Draw({
-    position:'topleft',
-    edit:false,
-    draw:{circle:false,circlemarker:false,rectangle:true,marker:true,polyline:true,polygon:true}
-  });
-  map.addControl(drawControl);
-  map.on(L.Draw.Event.CREATED, async ev=>{
-    const layerId=drawLayerSelect.value;
-    if(!layerId){status('Choose a custom layer first');return;}
-    const feature=ev.layer.toGeoJSON();
-    status('Saving drawing...');
-    const res=await fetch('/map/layer/'+layerId+'/feature',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({geometry:feature.geometry,properties:{source:'web-draw'}})
-    });
-    if(!res.ok){status('Could not save drawing');return;}
-    const toggle=document.querySelector('.custom-layer-toggle[data-id="'+layerId+'"]');
-    if(toggle){ toggle.checked=true; await loadGeo('custom-'+layerId,'/map/layer/'+layerId+'.geojson',toggle.dataset.color,false); }
-    status('Drawing saved');
-  });
-}
+const shell=document.getElementById('map-shell'),showSidebar=document.getElementById('show-sidebar');document.getElementById('hide-sidebar').addEventListener('click',()=>{shell.classList.add('sidebar-hidden');showSidebar.hidden=false;setTimeout(()=>map.invalidateSize(),100);});showSidebar.addEventListener('click',()=>{shell.classList.remove('sidebar-hidden');showSidebar.hidden=true;setTimeout(()=>map.invalidateSize(),100);});
+
+const searchForm=document.getElementById('map-search-form'),searchInput=document.getElementById('map-search-input'),searchResults=document.getElementById('map-search-results');
+searchForm.addEventListener('submit',async ev=>{ev.preventDefault();const q=searchInput.value.trim();if(q.length<2)return;status('Searching...');const res=await fetch('/map/search?q='+encodeURIComponent(q));if(!res.ok){status('Search failed');return;}const data=await res.json();searchResults.innerHTML='';if(!data.features?.length){searchResults.innerHTML='<div class="map-help-card">No matching address, parcel or custom feature found.</div>';status('No search results');return;}if(groups.search){groups.search.clearLayers();}else groups.search=L.geoJSON(null,geoOptions('search','#57b8ff')).addTo(map);groups.search.addData(data);data.features.forEach((feature,index)=>{const p=feature.properties||{};const button=document.createElement('button');button.type='button';button.className='map-search-result';button.innerHTML='<strong></strong><small></small>';button.querySelector('strong').textContent=p.label||'Map result';button.querySelector('small').textContent=(p.result_type||'')+(p.detail?' · '+p.detail:'');button.addEventListener('click',()=>{const temp=L.geoJSON(feature);const b=temp.getBounds();if(b.isValid())map.fitBounds(b,{padding:[35,35],maxZoom:19});else if(feature.geometry?.type==='Point')map.setView([feature.geometry.coordinates[1],feature.geometry.coordinates[0]],19);const layers=groups.search.getLayers();if(layers[index])layers[index].openPopup();});searchResults.appendChild(button);});const b=groups.search.getBounds();if(b.isValid())map.fitBounds(b,{padding:[35,35],maxZoom:18});status(data.features.length+' search result'+(data.features.length===1?'':'s'));});
+
+document.querySelectorAll('.zoom-custom-layer').forEach(button=>button.addEventListener('click',async()=>{const id=button.dataset.id,key='custom-'+id;try{let group=groups[key];if(!group)group=await loadGeo(key,'/map/layer/'+id+'.geojson',button.dataset.color,false);const b=group.getBounds();if(b.isValid())map.fitBounds(b,{padding:[30,30]});}catch(e){status(e.message);}}));
+
+const importSelect=document.getElementById('import-layer-select'),importForm=document.getElementById('map-import-form');function syncImportAction(){if(importSelect&&importForm)importForm.action='/map/layer/'+importSelect.value+'/upload';}importSelect?.addEventListener('change',syncImportAction);syncImportAction();
+const typeSelect=document.getElementById('new-layer-type'),xyzField=document.getElementById('xyz-url-field');function syncLayerForm(){if(xyzField&&typeSelect)xyzField.hidden=typeSelect.value!=='XYZ';}typeSelect?.addEventListener('change',syncLayerForm);syncLayerForm();
+
+const drawLayerSelect=document.getElementById('draw-layer-select');if(drawLayerSelect&&window.L.Control.Draw){const drawControl=new L.Control.Draw({position:'topleft',edit:false,draw:{circle:false,circlemarker:false,rectangle:true,marker:true,polyline:true,polygon:true}});map.addControl(drawControl);map.on(L.Draw.Event.CREATED,async ev=>{const layerId=drawLayerSelect.value;if(!layerId){status('Choose a custom layer first');return;}const feature=ev.layer.toGeoJSON();status('Saving drawing...');const res=await fetch('/map/layer/'+layerId+'/feature',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geometry:feature.geometry,properties:{source:'web-draw'}})});if(!res.ok){status('Could not save drawing');return;}const toggle=document.querySelector('.custom-layer-toggle[data-id="'+layerId+'"]');if(toggle){toggle.checked=true;await loadGeo('custom-'+layerId,'/map/layer/'+layerId+'.geojson',toggle.dataset.color,false);}status('Drawing saved');});}
 </script>
 </body>
 </html>
