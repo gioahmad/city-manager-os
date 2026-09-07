@@ -10,6 +10,8 @@ python3 -m py_compile \
   dashboard/issues_app.py \
   dashboard/map_app.py
 
+grep -Fq "jsonb_build_object('color',%s::text)" dashboard/map_app.py
+
 git diff --check origin/main...HEAD
 
 cd "$DASH"
