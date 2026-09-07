@@ -16,4 +16,7 @@ import transit_app  # noqa: F401,E402
 # Upgrades Alert Admin in place while preserving the existing matcher and routing tables.
 import alert_admin_v2  # noqa: F401,E402
 
+from private_auth import configure_private_auth
+
 app = schedule_app.app
+configure_private_auth(app)
