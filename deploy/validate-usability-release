@@ -81,24 +81,32 @@ with db_conn() as conn:
         cur.execute(
             """
             INSERT INTO map_layers(
-              layer_key,name,layer_type,style,
-              active,default_visible,sort_order
+              layer_key,name,layer_type,source_url,
+              attribution,style,active,
+              default_visible,sort_order
             )
             VALUES (
-              'CMOS_WRITE_VALIDATION',
-              'CMOS Write Validation',
-              'CUSTOM_GEOJSON',
-              jsonb_build_object('color','#4aa3df'),
-              true,false,9999
+              %s,%s,%s,%s,%s,
+              jsonb_build_object('color',%s::text),
+              true,%s,9999
             )
             ON CONFLICT (layer_key)
             DO UPDATE SET updated_at=now()
             RETURNING id
-            """
+            """,
+            (
+                'CMOS_WRITE_VALIDATION',
+                'CMOS Write Validation',
+                'CUSTOM_GEOJSON',
+                None,
+                None,
+                '#4aa3df',
+                False,
+            ),
         )
         row = cur.fetchone()
         assert row, 'Mapping Center write validation returned no row'
     conn.rollback()
 
-print('MAPPING WEB WRITE VALIDATION: PASS')
+print('MAPPING PARAMETERIZED WRITE VALIDATION: PASS')
 PY
