@@ -12,7 +12,11 @@ import uuid
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from html import unescape
+from html.parser import HTMLParser
 from typing import Any
+import urllib.parse
 
 import psycopg
 from psycopg.rows import dict_row
@@ -28,7 +32,7 @@ from transit_runtime import (
     post_urlencoded,
 )
 
-TRANSIT_ADAPTERS = {"NJT_BUSDATA", "NJT_RAILDATA", "NJT_BUS_GTFS", "NJT_RAIL_GTFS"}
+TRANSIT_ADAPTERS = {"NJT_BUSDATA", "NJT_RAILDATA", "NJT_BUS_GTFS", "NJT_RAIL_GTFS", "NJT_RSS", "PATH_REALTIME", "TRANSIT_GTFS_URL", "NYW_ADVISORIES"}
 
 
 def db_conn():
@@ -49,6 +53,13 @@ def is_transit_adapter(integration: dict[str, Any]) -> bool:
 
 def _config(integration: dict[str, Any]) -> dict[str, Any]:
     value = integration.get("auth_config") or {}
+    if isinstance(value, str):
+        value = json.loads(value)
+    return dict(value)
+
+
+def _parser_config(integration: dict[str, Any]) -> dict[str, Any]:
+    value = integration.get("parser_config") or {}
     if isinstance(value, str):
         value = json.loads(value)
     return dict(value)
@@ -289,6 +300,8 @@ def _score_text(text: str, watch_hits: list[str] | None = None) -> tuple[int, st
         score += 45
     if re.search(r"\b(DELAY|DELAYED|LATE|SIGNAL|SWITCH|POLICE|MEDICAL|MECHANICAL)\b", hay):
         score += 18
+    if re.search(r"\b(SERVICE CHANGE|SCHEDULE CHANGE|DETOUR|BYPASS|SKIP|SKIPPING|REVISED SERVICE)\b", hay):
+        score += 18
     if re.search(r"\b(CANCEL|CANCELLED|CANCELED)\b", hay):
         score += 20
     if re.search(r"\b(LINCOLN TUNNEL|PABT|PORT AUTHORITY BUS TERMINAL|PORT IMPERIAL|HOBOKEN|SECAUCUS)\b", hay):
@@ -296,7 +309,6 @@ def _score_text(text: str, watch_hits: list[str] | None = None) -> tuple[int, st
     score = min(score, 100)
     level = "ALERT" if score >= 75 else "WATCH" if score >= 45 else "AWARENESS"
     return score, level
-
 
 def _upsert_asset(
     conn,
@@ -563,11 +575,18 @@ def _import_gtfs_zip(
     provider_id: uuid.UUID,
     integration_id: uuid.UUID,
     fallback_mode: str,
+    force_mode: str | None = None,
+    allowed_modes: set[str] | None = None,
 ) -> tuple[int, int]:
+    # Stops do not carry route_type. Use route -> trip -> stop_time relationships
+    # so NJT HBLR stops inherit LIGHT_RAIL safely from GTFS.
     changed = 0
     found = 0
+    allowed = {str(x).upper() for x in (allowed_modes or set())}
+
     with zipfile.ZipFile(io.BytesIO(raw)) as zf:
         names = set(zf.namelist())
+        route_modes: dict[str, str] = {}
 
         if "routes.txt" in names:
             reader = csv.DictReader(io.TextIOWrapper(zf.open("routes.txt"), encoding="utf-8-sig"))
@@ -575,8 +594,11 @@ def _import_gtfs_zip(
                 route_id = _text(row.get("route_id"))
                 if not route_id:
                     continue
+                mode = (force_mode or _mode_from_route_type(row.get("route_type"), fallback_mode)).upper()
+                if allowed and mode not in allowed:
+                    continue
+                route_modes[route_id] = mode
                 found += 1
-                mode = _mode_from_route_type(row.get("route_type"), fallback_mode)
                 name = _text(row.get("route_long_name")) or _text(row.get("route_short_name")) or route_id
                 changed += int(_upsert_asset(
                     conn,
@@ -587,8 +609,27 @@ def _import_gtfs_zip(
                     mode=mode,
                     name=name,
                     short_name=_text(row.get("route_short_name")) or None,
-                    metadata=row,
+                    metadata={**row, "_CMOS_MODE": mode},
                 ))
+
+        stop_modes: dict[str, set[str]] = {}
+        if route_modes and "trips.txt" in names and "stop_times.txt" in names:
+            trip_modes: dict[str, str] = {}
+            reader = csv.DictReader(io.TextIOWrapper(zf.open("trips.txt"), encoding="utf-8-sig"))
+            for row in reader:
+                trip_id = _text(row.get("trip_id"))
+                route_id = _text(row.get("route_id"))
+                mode = route_modes.get(route_id)
+                if trip_id and mode:
+                    trip_modes[trip_id] = mode
+
+            reader = csv.DictReader(io.TextIOWrapper(zf.open("stop_times.txt"), encoding="utf-8-sig"))
+            for row in reader:
+                trip_id = _text(row.get("trip_id"))
+                stop_id = _text(row.get("stop_id"))
+                mode = trip_modes.get(trip_id)
+                if stop_id and mode:
+                    stop_modes.setdefault(stop_id, set()).add(mode)
 
         if "stops.txt" in names:
             reader = csv.DictReader(io.TextIOWrapper(zf.open("stops.txt"), encoding="utf-8-sig"))
@@ -596,25 +637,55 @@ def _import_gtfs_zip(
                 stop_id = _text(row.get("stop_id"))
                 if not stop_id:
                     continue
+                modes = stop_modes.get(stop_id, set())
+                if allowed and not modes:
+                    continue
+
+                if force_mode:
+                    mode = force_mode.upper()
+                elif "LIGHT_RAIL" in modes:
+                    mode = "LIGHT_RAIL"
+                elif "FERRY" in modes:
+                    mode = "FERRY"
+                elif "RAIL" in modes:
+                    mode = "RAIL"
+                elif "SUBWAY" in modes:
+                    mode = "SUBWAY"
+                elif "BUS" in modes:
+                    mode = "BUS"
+                elif modes:
+                    mode = sorted(modes)[0]
+                else:
+                    mode = fallback_mode.upper()
+
+                if allowed and mode not in allowed:
+                    continue
+
                 found += 1
                 lat = _float(row.get("stop_lat"))
                 lon = _float(row.get("stop_lon"))
                 name = _text(row.get("stop_name")) or stop_id
+                if mode in {"RAIL", "LIGHT_RAIL", "SUBWAY"}:
+                    asset_type = "STATION"
+                elif mode == "FERRY":
+                    asset_type = "TERMINAL"
+                else:
+                    asset_type = "STOP"
+
                 changed += int(_upsert_asset(
                     conn,
                     provider_id=provider_id,
                     integration_id=integration_id,
                     asset_key=f"STOP:{stop_id}",
-                    asset_type="STATION" if fallback_mode in {"RAIL", "LIGHT_RAIL"} else "STOP",
-                    mode=fallback_mode,
+                    asset_type=asset_type,
+                    mode=mode,
                     name=name,
                     latitude=lat,
                     longitude=lon,
-                    state="NJ",
-                    metadata=row,
+                    state="NJ" if (lon is not None and lon < -73.95) else None,
+                    metadata={**row, "_CMOS_MODES": sorted(modes) if modes else [mode]},
                 ))
     return found, changed
-
 
 def _run_busdata(conn, integration: dict[str, Any], *, store: bool) -> tuple[TransitResult, int, int]:
     env = _required_values(integration)
@@ -623,7 +694,7 @@ def _run_busdata(conn, integration: dict[str, Any], *, store: bool) -> tuple[Tra
     west, south, east, north = _bbox()
     center_lat = (south + north) / 2.0
     center_lon = (west + east) / 2.0
-    radius = int(os.getenv("NJT_BUS_RADIUS", "15"))
+    radius = max(1000, int(os.getenv("NJT_BUS_RADIUS_FEET", "30000")))
 
     collected: list[dict[str, Any]] = []
     bus_result: TransitResult | None = None
@@ -644,7 +715,7 @@ def _run_busdata(conn, integration: dict[str, Any], *, store: bool) -> tuple[Tra
         token_error = exc
 
     if token:
-        for requested_mode in ("BUS", "HBLR"):
+        for requested_mode in ("BUS",):
             result = post_multipart(
                 f"{host}/api/BUSDV2/getVehicleLocations",
                 {
@@ -777,7 +848,7 @@ def _run_busdata(conn, integration: dict[str, Any], *, store: bool) -> tuple[Tra
             )
         )
         requested_mode = _text(row.get("_CMOS_REQUESTED_MODE")).upper()
-        mode = "LIGHT_RAIL" if requested_mode == "HBLR" else "BUS"
+        mode = "BUS"
 
         kept += 1
         changed += int(
@@ -807,7 +878,7 @@ def _run_busdata(conn, integration: dict[str, Any], *, store: bool) -> tuple[Tra
             "SET active=false,updated_at=now() "
             "WHERE provider_id=%s "
             "AND asset_type='VEHICLE' "
-            "AND mode IN ('BUS','LIGHT_RAIL') "
+            "AND mode='BUS' "
             "AND last_seen_at < now() - interval '15 minutes'",
             (provider_id,),
         )
@@ -980,28 +1051,24 @@ def _run_bus_gtfs(conn, integration: dict[str, Any], *, store: bool) -> tuple[Tr
     username, password = env["username_env"], env["password_env"]
     host = os.getenv("NJT_BUS_HOST", "https://pcsdata.njtransit.com").rstrip("/")
 
-    configured_prefix = os.getenv("NJT_BUS_GTFS_PREFIX", "/api/GTFSG2").strip()
+    configured_prefix = os.getenv("NJT_BUS_GTFS_PREFIX", "/api/GTFS").strip()
     if not configured_prefix.startswith("/"):
         configured_prefix = "/" + configured_prefix
 
     prefixes: list[str] = []
-    for prefix in (configured_prefix, "/api/GTFSG2", "/api/GTFS"):
+    for prefix in (configured_prefix, "/api/GTFS", "/api/GTFSG2"):
         if prefix not in prefixes:
             prefixes.append(prefix)
 
     errors: list[str] = []
     selected_result: TransitResult | None = None
     selected_raw: bytes | None = None
+    max_bytes = max(int(integration.get("max_response_bytes") or 0), 90_000_000)
 
     for prefix in prefixes:
         family = "GTFSG2" if "GTFSG2" in prefix.upper() else "GTFS"
         try:
-            token = get_cached_bus_token(
-                host=host,
-                family=family,
-                username=username,
-                password=password,
-            )
+            token = get_cached_bus_token(host=host,family=family,username=username,password=password)
         except Exception as exc:
             errors.append(f"{prefix} auth: {exc}")
             continue
@@ -1009,25 +1076,18 @@ def _run_bus_gtfs(conn, integration: dict[str, Any], *, store: bool) -> tuple[Tr
         result = post_multipart(
             f"{host}{prefix.rstrip('/')}/getGTFS",
             {"token": token},
-            timeout_seconds=int(integration.get("timeout_seconds") or 60),
-            max_response_bytes=50_000_000,
+            timeout_seconds=int(integration.get("timeout_seconds") or 90),
+            max_response_bytes=max_bytes,
         )
-
-        if not result.ok and result.status_code in {400, 401, 403}:
-            invalidate_token(host, family, username)
+        if not result.ok and result.status_code in {400,401,403}:
+            invalidate_token(host,family,username)
             try:
-                token = get_cached_bus_token(
-                    host=host,
-                    family=family,
-                    username=username,
-                    password=password,
-                    force_refresh=True,
-                )
+                token = get_cached_bus_token(host=host,family=family,username=username,password=password,force_refresh=True)
                 result = post_multipart(
                     f"{host}{prefix.rstrip('/')}/getGTFS",
                     {"token": token},
-                    timeout_seconds=int(integration.get("timeout_seconds") or 60),
-                    max_response_bytes=50_000_000,
+                    timeout_seconds=int(integration.get("timeout_seconds") or 90),
+                    max_response_bytes=max_bytes,
                 )
             except Exception as exc:
                 errors.append(f"{prefix} reauth: {exc}")
@@ -1036,35 +1096,393 @@ def _run_bus_gtfs(conn, integration: dict[str, Any], *, store: bool) -> tuple[Tr
         if not result.ok:
             errors.append(f"{prefix}: {result.error or 'HTTP ' + str(result.status_code)}")
             continue
-
+        if result.truncated:
+            errors.append(f"{prefix}: response exceeded {max_bytes} byte safety cap")
+            continue
         try:
             raw = _gtfs_payload_bytes(result)
+            with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                if "routes.txt" not in zf.namelist() or "stops.txt" not in zf.namelist():
+                    raise ValueError("GTFS ZIP missing routes.txt or stops.txt")
         except Exception as exc:
             errors.append(f"{prefix}: {exc}")
             continue
 
-        selected_result = result
-        selected_raw = raw
+        selected_result=result
+        selected_raw=raw
         break
 
     if selected_result is None or selected_raw is None:
-        raise RuntimeError(
-            "NJ TRANSIT GTFS-BUS failed across GTFSG2/GTFS endpoints: "
-            + " | ".join(errors)
-        )
+        raise RuntimeError("NJ TRANSIT GTFS-BUS failed across GTFS/GTFSG2 endpoints: " + " | ".join(errors))
 
     if not store:
-        return selected_result, 1, 0
+        with zipfile.ZipFile(io.BytesIO(selected_raw)) as zf:
+            return selected_result,len(zf.namelist()),0
 
-    provider_id = _provider_id(conn)
-    found, changed = _import_gtfs_zip(
+    provider_id=_provider_id(conn)
+    found,changed=_import_gtfs_zip(
         conn,
         raw=selected_raw,
         provider_id=provider_id,
         integration_id=integration["id"],
         fallback_mode="BUS",
     )
-    return selected_result, found, changed
+    return selected_result,found,changed
+
+
+def _html_text(value: str) -> str:
+    text=re.sub(r"<script\b[^>]*>.*?</script>"," ",value or "",flags=re.I|re.S)
+    text=re.sub(r"<style\b[^>]*>.*?</style>"," ",text,flags=re.I|re.S)
+    text=re.sub(r"<[^>]+>"," ",text)
+    return re.sub(r"\s+"," ",unescape(text)).strip()
+
+
+class _AnchorCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.links: list[tuple[str,str]]=[]
+        self._href: str | None=None
+        self._parts: list[str]=[]
+
+    def handle_starttag(self,tag: str,attrs: list[tuple[str,str|None]]) -> None:
+        if tag.lower()!="a":
+            return
+        self._href=dict(attrs).get("href")
+        self._parts=[]
+
+    def handle_data(self,data: str) -> None:
+        if self._href is not None:
+            self._parts.append(data)
+
+    def handle_endtag(self,tag: str) -> None:
+        if tag.lower()!="a" or self._href is None:
+            return
+        text=re.sub(r"\s+"," "," ".join(self._parts)).strip()
+        self.links.append((self._href,text))
+        self._href=None
+        self._parts=[]
+
+
+def _advisory_links(html: str,base_url: str) -> list[tuple[str,str]]:
+    parser=_AnchorCollector()
+    parser.feed(html or "")
+    rows=[]
+    seen=set()
+    for href,title in parser.links:
+        if "advisorydetails.aspx" not in href.lower():
+            continue
+        url=urllib.parse.urljoin(base_url,href)
+        if url in seen:
+            continue
+        seen.add(url)
+        rows.append((url,title))
+    return rows
+
+
+def _rss_items(result: TransitResult) -> list[dict[str,Any]]:
+    root=ET.fromstring(result.raw or result.body_text.encode())
+    rows=[]
+    for item in root.findall(".//item"):
+        def value(tag: str) -> str:
+            node=item.find(tag)
+            return _text(node.text if node is not None else "")
+        title=value("title")
+        description=_html_text(value("description"))
+        if not title and not description:
+            continue
+        rows.append({
+            "title":title or description[:160],
+            "description":description,
+            "link":value("link"),
+            "guid":value("guid"),
+            "pub_date":value("pubDate"),
+        })
+    return rows
+
+
+def _run_njt_rss(conn,integration: dict[str,Any],*,store: bool) -> tuple[TransitResult,int,int]:
+    result=get_bytes(
+        integration["endpoint_url"],
+        timeout_seconds=int(integration.get("timeout_seconds") or 30),
+        max_response_bytes=int(integration.get("max_response_bytes") or 4_000_000),
+    )
+    if not result.ok:
+        raise RuntimeError(result.error or f"NJT RSS HTTP {result.status_code}")
+    rows=_rss_items(result)
+    if not store:
+        return result,len(rows),0
+
+    cfg=_parser_config(integration)
+    provider_id=_provider_id(conn,str(cfg.get("provider_key") or "NJ_TRANSIT"))
+    watches=_watch_rows(conn,provider_id)
+    mode=str(cfg.get("mode") or "BUS").upper()
+    include_terms=[_norm(x) for x in (cfg.get("include_terms") or []) if _norm(x)]
+    changed=0
+    kept=0
+    for row in rows:
+        text=f"{row['title']} {row['description']}"
+        hay=_norm(text)
+        hits=_watch_hits(text,watches)
+        if include_terms and not any(term in hay for term in include_terms):
+            continue
+        if not include_terms and not hits:
+            continue
+        score,level=_score_text(text,hits)
+        link=row["link"] or integration["endpoint_url"]
+        external=row["guid"] or link or hashlib.sha256(text.encode()).hexdigest()
+        published=None
+        if row["pub_date"]:
+            try:
+                published=parsedate_to_datetime(row["pub_date"])
+                if published.tzinfo is None:
+                    published=published.replace(tzinfo=timezone.utc)
+            except Exception:
+                published=None
+        municipality=None
+        if re.search(r"\b(WEEHAWKEN|PORT IMPERIAL|LINCOLN TUNNEL)\b",hay):
+            municipality="Weehawken"
+        elif "HOBOKEN" in hay:
+            municipality="Hoboken"
+        kept+=1
+        changed+=int(_upsert_observation(
+            conn,
+            provider_id=provider_id,
+            integration_id=integration["id"],
+            external_key=f"RSS:{external}",
+            mode=mode,
+            route_key=None,
+            route_name=None,
+            asset_key=None,
+            asset_name=hits[0] if hits else None,
+            title=row["title"],
+            description=row["description"][:3000] or None,
+            status="ACTIVE",
+            municipality=municipality,
+            county="Hudson" if municipality else None,
+            state="NJ",
+            source_url=link,
+            impact_score=score,
+            impact_level=level,
+            starts_at=published,
+            ends_at=None,
+            latitude=None,
+            longitude=None,
+            metadata={"watch_hits":hits,"published":row["pub_date"],"feed":integration["integration_key"]},
+        ))
+    return result,kept,changed
+
+
+PATH_STATION_NAMES={
+    "NWK":"Newark","HAR":"Harrison","JSQ":"Journal Square","GRV":"Grove Street",
+    "NEW":"Newport","EXP":"Exchange Place","HOB":"Hoboken","WTC":"World Trade Center",
+    "CHR":"Christopher Street","09S":"9th Street","14S":"14th Street","23S":"23rd Street","33S":"33rd Street",
+}
+
+
+def _path_rows(payload: Any) -> list[dict[str,Any]]:
+    if not isinstance(payload,dict) or not isinstance(payload.get("results"),list):
+        raise ValueError("PATH realtime payload missing results")
+    rows=[]
+    for station in payload["results"]:
+        if not isinstance(station,dict):
+            continue
+        code=_text(station.get("consideredStation")).upper()
+        if not code:
+            continue
+        messages=[]
+        for dest in station.get("destinations") or []:
+            if not isinstance(dest,dict):
+                continue
+            label=_text(dest.get("label"))
+            for msg in dest.get("messages") or []:
+                if not isinstance(msg,dict):
+                    continue
+                item=dict(msg)
+                item["_direction"]=label
+                messages.append(item)
+        rows.append({"code":code,"messages":messages})
+    return rows
+
+
+def _run_path_realtime(conn,integration: dict[str,Any],*,store: bool) -> tuple[TransitResult,int,int]:
+    result=get_bytes(
+        integration["endpoint_url"],
+        timeout_seconds=int(integration.get("timeout_seconds") or 30),
+        max_response_bytes=int(integration.get("max_response_bytes") or 4_000_000),
+    )
+    if not result.ok:
+        raise RuntimeError(result.error or f"PATH realtime HTTP {result.status_code}")
+    rows=_path_rows(json_value(result))
+    if not store:
+        return result,len(rows),0
+
+    cfg=_parser_config(integration)
+    provider_id=_provider_id(conn,str(cfg.get("provider_key") or "PATH"))
+    watches=_watch_rows(conn,provider_id)
+    configured={str(x).upper() for x in (cfg.get("station_codes") or ["HOB","NEW","EXP","JSQ","WTC","33S"])}
+    changed=0
+    kept=0
+    for station in rows:
+        code=station["code"]
+        messages=station["messages"]
+        if code not in configured and not any("DELAY" in _norm(m.get("arrivalTimeMessage")) for m in messages):
+            continue
+        if not messages:
+            continue
+        name=PATH_STATION_NAMES.get(code,code)
+        parts=[]
+        delayed=False
+        latest=None
+        for msg in messages[:8]:
+            arrival=_text(msg.get("arrivalTimeMessage"))
+            headsign=_text(msg.get("headSign"))
+            direction=_text(msg.get("_direction"))
+            if "DELAY" in _norm(arrival):
+                delayed=True
+            updated=_parse_datetime(msg.get("lastUpdated"))
+            if updated and (latest is None or updated>latest):
+                latest=updated
+            detail=f"{headsign}: {arrival}" if headsign else arrival
+            if direction:
+                detail=f"{direction} {detail}"
+            if detail:
+                parts.append(detail)
+        description="; ".join(parts)
+        text=f"PATH {name} {code} {description}"
+        hits=_watch_hits(text,watches)
+        score,level=_score_text(text,hits)
+        if delayed and score<45:
+            score,level=45,"WATCH"
+        kept+=1
+        changed+=int(_upsert_observation(
+            conn,
+            provider_id=provider_id,
+            integration_id=integration["id"],
+            external_key=f"ARRIVALS:{code}",
+            mode="RAIL",
+            route_key=None,
+            route_name=None,
+            asset_key=None,
+            asset_name=f"PATH {name}",
+            title=f"PATH {name} live arrivals",
+            description=description[:3000],
+            status="DELAYED" if delayed else "ACTIVE",
+            municipality="Hoboken" if code=="HOB" else "Jersey City" if code in {"NEW","EXP","JSQ","GRV"} else "New York" if code in {"WTC","33S","23S","14S","09S","CHR"} else None,
+            county="Hudson" if code in {"HOB","NEW","EXP","JSQ","GRV"} else None,
+            state="NJ" if code in {"NWK","HAR","JSQ","GRV","NEW","EXP","HOB"} else "NY",
+            source_url="https://www.panynj.gov/path/en/index.html",
+            impact_score=score,
+            impact_level=level,
+            starts_at=latest,
+            ends_at=None,
+            latitude=None,
+            longitude=None,
+            metadata={"station_code":code,"messages":messages[:8],"watch_hits":hits},
+        ))
+    return result,kept,changed
+
+
+def _run_public_gtfs(conn,integration: dict[str,Any],*,store: bool) -> tuple[TransitResult,int,int]:
+    result=get_bytes(
+        integration["endpoint_url"],
+        timeout_seconds=int(integration.get("timeout_seconds") or 60),
+        max_response_bytes=int(integration.get("max_response_bytes") or 25_000_000),
+    )
+    if not result.ok:
+        raise RuntimeError(result.error or f"GTFS HTTP {result.status_code}")
+    if result.truncated:
+        raise RuntimeError("GTFS response exceeded configured response cap")
+    raw=_gtfs_payload_bytes(result)
+    with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+        names=zf.namelist()
+        if "routes.txt" not in names or "stops.txt" not in names:
+            raise ValueError("GTFS ZIP missing routes.txt or stops.txt")
+    if not store:
+        return result,len(names),0
+    cfg=_parser_config(integration)
+    provider_key=str(cfg.get("provider_key") or "").upper()
+    if not provider_key:
+        raise ValueError("TRANSIT_GTFS_URL requires parser_config.provider_key")
+    fallback_mode=str(cfg.get("fallback_mode") or "RAIL").upper()
+    force_mode=str(cfg.get("force_mode") or "").upper() or None
+    allowed_modes={str(x).upper() for x in (cfg.get("allowed_modes") or [])}
+    provider_id=_provider_id(conn,provider_key)
+    found,changed=_import_gtfs_zip(
+        conn,
+        raw=raw,
+        provider_id=provider_id,
+        integration_id=integration["id"],
+        fallback_mode=fallback_mode,
+        force_mode=force_mode,
+        allowed_modes=allowed_modes or None,
+    )
+    return result,found,changed
+
+
+def _run_nyw_advisories(conn,integration: dict[str,Any],*,store: bool) -> tuple[TransitResult,int,int]:
+    result=get_bytes(
+        integration["endpoint_url"],
+        timeout_seconds=int(integration.get("timeout_seconds") or 30),
+        max_response_bytes=int(integration.get("max_response_bytes") or 4_000_000),
+    )
+    if not result.ok:
+        raise RuntimeError(result.error or f"NY Waterway advisories HTTP {result.status_code}")
+    links=_advisory_links(result.body_text,result.final_url)
+    if not store:
+        return result,len(links),0
+    cfg=_parser_config(integration)
+    provider_id=_provider_id(conn,str(cfg.get("provider_key") or "NY_WATERWAY"))
+    watches=_watch_rows(conn,provider_id)
+    changed=0
+    kept=0
+    seen=set()
+    for url,root_title in links[:25]:
+        if url in seen:
+            continue
+        seen.add(url)
+        detail=get_bytes(url,timeout_seconds=int(integration.get("timeout_seconds") or 30),max_response_bytes=2_000_000)
+        if not detail.ok:
+            continue
+        visible=_html_text(detail.body_text)
+        upper=visible.upper()
+        if "PORT IMPERIAL" not in upper:
+            continue
+        title=root_title.strip() or "NY Waterway Port Imperial advisory"
+        idx=upper.find("PORT IMPERIAL")
+        excerpt=visible[max(0,idx-300):idx+1600] if idx>=0 else visible[:1900]
+        text=f"{title} {excerpt} Port Imperial Weehawken"
+        hits=_watch_hits(text,watches)
+        score,level=_score_text(text,hits)
+        m=re.search(r"[?&]aid=([^&#]+)",url,re.I)
+        external=m.group(1) if m else hashlib.sha256(url.encode()).hexdigest()
+        dm=re.search(r"\b\d{1,2}/\d{1,2}/20\d{2}\b",visible)
+        kept+=1
+        changed+=int(_upsert_observation(
+            conn,
+            provider_id=provider_id,
+            integration_id=integration["id"],
+            external_key=f"ADVISORY:{external}",
+            mode="FERRY",
+            route_key="PORT_IMPERIAL",
+            route_name="Port Imperial / Weehawken",
+            asset_key=None,
+            asset_name="Port Imperial / Weehawken",
+            title=title,
+            description=excerpt[:3000] or None,
+            status="ACTIVE",
+            municipality="Weehawken",
+            county="Hudson",
+            state="NJ",
+            source_url=url,
+            impact_score=score,
+            impact_level=level,
+            starts_at=None,
+            ends_at=None,
+            latitude=None,
+            longitude=None,
+            metadata={"published_date":dm.group(0) if dm else None,"watch_hits":hits},
+        ))
+    return result,kept,changed
 
 def run_transit_integration(
     integration: dict[str, Any],
@@ -1090,6 +1508,14 @@ def run_transit_integration(
                 result, items, changed = _run_rail_gtfs(conn, integration, store=parse_and_store)
             elif adapter == "NJT_BUS_GTFS":
                 result, items, changed = _run_bus_gtfs(conn, integration, store=parse_and_store)
+            elif adapter == "NJT_RSS":
+                result, items, changed = _run_njt_rss(conn, integration, store=parse_and_store)
+            elif adapter == "PATH_REALTIME":
+                result, items, changed = _run_path_realtime(conn, integration, store=parse_and_store)
+            elif adapter == "TRANSIT_GTFS_URL":
+                result, items, changed = _run_public_gtfs(conn, integration, store=parse_and_store)
+            elif adapter == "NYW_ADVISORIES":
+                result, items, changed = _run_nyw_advisories(conn, integration, store=parse_and_store)
             else:
                 raise ValueError(f"Unsupported transit adapter {adapter}")
 

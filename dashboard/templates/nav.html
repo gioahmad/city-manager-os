@@ -7,6 +7,7 @@
     <a href="/my-day" class="{% if request.url.path.startswith('/my-day') %}active{% endif %}">My Day</a>
     <a href="/schedule" class="{% if request.url.path.startswith('/schedule') %}active{% endif %}">Events</a>
     <a href="/alerts" class="{% if request.url.path.startswith('/alerts') %}active{% endif %}">Alerts</a>
+    <a href="/transit" class="{% if request.url.path.startswith('/transit') %}active{% endif %}">Transit</a>
     <a href="/modules" class="{% if request.url.path.startswith('/modules') %}active{% endif %}">Modules</a>
     <a href="/map" class="{% if request.url.path.startswith('/map') or request.url.path.startswith('/flood') %}active{% endif %}">Map</a>
     <a href="/issues" class="{% if request.url.path.startswith('/issues') %}active{% endif %}">Command Center</a>
@@ -26,11 +27,12 @@
   <a href="/my-day" class="{% if request.url.path.startswith('/my-day') %}active{% endif %}">My Day</a>
   <a href="/issues" class="{% if request.url.path.startswith('/issues') %}active{% endif %}">Command</a>
   <a href="/staff-admin" class="{% if request.url.path.startswith('/staff-admin') %}active{% endif %}">Ops</a>
-  <details class="mobile-more {% if request.url.path.startswith('/schedule') or request.url.path.startswith('/alerts') or request.url.path.startswith('/modules') or request.url.path.startswith('/map') or request.url.path.startswith('/flood') or request.url.path.startswith('/rules') or request.url.path.startswith('/watchlist') or request.url.path.startswith('/subscribers') or request.url.path.startswith('/routing') or request.url.path.startswith('/source-health') or request.url.path.startswith('/deliveries') %}active{% endif %}">
+  <details class="mobile-more {% if request.url.path.startswith('/schedule') or request.url.path.startswith('/alerts') or request.url.path.startswith('/transit') or request.url.path.startswith('/modules') or request.url.path.startswith('/map') or request.url.path.startswith('/flood') or request.url.path.startswith('/rules') or request.url.path.startswith('/watchlist') or request.url.path.startswith('/subscribers') or request.url.path.startswith('/routing') or request.url.path.startswith('/source-health') or request.url.path.startswith('/deliveries') %}active{% endif %}">
     <summary>More</summary>
     <div class="mobile-menu">
       <a href="/schedule" class="{% if request.url.path.startswith('/schedule') %}active{% endif %}">Events</a>
       <a href="/alerts" class="{% if request.url.path.startswith('/alerts') %}active{% endif %}">Alerts</a>
+      <a href="/transit" class="{% if request.url.path.startswith('/transit') %}active{% endif %}">Transit Intelligence</a>
       <a href="/modules" class="{% if request.url.path.startswith('/modules') %}active{% endif %}">Modules</a>
       <a href="/map" class="{% if request.url.path.startswith('/map') or request.url.path.startswith('/flood') %}active{% endif %}">Mapping Center</a>
       <a href="/rules" class="{% if request.url.path.startswith('/rules') %}active{% endif %}">Rules Center</a>
