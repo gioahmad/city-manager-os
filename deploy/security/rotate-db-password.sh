@@ -74,9 +74,16 @@ restart_consumers(){
     citymanager-integration-engine >/dev/null
 }
 
+prepare_n8n_import_file(){
+  local path="$1"
+  docker exec -u root n8n chown node:node "$path" >/dev/null 2>&1 || return 1
+  docker exec -u root n8n chmod 600 "$path" >/dev/null 2>&1 || return 1
+}
+
 restore_n8n_original(){
   if [[ -s "$HOST_ORIGINAL" ]]; then
     docker cp "$HOST_ORIGINAL" "n8n:$N8N_ORIGINAL" >/dev/null 2>&1 || return 1
+    prepare_n8n_import_file "$N8N_ORIGINAL" || return 1
     docker exec -u node n8n n8n import:credentials --input="$N8N_ORIGINAL" >/dev/null 2>&1 || return 1
     docker restart n8n >/dev/null 2>&1 || return 1
     return 0
@@ -192,6 +199,8 @@ chmod 600 "$HOST_ORIGINAL" "$HOST_UPDATED"
 
 docker cp "$HOST_ORIGINAL" "n8n:$N8N_ORIGINAL" >/dev/null
 docker cp "$HOST_UPDATED" "n8n:$N8N_UPDATED" >/dev/null
+prepare_n8n_import_file "$N8N_ORIGINAL"
+prepare_n8n_import_file "$N8N_UPDATED"
 
 printf 'Rotating PostgreSQL role password...\n'
 sql_password "$NEW_PASSWORD" | docker exec -i citymanager-postgis \
