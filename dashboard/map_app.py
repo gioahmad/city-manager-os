@@ -336,7 +336,7 @@ def map_layer_create(name: str = Form(...), layer_type: str = Form("CUSTOM_GEOJS
     execute(
         """
         INSERT INTO map_layers(layer_key,name,layer_type,source_url,attribution,style,active,default_visible,sort_order)
-        VALUES (%s,%s,%s,%s,%s,jsonb_build_object('color',%s),true,%s,100)
+        VALUES (%s,%s,%s,%s,%s,jsonb_build_object('color',%s::text),true,%s,100)
         """,
         (_layer_key(name),name,layer_type,source_url or None,attribution.strip() or None,color.strip() or "#4aa3df",bool(default_visible)),
     )
