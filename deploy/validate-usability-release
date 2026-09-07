@@ -69,3 +69,36 @@ assert 'One queue for every accountable work item' in issues_html
 assert 'Admin / More' in map_html
 print('USABILITY STATIC VALIDATION: PASS')
 PY
+
+docker compose run --rm --no-deps -T \
+  -v "$DASH:/app" \
+  citymanager-dashboard \
+  python - <<'PY'
+from app import db_conn
+
+with db_conn() as conn:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO map_layers(
+              layer_key,name,layer_type,style,
+              active,default_visible,sort_order
+            )
+            VALUES (
+              'CMOS_WRITE_VALIDATION',
+              'CMOS Write Validation',
+              'CUSTOM_GEOJSON',
+              jsonb_build_object('color','#4aa3df'),
+              true,false,9999
+            )
+            ON CONFLICT (layer_key)
+            DO UPDATE SET updated_at=now()
+            RETURNING id
+            """
+        )
+        row = cur.fetchone()
+        assert row, 'Mapping Center write validation returned no row'
+    conn.rollback()
+
+print('MAPPING WEB WRITE VALIDATION: PASS')
+PY
