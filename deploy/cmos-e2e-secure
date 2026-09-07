@@ -8,6 +8,7 @@ UPSTREAM="${CMOS_DASH_URL:-http://100.94.203.47:8090}"
 TMP="$(mktemp -d /tmp/cmos-e2e-secure.XXXXXX)"
 PORT_FILE="$TMP/port"
 PROXY_LOG="$TMP/proxy.log"
+PATCHED_E2E="$TMP/cmos-e2e-acceptance"
 PROXY_PID=""
 
 cleanup(){
@@ -144,6 +145,50 @@ done
   exit 1
 }
 
+# The base E2E harness has one Mapping Center check that deliberately executes
+# from inside the dashboard container against 127.0.0.1:8000. Once private
+# dashboard authentication is enabled that internal request also needs the
+# automation credential. Patch only a temporary copy so the base harness stays
+# provider/auth neutral and the repository remains clean during acceptance.
+python3 - "$ROOT/deploy/cmos-e2e-acceptance" "$PATCHED_E2E" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text()
+target = Path(sys.argv[2])
+
+old_command = (
+    'docker exec -i citymanager-dashboard python - '
+    '"$SAMPLE_LAT" "$SAMPLE_LON" <<\'PY\''
+)
+new_command = (
+    'docker exec -e CMOS_E2E_AUTOMATION_TOKEN -i '
+    'citymanager-dashboard python - '
+    '"$SAMPLE_LAT" "$SAMPLE_LON" <<\'PY\''
+)
+
+old_import = 'import json,sys,urllib.parse,urllib.request\n'
+new_import = '''import json,os,sys,urllib.parse,urllib.request\n_token=os.environ.get("CMOS_E2E_AUTOMATION_TOKEN","").strip()\nassert _token, "CMOS_E2E_AUTOMATION_TOKEN missing"\n_opener=urllib.request.build_opener()\n_opener.addheaders=[("X-CMOS-Automation-Key",_token)]\nurllib.request.urlopen=_opener.open\n'''
+
+if source.count(old_command) != 1:
+    raise SystemExit('Expected one internal Mapping Center docker exec block')
+if source.count(old_import) < 1:
+    raise SystemExit('Expected Mapping Center urllib import not found')
+
+source = source.replace(old_command, new_command, 1)
+# Replace the urllib import nearest the Mapping Center block, not unrelated code.
+marker = new_command
+head, tail = source.split(marker, 1)
+if old_import not in tail:
+    raise SystemExit('Mapping Center urllib import not found after docker exec block')
+tail = tail.replace(old_import, new_import, 1)
+source = head + marker + tail
+
+target.write_text(source)
+target.chmod(0o700)
+PY
+
 PORT="$(cat "$PORT_FILE")"
+export CMOS_E2E_AUTOMATION_TOKEN="$TOKEN"
 CMOS_DASH_URL="http://127.0.0.1:$PORT" \
-  "$ROOT/deploy/cmos-e2e-acceptance"
+  "$PATCHED_E2E"
