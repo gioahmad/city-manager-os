@@ -5,6 +5,7 @@ import json
 import os
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import psycopg
 from psycopg.rows import dict_row
@@ -52,6 +53,63 @@ def _json(value: Any) -> dict[str, Any]:
         parsed = json.loads(value)
         return parsed if isinstance(parsed, dict) else {}
     return dict(value)
+
+
+
+def _expand_query_templates(value: Any) -> Any:
+    """
+    Expand safe runtime date tokens in integration
+    query parameters.
+
+    This keeps source configuration generic and
+    prevents hard-coded dates in recurring feeds.
+    """
+    local_now = (
+        datetime.now(timezone.utc)
+        .astimezone(
+            ZoneInfo(
+                "America/New_York"
+            )
+        )
+    )
+
+    replacements = {
+        "{today_local}":
+            local_now.strftime(
+                "%Y-%m-%d"
+            ),
+    }
+
+    def expand(item: Any) -> Any:
+        if isinstance(item, dict):
+            return {
+                key: expand(value)
+                for key, value
+                in item.items()
+            }
+
+        if isinstance(item, list):
+            return [
+                expand(value)
+                for value in item
+            ]
+
+        if isinstance(item, str):
+            output = item
+
+            for token, replacement in (
+                replacements.items()
+            ):
+                output = output.replace(
+                    token,
+                    replacement,
+                )
+
+            return output
+
+        return item
+
+    return expand(value)
 
 
 def _record_run_start(integration_id: str, run_type: str) -> str:
@@ -365,7 +423,7 @@ def _upsert_event(conn, integration: dict[str, Any], event: dict[str, Any]) -> b
 def run_integration(integration: dict[str, Any], *, run_type: str = "POLL", parse_and_store: bool = True) -> dict[str, Any]:
     run_id = _record_run_start(str(integration["id"]), run_type)
     headers = _json(integration.get("request_headers"))
-    query = _json(integration.get("request_query"))
+    query = _expand_query_templates(_json(integration.get("request_query")))
     secrets: list[str] = []
     try:
         secrets = integration_auth_from_env(integration, headers, query)
