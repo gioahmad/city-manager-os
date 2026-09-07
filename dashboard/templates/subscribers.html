@@ -4,6 +4,9 @@
 <header class="topbar"><div class="brand"><div class="eyebrow">ALERT MANAGEMENT</div><div class="brand-row"><h1>Subscribers</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Notification Destinations</div></div></header>
 {% include "nav.html" %}
 <main>
+{% set operator_help_key = "subscribers" %}
+{% include "operator_help.html" %}
+
   {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
   <section class="metrics watch-metrics"><div class="metric"><span>Total</span><strong>{{ counts.total or 0 }}</strong><small>All subscribers</small></div><div class="metric"><span>Active</span><strong>{{ counts.active or 0 }}</strong><small>Receiving routes</small></div><div class="metric"><span>Inactive</span><strong>{{ counts.inactive or 0 }}</strong><small>Paused destinations</small></div></section>
   <section class="grid watch-layout" style="margin-top:16px">

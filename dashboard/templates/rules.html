@@ -25,6 +25,9 @@
 {% include "nav.html" %}
 
 <main>
+{% set operator_help_key = "rules" %}
+{% include "operator_help.html" %}
+
 
 {% if msg %}
 <div class="flash">{{ msg }}</div>

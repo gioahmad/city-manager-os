@@ -1,0 +1,198 @@
+<style>
+.operator-help {
+  margin: 14px 0 18px;
+  border: 1px solid rgba(127,127,127,.28);
+  border-radius: 10px;
+  background: rgba(127,127,127,.06);
+  overflow: hidden;
+}
+
+.operator-help summary {
+  cursor: pointer;
+  padding: 11px 14px;
+  font-weight: 700;
+  user-select: none;
+}
+
+.operator-help-body {
+  padding: 0 14px 14px;
+  font-size: .92rem;
+  line-height: 1.45;
+}
+
+.operator-help-body p {
+  margin: 7px 0;
+}
+
+.operator-help-body ul {
+  margin: 7px 0 7px 20px;
+  padding: 0;
+}
+
+.operator-help-body strong {
+  font-weight: 700;
+}
+
+.operator-help-safe {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(127,127,127,.20);
+}
+</style>
+
+<details class="operator-help">
+  <summary>How to use this page</summary>
+
+  <div class="operator-help-body">
+
+  {% if operator_help_key == "watchlist" %}
+
+    <p><strong>What this does:</strong> Tells City Manager OS which names, addresses, routes, agencies, places and terms matter enough to watch.</p>
+
+    <p><strong>Use it for:</strong></p>
+    <ul>
+      <li>Addresses such as 4100 Park Ave.</li>
+      <li>Places or corridors such as Port Imperial or Lincoln Tunnel.</li>
+      <li>Agencies, projects, people or operational keywords you want surfaced.</li>
+    </ul>
+
+    <p><strong>Match modes:</strong> CONTAINS is the normal broad match. WORD is useful for a specific word. EXACT is strict. FIELD limits matching to a specific alert field.</p>
+
+    <p class="operator-help-safe"><strong>Safe change:</strong> Pausing a watch stops future matching for that watch. It does not delete existing alerts, issues or history.</p>
+
+
+  {% elif operator_help_key == "subscribers" %}
+
+    <p><strong>What this does:</strong> Manages people or delivery destinations that may receive City Manager OS notifications.</p>
+
+    <p><strong>Use it for:</strong></p>
+    <ul>
+      <li>Adding an authorized recipient.</li>
+      <li>Changing an existing delivery destination.</li>
+      <li>Temporarily pausing a subscriber without deleting the record.</li>
+    </ul>
+
+    <p><strong>Important:</strong> A subscriber receives only what the routing and watch configuration sends to that subscriber.</p>
+
+    <p class="operator-help-safe"><strong>Safe change:</strong> Deactivating a subscriber affects future deliveries only. It does not remove alert or delivery history.</p>
+
+
+  {% elif operator_help_key == "routing" %}
+
+    <p><strong>What this does:</strong> Controls where matched City Manager OS alerts are delivered.</p>
+
+    <p><strong>Think of it as:</strong> Source / watch condition → subscriber → delivery.</p>
+
+    <p><strong>Use it for:</strong></p>
+    <ul>
+      <li>Sending a category or source to the correct recipient.</li>
+      <li>Adding another authorized recipient to an existing route.</li>
+      <li>Pausing a route that should temporarily stop delivering.</li>
+    </ul>
+
+    <p class="operator-help-safe"><strong>Safe change:</strong> Routing changes affect future delivery. They do not change the original alert or Command Center issue.</p>
+
+
+  {% elif operator_help_key == "rules" %}
+
+    <p><strong>What this does:</strong> Defines operational rules City Manager OS uses to interpret conditions and trigger configured actions.</p>
+
+    <p><strong>Use it for:</strong></p>
+    <ul>
+      <li>Turning an existing rule on or off.</li>
+      <li>Adjusting a rule when the operational policy changes.</li>
+      <li>Reviewing exactly what condition causes an action.</li>
+    </ul>
+
+    <p><strong>Before changing a rule:</strong> Read both the condition and resulting action. A broad condition can create unnecessary exceptions or notifications.</p>
+
+    <p class="operator-help-safe"><strong>Safe change:</strong> Pause a rule first if you are unsure. Do not delete operational history to stop a rule.</p>
+
+
+  {% elif operator_help_key == "routines" %}
+
+    <p><strong>What this does:</strong> Creates repeatable municipal work such as inspections, checks, assignments and recurring operational responsibilities.</p>
+
+    <p><strong>Use it for:</strong></p>
+    <ul>
+      <li>Daily or weekly work.</li>
+      <li>Recurring inspections and checklists.</li>
+      <li>Work that needs an owner and verification.</li>
+    </ul>
+
+    <p><strong>Remember:</strong> Generated actionable work uses the existing Command Center / issue system. This is not a separate task database.</p>
+
+    <p class="operator-help-safe"><strong>Safe change:</strong> Pausing a routine stops new occurrences. Existing generated work remains available for completion and verification.</p>
+
+
+  {% elif operator_help_key == "schedule" %}
+
+    <p><strong>What this does:</strong> Manages Township meetings, events and preparation context.</p>
+
+    <p><strong>Use it for:</strong></p>
+    <ul>
+      <li>Meetings requiring preparation or decisions.</li>
+      <li>Township events and outside-agency events you are managing.</li>
+      <li>Tracking confirmation, attendees, waiting items and preparation.</li>
+    </ul>
+
+    <p><strong>Create Action</strong> should be used when the event requires real accountable work. That action becomes a Command Center issue.</p>
+
+    <p class="operator-help-safe"><strong>Safe change:</strong> Updating event details does not create a separate task unless you explicitly create an action/follow-up.</p>
+
+
+  {% elif operator_help_key == "integrations" %}
+
+    <p><strong>What this does:</strong> Manages external data sources feeding City Manager OS.</p>
+
+    <p><strong>Status:</strong> LIVE means active and healthy. PAUSED means collection is intentionally off. NEEDS SETUP means required configuration or credentials are missing. ERROR means the latest source operation failed.</p>
+
+    <p><strong>Use TEST first:</strong> Test a connector before activating it whenever possible. Activation enables scheduled collection.</p>
+
+    <p><strong>Examples:</strong> NJ TRANSIT, PATH, weather, outages and event feeds.</p>
+
+    <p class="operator-help-safe"><strong>Safe change:</strong> Pause a questionable source rather than deleting it. Source health and prior run history remain available for diagnosis.</p>
+
+
+  {% elif operator_help_key == "source_health" %}
+
+    <p><strong>What this does:</strong> Shows whether City Manager OS sources are successfully providing data.</p>
+
+    <p><strong>Look for:</strong></p>
+    <ul>
+      <li>Current health status.</li>
+      <li>Last successful update.</li>
+      <li>Recent errors or stale sources.</li>
+    </ul>
+
+    <p><strong>Use this page when:</strong> Information seems missing, stale or a source appears to have stopped updating.</p>
+
+    <p class="operator-help-safe"><strong>Safe page:</strong> This is primarily diagnostic. Viewing source health does not alter operational data.</p>
+
+
+  {% elif operator_help_key == "deliveries" %}
+
+    <p><strong>What this does:</strong> Shows the audit trail of notification delivery attempts.</p>
+
+    <p><strong>Use it to answer:</strong></p>
+    <ul>
+      <li>Was an alert actually sent?</li>
+      <li>Who or what destination received it?</li>
+      <li>Did delivery fail or get suppressed?</li>
+    </ul>
+
+    <p><strong>Important:</strong> This page is delivery history, not the place to change routing. Use Routing or Subscribers for future delivery changes.</p>
+
+    <p class="operator-help-safe"><strong>Safe page:</strong> Reviewing delivery records does not resend or modify alerts.</p>
+
+
+  {% else %}
+
+    <p><strong>What this does:</strong> Administrative controls for this City Manager OS module.</p>
+
+    <p>Review the current configuration before making changes. When unsure, pause rather than delete.</p>
+
+  {% endif %}
+
+  </div>
+</details>

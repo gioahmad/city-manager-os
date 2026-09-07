@@ -18,6 +18,9 @@
 {% include "nav.html" %}
 
 <main>
+{% set operator_help_key = "schedule" %}
+{% include "operator_help.html" %}
+
 {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
 
 <section class="metrics watch-metrics">

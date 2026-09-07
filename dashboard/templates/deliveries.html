@@ -4,6 +4,9 @@
 <header class="topbar"><div class="brand"><div class="eyebrow">ALERT MANAGEMENT</div><div class="brand-row"><h1>Deliveries</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Notification Delivery Audit</div></div></header>
 {% include "nav.html" %}
 <main>
+{% set operator_help_key = "deliveries" %}
+{% include "operator_help.html" %}
+
   <article class="panel">
     <div class="panel-head"><div><div class="panel-kicker">AUDIT</div><h2>Delivery History</h2></div><span class="count-pill">{{ rows|length }}</span></div>
     <div class="panel-body">

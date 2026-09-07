@@ -4,6 +4,9 @@
 <header class="topbar"><div class="brand"><div class="eyebrow">MONITORING</div><div class="brand-row"><h1>Source Health</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Collector and Integration Health</div></div></header>
 {% include "nav.html" %}
 <main>
+{% set operator_help_key = "source_health" %}
+{% include "operator_help.html" %}
+
   <article class="panel">
     <div class="panel-head"><div><div class="panel-kicker">SYSTEM</div><h2>Collectors</h2></div><span class="count-pill">{{ rows|length }}</span></div>
     <div class="panel-body table-wrap">

@@ -11,6 +11,9 @@
 <header class="topbar"><div class="brand"><div class="eyebrow">WEEHAWKEN OPERATIONS</div><div class="brand-row"><h1>Daily &amp; Recurring Operations</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Expected Activity · Recurring Work · Exceptions · Verification</div></div></header>
 {% include "nav.html" %}
 <main>
+{% set operator_help_key = "routines" %}
+{% include "operator_help.html" %}
+
 {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
 <section class="ops-v3-summary"><div class="ops-v3-stat"><span>Expected Today</span><strong>{{ operations_counts.scheduled_today or 0 }}</strong></div><div class="ops-v3-stat"><span>Open Routine Work</span><strong>{{ operations_counts.work_open or 0 }}</strong></div><div class="ops-v3-stat {{ 'warn' if operations_counts.exceptions else '' }}"><span>Exceptions</span><strong>{{ operations_counts.exceptions or 0 }}</strong></div><div class="ops-v3-stat {{ 'verify' if operations_counts.awaiting_verification else '' }}"><span>Verify</span><strong>{{ operations_counts.awaiting_verification or 0 }}</strong></div></section>
 <section class="grid ops-v3-setup-grid">
