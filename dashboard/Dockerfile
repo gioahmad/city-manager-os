@@ -12,6 +12,8 @@ COPY app.py .
 COPY issues_app.py .
 COPY operations_app.py .
 COPY schedule_app.py .
+COPY attention_engine.py .
+COPY waiting_actions_app.py .
 COPY rules_app.py .
 COPY employee_app.py .
 COPY employee_public_app.py .

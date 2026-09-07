@@ -9,6 +9,7 @@ from operations_app import app, operations_home
 import rules_app  # registers Rules Center routes
 import staff_admin_app  # registers Staff Admin routes
 from app import execute, query_all, query_one, templates
+from attention_engine import annotate_issue_rows
 
 
 def _parse_event_checklist(raw: str) -> str:
@@ -728,49 +729,20 @@ def my_day(request: Request):
           next_action,
           waiting_on,
           assigned_to,
+          due_at,
+          follow_up_at,
+          decision_by,
+          waiting_on_since,
+          waiting_on_last_chased,
+          waiting_on_chase_count,
+          created_at,
+          updated_at,
           due_at AT TIME ZONE
             'America/New_York'
             AS due_local,
           follow_up_at AT TIME ZONE
             'America/New_York'
-            AS follow_up_local,
-          CASE
-            WHEN due_at IS NOT NULL
-              AND due_at <= now()
-              THEN 'OVERDUE'
-
-            WHEN follow_up_at IS NOT NULL
-              AND follow_up_at <= now()
-              THEN 'FOLLOW UP'
-
-            WHEN due_at IS NOT NULL
-              AND due_at < (
-                date_trunc(
-                  'day',
-                  now() AT TIME ZONE
-                    'America/New_York'
-                ) + interval '1 day'
-              ) AT TIME ZONE
-                'America/New_York'
-              THEN 'DUE TODAY'
-
-            WHEN follow_up_at IS NOT NULL
-              AND follow_up_at < (
-                date_trunc(
-                  'day',
-                  now() AT TIME ZONE
-                    'America/New_York'
-                ) + interval '1 day'
-              ) AT TIME ZONE
-                'America/New_York'
-              THEN 'FOLLOW UP TODAY'
-
-            WHEN next_action IS NULL
-              OR trim(next_action) = ''
-              THEN 'NO NEXT ACTION'
-
-            ELSE 'OPEN'
-          END AS attention_status
+            AS follow_up_local
         FROM issues
         WHERE status NOT IN (
           'RESOLVED','CLOSED'
@@ -794,18 +766,50 @@ def my_day(request: Request):
           ) AT TIME ZONE
             'America/New_York'
 
+          OR decision_by <=
+            now() + interval '72 hours'
+
           OR next_action IS NULL
           OR trim(next_action) = ''
+
+          OR NULLIF(
+            trim(waiting_on),
+            ''
+          ) IS NOT NULL
+
+          OR item_type='DECISION'
+          OR priority >= 5
         )
         ORDER BY
           priority DESC,
-          COALESCE(
-            due_at,
-            follow_up_at
-          ),
           updated_at DESC
+        LIMIT 100
         """
     )
+
+    attention = [
+        item
+        for item
+        in annotate_issue_rows(
+            attention
+        )
+        if item["needs_manager"]
+    ]
+
+    attention.sort(
+        key=lambda item: (
+            -item[
+                "attention_score"
+            ],
+            -int(
+                item.get(
+                    "priority"
+                )
+                or 0
+            ),
+        )
+    )
+
 
     waiting = query_all(
         """
@@ -814,35 +818,21 @@ def my_day(request: Request):
           title,
           item_type,
           priority,
+          status,
           waiting_on,
           next_action,
           assigned_to,
+          due_at,
+          follow_up_at,
+          decision_by,
+          waiting_on_since,
+          waiting_on_last_chased,
+          waiting_on_chase_count,
+          created_at,
+          updated_at,
           follow_up_at AT TIME ZONE
             'America/New_York'
-            AS follow_up_local,
-          updated_at AT TIME ZONE
-            'America/New_York'
-            AS updated_local,
-
-          CASE
-            WHEN waiting_on ~*
-              '(county|njdot|verizon|pseg|utility|engineer|attorney|contractor|vendor|state|federal|consultant|agency|mayor|counsel)'
-              THEN 'EXTERNAL'
-            ELSE 'INTERNAL'
-          END AS dependency_type,
-
-          CASE
-            WHEN follow_up_at IS NOT NULL
-              AND follow_up_at < now()
-              THEN 'FOLLOW-UP OVERDUE'
-
-            WHEN updated_at <
-              now() - interval '7 days'
-              THEN 'STALE'
-
-            ELSE 'WAITING'
-          END AS waiting_status
-
+            AS follow_up_local
         FROM issues
         WHERE status NOT IN (
           'RESOLVED','CLOSED'
@@ -851,26 +841,43 @@ def my_day(request: Request):
           trim(waiting_on),
           ''
         ) IS NOT NULL
-
         ORDER BY
-          CASE
-            WHEN follow_up_at IS NOT NULL
-              AND follow_up_at < now()
-              THEN 0
-
-            WHEN updated_at <
-              now() - interval '7 days'
-              THEN 1
-
-            ELSE 2
-          END,
           follow_up_at NULLS LAST,
           priority DESC,
           updated_at DESC
-
-        LIMIT 25
+        LIMIT 50
         """
     )
+
+    waiting = annotate_issue_rows(
+        waiting
+    )
+
+    waiting_status_rank = {
+        "ESCALATE": 0,
+        "CHASE TODAY": 1,
+        "CHASE AGAIN": 1,
+        "WAITING AFTER CHASE": 2,
+        "WAITING": 3,
+    }
+
+    waiting.sort(
+        key=lambda item: (
+            waiting_status_rank.get(
+                item[
+                    "waiting_status"
+                ],
+                9,
+            ),
+            -item[
+                "attention_score"
+            ],
+            -item[
+                "waiting_age_days"
+            ],
+        )
+    )
+
 
     commitments = query_all(
         """
@@ -1427,6 +1434,20 @@ def my_day(request: Request):
             review_since,
         ),
     )
+
+    if brief_counts is not None:
+        brief_counts[
+            "needs_me"
+        ] = len(
+            attention
+        )
+
+        brief_counts[
+            "waiting"
+        ] = len(
+            waiting
+        )
+
 
     review_state = {
         "since": review_since.astimezone(),

@@ -357,7 +357,8 @@
     <div class="feed-row">
       <div class="feed-main">
         <div class="feed-title-row"><span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span><strong>{{ i.title }}</strong></div>
-        <div class="meta">{{ i.item_type }} · {{ i.attention_status }}</div>
+        <div class="meta"><strong>{{ i.attention_level }}</strong> · score {{ i.attention_score }} · {{ i.item_type }}</div>
+        <div class="meta">{{ i.attention_reason }}</div>
         {% if i.next_action %}<div class="meta">Next: {{ i.next_action }}</div>{% endif %}
       </div>
       <time>
@@ -374,20 +375,105 @@
 </section>
 
 <section class="panel" style="margin-top:16px">
-  <div class="panel-head"><div><div class="panel-kicker">DELEGATION</div><h2>Waiting On</h2></div><a class="text-link" href="/issues?state=waiting">View all</a></div>
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">DELEGATION / FOLLOW-UP</div>
+      <h2>Waiting On</h2>
+    </div>
+
+    <a class="text-link" href="/issues?state=waiting">
+      View all
+    </a>
+  </div>
+
   <div class="panel-body compact-list">
+
     {% for i in waiting %}
     <div class="feed-row">
+
       <div class="feed-main">
-        <strong>{{ i.title }}</strong>
-        <div class="meta">{{ i.dependency_type }} · {{ i.waiting_status }} · Waiting on: {{ i.waiting_on }}{% if i.assigned_to %} · Owner: {{ i.assigned_to }}{% endif %}</div>
-        {% if i.next_action %}<div class="meta">Next: {{ i.next_action }}</div>{% endif %}
+
+        <div class="feed-title-row">
+          <span class="priority-chip p{{ i.priority }}">
+            P{{ i.priority }}
+          </span>
+
+          <strong>{{ i.title }}</strong>
+        </div>
+
+        <div class="meta">
+          <strong>{{ i.waiting_status }}</strong>
+          · {{ i.dependency_type }}
+          · Waiting on: {{ i.waiting_on }}
+
+          {% if i.assigned_to %}
+            · Owner: {{ i.assigned_to }}
+          {% endif %}
+        </div>
+
+        <div class="meta">
+          Current wait: {{ i.waiting_age_days }} day{{ '' if i.waiting_age_days == 1 else 's' }}
+          · Chased: {{ i.waiting_on_chase_count or 0 }} time{{ '' if (i.waiting_on_chase_count or 0) == 1 else 's' }}
+        </div>
+
+        <div class="meta">
+          {{ i.waiting_reason }}
+        </div>
+
+        {% if i.next_action %}
+        <div class="meta">
+          Next: {{ i.next_action }}
+        </div>
+        {% endif %}
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+
+          <form
+            method="post"
+            action="/issues/{{ i.id }}/waiting/chased"
+          >
+            <button type="submit">
+              Chased Today
+            </button>
+          </form>
+
+          <form
+            method="post"
+            action="/issues/{{ i.id }}/waiting/response"
+          >
+            <button type="submit">
+              Response Received
+            </button>
+          </form>
+
+        </div>
+
       </div>
-      {% if i.follow_up_local %}<time>Follow {{ i.follow_up_local.strftime('%m/%d %I:%M %p') }}</time>{% endif %}
+
+      <div>
+
+        <span class="status {{ i.attention_level|lower }}">
+          {{ i.attention_level }}
+        </span>
+
+        {% if i.follow_up_local %}
+        <time>
+          Follow {{ i.follow_up_local.strftime('%m/%d %I:%M %p') }}
+        </time>
+        {% endif %}
+
+      </div>
+
     </div>
+
     {% else %}
-    <div class="empty-state small"><strong>Nothing currently waiting on someone else</strong></div>
+
+    <div class="empty-state small">
+      <strong>Nothing currently waiting on someone else</strong>
+    </div>
+
     {% endfor %}
+
   </div>
 </section>
 
