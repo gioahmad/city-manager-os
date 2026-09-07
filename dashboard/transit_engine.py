@@ -291,21 +291,35 @@ def _watch_hits(text: str, watches: list[dict[str, Any]]) -> list[str]:
 
 def _score_text(text: str, watch_hits: list[str] | None = None) -> tuple[int, str]:
     hay = _norm(text)
-    score = 0
-    if watch_hits:
-        score += 30
+
+    # Watched geography/route relevance is context, not an operational
+    # condition by itself. Routine service on a watched asset remains
+    # Awareness until an actual disruption signal is present.
+    score = 30 if watch_hits else 0
+    disruption_score = 0
+
     if re.search(r"\b(SUSPEND|SUSPENDED|NO SERVICE|SERVICE SUSPENSION|SHUTDOWN|CLOSED)\b", hay):
-        score += 55
+        disruption_score += 55
     if re.search(r"\b(MAJOR DELAY|SIGNIFICANT DELAY|WIDESPREAD|MULTIPLE LINES|SYSTEMWIDE)\b", hay):
-        score += 45
+        disruption_score += 45
     if re.search(r"\b(DELAY|DELAYED|LATE|SIGNAL|SWITCH|POLICE|MEDICAL|MECHANICAL)\b", hay):
-        score += 18
+        disruption_score += 18
     if re.search(r"\b(SERVICE CHANGE|SCHEDULE CHANGE|DETOUR|BYPASS|SKIP|SKIPPING|REVISED SERVICE)\b", hay):
-        score += 18
+        disruption_score += 18
     if re.search(r"\b(CANCEL|CANCELLED|CANCELED)\b", hay):
-        score += 20
-    if re.search(r"\b(LINCOLN TUNNEL|PABT|PORT AUTHORITY BUS TERMINAL|PORT IMPERIAL|HOBOKEN|SECAUCUS)\b", hay):
+        disruption_score += 20
+
+    score += disruption_score
+
+    # Geographic/corridor relevance may amplify a real disruption, but
+    # merely mentioning Hoboken, Port Imperial, Secaucus, PABT, etc.
+    # must never promote otherwise routine information to Watch.
+    if disruption_score > 0 and re.search(
+        r"\b(LINCOLN TUNNEL|PABT|PORT AUTHORITY BUS TERMINAL|PORT IMPERIAL|HOBOKEN|SECAUCUS)\b",
+        hay,
+    ):
         score += 15
+
     score = min(score, 100)
     level = "ALERT" if score >= 75 else "WATCH" if score >= 45 else "AWARENESS"
     return score, level
