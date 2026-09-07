@@ -15,6 +15,7 @@ bash -n \
   deploy/postgis/scratch-restore.sh \
   deploy/security/bootstrap-private-auth.sh \
   deploy/security/rotate-db-password.sh \
+  deploy/security/verify-db-credential-alignment.sh \
   deploy/cmos-e2e-secure
 
 grep -Fq 'configure_private_auth(app)' dashboard/phase3_app.py
@@ -23,6 +24,7 @@ grep -Fq 'BACKUP_OFFBOX_TARGET' deploy/postgis/backup.sh
 grep -Fq 'pg_restore --list' deploy/postgis/backup.sh
 grep -Fq 'SCRATCH RESTORE: PASS' deploy/postgis/scratch-restore.sh
 grep -Fq 'DATABASE CREDENTIAL ROTATION: PASS' deploy/security/rotate-db-password.sh
+grep -Fq 'DATABASE CREDENTIAL ALIGNMENT PASS' deploy/security/verify-db-credential-alignment.sh
 
 git diff --check origin/main...HEAD
 
