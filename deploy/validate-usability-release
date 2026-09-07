@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="/opt/city-manager-os"
+DASH="$ROOT/dashboard"
+cd "$ROOT"
+
+python3 -m py_compile \
+  dashboard/gis_import.py \
+  dashboard/issues_app.py \
+  dashboard/map_app.py
+
+git diff --check origin/main...HEAD
+
+cd "$DASH"
+docker compose build citymanager-dashboard
+
+docker compose run --rm --no-deps -T \
+  -v "$DASH:/app" \
+  citymanager-dashboard \
+  pytest -q tests/test_attention_engine.py tests/test_gis_import.py
+
+docker compose run --rm --no-deps -T \
+  -v "$DASH:/app" \
+  citymanager-dashboard \
+  python - <<'PY'
+from pathlib import Path
+from types import SimpleNamespace
+from jinja2 import Environment, FileSystemLoader
+
+env = Environment(loader=FileSystemLoader('/app/templates'))
+request_map = SimpleNamespace(url=SimpleNamespace(path='/map'))
+request_issues = SimpleNamespace(url=SimpleNamespace(path='/issues'))
+
+map_html = env.get_template('map.html').render(
+    request=request_map,
+    msg='',
+    bounds={'minx':-74.035,'miny':40.752,'maxx':-74.008,'maxy':40.783},
+    system_layers=[],
+    custom_layers=[],
+    editable_layers=[],
+    max_upload_mb=25,
+)
+issues_html = env.get_template('issues.html').render(
+    request=request_issues,
+    msg='',
+    counts={'open':0,'needs_me':0,'assigned_out':0,'waiting':0},
+    items=[],
+    q='',
+    state='open',
+    issue_statuses=['OPEN','IN_PROGRESS','ON_HOLD','RESOLVED','CLOSED'],
+)
+assert 'Address / Parcel Search' in map_html
+assert 'Import GIS File' in map_html
+assert 'One queue for every accountable work item' in issues_html
+assert 'Admin / More' in map_html
+print('USABILITY STATIC VALIDATION: PASS')
+PY
