@@ -7,6 +7,7 @@ POSTGIS_ENV="$ROOT/deploy/postgis/.env"
 DASH_ENV="$ROOT/dashboard/.env"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 SECURE_DIR="/var/backups/city-manager-os/security/$STAMP"
+HOST_ALL="/dev/shm/cmos-n8n-credentials-all-$STAMP.json"
 HOST_ORIGINAL="/dev/shm/cmos-n8n-postgres-original-$STAMP.json"
 HOST_UPDATED="/dev/shm/cmos-n8n-postgres-updated-$STAMP.json"
 N8N_EXPORT="/tmp/cmos-credentials-$STAMP.json"
@@ -45,14 +46,14 @@ N8N_UID="$(stat -c %u "$N8N_DB")"
 N8N_GID="$(stat -c %g "$N8N_DB")"
 
 cleanup_sensitive(){
-  rm -f "$HOST_ORIGINAL" "$HOST_UPDATED"
+  rm -f "$HOST_ALL" "$HOST_ORIGINAL" "$HOST_UPDATED"
   docker exec n8n rm -f "$N8N_EXPORT" "$N8N_UPDATED" "$N8N_ORIGINAL" >/dev/null 2>&1 || true
 }
 
 sql_password(){
   python3 - "$POSTGRES_USER" "$1" <<'PY'
 import sys
-role = sys.argv[1].replace('"','""')
+role = sys.argv[1].replace('"', '""')
 password = sys.argv[2].replace("'", "''")
 print(f'ALTER ROLE "{role}" PASSWORD \'{password}\';')
 PY
@@ -73,29 +74,56 @@ restart_consumers(){
     citymanager-integration-engine >/dev/null
 }
 
+restore_n8n_original(){
+  if [[ -s "$HOST_ORIGINAL" ]]; then
+    docker cp "$HOST_ORIGINAL" "n8n:$N8N_ORIGINAL" >/dev/null 2>&1 || return 1
+    docker exec -u node n8n n8n import:credentials --input="$N8N_ORIGINAL" >/dev/null 2>&1 || return 1
+    docker restart n8n >/dev/null 2>&1 || return 1
+    return 0
+  fi
+  return 1
+}
+
+restore_n8n_sqlite_snapshot(){
+  docker stop n8n >/dev/null 2>&1 || true
+  cp -f "$SECURE_DIR/n8n-database.sqlite" "$N8N_DB"
+  chown "$N8N_UID:$N8N_GID" "$N8N_DB"
+  chmod 600 "$N8N_DB"
+  rm -f "$N8N_DB-wal" "$N8N_DB-shm"
+  docker start n8n >/dev/null 2>&1 || true
+}
+
 rollback(){
   local rc=$?
   set +e
+
   if (( ROTATED == 1 )); then
     sql_password "$OLD_PASSWORD" | docker exec -i citymanager-postgis \
       psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1 || true
   fi
+
   if (( ENV_UPDATED == 1 )); then
     restore_env_files || true
   fi
-  if (( N8N_UPDATED_FLAG == 1 )) && [[ -s "$HOST_ORIGINAL" ]]; then
-    docker cp "$HOST_ORIGINAL" "n8n:$N8N_ORIGINAL" >/dev/null 2>&1 || true
-    docker exec -u node n8n n8n import:credentials --input="$N8N_ORIGINAL" >/dev/null 2>&1 || true
-    docker restart n8n >/dev/null 2>&1 || true
+
+  if (( N8N_UPDATED_FLAG == 1 )); then
+    restore_n8n_original || restore_n8n_sqlite_snapshot || true
   fi
+
   restart_consumers || true
   cleanup_sensitive
+
   echo "DATABASE CREDENTIAL ROTATION: FAIL rc=$rc"
   echo "Rollback attempted; inspect health before retrying."
   exit "$rc"
 }
 trap rollback ERR
 trap cleanup_sensitive EXIT
+
+# Verify the installed n8n version supports the supported export/import path
+# before making any credential or database change.
+docker exec -u node n8n n8n export:credentials --help 2>&1 | grep -q -- '--decrypted'
+docker exec -u node n8n n8n import:credentials --help 2>&1 | grep -q -- '--input'
 
 printf 'Creating pre-rotation PostgreSQL backup...\n'
 "$ROOT/deploy/postgis/backup.sh" >/dev/null
@@ -118,10 +146,10 @@ chmod 600 "$SECURE_DIR/postgis.env.before" "$SECURE_DIR/dashboard.env.before"
 
 printf 'Exporting n8n credentials for controlled update...\n'
 docker exec -u node n8n n8n export:credentials --all --decrypted --output="$N8N_EXPORT" >/dev/null
-docker cp "n8n:$N8N_EXPORT" "$HOST_ORIGINAL.all" >/dev/null
-chmod 600 "$HOST_ORIGINAL.all"
+docker cp "n8n:$N8N_EXPORT" "$HOST_ALL" >/dev/null
+chmod 600 "$HOST_ALL"
 
-python3 - "$HOST_ORIGINAL.all" "$HOST_ORIGINAL" "$HOST_UPDATED" "$NEW_PASSWORD" "$POSTGRES_USER" "$POSTGRES_DB" <<'PY'
+python3 - "$HOST_ALL" "$HOST_ORIGINAL" "$HOST_UPDATED" "$NEW_PASSWORD" "$POSTGRES_USER" "$POSTGRES_DB" <<'PY'
 import json, sys
 from pathlib import Path
 
@@ -147,6 +175,7 @@ for item in credentials:
         continue
     if user and user != db_user:
         continue
+
     original.append(item)
     changed = json.loads(json.dumps(item))
     changed['data']['password'] = new_password
@@ -159,7 +188,6 @@ Path(original_out).write_text(json.dumps(original))
 Path(updated_out).write_text(json.dumps(updated))
 print(f'n8n_matching_postgres_credentials={len(updated)}')
 PY
-rm -f "$HOST_ORIGINAL.all"
 chmod 600 "$HOST_ORIGINAL" "$HOST_UPDATED"
 
 docker cp "$HOST_ORIGINAL" "n8n:$N8N_ORIGINAL" >/dev/null
@@ -172,10 +200,15 @@ ROTATED=1
 
 python3 - "$POSTGIS_ENV" "$DASH_ENV" "$NEW_PASSWORD" <<'PY'
 from pathlib import Path
-import os, sys
-postgis, dashboard, password = map(Path, sys.argv[1:3]) + (None,) if False else (Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])
+import os
+import sys
 
-def replace(path, key, value):
+postgis = Path(sys.argv[1])
+dashboard = Path(sys.argv[2])
+password = sys.argv[3]
+
+
+def replace(path: Path, key: str, value: str) -> None:
     lines = path.read_text().splitlines()
     found = False
     out = []
@@ -190,14 +223,15 @@ def replace(path, key, value):
     path.write_text('\n'.join(out).rstrip() + '\n')
     os.chmod(path, 0o600)
 
+
 replace(postgis, 'POSTGRES_PASSWORD', password)
 replace(dashboard, 'DB_PASSWORD', password)
 PY
 ENV_UPDATED=1
 
 printf 'Updating n8n Postgres credential...\n'
-docker exec -u node n8n n8n import:credentials --input="$N8N_UPDATED" >/dev/null
 N8N_UPDATED_FLAG=1
+docker exec -u node n8n n8n import:credentials --input="$N8N_UPDATED" >/dev/null
 docker restart n8n >/dev/null
 
 printf 'Restarting City Manager OS database consumers...\n'
@@ -205,7 +239,8 @@ restart_consumers
 
 for _ in $(seq 1 45); do
   if curl -fsS http://100.94.203.47:8090/health >/dev/null 2>&1 \
-     && curl -fsS http://127.0.0.1:8091/health >/dev/null 2>&1; then
+     && curl -fsS http://127.0.0.1:8091/health >/dev/null 2>&1 \
+     && docker exec n8n node -e "fetch('http://127.0.0.1:5678/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" >/dev/null 2>&1; then
     break
   fi
   sleep 2
@@ -213,10 +248,15 @@ done
 
 curl -fsS http://100.94.203.47:8090/health >/dev/null
 curl -fsS http://127.0.0.1:8091/health >/dev/null
+docker exec n8n node -e "fetch('http://127.0.0.1:5678/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" >/dev/null
 
 for c in n8n citymanager-dashboard citymanager-staff citymanager-ops-engine citymanager-integration-engine; do
   [[ "$(docker inspect "$c" --format '{{.State.Status}}')" == "running" ]]
 done
+
+# Old env snapshots contain unrelated local secrets and are no longer required
+# after a successful rotation. Keep the encrypted n8n SQLite snapshot only.
+rm -f "$SECURE_DIR/postgis.env.before" "$SECURE_DIR/dashboard.env.before"
 
 cleanup_sensitive
 trap - ERR
@@ -225,5 +265,5 @@ printf 'DATABASE CREDENTIAL ROTATION: PASS\n'
 printf 'n8n_credentials_updated=YES\n'
 printf 'dashboard_env_updated=YES\n'
 printf 'postgis_env_updated=YES\n'
-printf 'pre_rotation_backup=%s\n' "$SECURE_DIR"
+printf 'n8n_pre_rotation_snapshot=%s\n' "$SECURE_DIR/n8n-database.sqlite"
 printf 'password_value=NOT_PRINTED\n'
