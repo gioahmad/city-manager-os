@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="/opt/city-manager-os"
+DASH="$ROOT/dashboard"
+cd "$ROOT"
+
+python3 -m py_compile \
+  dashboard/private_auth.py \
+  dashboard/phase3_app.py
+
+bash -n \
+  deploy/postgis/backup.sh \
+  deploy/postgis/verify-backup.sh \
+  deploy/postgis/scratch-restore.sh \
+  deploy/security/bootstrap-private-auth.sh \
+  deploy/security/rotate-db-password.sh \
+  deploy/cmos-e2e-secure
+
+grep -Fq 'configure_private_auth(app)' dashboard/phase3_app.py
+grep -Fq 'COPY private_auth.py .' dashboard/Dockerfile
+grep -Fq 'BACKUP_OFFBOX_TARGET' deploy/postgis/backup.sh
+grep -Fq 'pg_restore --list' deploy/postgis/backup.sh
+grep -Fq 'SCRATCH RESTORE: PASS' deploy/postgis/scratch-restore.sh
+grep -Fq 'DATABASE CREDENTIAL ROTATION: PASS' deploy/security/rotate-db-password.sh
+
+git diff --check origin/main...HEAD
+
+cd "$DASH"
+docker compose build citymanager-dashboard
+
+docker compose run --rm --no-deps -T \
+  -v "$DASH:/app" \
+  citymanager-dashboard \
+  pytest -q tests/test_attention_engine.py tests/test_gis_import.py
+
+docker compose run --rm --no-deps -T \
+  -v "$DASH:/app" \
+  citymanager-dashboard \
+  python - <<'PY'
+import os
+from types import SimpleNamespace
+
+import private_auth
+
+encoded = private_auth.hash_password('validation-value')
+assert private_auth.verify_password('validation-value', encoded)
+assert not private_auth.verify_password('different-value', encoded)
+
+os.environ['CMOS_SESSION_SECRET'] = 'a' * 64
+os.environ['CMOS_EXECUTIVE_USERNAME'] = 'validation-user'
+os.environ['CMOS_EXECUTIVE_PASSWORD_HASH'] = encoded
+
+account = private_auth.Account('validation-user', 'EXECUTIVE', encoded)
+token = private_auth._issue_session(account)
+restored = private_auth._read_session(token)
+assert restored is not None
+assert restored.role == 'EXECUTIVE'
+
+supervisor = private_auth.Account('supervisor', 'SUPERVISOR', '')
+readonly = private_auth.Account('readonly', 'READ_ONLY', '')
+operational_post = SimpleNamespace(method='POST', url=SimpleNamespace(path='/issues/create'))
+admin_post = SimpleNamespace(method='POST', url=SimpleNamespace(path='/integrations/create'))
+admin_get = SimpleNamespace(method='GET', url=SimpleNamespace(path='/integrations'))
+
+assert private_auth._role_allows(supervisor, operational_post)
+assert not private_auth._role_allows(supervisor, admin_post)
+assert private_auth._role_allows(supervisor, admin_get)
+assert not private_auth._role_allows(readonly, operational_post)
+assert private_auth._role_allows(readonly, admin_get)
+
+assert private_auth._safe_next('//outside.example') == '/my-day'
+assert private_auth._safe_next('/issues?state=open') == '/issues?state=open'
+
+print('PRIVATE AUTH VALIDATION: PASS')
+PY
+
+printf 'SAFETY FOUNDATION STATIC VALIDATION: PASS\n'
