@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+ROOT="/opt/city-manager-os"
+ENV_FILE="$ROOT/dashboard/.env"
+
+[[ -f "$ENV_FILE" ]] || {
+  echo "ERROR: dashboard .env not found"
+  exit 1
+}
+
+TOKEN="$(python3 - "$ENV_FILE" <<'PY'
+from pathlib import Path
+import sys
+for line in Path(sys.argv[1]).read_text().splitlines():
+    if line.startswith('CMOS_AUTOMATION_TOKEN='):
+        print(line.split('=',1)[1].strip())
+        break
+PY
+)"
+
+if [[ -z "$TOKEN" ]]; then
+  exec "$ROOT/deploy/cmos-e2e-acceptance"
+fi
+
+TMP="$(mktemp -d /tmp/cmos-e2e-curl.XXXXXX)"
+cleanup(){ rm -rf "$TMP"; }
+trap cleanup EXIT
+
+cat > "$TMP/.curlrc" <<EOF
+header = "X-CMOS-Automation-Key: $TOKEN"
+EOF
+chmod 600 "$TMP/.curlrc"
+
+CURL_HOME="$TMP" \
+  "$ROOT/deploy/cmos-e2e-acceptance"
