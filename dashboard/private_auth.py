@@ -351,9 +351,9 @@ def configure_private_auth(app) -> None:
         response.headers["Cache-Control"] = "no-store"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "img-src 'self' data: blob: https://*.tile.openstreetmap.org; "
-            "style-src 'self' 'unsafe-inline'; "
-            "script-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob: https:; "
+            "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+            "script-src 'self' 'unsafe-inline' https://unpkg.com; "
             "connect-src 'self'; "
             "form-action 'self'; "
             "frame-ancestors 'none'; "
