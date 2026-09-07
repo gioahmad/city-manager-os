@@ -1,13 +1,120 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Command Center · City Manager OS</title><link rel="stylesheet" href="/static/style.css"></head>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Command Center · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .command-tabs{display:flex;gap:7px;overflow-x:auto;padding:3px 0 10px;scrollbar-width:thin}.command-tabs a{flex:0 0 auto;text-decoration:none;color:#a9bac9;border:1px solid #2a3a4b;background:#101a25;border-radius:999px;padding:8px 11px;font-size:.82rem;font-weight:700}.command-tabs a:hover,.command-tabs a.active{color:#eef5fb;background:#172638;border-color:#4d7899}.command-toolbar{display:flex;gap:8px;align-items:center;margin:10px 0 14px}.command-toolbar input{flex:1;min-width:180px}.command-capture>summary{cursor:pointer;list-style:none;padding:14px 16px;font-weight:800}.command-capture>summary::-webkit-details-marker{display:none}.command-capture>summary:after{content:'+';float:right;color:#91a3b5}.command-capture[open]>summary:after{content:'−'}.command-list{display:grid;gap:9px}.work-card{border:1px solid #243649;border-radius:11px;background:#101a25}.work-card>summary{cursor:pointer;list-style:none;padding:12px;display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.work-card>summary::-webkit-details-marker{display:none}.work-title{display:flex;gap:9px;align-items:flex-start;min-width:0}.work-badges{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:5px}.type-chip,.attention-chip{font-size:.68rem;font-weight:800;padding:3px 6px;border-radius:999px;border:1px solid #344b61;color:#bdd0df;background:#132131}.attention-chip.escalation{border-color:#ad4b4b;color:#ffd2d2}.attention-chip.action{border-color:#b47c32;color:#ffe0ad}.attention-chip.watch{border-color:#5f78a8;color:#d8e4ff}.work-name{font-weight:800;line-height:1.25}.work-context{font-size:.78rem;color:#91a3b5;margin-top:4px;line-height:1.35}.work-next{font-size:.8rem;color:#c8d5df;margin-top:4px}.work-right{text-align:right;display:grid;gap:5px;justify-items:end}.work-date{font-size:.72rem;color:#91a3b5}.work-card-body{border-top:1px solid #243649;padding:14px}.quick-actions{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}.quick-actions form{margin:0}.optional-block{border:1px solid #243649;border-radius:8px;padding:9px 10px}.optional-block summary{cursor:pointer;font-weight:700;color:#bdd0df}.empty-work{padding:28px;text-align:center;color:#91a3b5}@media(max-width:760px){.work-card>summary{display:block}.work-right{text-align:left;justify-items:start;margin:8px 0 0}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  </style>
+</head>
 <body>
-<header class="topbar"><div class="brand"><div class="eyebrow">OPERATIONS</div><div class="brand-row"><h1>Command Center</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Capture, Next Actions and Open Loops</div></div></header>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">ACCOUNTABILITY · OWNERSHIP · FOLLOW-UP</div>
+    <div class="brand-row"><h1>Command Center</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">One queue for every accountable work item</div>
+  </div>
+</header>
 {% include "nav.html" %}
 <main>
-{% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
-<section class="metrics"><div class="metric"><span>Open</span><strong>{{ counts.open or 0 }}</strong><small>Active loops</small></div><div class="metric metric-alerts"><span>Today</span><strong>{{ counts.today or 0 }}</strong><small>Due or follow-up</small></div><div class="metric"><span>Waiting On</span><strong>{{ counts.waiting or 0 }}</strong><small>Delegated / pending</small></div><div class="metric"><span>No Next Action</span><strong>{{ counts.no_next_action or 0 }}</strong><small>Needs definition</small></div></section>
-<section class="grid watch-layout" style="margin-top:16px">
-<article class="panel"><div class="panel-head"><div><div class="panel-kicker">CAPTURE</div><h2>New Open Loop</h2></div></div><div class="panel-body form-panel"><form method="post" action="/issues/create" class="watch-form"><label>Title<input name="title" required placeholder="What needs attention?"></label><div class="form-grid two-col"><label>Type<select name="item_type"><option value="ISSUE">Issue</option><option value="TASK">Task</option><option value="FOLLOW_UP">Follow Up</option><option value="DECISION">Decision</option><option value="COMMITMENT">Commitment</option><option value="COMMUNICATION">Communication</option><option value="IDEA">Idea</option></select></label><label>Priority<select name="priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == 3 %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label></div><label>Description / Notes<textarea name="description" rows="3"></textarea></label><label>Next Action<input name="next_action" placeholder="What is the very next thing to do?"></label><div class="form-grid two-col"><label>Waiting On<input name="waiting_on" placeholder="Person, agency, vendor..."></label><label>Assigned To<input name="assigned_to"></label></div><div class="form-grid two-col"><label>Due<input type="datetime-local" name="due_at"></label><label>Follow Up<input type="datetime-local" name="follow_up_at"></label></div><div class="panel-kicker" style="margin-top:12px">DECISION DESK · OPTIONAL</div><label>Options / Tradeoffs<textarea name="decision_options" rows="3" placeholder="Option A... Option B..."></textarea></label><label>Recommendation<input name="recommendation" placeholder="What do you recommend?"></label><div class="form-grid two-col"><label>Decision By<input type="datetime-local" name="decision_by"></label><label>Outcome / Rationale<input name="decision_outcome" placeholder="Final decision when made"></label></div><div class="panel-kicker" style="margin-top:12px">VISIBILITY · OPTIONAL</div><div class="form-grid two-col"><label>Status<select name="visibility_status"><option value="NONE">None</option><option value="WATCH">Watch</option><option value="PREP">Prepare</option><option value="READY">Ready</option><option value="SENT">Sent</option></select></label><label>Audience<input name="visibility_audience" placeholder="Public, Mayor/Council, Staff, Agency..."></label></div><label>Visibility Note<input name="visibility_note" placeholder="What needs to be communicated or watched?"></label><div class="form-grid two-col"><label>Category<input name="category"></label><label>Municipality<input name="municipality" value="Weehawken"></label></div><label>Address<input name="address"></label><button class="primary-button" type="submit">Capture</button></form></div></article>
-<article class="panel"><div class="panel-head"><div><div class="panel-kicker">TRACK</div><h2>Open Loops</h2></div><span class="count-pill">{{ items|length }}</span></div><div class="panel-body"><form class="watch-filters" method="get" action="/issues"><input name="q" value="{{ q }}" placeholder="Search title, category, address, assignee"><select name="state"><option value="open" {% if state == 'open' %}selected{% endif %}>Open</option><option value="today" {% if state == 'today' %}selected{% endif %}>Today</option><option value="waiting" {% if state == 'waiting' %}selected{% endif %}>Waiting On</option><option value="no_next" {% if state == 'no_next' %}selected{% endif %}>No Next Action</option><option value="overdue" {% if state == 'overdue' %}selected{% endif %}>Overdue</option><option value="commitments" {% if state == 'commitments' %}selected{% endif %}>Commitments</option><option value="communications" {% if state == 'communications' %}selected{% endif %}>Communications</option><option value="decisions" {% if state == 'decisions' %}selected{% endif %}>Decisions</option><option value="visibility" {% if state == 'visibility' %}selected{% endif %}>Visibility Queue</option><option value="closed" {% if state == 'closed' %}selected{% endif %}>Closed</option><option value="all" {% if state == 'all' %}selected{% endif %}>All</option></select><button class="secondary-button" type="submit">Filter</button></form><div class="watch-list">
-{% for i in items %}<details class="watch-card {% if i.status in ['RESOLVED','CLOSED'] %}inactive{% endif %}"><summary><div class="watch-summary-main"><span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span><div><strong>{{ i.title }}</strong><div class="meta">{{ i.status }}{% if i.category %} · {{ i.category }}{% endif %}{% if i.municipality %} · {{ i.municipality }}{% endif %}</div></div></div><span class="watch-id">{{ i.updated_at.strftime('%m/%d %H:%M') if i.updated_at else '' }}</span></summary><div class="watch-card-body"><form method="post" action="/issues/{{ i.id }}/update" class="watch-form compact"><label>Title<input name="title" value="{{ i.title }}" required></label><label>Description / Notes<textarea name="description" rows="3">{{ i.description or '' }}</textarea></label><div class="form-grid three-col"><label>Type<select name="item_type">{% for t in ['ISSUE','TASK','FOLLOW_UP','DECISION','COMMITMENT','COMMUNICATION','IDEA'] %}<option value="{{ t }}" {% if t == i.item_type %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></label><label>Priority<select name="priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == i.priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label><label>Status<select name="status">{% for s in issue_statuses %}<option value="{{ s }}" {% if s == i.status %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></label></div><label>Next Action<input name="next_action" value="{{ i.next_action or '' }}"></label><div class="form-grid two-col"><label>Waiting On<input name="waiting_on" value="{{ i.waiting_on or '' }}"></label><label>Assigned To<input name="assigned_to" value="{{ i.assigned_to or '' }}"></label></div><div class="form-grid two-col"><label>Due<input type="datetime-local" name="due_at" value="{{ i.due_local.strftime('%Y-%m-%dT%H:%M') if i.due_local else '' }}"></label><label>Follow Up<input type="datetime-local" name="follow_up_at" value="{{ i.follow_up_local.strftime('%Y-%m-%dT%H:%M') if i.follow_up_local else '' }}"></label></div><div class="panel-kicker" style="margin-top:12px">DECISION DESK · OPTIONAL</div><label>Options / Tradeoffs<textarea name="decision_options" rows="3">{{ i.decision_options or '' }}</textarea></label><label>Recommendation<input name="recommendation" value="{{ i.recommendation or '' }}"></label><div class="form-grid two-col"><label>Decision By<input type="datetime-local" name="decision_by" value="{{ i.decision_by_local.strftime('%Y-%m-%dT%H:%M') if i.decision_by_local else '' }}"></label><label>Outcome / Rationale<input name="decision_outcome" value="{{ i.decision_outcome or '' }}"></label></div><div class="panel-kicker" style="margin-top:12px">VISIBILITY · OPTIONAL</div><div class="form-grid two-col"><label>Status<select name="visibility_status">{% for v in ['NONE','WATCH','PREP','READY','SENT'] %}<option value="{{ v }}" {% if v == i.visibility_status %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label><label>Audience<input name="visibility_audience" value="{{ i.visibility_audience or '' }}"></label></div><label>Visibility Note<input name="visibility_note" value="{{ i.visibility_note or '' }}"></label><div class="form-grid two-col"><label>Address<input name="address" value="{{ i.address or '' }}"></label><label>Municipality<input name="municipality" value="{{ i.municipality or '' }}"></label></div><button class="primary-button" type="submit">Save</button></form></div></details>{% else %}<div class="empty-state small"><strong>No issues found</strong></div>{% endfor %}
-</div></div></article></section><footer><span>City Manager OS</span><span>Executive open-loop tracking</span></footer></main></body></html>
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+
+  <section class="metrics">
+    <div class="metric"><span>Open Work</span><strong>{{ counts.open or 0 }}</strong><small>Active accountable items</small></div>
+    <div class="metric metric-alerts"><span>Needs Me</span><strong>{{ counts.needs_me or 0 }}</strong><small>Manager attention / decision</small></div>
+    <div class="metric"><span>Assigned Out</span><strong>{{ counts.assigned_out or 0 }}</strong><small>Owned by someone else</small></div>
+    <div class="metric"><span>Waiting On</span><strong>{{ counts.waiting or 0 }}</strong><small>External or internal dependency</small></div>
+  </section>
+
+  <nav class="command-tabs" aria-label="Command Center views">
+    {% set views = [
+      ('open','All Open'),('mine','Needs Me'),('assigned','Assigned Out'),('waiting','Waiting On'),
+      ('today','Today'),('overdue','Overdue'),('decisions','Decisions'),('commitments','Commitments'),
+      ('no_next','No Next Action'),('unowned','Unowned'),('backlog','Backlog'),('closed','Closed')
+    ] %}
+    {% for key,label in views %}<a href="/issues?state={{ key }}" class="{{ 'active' if state == key else '' }}">{{ label }}</a>{% endfor %}
+  </nav>
+
+  <details class="panel command-capture" style="margin-bottom:14px">
+    <summary>+ New Work Item <span class="muted" style="font-weight:500">Capture something to do, decide, chase, communicate or keep accountable.</span></summary>
+    <div class="panel-body form-panel">
+      <form method="post" action="/issues/create" class="watch-form">
+        <label>Title<input name="title" required placeholder="What needs attention?"></label>
+        <div class="form-grid two-col">
+          <label>Type<select name="item_type"><option value="ISSUE">Problem / Issue</option><option value="TASK">Task</option><option value="FOLLOW_UP">Follow Up</option><option value="DECISION">Decision</option><option value="COMMITMENT">Commitment</option><option value="COMMUNICATION">Communication</option><option value="IDEA">Idea / Backlog</option></select></label>
+          <label>Priority<select name="priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == 3 %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label>
+        </div>
+        <label>Description / Notes<textarea name="description" rows="3"></textarea></label>
+        <label>Next Action<input name="next_action" placeholder="What is the very next thing to do?"></label>
+        <div class="form-grid two-col">
+          <label>Owner / Assigned To<input name="assigned_to" placeholder="Me, department, employee, contractor..."></label>
+          <label>Waiting On<input name="waiting_on" placeholder="Person, agency, vendor..."></label>
+        </div>
+        <div class="form-grid two-col"><label>Due<input type="datetime-local" name="due_at"></label><label>Follow Up<input type="datetime-local" name="follow_up_at"></label></div>
+
+        <details class="optional-block"><summary>Decision Desk</summary><div class="watch-form" style="margin-top:9px"><label>Options / Tradeoffs<textarea name="decision_options" rows="3"></textarea></label><label>Recommendation<input name="recommendation"></label><div class="form-grid two-col"><label>Decision By<input type="datetime-local" name="decision_by"></label><label>Outcome / Rationale<input name="decision_outcome"></label></div></div></details>
+        <details class="optional-block"><summary>Visibility / Communication</summary><div class="watch-form" style="margin-top:9px"><div class="form-grid two-col"><label>Status<select name="visibility_status"><option value="NONE">None</option><option value="WATCH">Watch</option><option value="PREP">Prepare</option><option value="READY">Ready</option><option value="SENT">Sent</option></select></label><label>Audience<input name="visibility_audience" placeholder="Public, Mayor/Council, Staff, Agency..."></label></div><label>Visibility Note<input name="visibility_note"></label></div></details>
+        <details class="optional-block"><summary>Location / Classification</summary><div class="watch-form" style="margin-top:9px"><div class="form-grid two-col"><label>Category<input name="category"></label><label>Municipality<input name="municipality" value="Weehawken"></label></div><label>Address<input name="address"></label></div></details>
+        <button class="primary-button" type="submit">Create Work Item</button>
+      </form>
+    </div>
+  </details>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><div class="panel-kicker">WORK QUEUE</div><h2>{{ {'open':'All Open Work','mine':'Needs Me','assigned':'Assigned Out','waiting':'Waiting On','today':'Today','overdue':'Overdue','decisions':'Decisions','commitments':'Commitments','no_next':'No Next Action','unowned':'Unowned','backlog':'Ideas / Backlog','closed':'Closed Work'}.get(state,'Work Items') }}</h2></div>
+      <span class="count-pill">{{ items|length }}</span>
+    </div>
+    <div class="panel-body">
+      <form class="command-toolbar" method="get" action="/issues"><input type="hidden" name="state" value="{{ state }}"><input name="q" value="{{ q }}" placeholder="Search title, owner, address, agency, category..."><button class="secondary-button" type="submit">Search</button>{% if q %}<a class="secondary-button button-link" href="/issues?state={{ state }}">Clear</a>{% endif %}</form>
+
+      <div class="command-list">
+      {% for i in items %}
+        <details class="work-card {% if i.status in ['RESOLVED','CLOSED'] %}inactive{% endif %}">
+          <summary>
+            <div class="work-title">
+              <span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span>
+              <div>
+                <div class="work-badges"><span class="type-chip">{{ i.item_type|replace('_',' ') }}</span><span class="attention-chip {{ i.attention_level|lower }}">{{ i.attention_level }}</span>{% if i.waiting_status not in ['NOT WAITING','WAITING'] %}<span class="type-chip">{{ i.waiting_status }}</span>{% endif %}</div>
+                <div class="work-name">{{ i.title }}</div>
+                <div class="work-context">
+                  {{ i.status }}
+                  {% if i.assigned_to %} · Owner: {{ i.assigned_to }}{% else %} · Unowned{% endif %}
+                  {% if i.waiting_on %} · Waiting on: {{ i.waiting_on }}{% endif %}
+                </div>
+                {% if i.next_action %}<div class="work-next">Next: {{ i.next_action }}</div>{% else %}<div class="work-next">Next action not defined</div>{% endif %}
+                <div class="work-context">{{ i.attention_reason }}</div>
+              </div>
+            </div>
+            <div class="work-right">
+              {% if i.due_local %}<span class="work-date">Due {{ i.due_local.strftime('%m/%d %I:%M %p') }}</span>{% endif %}
+              {% if i.follow_up_local %}<span class="work-date">Follow {{ i.follow_up_local.strftime('%m/%d %I:%M %p') }}</span>{% endif %}
+              <span class="work-date">Updated {{ i.updated_at.strftime('%m/%d %H:%M') if i.updated_at else '' }}</span>
+            </div>
+          </summary>
+          <div class="work-card-body">
+            {% if i.waiting_on %}<div class="quick-actions"><form method="post" action="/issues/{{ i.id }}/waiting/chased"><button class="secondary-button" type="submit">Chased Today</button></form><form method="post" action="/issues/{{ i.id }}/waiting/response"><button class="secondary-button" type="submit">Response Received</button></form></div>{% endif %}
+            <form method="post" action="/issues/{{ i.id }}/update" class="watch-form compact">
+              <label>Title<input name="title" value="{{ i.title }}" required></label>
+              <label>Description / Notes<textarea name="description" rows="3">{{ i.description or '' }}</textarea></label>
+              <div class="form-grid three-col"><label>Type<select name="item_type">{% for t in ['ISSUE','TASK','FOLLOW_UP','DECISION','COMMITMENT','COMMUNICATION','IDEA'] %}<option value="{{ t }}" {% if t == i.item_type %}selected{% endif %}>{{ 'PROBLEM / ISSUE' if t == 'ISSUE' else 'IDEA / BACKLOG' if t == 'IDEA' else t|replace('_',' ') }}</option>{% endfor %}</select></label><label>Priority<select name="priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == i.priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label><label>Status<select name="status">{% for s in issue_statuses %}<option value="{{ s }}" {% if s == i.status %}selected{% endif %}>{{ s|replace('_',' ') }}</option>{% endfor %}</select></label></div>
+              <label>Next Action<input name="next_action" value="{{ i.next_action or '' }}"></label>
+              <div class="form-grid two-col"><label>Owner / Assigned To<input name="assigned_to" value="{{ i.assigned_to or '' }}"></label><label>Waiting On<input name="waiting_on" value="{{ i.waiting_on or '' }}"></label></div>
+              <div class="form-grid two-col"><label>Due<input type="datetime-local" name="due_at" value="{{ i.due_local.strftime('%Y-%m-%dT%H:%M') if i.due_local else '' }}"></label><label>Follow Up<input type="datetime-local" name="follow_up_at" value="{{ i.follow_up_local.strftime('%Y-%m-%dT%H:%M') if i.follow_up_local else '' }}"></label></div>
+              <details class="optional-block"><summary>Decision Desk</summary><div class="watch-form" style="margin-top:9px"><label>Options / Tradeoffs<textarea name="decision_options" rows="3">{{ i.decision_options or '' }}</textarea></label><label>Recommendation<input name="recommendation" value="{{ i.recommendation or '' }}"></label><div class="form-grid two-col"><label>Decision By<input type="datetime-local" name="decision_by" value="{{ i.decision_by_local.strftime('%Y-%m-%dT%H:%M') if i.decision_by_local else '' }}"></label><label>Outcome / Rationale<input name="decision_outcome" value="{{ i.decision_outcome or '' }}"></label></div></div></details>
+              <details class="optional-block"><summary>Visibility / Communication</summary><div class="watch-form" style="margin-top:9px"><div class="form-grid two-col"><label>Status<select name="visibility_status">{% for v in ['NONE','WATCH','PREP','READY','SENT'] %}<option value="{{ v }}" {% if v == i.visibility_status %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label><label>Audience<input name="visibility_audience" value="{{ i.visibility_audience or '' }}"></label></div><label>Visibility Note<input name="visibility_note" value="{{ i.visibility_note or '' }}"></label></div></details>
+              <details class="optional-block"><summary>Location / Classification</summary><div class="watch-form" style="margin-top:9px"><div class="form-grid two-col"><label>Address<input name="address" value="{{ i.address or '' }}"></label><label>Municipality<input name="municipality" value="{{ i.municipality or '' }}"></label></div><label>Category<input name="category" value="{{ i.category or '' }}"></label></div></details>
+              <button class="primary-button" type="submit">Save Work Item</button>
+            </form>
+          </div>
+        </details>
+      {% else %}<div class="empty-work"><strong>No work items in this view.</strong><div>That is either good news or a very efficient filter.</div></div>{% endfor %}
+      </div>
+    </div>
+  </section>
+  <footer><span>City Manager OS</span><span>One accountable work queue</span></footer>
+</main>
+</body>
+</html>
