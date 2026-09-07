@@ -577,6 +577,7 @@ def _import_gtfs_zip(
     fallback_mode: str,
     force_mode: str | None = None,
     allowed_modes: set[str] | None = None,
+    regional_stops_only: bool = False,
 ) -> tuple[int, int]:
     # Stops do not carry route_type. Use route -> trip -> stop_time relationships
     # so NJT HBLR stops inherit LIGHT_RAIL safely from GTFS.
@@ -664,6 +665,14 @@ def _import_gtfs_zip(
                 found += 1
                 lat = _float(row.get("stop_lat"))
                 lon = _float(row.get("stop_lon"))
+
+                # NJ TRANSIT's static bus GTFS is statewide. Keep all route
+                # definitions, but only materialize geocoded stops inside the
+                # City Manager OS regional transit capture area so unrelated
+                # statewide stops cannot crowd the map layer.
+                if regional_stops_only and not _in_bbox(lat, lon):
+                    continue
+
                 name = _text(row.get("stop_name")) or stop_id
                 if mode in {"RAIL", "LIGHT_RAIL", "SUBWAY"}:
                     asset_type = "STATION"
@@ -682,7 +691,7 @@ def _import_gtfs_zip(
                     name=name,
                     latitude=lat,
                     longitude=lon,
-                    state="NJ" if (lon is not None and lon < -73.95) else None,
+                    state=None,
                     metadata={**row, "_CMOS_MODES": sorted(modes) if modes else [mode]},
                 ))
     return found, changed
@@ -1126,6 +1135,7 @@ def _run_bus_gtfs(conn, integration: dict[str, Any], *, store: bool) -> tuple[Tr
         provider_id=provider_id,
         integration_id=integration["id"],
         fallback_mode="BUS",
+        regional_stops_only=True,
     )
     return selected_result,found,changed
 
