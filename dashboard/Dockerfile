@@ -33,6 +33,7 @@ COPY transit_engine.py .
 COPY transit_app.py .
 COPY alert_admin_v2.py .
 COPY integration_worker.py .
+COPY private_auth.py .
 COPY phase3_app.py .
 COPY templates ./templates
 COPY static ./static
