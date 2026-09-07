@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -551,29 +551,74 @@ def schedule_toggle(event_id: uuid.UUID):
     return RedirectResponse(url="/schedule?msg=Schedule+item+status+changed", status_code=303)
 
 
+@app.post("/my-day/reviewed")
+def my_day_mark_reviewed():
+    response = RedirectResponse(
+        url="/my-day",
+        status_code=303,
+    )
+    response.set_cookie(
+        "cmos_my_day_reviewed",
+        datetime.now().astimezone().isoformat(),
+        max_age=31536000,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
 @app.get("/my-day", response_class=HTMLResponse)
 def my_day(request: Request):
+    raw_reviewed = request.cookies.get(
+        "cmos_my_day_reviewed",
+        "",
+    )
+
+    try:
+        review_since = datetime.fromisoformat(
+            raw_reviewed
+        )
+        if review_since.tzinfo is None:
+            raise ValueError(
+                "review timestamp requires timezone"
+            )
+    except (TypeError, ValueError):
+        review_since = (
+            datetime.now().astimezone()
+            - timedelta(hours=24)
+        )
+
     schedule = query_all(
         """
         SELECT
-          id, title, category, location_name, address, municipality,
-          starts_at AT TIME ZONE 'America/New_York' AS starts_local,
-          ends_at AT TIME ZONE 'America/New_York' AS ends_local,
+          id, title, category, location_name,
+          address, municipality,
+          starts_at AT TIME ZONE
+            'America/New_York' AS starts_local,
+          ends_at AT TIME ZONE
+            'America/New_York' AS ends_local,
           priority, notes,
-          attendees, objective, prep_notes, decisions_needed, debrief_notes
+          attendees, objective, prep_notes,
+          decisions_needed, debrief_notes
         FROM operational_events
         WHERE active = true
-          AND event_status NOT IN ('COMPLETED','CANCELLED')
+          AND event_status NOT IN (
+            'COMPLETED','CANCELLED'
+          )
           AND starts_at >= date_trunc(
                 'day',
-                now() AT TIME ZONE 'America/New_York'
-              ) AT TIME ZONE 'America/New_York'
+                now() AT TIME ZONE
+                  'America/New_York'
+              ) AT TIME ZONE
+                'America/New_York'
           AND starts_at < (
                 date_trunc(
                   'day',
-                  now() AT TIME ZONE 'America/New_York'
+                  now() AT TIME ZONE
+                    'America/New_York'
                 ) + interval '1 day'
-              ) AT TIME ZONE 'America/New_York'
+              ) AT TIME ZONE
+                'America/New_York'
         ORDER BY starts_at
         """
     )
@@ -583,33 +628,72 @@ def my_day(request: Request):
         WITH current_alerts AS (
           SELECT DISTINCT ON (
             CASE
-              WHEN source IN ('NJ_DIVERT','PSEG','ORU')
-                THEN source || '|' || COALESCE(subtype,'') || '|' || COALESCE(municipality,'')
+              WHEN source IN (
+                'NJ_DIVERT','PSEG','ORU'
+              )
+                THEN source || '|'
+                  || COALESCE(subtype,'')
+                  || '|'
+                  || COALESCE(
+                       municipality,
+                       ''
+                     )
               ELSE alert_id
             END
           )
-            alert_id, source, category, subtype, title, message,
-            priority, municipality, event_action, click_url,
+            alert_id,
+            source,
+            category,
+            subtype,
+            title,
+            message,
+            priority,
+            municipality,
+            event_action,
+            click_url,
             received_at
           FROM alerts
           WHERE status <> 'RESOLVED'
             AND source <> 'EXEC_ASSISTANT'
             AND source <> 'SYSTEM_TEST'
-            AND (expires_at IS NULL OR expires_at > now())
+            AND (
+              expires_at IS NULL
+              OR expires_at > now()
+            )
           ORDER BY
             CASE
-              WHEN source IN ('NJ_DIVERT','PSEG','ORU')
-                THEN source || '|' || COALESCE(subtype,'') || '|' || COALESCE(municipality,'')
+              WHEN source IN (
+                'NJ_DIVERT','PSEG','ORU'
+              )
+                THEN source || '|'
+                  || COALESCE(subtype,'')
+                  || '|'
+                  || COALESCE(
+                       municipality,
+                       ''
+                     )
               ELSE alert_id
             END,
             received_at DESC
         )
         SELECT
-          alert_id, source, category, subtype, title, message,
-          priority, municipality, event_action, click_url,
-          received_at AT TIME ZONE 'America/New_York' AS received_local
+          alert_id,
+          source,
+          category,
+          subtype,
+          title,
+          message,
+          priority,
+          municipality,
+          event_action,
+          click_url,
+          received_at AT TIME ZONE
+            'America/New_York'
+            AS received_local
         FROM current_alerts
-        ORDER BY priority DESC, received_at DESC
+        ORDER BY
+          priority DESC,
+          received_at DESC
         LIMIT 8
         """
     )
@@ -617,11 +701,18 @@ def my_day(request: Request):
     source_warnings = query_all(
         """
         SELECT
-          source_id, status, last_error,
-          last_success_at AT TIME ZONE 'America/New_York' AS last_success_local,
-          last_event_at AT TIME ZONE 'America/New_York' AS last_event_local
+          source_id,
+          status,
+          last_error,
+          last_success_at AT TIME ZONE
+            'America/New_York'
+            AS last_success_local,
+          last_event_at AT TIME ZONE
+            'America/New_York'
+            AS last_event_local
         FROM source_health
-        WHERE upper(status) NOT IN ('OK','HEALTHY')
+        WHERE upper(status)
+          NOT IN ('OK','HEALTHY')
         ORDER BY updated_at DESC
         """
     )
@@ -629,59 +720,154 @@ def my_day(request: Request):
     attention = query_all(
         """
         SELECT
-          id, title, item_type, priority, status,
-          next_action, waiting_on, assigned_to,
-          due_at AT TIME ZONE 'America/New_York' AS due_local,
-          follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local,
+          id,
+          title,
+          item_type,
+          priority,
+          status,
+          next_action,
+          waiting_on,
+          assigned_to,
+          due_at AT TIME ZONE
+            'America/New_York'
+            AS due_local,
+          follow_up_at AT TIME ZONE
+            'America/New_York'
+            AS follow_up_local,
           CASE
-            WHEN due_at IS NOT NULL AND due_at <= now() THEN 'OVERDUE'
-            WHEN follow_up_at IS NOT NULL AND follow_up_at <= now() THEN 'FOLLOW UP'
+            WHEN due_at IS NOT NULL
+              AND due_at <= now()
+              THEN 'OVERDUE'
+
+            WHEN follow_up_at IS NOT NULL
+              AND follow_up_at <= now()
+              THEN 'FOLLOW UP'
+
             WHEN due_at IS NOT NULL
               AND due_at < (
-                date_trunc('day', now() AT TIME ZONE 'America/New_York')
-                + interval '1 day'
-              ) AT TIME ZONE 'America/New_York'
+                date_trunc(
+                  'day',
+                  now() AT TIME ZONE
+                    'America/New_York'
+                ) + interval '1 day'
+              ) AT TIME ZONE
+                'America/New_York'
               THEN 'DUE TODAY'
+
             WHEN follow_up_at IS NOT NULL
               AND follow_up_at < (
-                date_trunc('day', now() AT TIME ZONE 'America/New_York')
-                + interval '1 day'
-              ) AT TIME ZONE 'America/New_York'
+                date_trunc(
+                  'day',
+                  now() AT TIME ZONE
+                    'America/New_York'
+                ) + interval '1 day'
+              ) AT TIME ZONE
+                'America/New_York'
               THEN 'FOLLOW UP TODAY'
-            WHEN next_action IS NULL OR trim(next_action) = '' THEN 'NO NEXT ACTION'
+
+            WHEN next_action IS NULL
+              OR trim(next_action) = ''
+              THEN 'NO NEXT ACTION'
+
             ELSE 'OPEN'
           END AS attention_status
         FROM issues
-        WHERE status NOT IN ('RESOLVED','CLOSED')
-          AND (
-            due_at <= (
-              date_trunc('day', now() AT TIME ZONE 'America/New_York')
-              + interval '1 day'
-            ) AT TIME ZONE 'America/New_York'
-            OR follow_up_at <= (
-              date_trunc('day', now() AT TIME ZONE 'America/New_York')
-              + interval '1 day'
-            ) AT TIME ZONE 'America/New_York'
-            OR next_action IS NULL
-            OR trim(next_action) = ''
-          )
-        ORDER BY priority DESC, COALESCE(due_at, follow_up_at), updated_at DESC
+        WHERE status NOT IN (
+          'RESOLVED','CLOSED'
+        )
+        AND (
+          due_at <= (
+            date_trunc(
+              'day',
+              now() AT TIME ZONE
+                'America/New_York'
+            ) + interval '1 day'
+          ) AT TIME ZONE
+            'America/New_York'
+
+          OR follow_up_at <= (
+            date_trunc(
+              'day',
+              now() AT TIME ZONE
+                'America/New_York'
+            ) + interval '1 day'
+          ) AT TIME ZONE
+            'America/New_York'
+
+          OR next_action IS NULL
+          OR trim(next_action) = ''
+        )
+        ORDER BY
+          priority DESC,
+          COALESCE(
+            due_at,
+            follow_up_at
+          ),
+          updated_at DESC
         """
     )
 
     waiting = query_all(
         """
         SELECT
-          id, title, item_type, priority, waiting_on,
-          next_action, assigned_to,
-          follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local
+          id,
+          title,
+          item_type,
+          priority,
+          waiting_on,
+          next_action,
+          assigned_to,
+          follow_up_at AT TIME ZONE
+            'America/New_York'
+            AS follow_up_local,
+          updated_at AT TIME ZONE
+            'America/New_York'
+            AS updated_local,
+
+          CASE
+            WHEN waiting_on ~*
+              '(county|njdot|verizon|pseg|utility|engineer|attorney|contractor|vendor|state|federal|consultant|agency|mayor|counsel)'
+              THEN 'EXTERNAL'
+            ELSE 'INTERNAL'
+          END AS dependency_type,
+
+          CASE
+            WHEN follow_up_at IS NOT NULL
+              AND follow_up_at < now()
+              THEN 'FOLLOW-UP OVERDUE'
+
+            WHEN updated_at <
+              now() - interval '7 days'
+              THEN 'STALE'
+
+            ELSE 'WAITING'
+          END AS waiting_status
+
         FROM issues
-        WHERE status NOT IN ('RESOLVED','CLOSED')
-          AND NULLIF(trim(waiting_on), '') IS NOT NULL
+        WHERE status NOT IN (
+          'RESOLVED','CLOSED'
+        )
+        AND NULLIF(
+          trim(waiting_on),
+          ''
+        ) IS NOT NULL
+
         ORDER BY
+          CASE
+            WHEN follow_up_at IS NOT NULL
+              AND follow_up_at < now()
+              THEN 0
+
+            WHEN updated_at <
+              now() - interval '7 days'
+              THEN 1
+
+            ELSE 2
+          END,
           follow_up_at NULLS LAST,
           priority DESC,
           updated_at DESC
+
         LIMIT 25
         """
     )
@@ -689,12 +875,58 @@ def my_day(request: Request):
     commitments = query_all(
         """
         SELECT
-          id, title, priority, next_action, waiting_on, assigned_to,
-          due_at AT TIME ZONE 'America/New_York' AS due_local
+          id,
+          title,
+          priority,
+          next_action,
+          waiting_on,
+          assigned_to,
+          due_at AT TIME ZONE
+            'America/New_York'
+            AS due_local,
+
+          CASE
+            WHEN due_at < now()
+              THEN 'OVERDUE'
+
+            WHEN due_at <=
+              now() + interval '24 hours'
+              THEN 'DUE <24H'
+
+            WHEN due_at <=
+              now() + interval '72 hours'
+              THEN 'DUE <72H'
+
+            WHEN due_at IS NULL
+              THEN 'NO DUE DATE'
+
+            ELSE 'ON TRACK'
+          END AS commitment_status
+
         FROM issues
-        WHERE status NOT IN ('RESOLVED','CLOSED')
-          AND item_type = 'COMMITMENT'
-        ORDER BY due_at NULLS LAST, priority DESC, updated_at DESC
+        WHERE status NOT IN (
+          'RESOLVED','CLOSED'
+        )
+        AND item_type='COMMITMENT'
+
+        ORDER BY
+          CASE
+            WHEN due_at < now()
+              THEN 0
+
+            WHEN due_at <=
+              now() + interval '72 hours'
+              THEN 1
+
+            WHEN due_at IS NULL
+              THEN 3
+
+            ELSE 2
+          END,
+          due_at NULLS LAST,
+          priority DESC,
+          updated_at DESC
+
         LIMIT 20
         """
     )
@@ -702,14 +934,28 @@ def my_day(request: Request):
     communications = query_all(
         """
         SELECT
-          id, title, priority, next_action, waiting_on, assigned_to,
-          due_at AT TIME ZONE 'America/New_York' AS due_local,
-          follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local
+          id,
+          title,
+          priority,
+          next_action,
+          waiting_on,
+          assigned_to,
+          due_at AT TIME ZONE
+            'America/New_York'
+            AS due_local,
+          follow_up_at AT TIME ZONE
+            'America/New_York'
+            AS follow_up_local
         FROM issues
-        WHERE status NOT IN ('RESOLVED','CLOSED')
-          AND item_type = 'COMMUNICATION'
+        WHERE status NOT IN (
+          'RESOLVED','CLOSED'
+        )
+        AND item_type='COMMUNICATION'
         ORDER BY
-          COALESCE(due_at, follow_up_at) NULLS LAST,
+          COALESCE(
+            due_at,
+            follow_up_at
+          ) NULLS LAST,
           priority DESC,
           updated_at DESC
         LIMIT 20
@@ -719,13 +965,24 @@ def my_day(request: Request):
     decisions = query_all(
         """
         SELECT
-          id, title, description, priority, assigned_to,
-          next_action, waiting_on,
-          decision_options, recommendation, decision_outcome,
-          decision_by AT TIME ZONE 'America/New_York' AS decision_by_local
+          id,
+          title,
+          description,
+          priority,
+          assigned_to,
+          next_action,
+          waiting_on,
+          decision_options,
+          recommendation,
+          decision_outcome,
+          decision_by AT TIME ZONE
+            'America/New_York'
+            AS decision_by_local
         FROM issues
-        WHERE status NOT IN ('RESOLVED','CLOSED')
-          AND item_type = 'DECISION'
+        WHERE status NOT IN (
+          'RESOLVED','CLOSED'
+        )
+        AND item_type='DECISION'
         ORDER BY
           decision_by NULLS LAST,
           priority DESC,
@@ -737,12 +994,22 @@ def my_day(request: Request):
     visibility = query_all(
         """
         SELECT
-          id, title, item_type, priority,
-          visibility_status, visibility_audience, visibility_note,
-          next_action, assigned_to
+          id,
+          title,
+          item_type,
+          priority,
+          visibility_status,
+          visibility_audience,
+          visibility_note,
+          next_action,
+          assigned_to
         FROM issues
-        WHERE status NOT IN ('RESOLVED','CLOSED')
-          AND visibility_status IN ('WATCH','PREP','READY')
+        WHERE status NOT IN (
+          'RESOLVED','CLOSED'
+        )
+        AND visibility_status IN (
+          'WATCH','PREP','READY'
+        )
         ORDER BY
           CASE visibility_status
             WHEN 'READY' THEN 0
@@ -758,61 +1025,413 @@ def my_day(request: Request):
     overdue = query_all(
         """
         SELECT
-          id, title, item_type, priority,
-          next_action, waiting_on, assigned_to,
-          due_at AT TIME ZONE 'America/New_York' AS due_local,
-          follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local
+          id,
+          title,
+          item_type,
+          priority,
+          next_action,
+          waiting_on,
+          assigned_to,
+          due_at AT TIME ZONE
+            'America/New_York'
+            AS due_local,
+          follow_up_at AT TIME ZONE
+            'America/New_York'
+            AS follow_up_local
         FROM issues
-        WHERE status NOT IN ('RESOLVED','CLOSED')
-          AND (due_at < now() OR follow_up_at < now())
+        WHERE status NOT IN (
+          'RESOLVED','CLOSED'
+        )
+        AND (
+          due_at < now()
+          OR follow_up_at < now()
+        )
         ORDER BY
           LEAST(
-            COALESCE(due_at, 'infinity'::timestamptz),
-            COALESCE(follow_up_at, 'infinity'::timestamptz)
+            COALESCE(
+              due_at,
+              'infinity'::timestamptz
+            ),
+            COALESCE(
+              follow_up_at,
+              'infinity'::timestamptz
+            )
           ),
           priority DESC
         LIMIT 25
         """
     )
 
+    changed = query_all(
+        """
+        SELECT *
+        FROM (
+          SELECT
+            'ISSUE'::text
+              AS change_type,
+            id::text
+              AS ref_id,
+            title,
+            item_type::text
+              AS detail,
+            priority,
+            updated_at
+              AS changed_at
+          FROM issues
+          WHERE updated_at > %s
+
+          UNION ALL
+
+          SELECT
+            'EVENT'::text,
+            id::text,
+            title,
+            COALESCE(
+              preparation_status,
+              event_status
+            )::text,
+            priority,
+            updated_at
+          FROM operational_events
+          WHERE updated_at > %s
+
+          UNION ALL
+
+          SELECT
+            'ALERT'::text,
+            alert_id::text,
+            title,
+            source::text,
+            priority,
+            received_at
+          FROM alerts
+          WHERE received_at > %s
+            AND source NOT IN (
+              'EXEC_ASSISTANT',
+              'SYSTEM_TEST'
+            )
+        ) changes
+
+        ORDER BY
+          changed_at DESC,
+          priority DESC
+
+        LIMIT 25
+        """,
+        (
+            review_since,
+            review_since,
+            review_since,
+        ),
+    )
+
+    approaching = query_all(
+        """
+        SELECT
+          id,
+          title,
+          item_type,
+          priority,
+          next_action,
+          waiting_on,
+          due_at AT TIME ZONE
+            'America/New_York'
+            AS due_local,
+          follow_up_at AT TIME ZONE
+            'America/New_York'
+            AS follow_up_local,
+          decision_by AT TIME ZONE
+            'America/New_York'
+            AS decision_by_local,
+
+          CASE
+            WHEN due_at < now()
+              THEN 'OVERDUE'
+
+            WHEN follow_up_at < now()
+              THEN 'FOLLOW-UP OVERDUE'
+
+            WHEN decision_by < now()
+              THEN 'DECISION OVERDUE'
+
+            WHEN due_at <=
+              now() + interval '24 hours'
+              THEN 'DUE <24H'
+
+            WHEN follow_up_at <=
+              now() + interval '24 hours'
+              THEN 'FOLLOW <24H'
+
+            WHEN decision_by <=
+              now() + interval '24 hours'
+              THEN 'DECIDE <24H'
+
+            ELSE 'NEXT 72H'
+          END AS deadline_status
+
+        FROM issues
+        WHERE status NOT IN (
+          'RESOLVED','CLOSED'
+        )
+        AND (
+          due_at <=
+            now() + interval '72 hours'
+
+          OR follow_up_at <=
+            now() + interval '72 hours'
+
+          OR decision_by <=
+            now() + interval '72 hours'
+        )
+
+        ORDER BY
+          CASE
+            WHEN due_at < now()
+              OR follow_up_at < now()
+              OR decision_by < now()
+              THEN 0
+            ELSE 1
+          END,
+
+          LEAST(
+            COALESCE(
+              due_at,
+              'infinity'::timestamptz
+            ),
+            COALESCE(
+              follow_up_at,
+              'infinity'::timestamptz
+            ),
+            COALESCE(
+              decision_by,
+              'infinity'::timestamptz
+            )
+          ),
+
+          priority DESC
+
+        LIMIT 20
+        """
+    )
+
+    meeting_prep = query_all(
+        """
+        SELECT
+          e.id,
+          e.title,
+          e.location_name,
+          e.priority,
+          e.starts_at AT TIME ZONE
+            'America/New_York'
+            AS starts_local,
+          e.attendees,
+          e.objective,
+          e.decisions_needed,
+          e.waiting_on,
+          e.preparation_status,
+
+          (
+            SELECT count(*)
+            FROM issues i
+            WHERE
+              i.operational_event_id=e.id
+              AND i.status NOT IN (
+                'RESOLVED','CLOSED'
+              )
+          ) AS open_issue_count
+
+        FROM operational_events e
+        WHERE e.active=true
+          AND e.event_status NOT IN (
+            'COMPLETED','CANCELLED'
+          )
+          AND e.starts_at >= now()
+          AND e.starts_at <=
+            now() + interval '72 hours'
+
+        ORDER BY
+          e.starts_at,
+          e.priority DESC
+
+        LIMIT 15
+        """
+    )
+
     counts = query_one(
         """
         SELECT
-          (SELECT count(*)
-             FROM operational_events
-            WHERE active = true
+          (
+            SELECT count(*)
+            FROM operational_events
+            WHERE active=true
               AND starts_at >= date_trunc(
-                    'day',
-                    now() AT TIME ZONE 'America/New_York'
-                  ) AT TIME ZONE 'America/New_York'
+                'day',
+                now() AT TIME ZONE
+                  'America/New_York'
+              ) AT TIME ZONE
+                'America/New_York'
               AND starts_at < (
-                    date_trunc(
-                      'day',
-                      now() AT TIME ZONE 'America/New_York'
-                    ) + interval '1 day'
-                  ) AT TIME ZONE 'America/New_York'
+                date_trunc(
+                  'day',
+                  now() AT TIME ZONE
+                    'America/New_York'
+                ) + interval '1 day'
+              ) AT TIME ZONE
+                'America/New_York'
           ) AS schedule_today,
 
           count(*) FILTER (
-            WHERE status NOT IN ('RESOLVED','CLOSED')
-              AND (
-                due_at <= now()
-                OR follow_up_at <= now()
-              )
+            WHERE status NOT IN (
+              'RESOLVED','CLOSED'
+            )
+            AND (
+              due_at <= now()
+              OR follow_up_at <= now()
+            )
           ) AS due_now,
 
           count(*) FILTER (
-            WHERE status NOT IN ('RESOLVED','CLOSED')
-              AND NULLIF(trim(waiting_on), '') IS NOT NULL
+            WHERE status NOT IN (
+              'RESOLVED','CLOSED'
+            )
+            AND NULLIF(
+              trim(waiting_on),
+              ''
+            ) IS NOT NULL
           ) AS waiting,
 
           count(*) FILTER (
-            WHERE status NOT IN ('RESOLVED','CLOSED')
-              AND NULLIF(trim(next_action), '') IS NULL
+            WHERE status NOT IN (
+              'RESOLVED','CLOSED'
+            )
+            AND NULLIF(
+              trim(next_action),
+              ''
+            ) IS NULL
           ) AS no_next_action
+
         FROM issues
         """
     )
+
+    brief_counts = query_one(
+        """
+        SELECT
+          (
+            (
+              SELECT count(*)
+              FROM issues
+              WHERE updated_at > %s
+            )
+            +
+            (
+              SELECT count(*)
+              FROM operational_events
+              WHERE updated_at > %s
+            )
+            +
+            (
+              SELECT count(*)
+              FROM alerts
+              WHERE received_at > %s
+                AND source NOT IN (
+                  'EXEC_ASSISTANT',
+                  'SYSTEM_TEST'
+                )
+            )
+          ) AS changed,
+
+          (
+            SELECT count(*)
+            FROM issues
+            WHERE status NOT IN (
+              'RESOLVED','CLOSED'
+            )
+            AND (
+              item_type='DECISION'
+              OR due_at <= now()
+              OR follow_up_at <= now()
+              OR NULLIF(
+                trim(next_action),
+                ''
+              ) IS NULL
+            )
+          ) AS needs_me,
+
+          (
+            SELECT count(*)
+            FROM issues
+            WHERE status NOT IN (
+              'RESOLVED','CLOSED'
+            )
+            AND NULLIF(
+              trim(waiting_on),
+              ''
+            ) IS NOT NULL
+          ) AS waiting,
+
+          (
+            SELECT count(*)
+            FROM issues
+            WHERE status NOT IN (
+              'RESOLVED','CLOSED'
+            )
+            AND (
+              due_at < now()
+              OR follow_up_at < now()
+              OR decision_by < now()
+            )
+          ) AS late,
+
+          (
+            (
+              SELECT count(*)
+              FROM operational_events
+              WHERE active=true
+                AND event_status NOT IN (
+                  'COMPLETED','CANCELLED'
+                )
+                AND starts_at >= now()
+                AND starts_at <=
+                  now() + interval '72 hours'
+            )
+            +
+            (
+              SELECT count(*)
+              FROM issues
+              WHERE status NOT IN (
+                'RESOLVED','CLOSED'
+              )
+              AND (
+                due_at BETWEEN
+                  now()
+                  AND now()
+                    + interval '72 hours'
+
+                OR follow_up_at BETWEEN
+                  now()
+                  AND now()
+                    + interval '72 hours'
+
+                OR decision_by BETWEEN
+                  now()
+                  AND now()
+                    + interval '72 hours'
+              )
+            )
+          ) AS coming_next
+        """,
+        (
+            review_since,
+            review_since,
+            review_since,
+        ),
+    )
+
+    review_state = {
+        "since": review_since.astimezone(),
+        "is_default": not bool(raw_reviewed),
+    }
 
     return templates.TemplateResponse(
         request=request,
@@ -828,9 +1447,15 @@ def my_day(request: Request):
             "decisions": decisions,
             "visibility": visibility,
             "overdue": overdue,
+            "changed": changed,
+            "approaching": approaching,
+            "meeting_prep": meeting_prep,
+            "brief_counts": brief_counts,
+            "review_state": review_state,
             "counts": counts,
         },
     )
+
 
 
 @app.post("/schedule/{event_id}/create-follow-up")

@@ -28,6 +28,218 @@
 </section>
 
 
+<section class="section-label"><span>EXECUTIVE BRIEF V2</span><span class="section-rule"></span></section>
+
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">CHIEF OF STAFF SNAPSHOT</div>
+      <h2>Five Questions</h2>
+      <div class="meta">
+        Since {{ review_state.since.strftime('%m/%d %I:%M %p') }}
+        {% if review_state.is_default %}
+          · first view uses prior 24 hours
+        {% endif %}
+      </div>
+    </div>
+
+    <form method="post" action="/my-day/reviewed">
+      <button type="submit">Mark Reviewed</button>
+    </form>
+  </div>
+
+  <div class="metrics">
+    <div class="metric">
+      <span>What Changed?</span>
+      <strong>{{ brief_counts.changed or 0 }}</strong>
+      <small>Since review</small>
+    </div>
+
+    <div class="metric metric-alerts">
+      <span>What Needs Me?</span>
+      <strong>{{ brief_counts.needs_me or 0 }}</strong>
+      <small>Decision / exception</small>
+    </div>
+
+    <div class="metric">
+      <span>Waiting On</span>
+      <strong>{{ brief_counts.waiting or 0 }}</strong>
+      <small>Dependencies</small>
+    </div>
+
+    <div class="metric metric-alerts">
+      <span>What Is Late?</span>
+      <strong>{{ brief_counts.late or 0 }}</strong>
+      <small>Past due</small>
+    </div>
+
+    <div class="metric">
+      <span>Coming Next</span>
+      <strong>{{ brief_counts.coming_next or 0 }}</strong>
+      <small>Next 72 hours</small>
+    </div>
+  </div>
+</section>
+
+<section class="grid primary-grid" style="margin-top:16px">
+
+<article class="panel">
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">SINCE LAST REVIEW</div>
+      <h2>What Changed</h2>
+    </div>
+  </div>
+
+  <div class="panel-body compact-list">
+    {% for i in changed[:12] %}
+    <div class="feed-row">
+      <div class="feed-main">
+        <div class="feed-title-row">
+          <span class="priority-chip p{{ i.priority }}">{{ i.change_type }}</span>
+          <strong>{{ i.title }}</strong>
+        </div>
+
+        <div class="meta">
+          {{ i.detail }}
+        </div>
+      </div>
+
+      <time>
+        {{ i.changed_at.astimezone().strftime('%m/%d %I:%M %p') if i.changed_at else '' }}
+      </time>
+    </div>
+    {% else %}
+    <div class="empty-state small">
+      <strong>No changes since your last review</strong>
+    </div>
+    {% endfor %}
+  </div>
+</article>
+
+<article class="panel">
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">DEADLINES / EXCEPTIONS</div>
+      <h2>Late + Next 72 Hours</h2>
+    </div>
+  </div>
+
+  <div class="panel-body compact-list">
+    {% for i in approaching[:12] %}
+    <div class="feed-row">
+      <div class="feed-main">
+
+        <div class="feed-title-row">
+          <span class="priority-chip p{{ i.priority }}">
+            P{{ i.priority }}
+          </span>
+          <strong>{{ i.title }}</strong>
+        </div>
+
+        <div class="meta">
+          {{ i.deadline_status }} · {{ i.item_type }}
+        </div>
+
+        {% if i.next_action %}
+          <div class="meta">
+            Next: {{ i.next_action }}
+          </div>
+        {% endif %}
+
+        {% if i.waiting_on %}
+          <div class="meta">
+            Waiting on: {{ i.waiting_on }}
+          </div>
+        {% endif %}
+
+      </div>
+
+      <time>
+        {% if i.due_local %}
+          Due {{ i.due_local.strftime('%m/%d %I:%M %p') }}
+        {% elif i.follow_up_local %}
+          Follow {{ i.follow_up_local.strftime('%m/%d %I:%M %p') }}
+        {% elif i.decision_by_local %}
+          Decide {{ i.decision_by_local.strftime('%m/%d %I:%M %p') }}
+        {% endif %}
+      </time>
+
+    </div>
+    {% else %}
+    <div class="empty-state small">
+      <strong>No late or near-term deadlines</strong>
+    </div>
+    {% endfor %}
+  </div>
+</article>
+
+</section>
+
+<section class="panel" style="margin-top:16px">
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">MEETING PREP</div>
+      <h2>Next 72 Hours</h2>
+    </div>
+
+    <a class="text-link" href="/schedule">
+      Schedule
+    </a>
+  </div>
+
+  <div class="panel-body compact-list">
+
+    {% for e in meeting_prep %}
+    <div class="feed-row">
+
+      <div class="feed-main">
+        <strong>{{ e.title }}</strong>
+
+        <div class="meta">
+          {{ e.starts_local.strftime('%m/%d %I:%M %p') if e.starts_local else '' }}
+          {% if e.location_name %}
+            · {{ e.location_name }}
+          {% endif %}
+          · Prep: {{ e.preparation_status }}
+          · {{ e.open_issue_count }} open action{{ '' if e.open_issue_count == 1 else 's' }}
+        </div>
+
+        {% if e.waiting_on %}
+          <div class="meta">
+            Waiting on: {{ e.waiting_on }}
+          </div>
+        {% endif %}
+
+        {% if e.decisions_needed %}
+          <div class="meta">
+            <strong>Decision:</strong>
+            {{ e.decisions_needed }}
+          </div>
+        {% endif %}
+
+        {% if e.objective %}
+          <div class="meta">
+            <strong>Objective:</strong>
+            {{ e.objective }}
+          </div>
+        {% endif %}
+      </div>
+
+      <span class="priority-chip p{{ e.priority }}">
+        P{{ e.priority }}
+      </span>
+
+    </div>
+    {% else %}
+    <div class="empty-state small">
+      <strong>No meetings or managed events in the next 72 hours</strong>
+    </div>
+    {% endfor %}
+
+  </div>
+</section>
+
 <section class="section-label"><span>DAILY BRIEF</span><span class="section-rule"></span></section>
 
 <section class="grid primary-grid">
@@ -168,7 +380,7 @@
     <div class="feed-row">
       <div class="feed-main">
         <strong>{{ i.title }}</strong>
-        <div class="meta">Waiting on: {{ i.waiting_on }}{% if i.assigned_to %} · Owner: {{ i.assigned_to }}{% endif %}</div>
+        <div class="meta">{{ i.dependency_type }} · {{ i.waiting_status }} · Waiting on: {{ i.waiting_on }}{% if i.assigned_to %} · Owner: {{ i.assigned_to }}{% endif %}</div>
         {% if i.next_action %}<div class="meta">Next: {{ i.next_action }}</div>{% endif %}
       </div>
       {% if i.follow_up_local %}<time>Follow {{ i.follow_up_local.strftime('%m/%d %I:%M %p') }}</time>{% endif %}
@@ -191,6 +403,7 @@
     <div class="feed-row">
       <div class="feed-main">
         <div class="feed-title-row"><span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span><strong>{{ i.title }}</strong></div>
+        <div class="meta">{{ i.commitment_status }}{% if i.assigned_to %} · Owner: {{ i.assigned_to }}{% endif %}</div>
         {% if i.next_action %}<div class="meta">Next: {{ i.next_action }}</div>{% endif %}
         {% if i.waiting_on %}<div class="meta">Waiting on: {{ i.waiting_on }}</div>{% endif %}
       </div>
