@@ -368,14 +368,15 @@ print("PASS source configured and old test state invalidated")
 
 before_events = one("SELECT count(*) AS n FROM event_intelligence WHERE source_integration_id=%s", (row["id"],))["n"]
 status, _, body = request(f"/integrations/onboarding/{row['id']}/test", {})
-assert status == 200, status
-assert "TEST RESULT" in body and "Normalized preview" in body
+assert status == 200, ("TEST HTTP status", status, body[:1200])
+assert "READ-ONLY TEST" in body, ("TEST result panel missing", body[:1600])
+assert "Normalized item preview" in body, ("Normalized preview missing", body[:2400])
 row = one("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
 after_events = one("SELECT count(*) AS n FROM event_intelligence WHERE source_integration_id=%s", (row["id"],))["n"]
-assert row["last_test_ok"] is True
-assert row["last_test_config_version"] == row["config_version"]
-assert before_events == after_events == 0
-print("PASS read-only TEST saved current success and stored no production events")
+assert row["last_test_ok"] is True, ("last_test_ok", row["last_test_ok"], row["last_test_summary"])
+assert row["last_test_config_version"] == row["config_version"], ("test/config version mismatch", row["last_test_config_version"], row["config_version"])
+assert before_events == after_events == 0, ("TEST stored production events", before_events, after_events)
+print("PASS read-only TEST rendered normalized preview, saved current success and stored no production events")
 
 status, _, _ = request(f"/integrations/onboarding/{row['id']}/activate", {})
 assert status == 200, status
