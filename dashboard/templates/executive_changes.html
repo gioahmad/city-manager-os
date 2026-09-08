@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>What Changed · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .change-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.change-list{display:grid;gap:7px}.change-row{border:1px solid #263a4c;background:#101a25;border-radius:9px;padding:10px}.change-title{font-weight:800}.change-meta{font-size:.76rem;color:#97acbc;margin-top:4px}.review-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.review-window{color:#a9bac9;font-size:.82rem}.empty-change{padding:22px;text-align:center;color:#9eb0bf}@media(max-width:850px){.change-grid{grid-template-columns:1fr}.review-bar{display:block}.review-bar form{margin-top:9px}}
+  </style>
+</head>
+<body>
+<header class="topbar"><div class="brand"><div class="eyebrow">REVIEW · CHANGE · EXCEPTION</div><div class="brand-row"><h1>What Changed</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Only what moved since your last review</div></div></header>
+{% include "nav.html" %}
+<main>
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+  <div class="review-bar">
+    <div class="review-window">Review window starts {{ cutoff.strftime('%m/%d/%y %I:%M %p') if cutoff else '' }}{% if first_review %} · first review defaults to last 24 hours{% endif %}</div>
+    <form method="post" action="/what-changed/mark-reviewed"><button class="primary-button" type="submit">Mark Everything Reviewed Now</button></form>
+  </div>
+
+  <section class="metrics">
+    <div class="metric"><span>Total Changes</span><strong>{{ change_counts.total }}</strong><small>Across tracked executive sources</small></div>
+    <div class="metric"><span>Work Items</span><strong>{{ change_counts.issues }}</strong><small>New, updated or closed</small></div>
+    <div class="metric"><span>Alerts</span><strong>{{ change_counts.alerts }}</strong><small>Received since checkpoint</small></div>
+    <div class="metric"><span>Events</span><strong>{{ change_counts.events }}</strong><small>Regional event intelligence changes</small></div>
+  </section>
+
+  <div class="change-grid">
+    <section class="panel"><div class="panel-head"><div><div class="panel-kicker">COMMAND CENTER</div><h2>Work Item Changes</h2></div><span class="count-pill">{{ changed_issues|length }}</span></div><div class="panel-body change-list">
+      {% for i in changed_issues %}<div class="change-row"><div class="change-title">{{ i.change_type }} · {{ i.title }}</div><div class="change-meta">{{ i.item_type|replace('_',' ') }} · P{{ i.priority }} · {{ i.status }}{% if i.assigned_to %} · {{ i.assigned_to }}{% endif %}{% if i.waiting_on %} · Waiting on {{ i.waiting_on }}{% endif %}</div></div>{% else %}<div class="empty-change">No work item changes.</div>{% endfor %}
+    </div></section>
+
+    <section class="panel"><div class="panel-head"><div><div class="panel-kicker">ALERT PIPELINE</div><h2>New Alerts</h2></div><span class="count-pill">{{ changed_alerts|length }}</span></div><div class="panel-body change-list">
+      {% for a in changed_alerts %}<div class="change-row"><div class="change-title">{{ a.source }} · {{ a.title }}</div><div class="change-meta">P{{ a.priority }} · {{ a.category }}{% if a.municipality %} · {{ a.municipality }}{% endif %} · {{ a.received_at.strftime('%m/%d %I:%M %p') if a.received_at else '' }}</div></div>{% else %}<div class="empty-change">No new alerts.</div>{% endfor %}
+    </div></section>
+
+    <section class="panel"><div class="panel-head"><div><div class="panel-kicker">EVENT INTELLIGENCE</div><h2>Event Changes</h2></div><span class="count-pill">{{ changed_events|length }}</span></div><div class="panel-body change-list">
+      {% for e in changed_events %}<div class="change-row"><div class="change-title">{{ e.impact_level }} · {{ e.title }}</div><div class="change-meta">Score {{ e.impact_score }}{% if e.municipality %} · {{ e.municipality }}{% endif %}{% if e.venue %} · {{ e.venue }}{% endif %}{% if e.starts_at %} · {{ e.starts_at.strftime('%m/%d %I:%M %p') }}{% endif %}</div></div>{% else %}<div class="empty-change">No event changes.</div>{% endfor %}
+    </div></section>
+
+    <section class="panel"><div class="panel-head"><div><div class="panel-kicker">SOURCE HEALTH</div><h2>New Warnings</h2></div><span class="count-pill">{{ source_warnings|length }}</span></div><div class="panel-body change-list">
+      {% for s in source_warnings %}<div class="change-row"><div class="change-title">{{ s.source_id }} · {{ s.status }}</div><div class="change-meta">{{ s.last_error or 'Source health changed' }}</div></div>{% else %}<div class="empty-change">No new source warnings.</div>{% endfor %}
+    </div></section>
+  </div>
+</main>
+</body>
+</html>
