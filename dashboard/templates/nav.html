@@ -12,7 +12,7 @@
     <a href="/transit" class="{% if request.url.path.startswith('/transit') %}active{% endif %}">Transit</a>
     <a href="/alerts" class="{% if request.url.path.startswith('/alerts') %}active{% endif %}">Alerts</a>
 
-    <details class="nav-admin {% if request.url.path == '/' or request.url.path.startswith('/modules') or request.url.path.startswith('/admin-tools') or request.url.path.startswith('/rules') or request.url.path.startswith('/watchlist') or request.url.path.startswith('/subscribers') or request.url.path.startswith('/routing') or request.url.path.startswith('/integrations') or request.url.path.startswith('/api-lab') or request.url.path.startswith('/source-health') or request.url.path.startswith('/deliveries') or request.url.path.startswith('/alert-admin') %}active{% endif %}">
+    <details class="nav-admin {% if request.url.path == '/' or request.url.path.startswith('/modules') or request.url.path.startswith('/admin-tools') or request.url.path.startswith('/rules') or request.url.path.startswith('/today-board') or request.url.path.startswith('/watchlist') or request.url.path.startswith('/subscribers') or request.url.path.startswith('/routing') or request.url.path.startswith('/integrations') or request.url.path.startswith('/api-lab') or request.url.path.startswith('/source-health') or request.url.path.startswith('/deliveries') or request.url.path.startswith('/alert-admin') %}active{% endif %}">
       <summary>Admin / More</summary>
       <div class="nav-admin-menu">
         <a href="/">Overview</a>
@@ -20,6 +20,7 @@
         <a href="/admin-tools">Admin Tools</a>
         <span class="nav-menu-label">CONFIGURATION</span>
         <a href="/rules">Rules Center</a>
+        <a href="/today-board">Today Board</a>
         <a href="/watchlist">Watchlists</a>
         <a href="/subscribers">Subscribers</a>
         <a href="/routing">Routing</a>
@@ -51,6 +52,7 @@
       <a href="/">Overview</a>
       <a href="/modules">Modules</a>
       <a href="/rules">Rules Center</a>
+      <a href="/today-board">Today Board</a>
       <a href="/watchlist">Watchlists</a>
       <a href="/subscribers">Subscribers</a>
       <a href="/routing">Routing</a>

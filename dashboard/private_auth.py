@@ -30,6 +30,7 @@ _ADMIN_WRITE_PREFIXES = (
     "/subscribers",
     "/watchlist",
     "/rules",
+    "/today-board",
     "/alert-admin",
     "/modules",
     "/admin-tools",

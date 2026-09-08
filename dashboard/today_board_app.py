@@ -25,7 +25,7 @@ CATEGORIES = [
     "OPERATIONS",
     "OTHER",
 ]
-DERIVED_KEYS = ["EVENTS_TODAY", "EVENT_WATCHES_TODAY", "OPERATIONS_EXCEPTIONS"]
+DERIVED_KEYS = ["EVENTS_TODAY", "EVENT_WATCHES_TODAY", "OPERATIONS_EXCEPTIONS", "EMS_API"]
 
 
 def _remove_get(path: str) -> None:
@@ -123,9 +123,9 @@ def _derived_value(key: str, service_date: date) -> dict[str, Any] | None:
             extra = "AND impact_level IN ('WATCH','ALERT')"
         row = query_one(
             f"""
-            SELECT count(*) AS n,
-                   count(*) FILTER (WHERE impact_level='ALERT') AS alerts,
-                   count(*) FILTER (WHERE impact_level='WATCH') AS watches
+            SELECT count(DISTINCT fingerprint) AS n,
+                   count(DISTINCT fingerprint) FILTER (WHERE impact_level='ALERT') AS alerts,
+                   count(DISTINCT fingerprint) FILTER (WHERE impact_level='WATCH') AS watches
             FROM event_intelligence
             WHERE active=true
               AND COALESCE(ends_at,starts_at + interval '2 hours') >= %s
@@ -311,7 +311,7 @@ def today_board_my_day(request: Request):
 def today_board_overview(request: Request):
     response = operations_module.operations_home(request)
     context = {"request": request, **_board_context(), "board_compact": True}
-    return _inject(response, "<main>", context)
+    return _inject(response, '<section class="metrics metrics-six"', context)
 
 
 @app.get("/today-board", response_class=HTMLResponse)

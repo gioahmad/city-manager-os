@@ -155,6 +155,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import psycopg
 from psycopg.rows import dict_row
@@ -248,7 +249,7 @@ row = one("SELECT id::text AS id FROM daily_constant_rules WHERE rule_key='CMOS5
 assert row and row["id"]
 print("PASS browser rule create")
 
-now = datetime.now()
+now = datetime.now(ZoneInfo("America/New_York")).replace(tzinfo=None)
 starts = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")
 ends = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")
 status, body = request(
