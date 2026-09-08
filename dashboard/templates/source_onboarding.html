@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Source Onboarding · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">INTEGRATIONS CENTER</div>
+    <div class="brand-row"><h1>Source Onboarding</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Build the integration shell first. Add provider access later.</div>
+  </div>
+</header>
+{% include "nav.html" %}
+<main>
+  {% set can_write = role == "EXECUTIVE" %}
+
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+
+  <section class="metrics">
+    <div class="metric"><span>Total</span><strong>{{ counts.total }}</strong><small>Registered sources</small></div>
+    <div class="metric"><span>Active</span><strong>{{ counts.active }}</strong><small>Live collectors</small></div>
+    <div class="metric"><span>Needs setup</span><strong>{{ counts.needs_setup }}</strong><small>Safe placeholders</small></div>
+    <div class="metric"><span>Ready</span><strong>{{ counts.ready }}</strong><small>Tested and activatable</small></div>
+  </section>
+
+  <section class="panel" style="margin-top:16px">
+    <div class="panel-head">
+      <div><div class="panel-kicker">CONTROL PLANE</div><h2>How onboarding works</h2></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <a class="text-link" href="/integrations">Integration Monitor</a>
+        <a class="text-link" href="/api-lab">API Lab</a>
+      </div>
+    </div>
+    <div class="panel-body">
+      <p class="muted">Create a source even when credentials or the final endpoint are not available. Sources remain <strong>NEEDS SETUP</strong> or <strong>PAUSED</strong> until configuration is complete.</p>
+      <p class="muted">Activation requires a successful read-only TEST of the current connection/parser configuration. Changing endpoint, auth, request, adapter, parser or transport settings invalidates the prior TEST and automatically pauses an active source.</p>
+      <p class="muted">Secrets are referenced only by environment-variable name. Values are never stored or displayed here. Notifications continue through the existing Attention / Watchlist / Routing / Delivery Guard architecture.</p>
+      {% if not can_write %}<p class="warning-text"><strong>Read-only view:</strong> source changes require the EXECUTIVE role.</p>{% endif %}
+    </div>
+  </section>
+
+  {% if test_result %}
+  <section class="panel" style="margin-top:16px">
+    <div class="panel-head">
+      <div><div class="panel-kicker">READ-ONLY TEST</div><h2>{{ test_result.name }}</h2></div>
+      <span class="status {% if test_result.ok %}healthy{% else %}error{% endif %}">{{ 'PASS' if test_result.ok else 'FAIL' }}</span>
+    </div>
+    <div class="panel-body">
+      <div class="module-stats">
+        <div><span>HTTP</span><strong>{{ test_result.status_code or '—' }}</strong></div>
+        <div><span>Time</span><strong>{{ test_result.elapsed_ms or 0 }} ms</strong></div>
+        <div><span>Bytes</span><strong>{{ test_result.response_bytes or 0 }}</strong></div>
+        <div><span>Parsed</span><strong>{{ test_result.items_found or 0 }}</strong></div>
+      </div>
+      <div class="detail-list">
+        <div><dt>Content type</dt><dd>{{ test_result.content_type or '—' }}</dd></div>
+        <div><dt>Parser</dt><dd>{{ test_result.parser_kind }}</dd></div>
+        <div><dt>Source health</dt><dd>{{ test_result.source_health.status or '—' }}</dd></div>
+      </div>
+      {% if test_result.error %}<p class="error-text">{{ test_result.error }}</p>{% endif %}
+      {% if test_result.normalized_preview %}
+      <details open><summary>Normalized item preview</summary><pre style="white-space:pre-wrap;overflow:auto;max-height:500px">{{ test_result.normalized_preview | tojson(indent=2) }}</pre></details>
+      {% endif %}
+      <details><summary>Redacted response preview</summary><pre style="white-space:pre-wrap;overflow:auto;max-height:500px">{{ test_result.body_preview }}</pre></details>
+      <details><summary>Redacted response headers</summary><pre style="white-space:pre-wrap;overflow:auto">{{ test_result.headers | tojson(indent=2) }}</pre></details>
+      {% if test_result.truncated %}<p class="muted small-copy">Response was truncated at the configured response-size limit.</p>{% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="grid watch-layout" style="margin-top:16px">
+    <article class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">CREATE SOURCE</div><h2>New Placeholder / Integration</h2></div></div>
+      <div class="panel-body form-panel">
+
+        <form method="get" action="/integrations/onboarding" class="watch-form compact" style="margin-bottom:16px">
+          <label>Provider Template
+            <select name="template">
+              {% for key, profile in source_templates.items() %}
+              <option value="{{ key }}" {% if key == new_source.provider_template %}selected{% endif %}>{{ profile.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button class="secondary-button" type="submit">Load Template</button>
+        </form>
+
+        <p class="muted small-copy"><strong>{{ new_source.template_label }}</strong> · {{ new_source.template_description }}</p>
+
+        <form method="post" action="/integrations/onboarding/create" class="watch-form">
+          <input type="hidden" name="provider_template" value="{{ new_source.provider_template }}">
+
+          <label>Name<input name="name" required placeholder="Hudson County Health Alerts"></label>
+          <label>Integration Key <span class="hint">Optional; generated if blank</span><input name="integration_key" placeholder="HUDSON_HEALTH"></label>
+
+          <div class="form-grid three-col">
+            <label>Category<select name="category">{% for c in categories %}<option value="{{ c }}" {% if c == new_source.category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
+            <label>Adapter<select name="adapter_type">{% for a in adapter_types %}<option value="{{ a }}" {% if a == new_source.adapter_type %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
+            <label>Method<select name="method">{% for m in methods %}<option value="{{ m }}" {% if m == new_source.method %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></label>
+          </div>
+
+          <label>Endpoint URL <span class="hint">May be blank for a placeholder</span><input type="url" name="endpoint_url" value="{{ new_source.endpoint_url }}" placeholder="https://provider.example/api"></label>
+
+          <div class="panel-kicker" style="margin-top:8px">AUTHENTICATION · ENVIRONMENT REFERENCES ONLY</div>
+          <label>Auth Type<select name="auth_type">{% for a in auth_types %}<option value="{{ a }}">{{ a }}</option>{% endfor %}</select></label>
+          <div class="form-grid two-col">
+            <label>Username Env<input name="username_env" placeholder="PROVIDER_USERNAME"></label>
+            <label>Password Env<input name="password_env" placeholder="PROVIDER_PASSWORD"></label>
+          </div>
+          <div class="form-grid two-col">
+            <label>Token Env<input name="token_env" placeholder="PROVIDER_TOKEN"></label>
+            <label>API Key Env<input name="key_env" placeholder="PROVIDER_API_KEY"></label>
+          </div>
+          <label>API Key Name<input name="key_name" placeholder="apikey or X-API-Key"></label>
+
+          <div class="panel-kicker" style="margin-top:8px">REQUEST</div>
+          <label>Headers JSON<textarea name="headers_json" rows="4">{{ new_source.headers_text }}</textarea></label>
+          <label>Query JSON<textarea name="query_json" rows="4">{{ new_source.query_text }}</textarea></label>
+          <label>Request Body<textarea name="request_body" rows="3">{{ new_source.request_body }}</textarea></label>
+
+          <div class="panel-kicker" style="margin-top:8px">PARSER / NORMALIZATION</div>
+          <label>Parser<select name="parser_kind">{% for p in parser_kinds %}<option value="{{ p }}" {% if p == new_source.parser_kind %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+          <label>Parser Config JSON<textarea name="parser_config_json" rows="10">{{ new_source.parser_config_text }}</textarea></label>
+
+          <div class="form-grid three-col">
+            <label>Poll Seconds<input type="number" min="60" max="86400" name="poll_seconds" value="{{ new_source.poll_seconds }}"></label>
+            <label>Timeout Seconds<input type="number" min="1" max="60" name="timeout_seconds" value="{{ new_source.timeout_seconds }}"></label>
+            <label>Max Response Bytes<input type="number" min="1024" max="5000000" name="max_response_bytes" value="{{ new_source.max_response_bytes }}"></label>
+          </div>
+          <label class="checkbox-row"><input type="checkbox" name="allow_redirects" value="1" {% if new_source.allow_redirects %}checked{% endif %}> Follow redirects</label>
+          <label class="checkbox-row"><input type="checkbox" name="verify_tls" value="1" {% if new_source.verify_tls %}checked{% endif %}> Verify TLS certificate</label>
+
+          <div class="panel-kicker" style="margin-top:8px">OWNERSHIP / SCOPE</div>
+          <div class="form-grid two-col">
+            <label>Source Owner<input name="source_owner" placeholder="Department / person responsible"></label>
+            <label>Owner Contact<input name="source_contact" placeholder="Email, office or provider contact"></label>
+          </div>
+          <label>Geography / Corridor Scope<input name="geography_scope" placeholder="Weehawken, Hudson County, Lincoln Tunnel corridor"></label>
+          <label>Relevance Keywords<textarea name="relevance_keywords" rows="3" placeholder="Weehawken, Lincoln Tunnel, Route 495"></textarea></label>
+
+          <div class="panel-kicker" style="margin-top:8px">ATTENTION / MAP DEFAULTS</div>
+          <div class="form-grid two-col">
+            <label>WATCH Threshold<input type="number" min="0" max="100" name="watch_threshold" value="45"></label>
+            <label>ALERT Threshold<input type="number" min="0" max="100" name="alert_threshold" value="75"></label>
+          </div>
+          <label class="checkbox-row"><input type="checkbox" name="map_capable" value="1" {% if new_source.map_capable %}checked{% endif %}> Source can produce map geometry</label>
+          <div class="form-grid two-col">
+            <label>Map Layer Key<input name="map_layer_key" placeholder="HUDSON_HEALTH"></label>
+            <label>Map Layer Label<input name="map_layer_label" placeholder="Hudson Health"></label>
+          </div>
+
+          <label>Access / Setup Instructions<textarea name="access_instructions" rows="3" placeholder="How to request access, provider account notes, renewal steps"></textarea></label>
+          <label>Notes<textarea name="notes" rows="3" placeholder="Operational purpose, caveats, source quality"></textarea></label>
+
+          <button class="primary-button" type="submit" {% if not can_write %}disabled{% endif %}>Save Inactive Source</button>
+        </form>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">MANAGE</div><h2>Registered Sources</h2></div><span class="count-pill">{{ rows|length }}</span></div>
+      <div class="panel-body">
+
+        <form class="watch-filters" method="get" action="/integrations/onboarding">
+          <input name="q" value="{{ q }}" placeholder="Search source, key, category or endpoint">
+          <button class="secondary-button" type="submit">Filter</button>
+        </form>
+
+        <div class="watch-list">
+        {% for i in rows %}
+          <details class="watch-card {% if not i.active %}inactive{% endif %}">
+            <summary>
+              <div class="watch-summary-main">
+                <span class="status {% if i.onboarding_state == 'LIVE' %}healthy{% elif i.onboarding_state == 'ERROR' %}error{% elif i.onboarding_state == 'NEEDS SETUP' %}warning{% else %}inactive-status{% endif %}">{{ i.onboarding_state }}</span>
+                <div>
+                  <strong>{{ i.name }}</strong>
+                  <div class="meta">{{ i.category }} · {{ i.adapter_type }} · {{ i.parser_kind }} · config v{{ i.config_version }}</div>
+                </div>
+              </div>
+              <span class="watch-id">{{ i.integration_key }}</span>
+            </summary>
+
+            <div class="watch-card-body">
+              <div class="detail-list">
+                <div><dt>Endpoint</dt><dd>{{ i.endpoint_url or 'Not configured' }}</dd></div>
+                <div><dt>State</dt><dd>{{ i.onboarding_detail }}</dd></div>
+                <div><dt>Template</dt><dd>{{ i.provider_template or 'CUSTOM' }}</dd></div>
+                <div><dt>Scope</dt><dd>{{ i.geography_scope or '—' }}</dd></div>
+                <div><dt>Owner</dt><dd>{{ i.source_owner or '—' }}{% if i.source_contact %} · {{ i.source_contact }}{% endif %}</dd></div>
+                <div><dt>Last TEST</dt><dd>{{ i.last_test_at.strftime('%m/%d/%Y %I:%M %p') if i.last_test_at else 'Never' }}{% if i.last_test_at %} · {{ 'PASS' if i.last_test_ok else 'FAIL' }}{% endif %}</dd></div>
+                <div><dt>Test gate</dt><dd>{{ 'CURRENT' if i.tested_current else 'TEST REQUIRED' }}</dd></div>
+                <div><dt>Health</dt><dd>{{ i.health_status or '—' }}</dd></div>
+              </div>
+
+              {% if i.setup_issues %}
+              <div class="panel-kicker" style="margin-top:8px">SETUP REQUIRED</div>
+              {% for issue in i.setup_issues %}<p class="muted small-copy">• {{ issue }}</p>{% endfor %}
+              {% endif %}
+
+              {% if i.env_state %}
+              <div class="panel-kicker" style="margin-top:8px">SECRET REFERENCES</div>
+              {% for e in i.env_state %}
+              <div class="feed-row">
+                <div class="feed-main"><strong>{{ e.env }}</strong><div class="meta">{{ e.field }} · value never displayed</div></div>
+                <span class="status {% if e.set %}healthy{% else %}error{% endif %}">{{ 'PRESENT' if e.set else 'MISSING' }}</span>
+              </div>
+              {% endfor %}
+              {% endif %}
+
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">
+                <form method="post" action="/integrations/onboarding/{{ i.id }}/test">
+                  <button class="secondary-button" type="submit" {% if not can_write %}disabled{% endif %}>TEST</button>
+                </form>
+                {% if i.active %}
+                <form method="post" action="/integrations/onboarding/{{ i.id }}/pause">
+                  <button class="secondary-button" type="submit" {% if not can_write %}disabled{% endif %}>Pause</button>
+                </form>
+                {% else %}
+                <form method="post" action="/integrations/onboarding/{{ i.id }}/activate">
+                  <button class="primary-button" type="submit" {% if not can_write or not i.can_activate %}disabled title="{{ i.activation_detail }}"{% endif %}>Activate</button>
+                </form>
+                {% endif %}
+              </div>
+
+              {% if not i.active and not i.setup_issues and not i.tested_current %}
+              <details>
+                <summary>Executive activation override</summary>
+                <form method="post" action="/integrations/onboarding/{{ i.id }}/activate-override" class="watch-form compact" style="margin-top:10px">
+                  <p class="muted small-copy">Override bypasses the successful-TEST requirement only. It cannot bypass incomplete endpoint/parser/adapter/secret setup. The reason and actor are audited.</p>
+                  <label>Override Reason<textarea name="reason" rows="2" minlength="12" required></textarea></label>
+                  <button class="secondary-button" type="submit" {% if not can_write %}disabled{% endif %}>Activate with Recorded Override</button>
+                </form>
+              </details>
+              {% endif %}
+
+              <details style="margin-top:10px">
+                <summary>Edit source configuration</summary>
+                <form method="post" action="/integrations/onboarding/{{ i.id }}/update" class="watch-form compact" style="margin-top:10px">
+                  <input type="hidden" name="provider_template" value="{{ i.provider_template or 'CUSTOM' }}">
+                  <label>Integration Key<input value="{{ i.integration_key }}" readonly></label>
+                  <label>Name<input name="name" value="{{ i.name }}" required></label>
+
+                  <div class="form-grid three-col">
+                    <label>Category<select name="category">{% for c in categories %}<option value="{{ c }}" {% if c == i.category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
+                    <label>Adapter<select name="adapter_type">{% for a in adapter_types %}<option value="{{ a }}" {% if a == i.adapter_type %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
+                    <label>Method<select name="method">{% for m in methods %}<option value="{{ m }}" {% if m == i.method %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></label>
+                  </div>
+
+                  <label>Endpoint URL<input type="url" name="endpoint_url" value="{{ i.endpoint_url or '' }}"></label>
+                  <label>Auth Type<select name="auth_type">{% for a in auth_types %}<option value="{{ a }}" {% if a == i.auth_type %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
+
+                  <div class="form-grid two-col">
+                    <label>Username Env<input name="username_env" value="{{ i.auth_config.get('username_env','') }}"></label>
+                    <label>Password Env<input name="password_env" value="{{ i.auth_config.get('password_env','') }}"></label>
+                  </div>
+                  <div class="form-grid two-col">
+                    <label>Token Env<input name="token_env" value="{{ i.auth_config.get('token_env','') }}"></label>
+                    <label>API Key Env<input name="key_env" value="{{ i.auth_config.get('key_env','') }}"></label>
+                  </div>
+                  <label>API Key Name<input name="key_name" value="{{ i.auth_config.get('key_name','') }}"></label>
+
+                  <label>Headers JSON<textarea name="headers_json" rows="4">{{ i.headers_text }}</textarea></label>
+                  <label>Query JSON<textarea name="query_json" rows="4">{{ i.query_text }}</textarea></label>
+                  <label>Request Body<textarea name="request_body" rows="3">{{ i.request_body or '' }}</textarea></label>
+
+                  <label>Parser<select name="parser_kind">{% for p in parser_kinds %}<option value="{{ p }}" {% if p == i.parser_kind %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+                  <label>Parser Config JSON<textarea name="parser_config_json" rows="9">{{ i.parser_config_text }}</textarea></label>
+
+                  <div class="form-grid three-col">
+                    <label>Poll Seconds<input type="number" min="60" max="86400" name="poll_seconds" value="{{ i.poll_seconds }}"></label>
+                    <label>Timeout<input type="number" min="1" max="60" name="timeout_seconds" value="{{ i.timeout_seconds }}"></label>
+                    <label>Max Bytes<input type="number" min="1024" max="5000000" name="max_response_bytes" value="{{ i.max_response_bytes }}"></label>
+                  </div>
+                  <label class="checkbox-row"><input type="checkbox" name="allow_redirects" value="1" {% if i.allow_redirects %}checked{% endif %}> Follow redirects</label>
+                  <label class="checkbox-row"><input type="checkbox" name="verify_tls" value="1" {% if i.verify_tls %}checked{% endif %}> Verify TLS</label>
+
+                  <div class="form-grid two-col">
+                    <label>Source Owner<input name="source_owner" value="{{ i.source_owner or '' }}"></label>
+                    <label>Owner Contact<input name="source_contact" value="{{ i.source_contact or '' }}"></label>
+                  </div>
+                  <label>Geography / Corridor Scope<input name="geography_scope" value="{{ i.geography_scope or '' }}"></label>
+                  <label>Relevance Keywords<textarea name="relevance_keywords" rows="3">{{ i.relevance_keywords or '' }}</textarea></label>
+
+                  <div class="form-grid two-col">
+                    <label>WATCH Threshold<input type="number" min="0" max="100" name="watch_threshold" value="{{ i.attention_config.get('watch_threshold',45) }}"></label>
+                    <label>ALERT Threshold<input type="number" min="0" max="100" name="alert_threshold" value="{{ i.attention_config.get('alert_threshold',75) }}"></label>
+                  </div>
+                  <label class="checkbox-row"><input type="checkbox" name="map_capable" value="1" {% if i.map_config.get('enabled') %}checked{% endif %}> Source can produce map geometry</label>
+                  <div class="form-grid two-col">
+                    <label>Map Layer Key<input name="map_layer_key" value="{{ i.map_config.get('layer_key','') }}"></label>
+                    <label>Map Layer Label<input name="map_layer_label" value="{{ i.map_config.get('layer_label','') }}"></label>
+                  </div>
+
+                  <label>Access / Setup Instructions<textarea name="access_instructions" rows="3">{{ i.access_instructions or '' }}</textarea></label>
+                  <label>Notes<textarea name="notes" rows="3">{{ i.notes or '' }}</textarea></label>
+                  <button class="primary-button" type="submit" {% if not can_write %}disabled{% endif %}>Save Changes</button>
+                </form>
+              </details>
+
+              <details style="margin-top:10px">
+                <summary>Last TEST summary</summary>
+                <pre style="white-space:pre-wrap;overflow:auto">{{ i.last_test_summary | tojson(indent=2) }}</pre>
+              </details>
+            </div>
+          </details>
+        {% else %}
+          <div class="empty-state"><strong>No sources found</strong></div>
+        {% endfor %}
+        </div>
+      </div>
+    </article>
+  </section>
+</main>
+</body>
+</html>
