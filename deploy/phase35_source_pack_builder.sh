@@ -74,12 +74,28 @@ class _JsonLdCollector(HTMLParser):
 
 def _jsonld_types(value: Any) -> set[str]:
     raw = value if isinstance(value, list) else [value]
-    return {str(item).strip().lower() for item in raw if item is not None}
+    output: set[str] = set()
+    for item in raw:
+        if item is None:
+            continue
+        text = str(item).strip().lower()
+        if not text:
+            continue
+        output.add(text)
+        output.add(text.rsplit("/", 1)[-1].rsplit("#", 1)[-1])
+    return output
 
 
 def _jsonld_walk(value: Any):
     if isinstance(value, dict):
-        if "event" in _jsonld_types(value.get("@type")):
+        types = _jsonld_types(value.get("@type"))
+        schema_event = any(
+            item == "event"
+            or item.endswith("event")
+            or item in {"festival", "hackathon"}
+            for item in types
+        )
+        if schema_event:
             yield value
         for child in value.values():
             yield from _jsonld_walk(child)
@@ -152,10 +168,10 @@ def parse_jsonld_events(body_text: str, config: dict[str, Any]) -> list[dict[str
                 "description": raw.get("description"),
                 "start": raw.get("startDate"),
                 "end": raw.get("endDate"),
-                "venue": venue,
-                "address": _jsonld_address_text(address_obj),
-                "municipality": municipality,
-                "state": state,
+                "venue": venue or defaults.get("venue"),
+                "address": _jsonld_address_text(address_obj) or defaults.get("address"),
+                "municipality": municipality or defaults.get("municipality"),
+                "state": state or defaults.get("state"),
                 "url": raw.get("url"),
                 "status": status,
                 "latitude": geo.get("latitude") if isinstance(geo, dict) else None,
