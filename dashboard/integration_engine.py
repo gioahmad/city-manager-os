@@ -271,7 +271,7 @@ def _source_event_changed(
     return previous != source_change_hash
 
 
-def _upsert_event(conn, integration: dict[str, Any], event: dict[str, Any]) -> bool:
+def _upsert_event(conn, integration: dict[str, Any], event: dict[str, Any], *, suppress_alerts: bool = False) -> bool:
     external_key = event.get("external_key") or event["fingerprint"]
     source_event_key = f"{integration['integration_key']}:{external_key}"
     change_hash = _event_change_hash(event)
@@ -300,9 +300,27 @@ def _upsert_event(conn, integration: dict[str, Any], event: dict[str, Any]) -> b
         changed = _source_event_changed(before, change_hash)
         starts_at = event.get("starts_at")
         near_term_alert = bool(
-            event.get("impact_level") == "ALERT"
+            not suppress_alerts
+            and event.get("impact_level") == "ALERT"
             and (starts_at is None or (starts_at - datetime.now(timezone.utc)).total_seconds() <= 72 * 3600)
         )
+        if near_term_alert:
+            cur.execute(
+                """
+                SELECT EXISTS(
+                  SELECT 1
+                  FROM event_intelligence
+                  WHERE fingerprint=%s
+                    AND source_event_key<>%s
+                    AND active=true
+                    AND impact_level='ALERT'
+                    AND (alert_pending=true OR alert_emitted_at IS NOT NULL)
+                ) AS duplicate_alert
+                """,
+                (event["fingerprint"], source_event_key),
+            )
+            if bool(cur.fetchone()["duplicate_alert"]):
+                near_term_alert = False
 
         cur.execute(
             """
@@ -420,7 +438,7 @@ def _upsert_event(conn, integration: dict[str, Any], event: dict[str, Any]) -> b
     return changed
 
 
-def run_integration(integration: dict[str, Any], *, run_type: str = "POLL", parse_and_store: bool = True) -> dict[str, Any]:
+def run_integration(integration: dict[str, Any], *, run_type: str = "POLL", parse_and_store: bool = True, suppress_alerts: bool = False) -> dict[str, Any]:
     run_id = _record_run_start(str(integration["id"]), run_type)
     headers = _json(integration.get("request_headers"))
     query = _expand_query_templates(_json(integration.get("request_query")))
@@ -459,7 +477,7 @@ def run_integration(integration: dict[str, Any], *, run_type: str = "POLL", pars
             events = parse_events(result.body_text, integration["parser_kind"], _json(integration.get("parser_config")))
             with db_conn() as event_conn:
                 for event in events:
-                    if _upsert_event(event_conn, integration, event):
+                    if _upsert_event(event_conn, integration, event, suppress_alerts=suppress_alerts):
                         changed_count += 1
                 event_conn.commit()
 

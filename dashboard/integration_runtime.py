@@ -14,8 +14,9 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+from html.parser import HTMLParser
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -724,15 +725,191 @@ def parse_ics_events(body_text: str, config: dict[str, Any]) -> list[dict[str, A
     return events
 
 
+
+class _JsonLdCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._capture = False
+        self._parts: list[str] = []
+        self.scripts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "script":
+            return
+        attr_map = {str(k).lower(): str(v or "") for k, v in attrs}
+        self._capture = "ld+json" in attr_map.get("type", "").lower()
+        if self._capture:
+            self._parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self._capture:
+            self._parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "script" and self._capture:
+            payload = "".join(self._parts).strip()
+            if payload:
+                self.scripts.append(payload)
+            self._capture = False
+            self._parts = []
+
+
+def _jsonld_types(value: Any) -> set[str]:
+    raw = value if isinstance(value, list) else [value]
+    output: set[str] = set()
+    for item in raw:
+        if item is None:
+            continue
+        text = str(item).strip().lower()
+        if not text:
+            continue
+        output.add(text)
+        output.add(text.rsplit("/", 1)[-1].rsplit("#", 1)[-1])
+    return output
+
+
+def _jsonld_walk(value: Any):
+    if isinstance(value, dict):
+        types = _jsonld_types(value.get("@type"))
+        schema_event = any(
+            item == "event"
+            or item.endswith("event")
+            or item in {"festival", "hackathon"}
+            for item in types
+        )
+        if schema_event:
+            yield value
+        for child in value.values():
+            yield from _jsonld_walk(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _jsonld_walk(child)
+
+
+def _jsonld_address_text(address: Any) -> str | None:
+    if isinstance(address, str):
+        return _text(address)
+    if not isinstance(address, dict):
+        return None
+    parts = [
+        address.get("streetAddress"),
+        address.get("addressLocality"),
+        address.get("addressRegion"),
+        address.get("postalCode"),
+    ]
+    country = address.get("addressCountry")
+    if isinstance(country, dict):
+        country = country.get("name") or country.get("@id")
+    parts.append(country)
+    return _text(", ".join(str(x).strip() for x in parts if x))
+
+
+def parse_jsonld_events(body_text: str, config: dict[str, Any]) -> list[dict[str, Any]]:
+    collector = _JsonLdCollector()
+    collector.feed(body_text)
+    defaults = config.get("defaults") or {}
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for script in collector.scripts:
+        try:
+            root = json.loads(script)
+        except json.JSONDecodeError:
+            continue
+
+        for raw in _jsonld_walk(root):
+            location = raw.get("location")
+            if isinstance(location, list):
+                location = next((x for x in location if isinstance(x, (dict, str))), None)
+
+            venue = None
+            address_obj: Any = None
+            geo: Any = None
+            if isinstance(location, dict):
+                venue = location.get("name")
+                address_obj = location.get("address")
+                geo = location.get("geo")
+            elif isinstance(location, str):
+                venue = location
+
+            if not isinstance(geo, dict):
+                geo = raw.get("geo") if isinstance(raw.get("geo"), dict) else {}
+
+            municipality = address_obj.get("addressLocality") if isinstance(address_obj, dict) else None
+            state = address_obj.get("addressRegion") if isinstance(address_obj, dict) else None
+
+            status = raw.get("eventStatus")
+            if isinstance(status, str) and "/" in status:
+                status = status.rsplit("/", 1)[-1]
+            if isinstance(status, str) and status.lower().startswith("event"):
+                status = status[5:]
+
+            item = {
+                "id": raw.get("@id") or raw.get("url"),
+                "title": raw.get("name"),
+                "description": raw.get("description"),
+                "start": raw.get("startDate"),
+                "end": raw.get("endDate"),
+                "venue": venue or defaults.get("venue"),
+                "address": _jsonld_address_text(address_obj) or defaults.get("address"),
+                "municipality": municipality or defaults.get("municipality"),
+                "state": state or defaults.get("state"),
+                "url": raw.get("url"),
+                "status": status,
+                "latitude": geo.get("latitude") if isinstance(geo, dict) else None,
+                "longitude": geo.get("longitude") if isinstance(geo, dict) else None,
+            }
+            mapping = {key: key for key in item}
+            event = _event_from_mapping(item, mapping, defaults)
+            dedupe_key = event.get("external_key") or event["fingerprint"]
+            if dedupe_key in seen:
+                continue
+            seen.add(str(dedupe_key))
+            output.append(event)
+
+    return output
+
+
+def _filter_event_window(events: list[dict[str, Any]], config: dict[str, Any]) -> list[dict[str, Any]]:
+    defaults = config.get("defaults") or {}
+    future_only = bool(config.get("future_only", defaults.get("future_only", False)))
+    past_grace_hours = float(config.get("past_grace_hours", defaults.get("past_grace_hours", 0)) or 0)
+    future_days_raw = config.get("future_days", defaults.get("future_days"))
+    future_days = float(future_days_raw) if future_days_raw not in (None, "") else None
+
+    if not future_only and future_days is None:
+        return events
+
+    now = datetime.now(timezone.utc)
+    lower = now - timedelta(hours=past_grace_hours)
+    upper = now + timedelta(days=future_days) if future_days is not None else None
+    filtered: list[dict[str, Any]] = []
+
+    for event in events:
+        start = event.get("starts_at")
+        end = event.get("ends_at")
+        reference = end or start
+        if future_only and reference is not None and reference < lower:
+            continue
+        if upper is not None and start is not None and start > upper:
+            continue
+        filtered.append(event)
+
+    return filtered
+
 def parse_events(body_text: str, parser_kind: str, parser_config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     parser_kind = (parser_kind or "NONE").upper()
     config = parser_config or {}
     if parser_kind == "JSON_EVENTS":
-        return parse_json_events(body_text, config)
-    if parser_kind in {"RSS_EVENTS", "ATOM_EVENTS"}:
-        return parse_rss_events(body_text, config)
-    if parser_kind == "ICS_EVENTS":
-        return parse_ics_events(body_text, config)
-    if parser_kind == "NONE":
+        events = parse_json_events(body_text, config)
+    elif parser_kind in {"RSS_EVENTS", "ATOM_EVENTS"}:
+        events = parse_rss_events(body_text, config)
+    elif parser_kind == "ICS_EVENTS":
+        events = parse_ics_events(body_text, config)
+    elif parser_kind == "JSONLD_EVENTS":
+        events = parse_jsonld_events(body_text, config)
+    elif parser_kind == "NONE":
         return []
-    raise ValueError(f"Unsupported parser kind: {parser_kind}")
+    else:
+        raise ValueError(f"Unsupported parser kind: {parser_kind}")
+    return _filter_event_window(events, config)
