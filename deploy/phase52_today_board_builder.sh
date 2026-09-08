@@ -74,13 +74,44 @@ if old not in s:
 s = s.replace(old, new, 1)
 p.write_text(s)
 
-# Put the compact overview board inside <main>, immediately before metrics.
+# Today Board refinements found during static review.
 p = Path("dashboard/today_board_app.py")
 s = p.read_text()
+old = 'DERIVED_KEYS = ["EVENTS_TODAY", "EVENT_WATCHES_TODAY", "OPERATIONS_EXCEPTIONS"]'
+new = 'DERIVED_KEYS = ["EVENTS_TODAY", "EVENT_WATCHES_TODAY", "OPERATIONS_EXCEPTIONS", "EMS_API"]'
+if old not in s:
+    raise SystemExit("derived key anchor missing")
+s = s.replace(old, new, 1)
+old = '''            SELECT count(*) AS n,
+                   count(*) FILTER (WHERE impact_level='ALERT') AS alerts,
+                   count(*) FILTER (WHERE impact_level='WATCH') AS watches
+'''
+new = '''            SELECT count(DISTINCT fingerprint) AS n,
+                   count(DISTINCT fingerprint) FILTER (WHERE impact_level='ALERT') AS alerts,
+                   count(DISTINCT fingerprint) FILTER (WHERE impact_level='WATCH') AS watches
+'''
+if old not in s:
+    raise SystemExit("event count dedupe anchor missing")
+s = s.replace(old, new, 1)
 old = '    return _inject(response, "<main>", context)\n'
 new = '    return _inject(response, \'<section class="metrics metrics-six"\', context)\n'
 if old not in s:
     raise SystemExit("overview injection anchor missing")
+s = s.replace(old, new, 1)
+p.write_text(s)
+
+# Acceptance uses local wall time because override form timestamps are interpreted as America/New_York.
+p = Path("deploy/phase52_today_board.sh")
+s = p.read_text()
+old = "from datetime import datetime, timedelta\n\nimport psycopg\n"
+new = "from datetime import datetime, timedelta\nfrom zoneinfo import ZoneInfo\n\nimport psycopg\n"
+if old not in s:
+    raise SystemExit("acceptance timezone import anchor missing")
+s = s.replace(old, new, 1)
+old = "now = datetime.now()\nstarts = (now - timedelta(hours=1)).strftime(\"%Y-%m-%dT%H:%M\")\n"
+new = "now = datetime.now(ZoneInfo(\"America/New_York\")).replace(tzinfo=None)\nstarts = (now - timedelta(hours=1)).strftime(\"%Y-%m-%dT%H:%M\")\n"
+if old not in s:
+    raise SystemExit("acceptance local-time anchor missing")
 s = s.replace(old, new, 1)
 p.write_text(s)
 PY
@@ -92,6 +123,9 @@ grep -Fq 'COPY today_board_app.py' dashboard/Dockerfile
 grep -Fq '"/today-board"' dashboard/private_auth.py
 grep -Fq 'href="/today-board"' dashboard/templates/nav.html
 grep -Fq 'metrics metrics-six' dashboard/today_board_app.py
+grep -Fq 'count(DISTINCT fingerprint)' dashboard/today_board_app.py
+grep -Fq 'EMS_API' dashboard/today_board_app.py
+grep -Fq 'ZoneInfo("America/New_York")' "$TARGET"
 
 chmod +x "$TARGET"
 git add \
