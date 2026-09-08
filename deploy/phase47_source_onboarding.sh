@@ -189,14 +189,18 @@ docker compose -f dashboard/docker-compose.yml up -d --force-recreate \
   citymanager-ops-engine \
   citymanager-integration-engine
 
+dashboard_health() {
+  docker exec citymanager-dashboard python -c 'import urllib.request; r=urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=4); raise SystemExit(0 if r.status == 200 else 1)' >/dev/null 2>&1
+}
+
 for _ in $(seq 1 45); do
-  if curl -fsS http://127.0.0.1:8090/health >/dev/null; then
+  if dashboard_health; then
     break
   fi
   sleep 2
 done
-curl -fsS http://127.0.0.1:8090/health >/dev/null
-echo "Dashboard health endpoint: PASS"
+dashboard_health
+echo "Dashboard internal health endpoint: PASS"
 
 echo
 echo "=== 9. #47 CONTROLLED WEB ACCEPTANCE ==="
@@ -262,7 +266,7 @@ def execute(sql: str, params=()):
 execute("DELETE FROM integrations WHERE integration_key=%s", (KEY,))
 
 status, _, _ = request(
-    "/source-onboarding/create",
+    "/integrations/onboarding/create",
     {
         "name": "CMOS #47 E2E Placeholder",
         "integration_key": KEY,
@@ -296,14 +300,14 @@ row = one("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
 assert row and not row["active"] and row["endpoint_url"] == ""
 print("PASS placeholder source created without endpoint")
 
-status, _, _ = request(f"/source-onboarding/{row['id']}/activate", {"override_reason": ""})
+status, _, _ = request(f"/integrations/onboarding/{row['id']}/activate", {})
 assert status == 200, status
 row = one("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
 assert not row["active"]
 print("PASS incomplete placeholder activation blocked")
 
 status, _, _ = request(
-    f"/source-onboarding/{row['id']}/update",
+    f"/integrations/onboarding/{row['id']}/update",
     {
         "name": row["name"],
         "integration_key": KEY,
@@ -363,7 +367,7 @@ assert row["config_version"] >= 2 and row["last_test_ok"] is None
 print("PASS source configured and old test state invalidated")
 
 before_events = one("SELECT count(*) AS n FROM event_intelligence WHERE source_integration_id=%s", (row["id"],))["n"]
-status, _, body = request(f"/source-onboarding/{row['id']}/test", {})
+status, _, body = request(f"/integrations/onboarding/{row['id']}/test", {})
 assert status == 200, status
 assert "TEST RESULT" in body and "Normalized preview" in body
 row = one("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
@@ -373,7 +377,7 @@ assert row["last_test_config_version"] == row["config_version"]
 assert before_events == after_events == 0
 print("PASS read-only TEST saved current success and stored no production events")
 
-status, _, _ = request(f"/source-onboarding/{row['id']}/activate", {"override_reason": ""})
+status, _, _ = request(f"/integrations/onboarding/{row['id']}/activate", {})
 assert status == 200, status
 row = one("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
 assert row["active"] is True
@@ -381,7 +385,7 @@ assert one("SELECT count(*) AS n FROM integration_activation_audit WHERE integra
 print("PASS successful current TEST unlocked audited activation")
 
 status, _, _ = request(
-    f"/source-onboarding/{row['id']}/update",
+    f"/integrations/onboarding/{row['id']}/update",
     {
         "name": row["name"],
         "integration_key": KEY,
@@ -423,8 +427,8 @@ assert row["last_test_ok"] is None
 print("PASS config change auto-paused source and invalidated test")
 
 status, _, _ = request(
-    f"/source-onboarding/{row['id']}/activate",
-    {"override_reason": "CMOS #47 controlled acceptance override"},
+    f"/integrations/onboarding/{row['id']}/activate-override",
+    {"reason": "CMOS #47 controlled acceptance override"},
 )
 assert status == 200, status
 row = one("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
