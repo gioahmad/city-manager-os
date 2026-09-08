@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Today Board Setup · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .wizard-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.wizard-card{border:1px solid #2a3e51;border-radius:11px;background:#101a25;padding:14px}.wizard-card h2{margin:3px 0 8px}.wizard-form{display:grid;gap:9px}.wizard-form label{display:grid;gap:5px;color:#aec0cd;font-size:.82rem}.wizard-form input,.wizard-form textarea{width:100%;box-sizing:border-box}.weekday-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}.weekday-grid label{display:flex;align-items:center;gap:5px;border:1px solid #2a4053;border-radius:7px;padding:7px;background:#0d1721}.weekday-grid input{width:auto}.wizard-help{font-size:.79rem;color:#9fb2c1;line-height:1.45}.preview-box{border:1px dashed #3b5870;border-radius:8px;padding:9px;background:#0c151f;color:#dce7ef;font-size:.79rem;white-space:pre-wrap;min-height:40px}.wizard-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}@media(max-width:850px){.wizard-grid{grid-template-columns:1fr}.weekday-grid{grid-template-columns:repeat(4,1fr)}}
+  </style>
+</head>
+<body>
+<header class="topbar"><div class="brand"><div class="eyebrow">TODAY BOARD · GUIDED CONFIGURATION</div><div class="brand-row"><h1>Setup Wizard</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Set the authoritative schedule once and let City Manager OS calculate the rest</div></div></header>
+{% include "nav.html" %}
+<main>
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+  <section class="panel" style="margin-bottom:14px"><div class="panel-body"><strong>Nothing here is guessed.</strong> Enter a verified anchor date and sequence for rotating schedules, or the actual weekdays for recurring services. Use the preview before saving.</div></section>
+
+  <div class="wizard-grid">
+  {% for r in rules %}
+    <section class="wizard-card" data-rule="{{ r.rule_key }}">
+      <div class="panel-kicker">{{ r.category|replace('_',' ') }}</div>
+      <h2>{{ r.name }}</h2>
+      {% if r.rule_key in ['FIRE_DUTY_GROUP','POLICE_DUTY_SQUADS'] %}
+      <form method="post" action="/today-board/setup/save" class="wizard-form cycle-form">
+        <input type="hidden" name="rule_key" value="{{ r.rule_key }}">
+        <label>Verified anchor date<input type="date" name="anchor_date" value="{{ r.config.get('anchor_date','') }}" required></label>
+        <label>Day boundary<input type="time" name="day_boundary" value="{{ r.config.get('day_boundary','00:00') }}"></label>
+        <label>Rotation sequence<textarea name="cycle_sequence" rows="8" required placeholder="One day/state per line. Optional detail after |&#10;Example: GROUP 1 | duty details&#10;GROUP 2 | duty details">{{ r.cycle_text }}</textarea></label>
+        <div class="wizard-help">Each nonblank line is one position in the repeating cycle. The first line is the value on the anchor date.</div>
+        <label>Source / reference<input name="source_label" value="{{ r.source_label or '' }}" placeholder="Contract, schedule memo, department confirmation..."></label>
+        <label>Notes<input name="notes" value="{{ r.notes or '' }}"></label>
+        <div class="preview-box cycle-preview">Enter an anchor and sequence to preview the next 14 days.</div>
+        <div class="wizard-actions"><button type="button" class="secondary-button preview-cycle">Preview Next 14 Days</button><button class="primary-button" type="submit">Save Rotation</button></div>
+      </form>
+      {% else %}
+      <form method="post" action="/today-board/setup/save" class="wizard-form weekday-form">
+        <input type="hidden" name="rule_key" value="{{ r.rule_key }}">
+        <div class="weekday-grid">
+          {% for num,label in [(1,'Mon'),(2,'Tue'),(3,'Wed'),(4,'Thu'),(5,'Fri'),(6,'Sat'),(7,'Sun')] %}<label><input type="checkbox" name="day_{{ num }}" {% if num in r.days %}checked{% endif %}>{{ label }}</label>{% endfor %}
+        </div>
+        <div class="wizard-form" style="grid-template-columns:1fr 1fr">
+          <label>When active<input name="active_value" value="{{ r.config.get('active_value','YES') }}"></label>
+          <label>When inactive<input name="inactive_value" value="{{ r.config.get('inactive_value','NO') }}"></label>
+        </div>
+        <label>Display detail<input name="detail" value="{{ r.config.get('detail','') or '' }}" placeholder="Zone, route, set-out note..."></label>
+        <label>Day boundary<input type="time" name="day_boundary" value="{{ r.config.get('day_boundary','00:00') }}"></label>
+        <label>Source / reference<input name="source_label" value="{{ r.source_label or '' }}"></label>
+        <label>Notes<input name="notes" value="{{ r.notes or '' }}"></label>
+        <div class="preview-box weekday-preview">Choose weekdays to preview the next 14 days.</div>
+        <div class="wizard-actions"><button type="button" class="secondary-button preview-weekdays">Preview Next 14 Days</button><button class="primary-button" type="submit">Save Weekdays</button></div>
+      </form>
+      {% endif %}
+    </section>
+  {% endfor %}
+  </div>
+</main>
+<script>
+const fmt=d=>d.toLocaleDateString(undefined,{weekday:'short',month:'numeric',day:'numeric'});
+document.querySelectorAll('.cycle-form').forEach(form=>{form.querySelector('.preview-cycle').addEventListener('click',()=>{const a=form.anchor_date.value,lines=form.cycle_sequence.value.split('\n').map(x=>x.trim()).filter(Boolean);const box=form.querySelector('.cycle-preview');if(!a||!lines.length){box.textContent='Enter an anchor date and at least one sequence line.';return;}const anchor=new Date(a+'T12:00:00');const start=new Date();start.setHours(12,0,0,0);const out=[];for(let n=0;n<14;n++){const d=new Date(start);d.setDate(start.getDate()+n);const diff=Math.floor((d-anchor)/86400000);const idx=((diff%lines.length)+lines.length)%lines.length;out.push(fmt(d)+' · '+lines[idx]);}box.textContent=out.join('\n');});});
+document.querySelectorAll('.weekday-form').forEach(form=>{form.querySelector('.preview-weekdays').addEventListener('click',()=>{const active=[...form.querySelectorAll('input[type=checkbox]:checked')].map(x=>Number(x.name.split('_')[1]));const yes=form.active_value.value||'YES',no=form.inactive_value.value||'NO',box=form.querySelector('.weekday-preview'),start=new Date(),out=[];start.setHours(12,0,0,0);for(let n=0;n<14;n++){const d=new Date(start);d.setDate(start.getDate()+n);const js=d.getDay(),iso=js===0?7:js;out.push(fmt(d)+' · '+(active.includes(iso)?yes:no));}box.textContent=out.join('\n');});});
+</script>
+</body>
+</html>
