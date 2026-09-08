@@ -349,11 +349,6 @@ async def executive_inbox_triage(issue_id: uuid.UUID, request: Request):
         UPDATE issues
         SET title=%s,item_type=%s,source='QUICK_CAPTURE',category=%s,priority=%s,assigned_to=%s,next_action=%s,
             waiting_on=%s,
-            waiting_on_since=CASE
-              WHEN %s IS NULL THEN NULL
-              WHEN waiting_on_since IS NULL OR waiting_on IS DISTINCT FROM %s THEN now()
-              ELSE waiting_on_since
-            END,
             follow_up_at=NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York',
             updated_at=now()
         WHERE id=%s AND source='QUICK_CAPTURE_INBOX'
@@ -365,8 +360,6 @@ async def executive_inbox_triage(issue_id: uuid.UUID, request: Request):
             priority,
             assigned_to,
             next_action,
-            waiting_on,
-            waiting_on,
             waiting_on,
             follow_up_at,
             issue_id,
@@ -399,12 +392,11 @@ async def quick_waiting(issue_id: uuid.UUID, request: Request):
         """
         UPDATE issues
         SET waiting_on=%s,
-            waiting_on_since=CASE WHEN waiting_on IS DISTINCT FROM %s OR waiting_on_since IS NULL THEN now() ELSE waiting_on_since END,
             follow_up_at=NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York',
             updated_at=now()
         WHERE id=%s AND status NOT IN ('RESOLVED','CLOSED')
         """,
-        (waiting_on, waiting_on, follow_up_at, issue_id),
+        (waiting_on, follow_up_at, issue_id),
     )
     target = _safe_return(str(form.get("return_to") or ""), "/issues?state=waiting")
     joiner = "&" if "?" in target else "?"
