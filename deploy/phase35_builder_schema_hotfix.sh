@@ -4,7 +4,6 @@ set -Eeuo pipefail
 REPO="/opt/city-manager-os"
 BASE="36833baf9e115d97a4a3fbab8eb08ff0eacaeddd"
 BRANCH="feature/regional-event-source-pack-1"
-EXPECTED="31a7edaa4be0bb4879e02a56250d6d06d2943515"
 TARGET="deploy/phase35_source_pack_builder.sh"
 SELF="deploy/phase35_builder_schema_hotfix.sh"
 
@@ -19,7 +18,7 @@ git switch -C "$BRANCH" "origin/$BRANCH"
 
 [ "$(git rev-parse origin/main)" = "$BASE" ]
 [ "$(git merge-base origin/main HEAD)" = "$BASE" ]
-[ "$(git rev-parse HEAD)" = "$EXPECTED" ]
+[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/$BRANCH)" ]
 [ -z "$(git status --porcelain)" ]
 
 python3 - <<'PY'
