@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Today Board · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">WEEHAWKEN OPERATIONS</div>
+    <div class="brand-row"><h1>Daily Constants</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">What is true today?</div>
+  </div>
+</header>
+{% include "nav.html" %}
+<main>
+  {% if msg %}<div class="panel" style="padding:12px;margin-bottom:14px"><strong>{{ msg }}</strong></div>{% endif %}
+
+  {% set board_compact = false %}
+  {% include "today_board_strip.html" %}
+
+  <section class="section-label"><span>TEST ANY DATE</span><span class="section-rule"></span></section>
+  <section class="panel" style="padding:14px">
+    <form method="get" action="/today-board" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+      <label>Date<input type="date" name="test_date" value="{{ test_date }}"></label>
+      <button type="submit">Test date</button>
+    </form>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:12px">
+      {% for r in test_board %}
+      <div style="border:1px solid #d7dde5;border-radius:10px;padding:10px">
+        <div class="panel-kicker">{{ r.name }}</div>
+        <strong style="font-size:18px">{{ r.resolved.value or '—' }}</strong>
+        {% if r.resolved.detail %}<div class="meta">{{ r.resolved.detail }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="section-label"><span>{% if selected %}EDIT RULE{% else %}ADD RULE{% endif %}</span><span class="section-rule"></span></section>
+  <section class="panel" style="padding:14px">
+    {% set cfg = selected.config if selected else {} %}
+    <form method="post" action="/today-board/save">
+      {% if selected %}<input type="hidden" name="id" value="{{ selected.id }}">{% endif %}
+      <div class="form-grid three-col">
+        <label>Name<input name="name" required value="{{ selected.name if selected else '' }}" placeholder="Garbage Collection"></label>
+        <label>Rule Key<input name="rule_key" value="{{ selected.rule_key if selected else '' }}" {% if selected %}readonly{% endif %} placeholder="GARBAGE_TODAY"></label>
+        <label>Category<select name="category">{% for c in categories %}<option value="{{ c }}" {% if selected and selected.category == c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
+      </div>
+      <div class="form-grid three-col">
+        <label>Rule Type<select name="rule_type">{% for t in rule_types %}<option value="{{ t }}" {% if selected and selected.rule_type == t %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></label>
+        <label>Sort Order<input type="number" name="sort_order" value="{{ selected.sort_order if selected else 100 }}"></label>
+        <label>Day Boundary<input type="time" name="day_boundary" value="{{ cfg.get('day_boundary','00:00') }}"></label>
+      </div>
+      <div style="display:flex;gap:18px;margin:8px 0 14px"><label><input type="checkbox" name="active" {% if not selected or selected.active %}checked{% endif %}> Active</label><label><input type="checkbox" name="pinned" {% if selected and selected.pinned %}checked{% endif %}> Pinned</label><label><input type="checkbox" name="needs_setup" {% if cfg.get('needs_setup') %}checked{% endif %}> Needs setup</label></div>
+
+      <div class="form-grid three-col">
+        <label>Manual Value<input name="manual_value" value="{{ cfg.get('value','') }}" placeholder="OPEN / CLOSED / Group 2"></label>
+        <label>Active Value<input name="active_value" value="{{ cfg.get('active_value','YES') }}"></label>
+        <label>Inactive Value<input name="inactive_value" value="{{ cfg.get('inactive_value','NO') }}"></label>
+      </div>
+      <div class="form-grid three-col">
+        <label>Weekdays 1=Mon ... 7=Sun<input name="days_text" value="{{ selected.days_text if selected else '' }}" placeholder="1,4"></label>
+        <label>Cycle Anchor Date<input type="date" name="anchor_date" value="{{ cfg.get('anchor_date','') }}"></label>
+        <label>Derived Source<select name="derived_key"><option value=""></option>{% for d in derived_keys %}<option value="{{ d }}" {% if cfg.get('derived_key') == d %}selected{% endif %}>{{ d }}</option>{% endfor %}</select></label>
+      </div>
+      <label>Cycle Sequence · one day/value per line · optional detail after |<textarea name="cycle_sequence" rows="6" placeholder="Group 1 | 07:00-07:00\nGroup 2 | 07:00-07:00">{{ selected.cycle_text if selected else '' }}</textarea></label>
+
+      <div class="form-grid three-col">
+        <label>Pattern Weekday<input type="number" min="0" max="7" name="pattern_weekday" value="{{ cfg.get('weekday',0) }}"></label>
+        <label>Pattern Ordinal<select name="pattern_ordinal"><option value="0">Any</option><option value="1" {% if cfg.get('ordinal') == 1 %}selected{% endif %}>First</option><option value="2" {% if cfg.get('ordinal') == 2 %}selected{% endif %}>Second</option><option value="3" {% if cfg.get('ordinal') == 3 %}selected{% endif %}>Third</option><option value="4" {% if cfg.get('ordinal') == 4 %}selected{% endif %}>Fourth</option><option value="-1" {% if cfg.get('ordinal') == -1 %}selected{% endif %}>Last</option></select></label>
+        <label>Week Parity<select name="week_parity"><option>ANY</option><option {% if cfg.get('week_parity') == 'ODD' %}selected{% endif %}>ODD</option><option {% if cfg.get('week_parity') == 'EVEN' %}selected{% endif %}>EVEN</option></select></label>
+      </div>
+      <div class="form-grid three-col">
+        <label>Season Start MM-DD<input name="start_mmdd" value="{{ cfg.get('start_mmdd','') }}" placeholder="05-25"></label>
+        <label>Season End MM-DD<input name="end_mmdd" value="{{ cfg.get('end_mmdd','') }}" placeholder="09-07"></label>
+        <label>Source / Reference<input name="source_label" value="{{ selected.source_label if selected else '' }}"></label>
+      </div>
+      <label>Card Detail<input name="detail" value="{{ cfg.get('detail','') }}" placeholder="Shift times, zone, route, source note"></label>
+      <label>Notes<textarea name="notes" rows="3">{{ selected.notes if selected else '' }}</textarea></label>
+      <div style="display:flex;gap:8px;margin-top:10px"><button type="submit">Save Rule</button>{% if selected %}<a class="button secondary" href="/today-board">Cancel edit</a>{% endif %}</div>
+    </form>
+  </section>
+
+  <section class="section-label"><span>RULES</span><span class="section-rule"></span></section>
+  <section class="panel">
+    <div class="panel-body compact-list">
+      {% for r in rules %}
+      <div class="feed-row">
+        <div class="feed-main">
+          <div class="feed-title-row"><strong>{{ r.name }}</strong> <span class="status {% if r.active %}healthy{% endif %}">{{ 'ACTIVE' if r.active else 'PAUSED' }}</span>{% if r.pinned %}<span class="status">PINNED</span>{% endif %}</div>
+          <div class="meta">{{ r.category }} · {{ r.rule_type }} · {{ r.rule_key }}{% if r.source_label %} · {{ r.source_label }}{% endif %}</div>
+          {% if r.notes %}<div class="meta">{{ r.notes }}</div>{% endif %}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center"><a class="text-link" href="/today-board?edit={{ r.id }}">Edit</a><form method="post" action="/today-board/{{ r.id }}/toggle"><button type="submit">{{ 'Pause' if r.active else 'Enable' }}</button></form></div>
+      </div>
+      <details style="padding:0 12px 12px">
+        <summary>Temporary override</summary>
+        <form method="post" action="/today-board/{{ r.id }}/override" style="margin-top:8px">
+          <div class="form-grid three-col"><label>Starts<input type="datetime-local" name="starts_at" required></label><label>Ends<input type="datetime-local" name="ends_at" required></label><label>Value<input name="value" required></label></div>
+          <label>Detail<input name="detail"></label><label>Reason<input name="reason" required placeholder="Holiday schedule / staffing change"></label><button type="submit">Save Override</button>
+        </form>
+      </details>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="section-label"><span>RECENT OVERRIDES</span><span class="section-rule"></span></section>
+  <section class="panel"><div class="panel-body compact-list">
+    {% for o in overrides %}<div class="feed-row"><div class="feed-main"><strong>{{ o.rule_name }}</strong><div class="meta">{{ o.starts_at }} → {{ o.ends_at }} · {{ o.reason }}</div></div><form method="post" action="/today-board/override/{{ o.id }}/delete"><button type="submit">Delete</button></form></div>{% else %}<div class="empty-state small"><strong>No recent overrides</strong></div>{% endfor %}
+  </div></section>
+</main>
+</body>
+</html>
