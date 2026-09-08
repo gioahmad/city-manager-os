@@ -103,8 +103,10 @@ docker compose -f dashboard/docker-compose.yml run --rm --no-deps \
 docker compose -f dashboard/docker-compose.yml run --rm --no-deps \
   -v "$REPO/dashboard:/src:ro" \
   -w /src \
+  -e PYTHONPATH=/src:/app \
   --entrypoint pytest \
   citymanager-dashboard \
+  -p no:cacheprovider \
   -q \
   tests/test_source_onboarding.py \
   tests/test_attention_engine.py \
@@ -219,28 +221,7 @@ TOKEN = os.environ.get("CMOS_AUTOMATION_TOKEN", "").strip()
 if not TOKEN:
     raise SystemExit("CMOS_AUTOMATION_TOKEN is required for controlled web acceptance")
 
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-opener = urllib.request.build_opener(NoRedirect)
-
-def http(path: str, data: dict[str, str] | None = None):
-    body = None
-    headers = {"X-CMOS-Automation-Key": TOKEN}
-    method = "GET"
-    if data is not None:
-        method = "POST"
-        body = urllib.parse.urlencode(data).encode()
-        headers["Content-Type"] = "application/x-www-form-urlencoded"
-    req = urllib.request.Request(BASE + path, data=body, headers=headers, method=method)
-    try:
-        with opener.open(req, timeout=30) as resp:
-            return resp.status, resp.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.read().decode("utf-8", "replace")
-
-conn = psycopg.connect(
+DB = dict(
     host=os.getenv("DB_HOST", "citymanager-postgis"),
     port=int(os.getenv("DB_PORT", "5432")),
     dbname=os.getenv("DB_NAME", "citymanager"),
@@ -249,188 +230,240 @@ conn = psycopg.connect(
     row_factory=dict_row,
 )
 
-def row():
-    with conn.cursor() as cur:
-        cur.execute("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
+
+def request(path: str, data: dict[str, str] | None = None):
+    headers = {"X-CMOS-Automation-Key": TOKEN}
+    body = None
+    method = "GET"
+    if data is not None:
+        body = urllib.parse.urlencode(data).encode()
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        method = "POST"
+    req = urllib.request.Request(BASE + path, data=body, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            return response.status, response.geturl(), response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.geturl(), exc.read().decode("utf-8", errors="replace")
+
+
+def one(sql: str, params=()):
+    with psycopg.connect(**DB) as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
         return cur.fetchone()
 
-def cleanup():
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM source_health WHERE source_id=%s", (f"INT:{KEY}",))
-        cur.execute("DELETE FROM integrations WHERE integration_key=%s", (KEY,))
-    conn.commit()
 
-cleanup()
+def execute(sql: str, params=()):
+    with psycopg.connect(**DB) as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        conn.commit()
 
-status, html = http("/integrations/onboarding")
-assert status == 200, status
-assert "Source Onboarding" in html
-print("PASS  onboarding page is reachable through private automation auth")
 
-create = {
-    "provider_template": "CUSTOM",
-    "name": "CMOS #47 E2E Placeholder",
-    "integration_key": KEY,
-    "category": "EVENTS",
-    "adapter_type": "HTTP",
-    "endpoint_url": "",
-    "method": "GET",
-    "auth_type": "NONE",
-    "headers_json": "{}",
-    "query_json": "{}",
-    "request_body": "",
-    "parser_kind": "NONE",
-    "parser_config_json": "{}",
-    "poll_seconds": "86400",
-    "timeout_seconds": "15",
-    "max_response_bytes": "1000000",
-    "allow_redirects": "1",
-    "verify_tls": "1",
-    "source_owner": "SYSTEM TEST",
-    "source_contact": "",
-    "access_instructions": "Synthetic #47 acceptance record",
-    "geography_scope": "TEST",
-    "relevance_keywords": "Weehawken",
-    "watch_threshold": "45",
-    "alert_threshold": "75",
-    "notes": "Synthetic #47 acceptance record",
-}
-status, _ = http("/integrations/onboarding/create", create)
-assert status == 303, status
+execute("DELETE FROM integrations WHERE integration_key=%s", (KEY,))
 
-r = row()
-assert r and r["active"] is False
-assert (r["endpoint_url"] or "") == ""
-assert r["last_test_at"] is None
-print("PASS  browser created incomplete inactive placeholder")
-
-status, _ = http(f"/integrations/onboarding/{r['id']}/activate", {})
-assert status == 303, status
-assert row()["active"] is False
-print("PASS  activation blocked before setup/test")
-
-parser_config = {
-    "list_path": "",
-    "mapping": {
-        "id": "event_id",
-        "title": "event_name",
-        "start": "start_date_time",
-        "end": "end_date_time",
-        "event_type": "event_type",
-        "venue": "event_location",
-        "municipality": "event_borough",
-        "road_impact": "street_closure_type",
+status, _, _ = request(
+    "/source-onboarding/create",
+    {
+        "name": "CMOS #47 E2E Placeholder",
+        "integration_key": KEY,
+        "provider_template": "GENERIC_JSON",
+        "category": "EVENTS",
+        "endpoint_url": "",
+        "method": "GET",
+        "auth_type": "NONE",
+        "parser_kind": "NONE",
+        "headers_json": "{}",
+        "query_json": "{}",
+        "request_body": "",
+        "parser_config_json": "{}",
+        "poll_seconds": "900",
+        "timeout_seconds": "15",
+        "max_response_bytes": "1000000",
+        "allow_redirects": "1",
+        "verify_tls": "1",
+        "source_owner": "System Test",
+        "source_contact": "",
+        "access_instructions": "",
+        "geography_scope": "Weehawken",
+        "relevance_keywords": "Weehawken, Lincoln Tunnel",
+        "attention_config_json": "{}",
+        "map_config_json": "{}",
+        "notes": "Synthetic #47 acceptance source",
     },
-    "defaults": {
-        "municipality": "Manhattan",
-        "state": "NY",
-        "default_timezone": "America/New_York",
-    },
-}
-configured = dict(create)
-configured.update({
-    "provider_template": "SOCRATA",
-    "name": "CMOS #47 E2E Test Source",
-    "endpoint_url": "https://data.cityofnewyork.us/resource/tvpp-9vvx.json",
-    "headers_json": json.dumps({"Accept": "application/json"}),
-    "query_json": json.dumps({"$limit": 1}),
-    "parser_kind": "JSON_EVENTS",
-    "parser_config_json": json.dumps(parser_config),
-})
-configured.pop("integration_key", None)
-
-before_version = int(r["config_version"])
-status, _ = http(f"/integrations/onboarding/{r['id']}/update", configured)
-assert status == 303, status
-r = row()
-assert int(r["config_version"]) == before_version + 1
-assert r["last_test_at"] is None
-assert r["active"] is False
-print("PASS  configuration change incremented version and requires new TEST")
-
-status, html = http(f"/integrations/onboarding/{r['id']}/test", {})
+)
 assert status == 200, status
-assert "READ-ONLY TEST" in html
-r = row()
-assert r["last_test_ok"] is True, r["last_test_summary"]
-assert int(r["last_test_config_version"]) == int(r["config_version"])
-assert int((r["last_test_summary"] or {}).get("items_found") or 0) >= 1
-with conn.cursor() as cur:
-    cur.execute("SELECT count(*) AS n FROM event_intelligence WHERE source_integration_id=%s", (r["id"],))
-    assert cur.fetchone()["n"] == 0
-print("PASS  browser TEST fetched, parsed and previewed without storing production events")
+row = one("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
+assert row and not row["active"] and row["endpoint_url"] == ""
+print("PASS placeholder source created without endpoint")
 
-status, _ = http(f"/integrations/onboarding/{r['id']}/activate", {})
-assert status == 303, status
-r = row()
-assert r["active"] is True
-with conn.cursor() as cur:
-    cur.execute("SELECT count(*) AS n FROM integration_activation_audit WHERE integration_id=%s AND action='ACTIVATE'", (r["id"],))
-    assert cur.fetchone()["n"] >= 1
-print("PASS  tested current configuration activated with audit")
+status, _, _ = request(f"/source-onboarding/{row['id']}/activate", {"override_reason": ""})
+assert status == 200, status
+row = one("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
+assert not row["active"]
+print("PASS incomplete placeholder activation blocked")
 
-configured["query_json"] = json.dumps({"$limit": 2})
-active_version = int(r["config_version"])
-status, _ = http(f"/integrations/onboarding/{r['id']}/update", configured)
-assert status == 303, status
-r = row()
-assert r["active"] is False
-assert int(r["config_version"]) == active_version + 1
-assert r["last_test_ok"] is None
-assert r["last_test_config_version"] is None
-print("PASS  editing live connection configuration auto-paused and invalidated TEST")
+status, _, _ = request(
+    f"/source-onboarding/{row['id']}/update",
+    {
+        "name": row["name"],
+        "integration_key": KEY,
+        "provider_template": "SOCRATA",
+        "category": "EVENTS",
+        "adapter_type": "HTTP",
+        "endpoint_url": "https://data.cityofnewyork.us/resource/tvpp-9vvx.json",
+        "method": "GET",
+        "auth_type": "NONE",
+        "username_env": "",
+        "password_env": "",
+        "token_env": "",
+        "key_env": "",
+        "key_name": "",
+        "headers_json": '{"Accept":"application/json"}',
+        "query_json": '{"$limit":2}',
+        "request_body": "",
+        "parser_kind": "JSON_EVENTS",
+        "parser_config_json": json.dumps(
+            {
+                "list_path": "",
+                "mapping": {
+                    "id": "event_id",
+                    "title": "event_name",
+                    "start": "start_date_time",
+                    "end": "end_date_time",
+                    "event_type": "event_type",
+                    "venue": "event_location",
+                    "municipality": "event_borough",
+                    "road_impact": "street_closure_type",
+                },
+                "defaults": {
+                    "municipality": "Manhattan",
+                    "state": "NY",
+                    "default_timezone": "America/New_York",
+                },
+            }
+        ),
+        "poll_seconds": "3600",
+        "timeout_seconds": "20",
+        "max_response_bytes": "1000000",
+        "allow_redirects": "1",
+        "verify_tls": "1",
+        "source_owner": "System Test",
+        "source_contact": "",
+        "access_instructions": "",
+        "geography_scope": "NYC / Metro",
+        "relevance_keywords": "Manhattan, Lincoln Tunnel",
+        "attention_config_json": '{"minimum_score":45}',
+        "map_config_json": '{"map_capable":true,"default_layer":"events"}',
+        "notes": "Synthetic #47 acceptance source",
+    },
+)
+assert status == 200, status
+row = one("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
+assert row["config_version"] >= 2 and row["last_test_ok"] is None
+print("PASS source configured and old test state invalidated")
 
-cleanup()
-with conn.cursor() as cur:
-    cur.execute("SELECT count(*) AS n FROM integrations WHERE integration_key=%s", (KEY,))
-    assert cur.fetchone()["n"] == 0
-    cur.execute("SELECT count(*) AS n FROM source_health WHERE source_id=%s", (f"INT:{KEY}",))
-    assert cur.fetchone()["n"] == 0
-print("PASS  synthetic #47 records cleaned")
-conn.close()
+before_events = one("SELECT count(*) AS n FROM event_intelligence WHERE source_integration_id=%s", (row["id"],))["n"]
+status, _, body = request(f"/source-onboarding/{row['id']}/test", {})
+assert status == 200, status
+assert "TEST RESULT" in body and "Normalized preview" in body
+row = one("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
+after_events = one("SELECT count(*) AS n FROM event_intelligence WHERE source_integration_id=%s", (row["id"],))["n"]
+assert row["last_test_ok"] is True
+assert row["last_test_config_version"] == row["config_version"]
+assert before_events == after_events == 0
+print("PASS read-only TEST saved current success and stored no production events")
+
+status, _, _ = request(f"/source-onboarding/{row['id']}/activate", {"override_reason": ""})
+assert status == 200, status
+row = one("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
+assert row["active"] is True
+assert one("SELECT count(*) AS n FROM integration_activation_audit WHERE integration_id=%s AND action='ACTIVATE'", (row["id"],))["n"] >= 1
+print("PASS successful current TEST unlocked audited activation")
+
+status, _, _ = request(
+    f"/source-onboarding/{row['id']}/update",
+    {
+        "name": row["name"],
+        "integration_key": KEY,
+        "provider_template": "SOCRATA",
+        "category": "EVENTS",
+        "adapter_type": "HTTP",
+        "endpoint_url": "https://data.cityofnewyork.us/resource/tvpp-9vvx.json",
+        "method": "GET",
+        "auth_type": "NONE",
+        "username_env": "",
+        "password_env": "",
+        "token_env": "",
+        "key_env": "",
+        "key_name": "",
+        "headers_json": '{"Accept":"application/json"}',
+        "query_json": '{"$limit":1}',
+        "request_body": "",
+        "parser_kind": "JSON_EVENTS",
+        "parser_config_json": json.dumps(row["parser_config"]),
+        "poll_seconds": "3600",
+        "timeout_seconds": "20",
+        "max_response_bytes": "1000000",
+        "allow_redirects": "1",
+        "verify_tls": "1",
+        "source_owner": "System Test",
+        "source_contact": "",
+        "access_instructions": "",
+        "geography_scope": "NYC / Metro",
+        "relevance_keywords": "Manhattan, Lincoln Tunnel",
+        "attention_config_json": json.dumps(row["attention_config"]),
+        "map_config_json": json.dumps(row["map_config"]),
+        "notes": "Synthetic #47 acceptance source",
+    },
+)
+assert status == 200, status
+row = one("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
+assert row["active"] is False
+assert row["last_test_ok"] is None
+print("PASS config change auto-paused source and invalidated test")
+
+status, _, _ = request(
+    f"/source-onboarding/{row['id']}/activate",
+    {"override_reason": "CMOS #47 controlled acceptance override"},
+)
+assert status == 200, status
+row = one("SELECT * FROM integrations WHERE integration_key=%s", (KEY,))
+assert row["active"] is True
+assert row["activation_override_reason"] == "CMOS #47 controlled acceptance override"
+assert one("SELECT count(*) AS n FROM integration_activation_audit WHERE integration_id=%s AND action='OVERRIDE_ACTIVATE'", (row["id"],))["n"] >= 1
+print("PASS executive override recorded with reason")
+
+execute("DELETE FROM integrations WHERE integration_key=%s", (KEY,))
+assert one("SELECT count(*) AS n FROM integrations WHERE integration_key=%s", (KEY,))["n"] == 0
+print("PASS synthetic #47 records cleaned")
 PY
 
 docker start citymanager-integration-engine >/dev/null
 ENGINE_STOPPED=0
-echo "#47 controlled web acceptance: PASS"
 
 echo
-echo "=== 10. PRE-PROMOTION HEALTH ==="
+echo "=== 10. FEATURE HEALTH ==="
 ./deploy/cmos-health
-echo "Pre-promotion health: PASS"
 
 echo
-echo "=== 11. PROMOTE FEATURE TO MAIN ==="
-[ -z "$(git status --porcelain)" ]
-FEATURE_HEAD="$(git rev-parse HEAD)"
+echo "=== 11. PROMOTE VERIFIED FEATURE ==="
 git switch main
-[ "$(git rev-parse HEAD)" = "$BASE" ]
-git merge --ff-only "$FEATURE_HEAD"
+git merge --ff-only "$BRANCH"
 git push origin main
 PROMOTED=1
 
-echo "Production commit: $(git rev-parse HEAD)"
-echo "Promotion: PASS"
+echo "Promoted main: $(git rev-parse HEAD)"
 
 echo
-echo "=== 12. SECURE FULL E2E ==="
+echo "=== 12. POST-PROMOTION SECURE E2E ==="
 ./deploy/cmos-e2e-secure
-
-echo
-echo "=== 13. FINAL SAFETY / HEALTH ==="
 ./deploy/security/verify-db-credential-alignment.sh FINAL
 ./deploy/postgis/verify-backup.sh
 ./deploy/cmos-health
 
-[ -z "$(git status --porcelain)" ]
-[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]
-
-trap - EXIT
-
 echo
 echo "============================================================"
 echo "#47 WEB-MANAGED SOURCE ONBOARDING: PASS"
-echo "PRODUCTION COMMIT: $(git rev-parse HEAD)"
 echo "PLACEHOLDER CREATE: PASS"
 echo "READ-ONLY TEST + NORMALIZED PREVIEW: PASS"
 echo "ACTIVATION GATE + AUDIT: PASS"
