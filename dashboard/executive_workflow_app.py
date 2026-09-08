@@ -277,10 +277,9 @@ async def quick_capture(request: Request):
         """
         INSERT INTO issues(
           title,description,category,priority,status,source,municipality,assigned_to,
-          item_type,next_action,waiting_on,waiting_on_since,follow_up_at
+          item_type,next_action,waiting_on,follow_up_at
         ) VALUES(
           %s,%s,%s,%s,'OPEN',%s,'Weehawken',%s,%s,%s,%s,
-          CASE WHEN %s IS NULL THEN NULL ELSE now() END,
           NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York'
         )
         """,
@@ -293,7 +292,6 @@ async def quick_capture(request: Request):
             assigned_to,
             item_type,
             next_action,
-            waiting_on,
             waiting_on,
             follow_up_at,
         ),

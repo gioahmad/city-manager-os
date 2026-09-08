@@ -147,6 +147,7 @@ echo "Dashboard internal health: PASS"
 
 echo
 echo "=== 9. CONTROLLED BROWSER ACCEPTANCE ==="
+set +e
 docker exec -i citymanager-dashboard python - <<'PY'
 from __future__ import annotations
 
@@ -302,6 +303,14 @@ assert one("SELECT id FROM issues WHERE id=%s::uuid", (issue_id,)) is None
 print("PASS synthetic cleanup + no alert/task duplication")
 print("EXECUTIVE WORKFLOW CONTROLLED ACCEPTANCE: PASS")
 PY
+ACCEPT_RC=$?
+set -e
+if [ "$ACCEPT_RC" -ne 0 ]; then
+  echo
+  echo "=== CONTROLLED ACCEPTANCE FAILURE - DASHBOARD TRACEBACK ==="
+  docker logs --since 10m citymanager-dashboard 2>&1 | tail -n 220 || true
+  exit "$ACCEPT_RC"
+fi
 
 echo
 echo "=== 10. FEATURE HEALTH ==="
