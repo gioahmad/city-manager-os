@@ -1,0 +1,21 @@
+<style>
+.changed-strip{margin:0 0 18px;border:1px solid #2b4053;border-radius:12px;background:#101b26;padding:12px}.changed-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.changed-head h2{margin:2px 0 0}.changed-counts{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.changed-chip{border:1px solid #35516a;background:#132332;border-radius:999px;padding:6px 9px;font-size:.78rem;color:#dbe8f1}.changed-chip strong{color:#fff}.changed-latest{display:grid;gap:5px;margin-top:9px}.changed-line{font-size:.8rem;color:#b9cbd8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.changed-actions{display:flex;gap:8px;align-items:center}.changed-actions form{margin:0}
+</style>
+<section class="changed-strip">
+  <div class="changed-head">
+    <div><div class="panel-kicker">SINCE YOUR LAST REVIEW</div><h2>What Changed</h2></div>
+    <div class="changed-actions"><a class="text-link" href="/what-changed">Open details</a></div>
+  </div>
+  <div class="changed-counts">
+    <span class="changed-chip"><strong>{{ change_counts.total }}</strong> total</span>
+    <span class="changed-chip"><strong>{{ change_counts.issues }}</strong> work items</span>
+    <span class="changed-chip"><strong>{{ change_counts.alerts }}</strong> alerts</span>
+    <span class="changed-chip"><strong>{{ change_counts.events }}</strong> events</span>
+    {% if change_counts.source_warnings %}<span class="changed-chip"><strong>{{ change_counts.source_warnings }}</strong> source warnings</span>{% endif %}
+  </div>
+  {% if first_review %}<div class="changed-line" style="margin-top:8px">First review uses the last 24 hours as the starting window.</div>{% endif %}
+  <div class="changed-latest">
+    {% for i in changed_issues[:3] %}<div class="changed-line">{{ i.change_type }} · {{ i.title }}</div>{% endfor %}
+    {% for a in changed_alerts[:2] %}<div class="changed-line">ALERT · {{ a.source }} · {{ a.title }}</div>{% endfor %}
+  </div>
+</section>
