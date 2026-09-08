@@ -1,0 +1,41 @@
+<style>
+.today-board-wrap{margin:0 0 18px}.today-board-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:8px}.today-board-head h2{margin:0}.today-board-days{display:grid;grid-template-columns:1fr 1fr;gap:12px}.today-board-day{border:1px solid var(--border,#d7dde5);border-radius:12px;padding:12px;background:var(--panel,#fff)}.today-board-day h3{margin:0 0 10px;font-size:13px;letter-spacing:.05em;text-transform:uppercase}.today-board-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px}.today-card{border:1px solid var(--border,#d7dde5);border-radius:10px;padding:10px;min-width:0}.today-card .k{font-size:10px;letter-spacing:.06em;text-transform:uppercase;opacity:.65}.today-card .v{font-size:18px;font-weight:800;line-height:1.15;margin-top:3px}.today-card .d{font-size:11px;opacity:.72;margin-top:4px}.today-card.setup{border-style:dashed}.today-card.override{outline:2px solid rgba(255,164,0,.35)}.today-card.next{opacity:.82}.today-board-more{font-size:12px}@media(max-width:760px){.today-board-days{grid-template-columns:1fr}.today-board-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+<section class="today-board-wrap" aria-label="Today Board">
+  <div class="today-board-head">
+    <div><div class="panel-kicker">WHAT IS TRUE TODAY?</div><h2>Today Board</h2></div>
+    <a class="text-link today-board-more" href="/today-board">Manage constants</a>
+  </div>
+  <div class="today-board-days">
+    <div class="today-board-day">
+      <h3>Today · {{ today_label }}</h3>
+      <div class="today-board-cards">
+        {% for r in today_board %}
+          {% if r.pinned or not board_compact %}
+          <div class="today-card {% if r.resolved.needs_setup %}setup{% endif %} {% if r.resolved.is_override %}override{% endif %}">
+            <div class="k">{{ r.name }}</div>
+            <div class="v">{{ r.resolved.value or '—' }}</div>
+            {% if r.resolved.detail %}<div class="d">{{ r.resolved.detail }}</div>{% endif %}
+            {% if r.resolved.is_override %}<div class="d">Override{% if r.resolved.override_reason %}: {{ r.resolved.override_reason }}{% endif %}</div>{% endif %}
+            {% if r.next and not r.resolved.needs_setup %}<div class="d">Next {{ r.next.date }}: {{ r.next.value }}</div>{% endif %}
+          </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    <div class="today-board-day next">
+      <h3>Tomorrow · {{ tomorrow_label }}</h3>
+      <div class="today-board-cards">
+        {% for r in tomorrow_board %}
+          {% if r.pinned or not board_compact %}
+          <div class="today-card next {% if r.resolved.needs_setup %}setup{% endif %} {% if r.resolved.is_override %}override{% endif %}">
+            <div class="k">{{ r.name }}</div>
+            <div class="v">{{ r.resolved.value or '—' }}</div>
+            {% if r.resolved.detail %}<div class="d">{{ r.resolved.detail }}</div>{% endif %}
+          </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</section>
