@@ -16,7 +16,6 @@ from app import app, execute, query_all, query_one, templates
 
 EASTERN = ZoneInfo("America/New_York")
 CAPTURE_TYPES = {
-    "INBOX",
     "ISSUE",
     "TASK",
     "FOLLOW_UP",
@@ -267,7 +266,9 @@ async def quick_capture(request: Request):
     next_action = str(form.get("next_action") or "").strip() or None
     follow_up_at = str(form.get("follow_up_at") or "").strip()
     requested_type = str(form.get("item_type") or "INBOX").strip().upper()
-    item_type = requested_type if requested_type in CAPTURE_TYPES else "INBOX"
+    is_inbox = requested_type == "INBOX"
+    item_type = "IDEA" if is_inbox else (requested_type if requested_type in CAPTURE_TYPES else "IDEA")
+    source = "QUICK_CAPTURE_INBOX" if is_inbox else "QUICK_CAPTURE"
     title = str(form.get("title") or "").strip() or _capture_title(raw)
     if len(title) > 180:
         title = title[:177].rstrip() + "..."
@@ -278,7 +279,7 @@ async def quick_capture(request: Request):
           title,description,category,priority,status,source,municipality,assigned_to,
           item_type,next_action,waiting_on,waiting_on_since,follow_up_at
         ) VALUES(
-          %s,%s,%s,%s,'OPEN','QUICK_CAPTURE','Weehawken',%s,%s,%s,%s,
+          %s,%s,%s,%s,'OPEN',%s,'Weehawken',%s,%s,%s,%s,
           CASE WHEN %s IS NULL THEN NULL ELSE now() END,
           NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York'
         )
@@ -288,6 +289,7 @@ async def quick_capture(request: Request):
             raw,
             category,
             priority,
+            source,
             assigned_to,
             item_type,
             next_action,
@@ -309,8 +311,7 @@ def executive_inbox(request: Request, msg: str = ""):
                follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local,
                created_at,updated_at
         FROM issues
-        WHERE source='QUICK_CAPTURE'
-          AND item_type='INBOX'
+        WHERE source='QUICK_CAPTURE_INBOX'
           AND status NOT IN ('RESOLVED','CLOSED')
         ORDER BY created_at ASC
         LIMIT 300
@@ -348,7 +349,7 @@ async def executive_inbox_triage(issue_id: uuid.UUID, request: Request):
     execute(
         """
         UPDATE issues
-        SET title=%s,item_type=%s,category=%s,priority=%s,assigned_to=%s,next_action=%s,
+        SET title=%s,item_type=%s,source='QUICK_CAPTURE',category=%s,priority=%s,assigned_to=%s,next_action=%s,
             waiting_on=%s,
             waiting_on_since=CASE
               WHEN %s IS NULL THEN NULL
@@ -357,7 +358,7 @@ async def executive_inbox_triage(issue_id: uuid.UUID, request: Request):
             END,
             follow_up_at=NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York',
             updated_at=now()
-        WHERE id=%s AND source='QUICK_CAPTURE' AND item_type='INBOX'
+        WHERE id=%s AND source='QUICK_CAPTURE_INBOX'
         """,
         (
             title,
@@ -382,7 +383,7 @@ def executive_inbox_dismiss(issue_id: uuid.UUID):
         """
         UPDATE issues
         SET status='CLOSED',closed_at=now(),updated_at=now()
-        WHERE id=%s AND source='QUICK_CAPTURE' AND item_type='INBOX'
+        WHERE id=%s AND source='QUICK_CAPTURE_INBOX'
         """,
         (issue_id,),
     )

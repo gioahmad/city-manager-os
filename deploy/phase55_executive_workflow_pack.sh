@@ -221,7 +221,7 @@ for path, markers in checks.items():
         assert expected in body, (path, expected)
     print("PASS render", path)
 
-# Global Quick Capture creates one existing issue row, initially INBOX.
+# Global Quick Capture creates one existing issue row in Inbox source-state.
 status, body = request(
     "/quick-capture",
     {
@@ -236,10 +236,10 @@ row = one(
     "SELECT id::text AS id,item_type,source,description FROM issues WHERE title=%s ORDER BY created_at DESC LIMIT 1",
     (marker,),
 )
-assert row and row["item_type"] == "INBOX" and row["source"] == "QUICK_CAPTURE", row
+assert row and row["item_type"] == "IDEA" and row["source"] == "QUICK_CAPTURE_INBOX", row
 assert "Preserve this raw wording" in (row["description"] or "")
 issue_id = row["id"]
-print("PASS Quick Capture -> existing issues row -> INBOX")
+print("PASS Quick Capture -> existing issues row -> Inbox source-state")
 
 status, body = request("/inbox")
 assert status == 200 and marker in body
