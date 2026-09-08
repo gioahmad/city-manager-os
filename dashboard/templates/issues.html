@@ -96,6 +96,19 @@
           </summary>
           <div class="work-card-body">
             {% if i.waiting_on %}<div class="quick-actions"><form method="post" action="/issues/{{ i.id }}/waiting/chased"><button class="secondary-button" type="submit">Chased Today</button></form><form method="post" action="/issues/{{ i.id }}/waiting/response"><button class="secondary-button" type="submit">Response Received</button></form></div>{% endif %}
+            {% if not i.waiting_on and i.status not in ['RESOLVED','CLOSED'] %}
+            <details class="optional-block" style="margin-bottom:12px">
+              <summary>Quick Waiting On</summary>
+              <form method="post" action="/issues/{{ i.id }}/quick-waiting" class="watch-form compact" style="margin-top:9px">
+                <input type="hidden" name="return_to" value="/issues?state={{ state }}">
+                <div class="form-grid two-col">
+                  <label>Waiting On<input name="waiting_on" required placeholder="Person, agency, vendor..."></label>
+                  <label>Chase / Follow Up<input type="datetime-local" name="follow_up_at"></label>
+                </div>
+                <button class="secondary-button" type="submit">Set Waiting On</button>
+              </form>
+            </details>
+            {% endif %}
             <form method="post" action="/issues/{{ i.id }}/update" class="watch-form compact">
               <label>Title<input name="title" value="{{ i.title }}" required></label>
               <label>Description / Notes<textarea name="description" rows="3">{{ i.description or '' }}</textarea></label>

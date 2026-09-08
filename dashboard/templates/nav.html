@@ -6,6 +6,7 @@
   <div class="nav-inner">
     <a href="/my-day" class="{% if request.url.path.startswith('/my-day') %}active{% endif %}">My Day</a>
     <a href="/issues" class="{% if request.url.path.startswith('/issues') %}active{% endif %}">Command</a>
+    <a href="/inbox" class="{% if request.url.path.startswith('/inbox') %}active{% endif %}">Inbox</a>
     <a href="/staff-admin" class="{% if request.url.path.startswith('/staff-admin') or request.url.path.startswith('/operations-routines') %}active{% endif %}">Operations</a>
     <a href="/schedule" class="{% if request.url.path.startswith('/schedule') or request.url.path.startswith('/event-intelligence') %}active{% endif %}">Events</a>
     <a href="/map" class="{% if request.url.path.startswith('/map') or request.url.path.startswith('/flood') %}active{% endif %}">Map</a>
@@ -16,11 +17,13 @@
       <summary>Admin / More</summary>
       <div class="nav-admin-menu">
         <a href="/">Overview</a>
+        <a href="/what-changed">What Changed</a>
         <a href="/modules">Modules</a>
         <a href="/admin-tools">Admin Tools</a>
         <span class="nav-menu-label">CONFIGURATION</span>
         <a href="/rules">Rules Center</a>
         <a href="/today-board">Today Board</a>
+        <a href="/today-board/setup">Today Board Setup Wizard</a>
         <a href="/watchlist">Watchlists</a>
         <a href="/subscribers">Subscribers</a>
         <a href="/routing">Routing</a>
@@ -49,10 +52,13 @@
       <a href="/map">Mapping Center</a>
       <a href="/transit">Transit Intelligence</a>
       <a href="/alerts">Alerts</a>
+      <a href="/inbox">Inbox</a>
+      <a href="/what-changed">What Changed</a>
       <a href="/">Overview</a>
       <a href="/modules">Modules</a>
       <a href="/rules">Rules Center</a>
       <a href="/today-board">Today Board</a>
+      <a href="/today-board/setup">Today Board Setup Wizard</a>
       <a href="/watchlist">Watchlists</a>
       <a href="/subscribers">Subscribers</a>
       <a href="/routing">Routing</a>
@@ -66,3 +72,5 @@
     </div>
   </details>
 </nav>
+
+{% include "quick_capture_global.html" %}

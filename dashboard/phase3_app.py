@@ -19,6 +19,8 @@ import transit_app  # noqa: F401,E402
 import alert_admin_v2  # noqa: F401,E402
 # Adds #52 Daily Constants / Today Board after other route modules are registered.
 import today_board_app  # noqa: F401,E402
+# Adds #55 executive capture, inbox, What Changed, wizard and Waiting On tools.
+import executive_workflow_app  # noqa: F401,E402
 
 from private_auth import configure_private_auth
 
