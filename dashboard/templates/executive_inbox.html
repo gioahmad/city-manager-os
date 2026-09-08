@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Inbox · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .inbox-list{display:grid;gap:10px}.inbox-card{border:1px solid #2a3d50;border-radius:11px;background:#101a25;padding:14px}.inbox-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.inbox-title{font-weight:850;font-size:1rem}.inbox-meta{font-size:.76rem;color:#9db0bf;margin-top:4px}.inbox-raw{white-space:pre-wrap;color:#d6e1e9;line-height:1.45;margin:12px 0;padding:10px;border:1px solid #223548;border-radius:8px;background:#0c151f}.inbox-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.inbox-grid label{display:grid;gap:5px;font-size:.8rem;color:#aebfcd}.inbox-grid input,.inbox-grid select{width:100%;box-sizing:border-box}.inbox-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}.dismiss-form{margin-left:auto}.inbox-empty{padding:35px;text-align:center;color:#a9bac9}@media(max-width:760px){.inbox-grid{grid-template-columns:1fr}.dismiss-form{margin-left:0}}
+  </style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><div class="eyebrow">CAPTURE · TRIAGE · ASSIGN</div><div class="brand-row"><h1>Inbox</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Things captured quickly that still need a home</div></div>
+</header>
+{% include "nav.html" %}
+<main>
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+  <section class="metrics">
+    <div class="metric metric-alerts"><span>Inbox</span><strong>{{ rows|length }}</strong><small>Open untriaged captures</small></div>
+    <div class="metric"><span>Rule</span><strong>1</strong><small>Capture first, organize later</small></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div><div class="panel-kicker">QUICK CAPTURE INBOX</div><h2>Triage Queue</h2></div><span class="count-pill">{{ rows|length }}</span></div>
+    <div class="panel-body">
+      <div class="inbox-list">
+      {% for i in rows %}
+        <article class="inbox-card">
+          <div class="inbox-top">
+            <div><div class="inbox-title">{{ i.title }}</div><div class="inbox-meta">P{{ i.priority }} · Captured {{ i.created_at.strftime('%m/%d/%y %I:%M %p') if i.created_at else '' }}</div></div>
+          </div>
+          <div class="inbox-raw">{{ i.description or '' }}</div>
+          <form method="post" action="/inbox/{{ i.id }}/triage">
+            <div class="inbox-grid">
+              <label>Title<input name="title" value="{{ i.title }}" required></label>
+              <label>Type<select name="item_type">{% for t in triage_types %}<option value="{{ t }}">{{ t|replace('_',' ') }}</option>{% endfor %}</select></label>
+              <label>Priority<select name="priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == i.priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label>
+              <label>Category<input name="category" value="{{ i.category or '' }}" placeholder="DPW, POLICE, BUILDING..."></label>
+              <label>Owner / Assigned To<input name="assigned_to" value="{{ i.assigned_to or '' }}" placeholder="Person or department"></label>
+              <label>Next Action<input name="next_action" value="{{ i.next_action or '' }}" placeholder="What happens next?"></label>
+              <label>Waiting On<input name="waiting_on" value="{{ i.waiting_on or '' }}" placeholder="Person, agency, vendor..."></label>
+              <label>Follow Up<input type="datetime-local" name="follow_up_at" value="{{ i.follow_up_local.strftime('%Y-%m-%dT%H:%M') if i.follow_up_local else '' }}"></label>
+            </div>
+            <div class="inbox-actions"><button class="primary-button" type="submit">Triage Into Command Center</button></div>
+          </form>
+          <form method="post" action="/inbox/{{ i.id }}/dismiss" class="dismiss-form" onsubmit="return confirm('Dismiss this capture?')"><button class="secondary-button" type="submit">Dismiss</button></form>
+        </article>
+      {% else %}
+        <div class="inbox-empty"><strong>Inbox is clear.</strong><div>Use + Quick Capture anywhere in City Manager OS when something comes in.</div></div>
+      {% endfor %}
+      </div>
+    </div>
+  </section>
+</main>
+</body>
+</html>
