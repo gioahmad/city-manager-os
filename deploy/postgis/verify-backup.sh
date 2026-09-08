@@ -17,7 +17,10 @@ set +a
 BACKUP_DIR="${BACKUP_DIR:-$SCRIPT_DIR/backups}"
 MAX_AGE_HOURS="${BACKUP_MAX_AGE_HOURS:-36}"
 
-LATEST="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'citymanager_*.dump' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)"
+# Do not use `head -n1` in this pipe. With `set -o pipefail`, head may
+# close the pipe after the first row and cause upstream sort to exit 141
+# (SIGPIPE) when the backup directory contains enough files.
+LATEST="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'citymanager_*.dump' -printf '%T@ %p\n' 2>/dev/null | sort -nr | sed -n '1p' | cut -d' ' -f2-)"
 [[ -n "$LATEST" && -s "$LATEST" ]] || {
   echo "ERROR: no backup archive found"
   exit 1
