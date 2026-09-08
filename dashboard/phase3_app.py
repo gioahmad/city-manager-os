@@ -11,6 +11,8 @@ import flood_app  # noqa: F401,E402
 import map_app  # noqa: F401,E402
 # Adds the next-phase web control plane: integrations, API Lab and regional event intelligence.
 import integrations_app  # noqa: F401,E402
+# Adds #47 web-managed source placeholders, read-only TEST gating and activation audit.
+import source_onboarding  # noqa: F401,E402
 # Adds provider-neutral regional transit intelligence. NJ TRANSIT is Phase 1.
 import transit_app  # noqa: F401,E402
 # Upgrades Alert Admin in place while preserving the existing matcher and routing tables.
