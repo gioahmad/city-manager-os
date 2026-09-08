@@ -28,6 +28,7 @@ COPY map_app.py .
 COPY integration_runtime.py .
 COPY integration_engine.py .
 COPY integrations_app.py .
+COPY source_onboarding.py .
 COPY transit_runtime.py .
 COPY transit_engine.py .
 COPY transit_app.py .
