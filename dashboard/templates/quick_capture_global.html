@@ -1,0 +1,32 @@
+<style>
+.qc-fab{position:fixed;right:18px;bottom:20px;z-index:1800;border:1px solid #5d8fb4;background:#16314a;color:#f5fbff;border-radius:999px;padding:11px 16px;font-weight:850;box-shadow:0 10px 28px rgba(0,0,0,.32);cursor:pointer}.qc-fab:hover{background:#1d4262}.qc-dialog{width:min(620px,calc(100vw - 28px));border:1px solid #35506a;border-radius:14px;background:#0f1924;color:#edf5fb;padding:0;box-shadow:0 24px 70px rgba(0,0,0,.55)}.qc-dialog::backdrop{background:rgba(4,9,14,.72)}.qc-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid #263b4d}.qc-head h2{margin:2px 0 0}.qc-close{border:1px solid #35506a;background:#152535;color:#e7f1f8;border-radius:8px;padding:7px 10px;cursor:pointer}.qc-body{padding:16px 18px}.qc-form{display:grid;gap:11px}.qc-form textarea,.qc-form input,.qc-form select{width:100%;box-sizing:border-box;background:#0b141e;border:1px solid #35506a;color:#f3f8fc;border-radius:8px;padding:10px}.qc-form textarea{font-size:1rem;line-height:1.45;min-height:130px}.qc-form label{display:grid;gap:5px;font-size:.82rem;color:#bed0dd}.qc-options{border:1px solid #2a4053;border-radius:9px;padding:9px 10px}.qc-options summary{cursor:pointer;font-weight:800;color:#dceaf4}.qc-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px}.qc-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}.qc-note{font-size:.76rem;color:#99adbd}.qc-save{border:1px solid #65a7d5;background:#1b5f8c;color:#fff;border-radius:8px;padding:10px 14px;font-weight:850;cursor:pointer}@media(max-width:700px){.qc-fab{right:12px;bottom:82px}.qc-grid{grid-template-columns:1fr}.qc-dialog{width:calc(100vw - 18px)}}
+</style>
+<button type="button" class="qc-fab" id="qc-open">+ Quick Capture</button>
+<dialog class="qc-dialog" id="qc-dialog" aria-labelledby="qc-title">
+  <div class="qc-head">
+    <div><div class="panel-kicker">CAPTURE NOW · ORGANIZE LATER</div><h2 id="qc-title">Quick Capture</h2></div>
+    <button type="button" class="qc-close" id="qc-close">Close</button>
+  </div>
+  <div class="qc-body">
+    <form method="post" action="/quick-capture" class="qc-form">
+      <input type="hidden" name="return_to" value="{{ request.url.path }}">
+      <label>What came in?<textarea name="raw_text" required autofocus placeholder="Paste it exactly as you received it, or type the thought/task/complaint here..."></textarea></label>
+      <details class="qc-options">
+        <summary>More options</summary>
+        <div class="qc-grid">
+          <label>Type<select name="item_type"><option value="INBOX">Inbox / decide later</option><option value="ISSUE">Problem / Issue</option><option value="TASK">Task</option><option value="FOLLOW_UP">Follow Up</option><option value="DECISION">Decision</option><option value="COMMITMENT">Commitment</option><option value="COMMUNICATION">Communication</option><option value="IDEA">Idea / Backlog</option></select></label>
+          <label>Priority<select name="priority"><option value="1">P1</option><option value="2">P2</option><option value="3" selected>P3</option><option value="4">P4</option><option value="5">P5</option></select></label>
+          <label>Category<input name="category" placeholder="DPW, POLICE, BUILDING..."></label>
+          <label>Owner / Assigned To<input name="assigned_to" placeholder="Person or department"></label>
+          <label>Next Action<input name="next_action" placeholder="Optional"></label>
+          <label>Waiting On<input name="waiting_on" placeholder="Person, agency, vendor..."></label>
+          <label>Follow Up<input type="datetime-local" name="follow_up_at"></label>
+        </div>
+      </details>
+      <div class="qc-actions"><span class="qc-note">If you leave it as Inbox, you can triage it later without retyping anything.</span><button class="qc-save" type="submit">Save Capture</button></div>
+    </form>
+  </div>
+</dialog>
+<script>
+(()=>{const d=document.getElementById('qc-dialog'),o=document.getElementById('qc-open'),c=document.getElementById('qc-close');if(!d||!o||!c)return;o.addEventListener('click',()=>d.showModal());c.addEventListener('click',()=>d.close());d.addEventListener('click',e=>{if(e.target===d)d.close();});document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();d.showModal();const t=d.querySelector('textarea[name="raw_text"]');if(t)t.focus();}});})();
+</script>
