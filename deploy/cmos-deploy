@@ -247,6 +247,8 @@ def validate(plan: Plan, base: str, target: str) -> None:
     run(["git", "diff", "--check", f"{base}...{target}"])
 
     for path in sorted(plan.python_files):
+        if not path.endswith(".py"):
+            continue
         if not (ROOT / path).is_file():
             continue
         source = (ROOT / path).read_text()
