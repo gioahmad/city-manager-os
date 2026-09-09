@@ -9,6 +9,7 @@ The initial statewide load uses official NJOGIS bulk File Geodatabase archives. 
 - Supporting parcel-block, road-alias and landmark-alias layers from the same archives
 
 The importer reads the ZIP files directly with GDAL. It does not require a second extracted copy.
+NJOGIS parcel layers can contain curved `MultiSurface` features even when the advertised layer type is `MultiPolygon`. The import linearizes those curves and promotes single polygons before PostgreSQL applies its strict `MultiPolygon` type. It never skips failed features.
 
 ## Guarded phases
 

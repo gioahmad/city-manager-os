@@ -51,8 +51,15 @@ def test_multiple_gdb_roots_rejected() -> None:
             raise AssertionError("archive with multiple FileGDB roots was accepted")
 
 
+def test_curved_polygon_import_contract() -> None:
+    script = Path(__file__).with_name("import_statewide_gis.sh").read_text()
+    assert script.count("-nlt CONVERT_TO_LINEAR -nlt PROMOTE_TO_MULTI") == 2
+    assert "-skipfailures" not in script
+
+
 if __name__ == "__main__":
     test_valid_archive()
     test_wrong_checksum()
     test_multiple_gdb_roots_rejected()
+    test_curved_polygon_import_contract()
     print("CMOS STATEWIDE ARCHIVE TESTS: PASS")

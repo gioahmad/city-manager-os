@@ -104,11 +104,13 @@ if [[ "$MODE" == "stage" ]]; then
   log "Importing statewide layers directly from compressed FileGDB archives"
   common=( -f PostgreSQL "$PG_DSN" -overwrite -progress -preserve_fid -lco FID=objectid -lco SPATIAL_INDEX=NONE --config PG_USE_COPY YES )
   PGPASSWORD="$POSTGRES_PASSWORD" ogr2ogr "${common[@]}" "$PARCEL_SOURCE" Cad_parcel_mod4 \
-    -nln public.stg_nj_parcels -t_srs EPSG:4326 -dim XY -nlt PROMOTE_TO_MULTI -lco GEOMETRY_NAME=geom
+    -nln public.stg_nj_parcels -t_srs EPSG:4326 -dim XY \
+    -nlt CONVERT_TO_LINEAR -nlt PROMOTE_TO_MULTI -lco GEOMETRY_NAME=geom
   PGPASSWORD="$POSTGRES_PASSWORD" ogr2ogr "${common[@]}" "$ADDRESS_SOURCE" Addr_addressPoint \
     -nln public.stg_nj_addresses -t_srs EPSG:4326 -dim XY -nlt POINT -lco GEOMETRY_NAME=geom
   PGPASSWORD="$POSTGRES_PASSWORD" ogr2ogr "${common[@]}" "$PARCEL_SOURCE" Cad_pclblock \
-    -nln public.stg_nj_parcel_blocks -t_srs EPSG:4326 -dim XY -nlt PROMOTE_TO_MULTI -lco GEOMETRY_NAME=geom
+    -nln public.stg_nj_parcel_blocks -t_srs EPSG:4326 -dim XY \
+    -nlt CONVERT_TO_LINEAR -nlt PROMOTE_TO_MULTI -lco GEOMETRY_NAME=geom
   PGPASSWORD="$POSTGRES_PASSWORD" ogr2ogr "${common[@]}" "$ADDRESS_SOURCE" Tran_roadNameAlias \
     -nln public.stg_nj_road_aliases -nlt NONE
   PGPASSWORD="$POSTGRES_PASSWORD" ogr2ogr "${common[@]}" "$ADDRESS_SOURCE" Addr_LandmarkAlias \
