@@ -213,6 +213,15 @@ def classify(files: list[str]) -> Plan:
             plan.reasons.add("security procedure requires specialized deployment")
             continue
 
+        if path in {
+            "deploy/gis/import_statewide_gis.sh",
+            "deploy/gis/statewide_archive.py",
+        }:
+            plan.external.add("postgis-statewide-import")
+            plan.backup_required = True
+            plan.reasons.add("guarded statewide GIS import tooling")
+            continue
+
         if path.startswith("deploy/"):
             plan.reasons.add("deployment/tooling only")
             continue

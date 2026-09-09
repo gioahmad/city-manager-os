@@ -45,6 +45,13 @@ assert_line "$docs" "build=no"
 assert_line "$docs" "services=none"
 assert_line "$docs" "full_e2e=no"
 
+statewide="$($HARNESS plan --files deploy/gis/import_statewide_gis.sh deploy/gis/statewide_archive.py)"
+assert_line "$statewide" "build=no"
+assert_line "$statewide" "services=none"
+assert_line "$statewide" "backup_required=yes"
+assert_line "$statewide" "external=postgis-statewide-import"
+assert_line "$statewide" "full_e2e=no"
+
 set +e
 unknown="$($HARNESS plan --files unexplained/runtime.bin 2>&1)"
 rc=$?
