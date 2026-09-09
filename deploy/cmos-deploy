@@ -1,0 +1,409 @@
+#!/usr/bin/env python3
+"""Plan and execute change-aware City Manager OS application deployments."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import py_compile
+import subprocess
+import sys
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+COMPOSE_FILE = ROOT / "dashboard" / "docker-compose.yml"
+ALL_SERVICES = {
+    "citymanager-dashboard",
+    "citymanager-staff",
+    "citymanager-ops-engine",
+    "citymanager-integration-engine",
+}
+
+
+@dataclass
+class Plan:
+    files: list[str]
+    services: set[str] = field(default_factory=set)
+    tests: set[str] = field(default_factory=set)
+    python_files: set[str] = field(default_factory=set)
+    json_files: set[str] = field(default_factory=set)
+    shell_files: set[str] = field(default_factory=set)
+    template_files: set[str] = field(default_factory=set)
+    external: set[str] = field(default_factory=set)
+    reasons: set[str] = field(default_factory=set)
+    unknown: set[str] = field(default_factory=set)
+    build: bool = False
+    backup_required: bool = False
+    full_e2e: bool = False
+
+
+def run(command: list[str], *, cwd: Path = ROOT, check: bool = True) -> subprocess.CompletedProcess[str]:
+    print("+ " + " ".join(command), flush=True)
+    return subprocess.run(command, cwd=cwd, text=True, check=check)
+
+
+def git_output(*args: str) -> str:
+    return subprocess.check_output(["git", *args], cwd=ROOT, text=True).strip()
+
+
+def add_dashboard(plan: Plan, *services: str) -> None:
+    plan.build = True
+    plan.services.update(services)
+
+
+def add_test(plan: Plan, *names: str) -> None:
+    plan.tests.update(f"tests/{name}" for name in names)
+
+
+def classify(files: list[str]) -> Plan:
+    plan = Plan(files=sorted(dict.fromkeys(files)))
+
+    for path in plan.files:
+        name = Path(path).name
+        disk_path = ROOT / path
+
+        if path.endswith(".py") and path.startswith("dashboard/"):
+            plan.python_files.add(path)
+        if path.endswith(".json"):
+            plan.json_files.add(path)
+        first_line = ""
+        if disk_path.is_file():
+            try:
+                first_line = disk_path.open(errors="replace").readline()
+            except OSError:
+                pass
+        if path.endswith(".sh") or "bash" in first_line or first_line.startswith("#!/bin/sh"):
+            plan.shell_files.add(path)
+        elif "python" in first_line:
+            plan.python_files.add(path)
+        if path.startswith("dashboard/templates/") and path.endswith(".html"):
+            plan.template_files.add(path)
+
+        if path == ".gitignore" or path == "README.md" or path.startswith("docs/") or path.startswith("modules/"):
+            plan.reasons.add("documentation/tooling only")
+            continue
+
+        if path.startswith("dashboard/tests/"):
+            plan.tests.add(path.removeprefix("dashboard/"))
+            plan.reasons.add("test-only change")
+            continue
+
+        if path in {"dashboard/Dockerfile", "dashboard/requirements.txt", "dashboard/docker-compose.yml"}:
+            add_dashboard(plan, *ALL_SERVICES)
+            plan.full_e2e = True
+            plan.reasons.add("shared application image definition")
+            add_test(
+                plan,
+                "test_attention_engine.py",
+                "test_event_source_pack.py",
+                "test_executive_workflow.py",
+                "test_gis_import.py",
+                "test_source_onboarding.py",
+                "test_today_board.py",
+            )
+            continue
+
+        if path in {
+            "dashboard/operations_engine.py",
+            "dashboard/operations_engine_windowed.py",
+        }:
+            add_dashboard(plan, "citymanager-ops-engine")
+            plan.full_e2e = True
+            plan.reasons.add("operations engine runtime")
+            add_test(plan, "test_attention_engine.py")
+            continue
+
+        if path == "dashboard/integration_worker.py":
+            add_dashboard(plan, "citymanager-integration-engine")
+            plan.full_e2e = True
+            plan.reasons.add("integration worker runtime")
+            add_test(plan, "test_event_source_pack.py", "test_source_onboarding.py")
+            continue
+
+        if path in {
+            "dashboard/integration_engine.py",
+            "dashboard/integration_runtime.py",
+            "dashboard/transit_engine.py",
+            "dashboard/transit_runtime.py",
+        }:
+            add_dashboard(plan, "citymanager-dashboard", "citymanager-integration-engine")
+            plan.full_e2e = True
+            plan.reasons.add("shared dashboard/integration runtime")
+            add_test(plan, "test_event_source_pack.py", "test_source_onboarding.py")
+            continue
+
+        if path in {
+            "dashboard/employee_app.py",
+            "dashboard/employee_public_app.py",
+            "dashboard/private_auth.py",
+        } or path.startswith("dashboard/templates/staff_") or path in {
+            "dashboard/static/staff.css",
+            "dashboard/static/photo_viewer.css",
+            "dashboard/static/photo_viewer.js",
+        }:
+            add_dashboard(plan, "citymanager-dashboard", "citymanager-staff")
+            plan.full_e2e = True
+            plan.reasons.add("shared dashboard/staff runtime")
+            add_test(plan, "test_attention_engine.py")
+            continue
+
+        if path.startswith("dashboard/templates/") or path.startswith("dashboard/static/"):
+            add_dashboard(plan, "citymanager-dashboard")
+            plan.reasons.add("dashboard presentation")
+            if "map" in name:
+                add_test(plan, "test_gis_import.py")
+            elif "today_board" in name:
+                add_test(plan, "test_today_board.py")
+            elif "executive" in name or name in {"quick_capture_global.html", "issues.html", "my_day.html"}:
+                add_test(plan, "test_executive_workflow.py", "test_attention_engine.py")
+            continue
+
+        if path.startswith("dashboard/") and path.endswith(".py"):
+            add_dashboard(plan, "citymanager-dashboard")
+            plan.reasons.add("dashboard application")
+            if name in {"app.py", "phase3_app.py"}:
+                plan.full_e2e = True
+                plan.reasons.add("dashboard composition/runtime contract")
+            if name in {"gis_import.py", "map_app.py", "flood_app.py"}:
+                add_test(plan, "test_gis_import.py")
+            elif name in {"executive_workflow_app.py", "issues_app.py", "waiting_actions_app.py"}:
+                add_test(plan, "test_executive_workflow.py", "test_attention_engine.py")
+            elif name in {"today_board_app.py", "today_board_engine.py"}:
+                add_test(plan, "test_today_board.py", "test_attention_engine.py")
+            elif name in {"source_onboarding.py", "integrations_app.py"}:
+                add_test(plan, "test_source_onboarding.py", "test_event_source_pack.py")
+            elif name == "attention_engine.py":
+                add_test(plan, "test_attention_engine.py")
+            else:
+                add_test(plan, "test_attention_engine.py")
+            continue
+
+        if path.startswith("deploy/postgis/init/") and path.endswith(".sql"):
+            plan.external.add("postgis-migration")
+            plan.backup_required = True
+            plan.full_e2e = True
+            plan.reasons.add("database migration requires guarded feature installer")
+            continue
+
+        if path.startswith("workflows/"):
+            plan.external.add("n8n-workflow-publish")
+            plan.full_e2e = True
+            plan.reasons.add("n8n workflow requires guarded publish")
+            continue
+
+        if path.startswith("schemas/"):
+            plan.external.add("schema-consumer-review")
+            plan.full_e2e = True
+            plan.reasons.add("shared schema contract")
+            continue
+
+        if path in {"deploy/postgis/docker-compose.yml", "deploy/n8n/docker-compose.yml"}:
+            plan.external.add("infrastructure-compose")
+            plan.backup_required = True
+            plan.full_e2e = True
+            plan.reasons.add("infrastructure definition requires specialized deployment")
+            continue
+
+        if path.startswith("deploy/security/"):
+            plan.external.add("security-procedure")
+            plan.backup_required = True
+            plan.full_e2e = True
+            plan.reasons.add("security procedure requires specialized deployment")
+            continue
+
+        if path.startswith("deploy/"):
+            plan.reasons.add("deployment/tooling only")
+            continue
+
+        plan.unknown.add(path)
+
+    return plan
+
+
+def csv(values: set[str]) -> str:
+    return ",".join(sorted(values)) if values else "none"
+
+
+def print_plan(plan: Plan, base: str, target: str) -> None:
+    print("CMOS CHANGE-AWARE DEPLOYMENT PLAN")
+    print(f"base={base}")
+    print(f"target={target}")
+    print(f"changed_count={len(plan.files)}")
+    for path in plan.files:
+        print(f"changed={path}")
+    print(f"build={'yes' if plan.build else 'no'}")
+    print(f"services={csv(plan.services)}")
+    print(f"tests={csv(plan.tests)}")
+    print(f"backup_required={'yes' if plan.backup_required else 'no'}")
+    print(f"external={csv(plan.external)}")
+    print(f"full_e2e={'yes' if plan.full_e2e else 'no'}")
+    print(f"unknown={csv(plan.unknown)}")
+    print(f"reasons={csv(plan.reasons)}")
+
+
+def validate(plan: Plan, base: str, target: str) -> None:
+    run(["git", "diff", "--check", f"{base}...{target}"])
+
+    for path in sorted(plan.python_files):
+        if not (ROOT / path).is_file():
+            continue
+        py_compile.compile(str(ROOT / path), doraise=True)
+        print(f"PY_COMPILE PASS: {path}")
+
+    for path in sorted(plan.json_files):
+        if not (ROOT / path).is_file():
+            continue
+        with (ROOT / path).open() as handle:
+            json.load(handle)
+        print(f"JSON PASS: {path}")
+
+    for path in sorted(plan.shell_files):
+        if not (ROOT / path).is_file():
+            continue
+        run(["bash", "-n", path])
+
+
+def build_and_test(plan: Plan) -> None:
+    compose = ["docker", "compose", "-f", str(COMPOSE_FILE)]
+
+    if plan.build:
+        run([*compose, "build", "citymanager-dashboard"])
+
+    if plan.template_files:
+        template_names = [
+            path.removeprefix("dashboard/templates/")
+            for path in sorted(plan.template_files)
+            if (ROOT / path).is_file()
+        ]
+        if template_names:
+            code = (
+                "import sys; from jinja2 import Environment, FileSystemLoader; "
+                "env=Environment(loader=FileSystemLoader('/src/templates')); "
+                "[env.get_template(name) for name in sys.argv[1:]]; "
+                "print('JINJA TARGETED VALIDATION: PASS')"
+            )
+            run([
+                *compose,
+                "run", "--rm", "--no-deps", "-T",
+                "-v", f"{ROOT / 'dashboard'}:/src:ro",
+                "--entrypoint", "python",
+                "citymanager-dashboard",
+                "-c", code,
+                *template_names,
+            ])
+
+    if plan.tests:
+        tests = sorted(plan.tests)
+        run([
+            *compose,
+            "run", "--rm", "--no-deps", "-T",
+            "-v", f"{ROOT / 'dashboard'}:/src:ro",
+            "-w", "/src",
+            "-e", "PYTHONPATH=/src:/app",
+            "--entrypoint", "pytest",
+            "citymanager-dashboard",
+            "-p", "no:cacheprovider", "-q",
+            *tests,
+        ])
+
+
+def wait_running(service: str) -> None:
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        result = subprocess.run(
+            ["docker", "inspect", service, "--format", "{{.State.Running}}"],
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode == 0 and result.stdout.strip() == "true":
+            print(f"RUNNING PASS: {service}")
+            return
+        time.sleep(2)
+    raise SystemExit(f"ERROR: {service} did not reach running state")
+
+
+def deploy(plan: Plan) -> None:
+    if plan.services:
+        compose = ["docker", "compose", "-f", str(COMPOSE_FILE)]
+        run([*compose, "up", "-d", "--no-deps", "--force-recreate", *sorted(plan.services)])
+        for service in sorted(plan.services):
+            wait_running(service)
+
+    if plan.services or plan.external:
+        run([str(ROOT / "deploy" / "cmos-health")])
+
+    if plan.full_e2e:
+        run([str(ROOT / "deploy" / "cmos-e2e-secure")])
+        run([str(ROOT / "deploy" / "cmos-health")])
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode", nargs="?", choices=("plan", "verify", "apply"), default="plan")
+    parser.add_argument("--base", default="origin/main")
+    parser.add_argument("--target", default="HEAD")
+    parser.add_argument("--files", nargs="+", help="Classify an explicit synthetic file list; plan mode only")
+    parser.add_argument(
+        "--external-applied",
+        action="store_true",
+        help="Confirm guarded database/n8n/infrastructure actions were applied by the feature installer",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    if args.files and args.mode != "plan":
+        raise SystemExit("ERROR: --files is available only in plan mode")
+
+    if args.files:
+        files = args.files
+        base = "synthetic"
+        target = "synthetic"
+    else:
+        base = git_output("rev-parse", "--verify", args.base)
+        target = git_output("rev-parse", "--verify", args.target)
+        if subprocess.run(["git", "merge-base", "--is-ancestor", base, target], cwd=ROOT).returncode:
+            raise SystemExit("ERROR: base is not an ancestor of target")
+        files = [
+            line
+            for line in git_output(
+                "diff", "--name-only", "--diff-filter=ACMRTD", f"{base}...{target}"
+            ).splitlines()
+            if line
+        ]
+
+    plan = classify(files)
+    print_plan(plan, base, target)
+
+    if args.mode == "plan":
+        return 2 if plan.unknown else 0
+
+    if git_output("status", "--porcelain"):
+        raise SystemExit("ERROR: working tree must be clean")
+    if plan.unknown:
+        raise SystemExit("ERROR: unknown paths require an explicit deployment rule")
+    if args.mode == "apply" and plan.external and not args.external_applied:
+        raise SystemExit(
+            "ERROR: guarded external deployment required; rerun apply with --external-applied only after the feature installer completes it"
+        )
+
+    validate(plan, base, target)
+    build_and_test(plan)
+
+    if args.mode == "verify":
+        print("CMOS CHANGE-AWARE VERIFY: PASS")
+        return 0
+
+    if plan.backup_required:
+        run([str(ROOT / "deploy" / "postgis" / "verify-backup.sh")])
+    deploy(plan)
+    print("CMOS CHANGE-AWARE APPLY: PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
