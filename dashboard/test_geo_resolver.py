@@ -16,6 +16,7 @@ def main():
     check(classify_text("Eastern Pkwy & Utica Ave", "details.anywhere") == "intersection", "intersection detection failed")
     check(classify_text("65-30 79th Pl", "raw.unexpected") == "address", "hyphenated NYC address failed")
     check(classify_text("100 Ferry Way", "message") == "address", "NJ address failed")
+    check(classify_text("6504 Broadway", "raw.anywhere") == "address", "short Broadway address failed")
 
     payload = {
         "source": "BNN",

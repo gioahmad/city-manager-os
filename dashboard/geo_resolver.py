@@ -103,7 +103,7 @@ def classify_text(value: str, source_path: str = "") -> str | None:
     match = _INTERSECTION_RE.match(text)
     if match and all(len(part.strip()) >= 2 for part in match.groups()):
         return "intersection"
-    if _ADDRESS_RE.match(text) and (_STREET_WORD_RE.search(text) or len(text.split()) >= 3):
+    if _ADDRESS_RE.match(text) and (_STREET_WORD_RE.search(text) or len(text.split()) >= 2):
         return "address"
     if _FACILITY_RE.search(text):
         return "facility"

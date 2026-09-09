@@ -361,7 +361,16 @@ def rollback_state(services: set[str]) -> tuple[dict[str, str], str]:
         ["docker", "image", "inspect", "dashboard-citymanager-dashboard:latest", "--format", "{{.Id}}"],
         text=True,
     ).strip()
-    return images, latest
+
+    preserved = {}
+    for service, image in images.items():
+        tag = f"dashboard-citymanager-dashboard:cmos-deploy-rollback-{service}"
+        run(["docker", "image", "tag", image, tag])
+        preserved[service] = tag
+
+    preserved_latest = "dashboard-citymanager-dashboard:cmos-deploy-rollback-latest"
+    run(["docker", "image", "tag", latest, preserved_latest])
+    return preserved, preserved_latest
 
 
 def restore_services(images: dict[str, str], previous_latest: str) -> None:
@@ -435,6 +444,8 @@ def main() -> int:
 
     if git_output("status", "--porcelain"):
         raise SystemExit("ERROR: working tree must be clean")
+    if args.mode == "apply" and git_output("branch", "--show-current") != "main":
+        raise SystemExit("ERROR: production apply must run from main")
     if plan.unknown:
         raise SystemExit("ERROR: unknown paths require an explicit deployment rule")
     if args.mode == "apply" and plan.external and not args.external_applied:
