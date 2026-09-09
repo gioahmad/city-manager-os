@@ -83,3 +83,15 @@ targeted tests plus live health without forcing full E2E.
 
 The tests are synthetic and do not build images, restart containers, publish
 workflows, or touch PostgreSQL.
+
+
+### Pre-promotion full E2E
+
+A production apply must run from a clean local `main` checkout whose `HEAD`
+matches the explicit deployment target. When full E2E is materially required,
+`cmos-deploy` passes that target to the secure E2E wrapper.
+
+The secure wrapper accepts the unpushed candidate only when `origin/main` is an
+ancestor of the candidate. Direct standalone E2E retains the stricter
+requirement that local `main` exactly match `origin/main`. This permits guarded
+pre-promotion acceptance without weakening the normal production check.

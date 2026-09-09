@@ -385,7 +385,7 @@ def restore_services(images: dict[str, str], previous_latest: str) -> None:
     print("ROLLBACK: prior application services restored", flush=True)
 
 
-def deploy(plan: Plan) -> None:
+def deploy(plan: Plan, target: str) -> None:
     if plan.services:
         compose = ["docker", "compose", "-f", str(COMPOSE_FILE)]
         run([*compose, "up", "-d", "--no-deps", "--force-recreate", *sorted(plan.services)])
@@ -396,7 +396,7 @@ def deploy(plan: Plan) -> None:
         run([str(ROOT / "deploy" / "cmos-health")])
 
     if plan.full_e2e:
-        run([str(ROOT / "deploy" / "cmos-e2e-secure")])
+        run(["env", f"CMOS_E2E_EXPECTED_HEAD={target}", str(ROOT / "deploy" / "cmos-e2e-secure")])
         run([str(ROOT / "deploy" / "cmos-health")])
 
 
@@ -446,6 +446,8 @@ def main() -> int:
         raise SystemExit("ERROR: working tree must be clean")
     if args.mode == "apply" and git_output("branch", "--show-current") != "main":
         raise SystemExit("ERROR: production apply must run from main")
+    if args.mode == "apply" and git_output("rev-parse", "HEAD") != target:
+        raise SystemExit("ERROR: deployment target must match the checked-out HEAD")
     if plan.unknown:
         raise SystemExit("ERROR: unknown paths require an explicit deployment rule")
     if args.mode == "apply" and plan.external and not args.external_applied:
@@ -468,7 +470,7 @@ def main() -> int:
     if plan.backup_required:
         run([str(ROOT / "deploy" / "postgis" / "verify-backup.sh")])
     try:
-        deploy(plan)
+        deploy(plan, target)
     except BaseException:
         if saved_images and saved_latest:
             restore_services(saved_images, saved_latest)

@@ -37,6 +37,10 @@ PY
 )"
 
 if [[ -z "$TOKEN" ]]; then
+  if [[ -n "${CMOS_E2E_EXPECTED_HEAD:-}" ]]; then
+    echo "ERROR: candidate E2E requires CMOS_AUTOMATION_TOKEN"
+    exit 1
+  fi
   exec "$ROOT/deploy/cmos-e2e-acceptance"
 fi
 
@@ -170,6 +174,25 @@ new_command = (
 old_import = 'import json,sys,urllib.parse,urllib.request\n'
 new_import = '''import json,os,sys,urllib.parse,urllib.request\n_token=os.environ.get("CMOS_E2E_AUTOMATION_TOKEN","").strip()\nassert _token, "CMOS_E2E_AUTOMATION_TOKEN missing"\n_opener=urllib.request.build_opener()\n_opener.addheaders=[("X-CMOS-Automation-Key",_token)]\nurllib.request.urlopen=_opener.open\n'''
 
+old_repo_gate = """git fetch -q origin main || fail "Could not fetch origin/main"
+[[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || fail "Local main does not match origin/main"
+pass "Repository is clean and matches origin/main"
+"""
+
+new_repo_gate = """git fetch -q origin main || fail "Could not fetch origin/main"
+if [[ -n "${CMOS_E2E_EXPECTED_HEAD:-}" ]]; then
+  [[ "$(git rev-parse HEAD)" == "$CMOS_E2E_EXPECTED_HEAD" ]] \\
+    || fail "Local HEAD does not match the expected deployment candidate"
+  git merge-base --is-ancestor origin/main "$CMOS_E2E_EXPECTED_HEAD" \\
+    || fail "Deployment candidate is not based on origin/main"
+  pass "Repository is clean and candidate commit is based on origin/main"
+else
+  [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] \\
+    || fail "Local main does not match origin/main"
+  pass "Repository is clean and matches origin/main"
+fi
+"""
+
 if source.count(old_command) != 1:
     raise SystemExit('Expected one internal Mapping Center docker exec block')
 if source.count(old_import) < 1:
@@ -183,6 +206,10 @@ if old_import not in tail:
     raise SystemExit('Mapping Center urllib import not found after docker exec block')
 tail = tail.replace(old_import, new_import, 1)
 source = head + marker + tail
+
+if source.count(old_repo_gate) != 1:
+    raise SystemExit("Expected one base E2E repository gate")
+source = source.replace(old_repo_gate, new_repo_gate, 1)
 
 target.write_text(source)
 target.chmod(0o700)
