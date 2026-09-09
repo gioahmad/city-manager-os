@@ -37,6 +37,14 @@ ancestor of the target. Unknown paths fail closed.
 All application services intentionally share the same built image. Containers
 not recreated continue using their existing immutable image layer.
 
+Before an application build in `apply` mode, the harness records the current
+image ID of every affected service. Readiness requires three consecutive
+successful checks; Dashboard must also return HTTP 200 from `/health`, and
+Staff must accept an internal connection. If restart, health, or E2E validation
+fails, the harness recreates each affected service from its recorded image and
+restores the prior `latest` tag. Database and n8n rollback remain the guarded
+feature installer's responsibility.
+
 ## Database, n8n, and infrastructure changes
 
 The generic harness does not guess how to apply a database migration, publish

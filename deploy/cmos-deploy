@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import py_compile
 import subprocess
 import sys
 import time
@@ -250,7 +249,8 @@ def validate(plan: Plan, base: str, target: str) -> None:
     for path in sorted(plan.python_files):
         if not (ROOT / path).is_file():
             continue
-        py_compile.compile(str(ROOT / path), doraise=True)
+        source = (ROOT / path).read_text()
+        compile(source, path, "exec")
         print(f"PY_COMPILE PASS: {path}")
 
     for path in sorted(plan.json_files):
@@ -310,19 +310,68 @@ def build_and_test(plan: Plan) -> None:
         ])
 
 
-def wait_running(service: str) -> None:
+def service_probe(service: str) -> bool:
+    if service == "citymanager-dashboard":
+        command = [
+            "docker", "exec", service, "python", "-c",
+            "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=4); assert r.status == 200",
+        ]
+    elif service == "citymanager-staff":
+        command = [
+            "docker", "exec", service, "python", "-c",
+            "import socket; s=socket.create_connection(('127.0.0.1',8000),4); s.close()",
+        ]
+    else:
+        return True
+    return subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
+def wait_ready(service: str) -> None:
     deadline = time.monotonic() + 60
+    consecutive = 0
     while time.monotonic() < deadline:
         result = subprocess.run(
             ["docker", "inspect", service, "--format", "{{.State.Running}}"],
             text=True,
             capture_output=True,
         )
-        if result.returncode == 0 and result.stdout.strip() == "true":
-            print(f"RUNNING PASS: {service}")
+        ready = (
+            result.returncode == 0
+            and result.stdout.strip() == "true"
+            and service_probe(service)
+        )
+        consecutive = consecutive + 1 if ready else 0
+        if consecutive >= 3:
+            print(f"READINESS PASS: {service}")
             return
         time.sleep(2)
-    raise SystemExit(f"ERROR: {service} did not reach running state")
+    raise RuntimeError(f"{service} did not reach stable ready state")
+
+
+def rollback_state(services: set[str]) -> tuple[dict[str, str], str]:
+    images = {
+        service: subprocess.check_output(
+            ["docker", "inspect", service, "--format", "{{.Image}}"], text=True
+        ).strip()
+        for service in services
+    }
+    latest = subprocess.check_output(
+        ["docker", "image", "inspect", "dashboard-citymanager-dashboard:latest", "--format", "{{.Id}}"],
+        text=True,
+    ).strip()
+    return images, latest
+
+
+def restore_services(images: dict[str, str], previous_latest: str) -> None:
+    compose = ["docker", "compose", "-f", str(COMPOSE_FILE)]
+    print("ROLLBACK: restoring prior service images", flush=True)
+    for service in sorted(images):
+        run(["docker", "image", "tag", images[service], "dashboard-citymanager-dashboard:latest"])
+        run([*compose, "up", "-d", "--no-deps", "--force-recreate", service])
+        wait_ready(service)
+    run(["docker", "image", "tag", previous_latest, "dashboard-citymanager-dashboard:latest"])
+    run([str(ROOT / "deploy" / "cmos-health")], check=False)
+    print("ROLLBACK: prior application services restored", flush=True)
 
 
 def deploy(plan: Plan) -> None:
@@ -330,7 +379,7 @@ def deploy(plan: Plan) -> None:
         compose = ["docker", "compose", "-f", str(COMPOSE_FILE)]
         run([*compose, "up", "-d", "--no-deps", "--force-recreate", *sorted(plan.services)])
         for service in sorted(plan.services):
-            wait_running(service)
+            wait_ready(service)
 
     if plan.services or plan.external:
         run([str(ROOT / "deploy" / "cmos-health")])
@@ -391,6 +440,11 @@ def main() -> int:
             "ERROR: guarded external deployment required; rerun apply with --external-applied only after the feature installer completes it"
         )
 
+    saved_images: dict[str, str] = {}
+    saved_latest = ""
+    if args.mode == "apply" and plan.services:
+        saved_images, saved_latest = rollback_state(plan.services)
+
     validate(plan, base, target)
     build_and_test(plan)
 
@@ -400,7 +454,12 @@ def main() -> int:
 
     if plan.backup_required:
         run([str(ROOT / "deploy" / "postgis" / "verify-backup.sh")])
-    deploy(plan)
+    try:
+        deploy(plan)
+    except BaseException:
+        if saved_images and saved_latest:
+            restore_services(saved_images, saved_latest)
+        raise
     print("CMOS CHANGE-AWARE APPLY: PASS")
     return 0
 
