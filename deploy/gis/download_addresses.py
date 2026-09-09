@@ -26,6 +26,13 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from arcgis_resilience import (
+    download_feature_collection,
+    object_ids_sha256,
+    request_json,
+    snapshot_is_current,
+)
+
 LAYER_URL = (
     "https://services2.arcgis.com/XVOqAjTOJ5P6ngMu/ArcGIS/rest/services/"
     "AddressPoints/FeatureServer/0"
@@ -33,38 +40,6 @@ LAYER_URL = (
 QUERY_URL = f"{LAYER_URL}/query"
 DEFAULT_OUTPUT = Path("/opt/citymanager-data/gis/raw/addresses")
 USER_AGENT = "CityManagerOS-GIS/0.1"
-
-
-def request_json(url: str, params: dict[str, str], *, post: bool = True, attempts: int = 5):
-    encoded = urllib.parse.urlencode(params).encode("utf-8")
-    for attempt in range(1, attempts + 1):
-        try:
-            if post:
-                req = urllib.request.Request(
-                    url,
-                    data=encoded,
-                    headers={
-                        "User-Agent": USER_AGENT,
-                        "Content-Type": "application/x-www-form-urlencoded",
-                    },
-                )
-            else:
-                req = urllib.request.Request(
-                    f"{url}?{encoded.decode('utf-8')}",
-                    headers={"User-Agent": USER_AGENT},
-                )
-            with urllib.request.urlopen(req, timeout=180) as response:
-                raw = response.read()
-            data = json.loads(raw)
-            if isinstance(data, dict) and "error" in data:
-                raise RuntimeError(f"ArcGIS error: {data['error']}")
-            return data
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, RuntimeError) as exc:
-            if attempt == attempts:
-                raise
-            delay = min(2 ** attempt, 20)
-            print(f"  request failed ({exc}); retrying in {delay}s...", file=sys.stderr)
-            time.sleep(delay)
 
 
 def layer_metadata() -> dict:
@@ -153,52 +128,32 @@ def download_county(
     output_dir.mkdir(parents=True, exist_ok=True)
     final_path = output_dir / f"{county.lower()}_ng911_addresses.geojson"
     temp_path = final_path.with_suffix(final_path.suffix + ".part")
+    metadata_path = output_dir / f"{county.lower()}_ng911_addresses.metadata.json"
+    reused_marker = Path(f"{final_path}.reused")
+    if snapshot_is_current(final_path, metadata_path, ids, source_last_edit_ms):
+        reused_marker.write_text("source revision unchanged\n")
+        print(f"Reusing unchanged local address snapshot for {county}", flush=True)
+        return
+    reused_marker.unlink(missing_ok=True)
 
     print(f"\n=== {county} ===")
     print(f"County code: {county_code}")
     print(f"Address points reported by NJOGIS: {expected:,}")
     print(f"Output: {final_path}")
 
-    written = 0
-    first_feature = True
-
-    with temp_path.open("w", encoding="utf-8") as out:
-        out.write('{"type":"FeatureCollection","features":[')
-
-        total_batches = (expected + batch_size - 1) // batch_size
-        for batch_no, batch in enumerate(chunks(ids, batch_size), start=1):
-            data = request_json(
-                QUERY_URL,
-                {
-                    "objectIds": ",".join(str(value) for value in batch),
-                    "outFields": "*",
-                    "returnGeometry": "true",
-                    "outSR": "4326",
-                    "f": "geojson",
-                },
-            )
-            features = data.get("features") or []
-            if len(features) != len(batch):
-                raise RuntimeError(
-                    f"Batch {batch_no} returned {len(features)} features for "
-                    f"{len(batch)} requested object IDs"
-                )
-
-            for feature in features:
-                if not first_feature:
-                    out.write(",")
-                json.dump(feature, out, ensure_ascii=False, separators=(",", ":"))
-                first_feature = False
-                written += 1
-
-            print(
-                f"  batch {batch_no}/{total_batches}: {written:,}/{expected:,}",
-                flush=True,
-            )
-
-        out.write("]}")
-        out.flush()
-        os.fsync(out.fileno())
+    written = download_feature_collection(
+        ids=ids,
+        batch_size=batch_size,
+        query_url=QUERY_URL,
+        query_parameters={
+            "outFields": "*",
+            "returnGeometry": "true",
+            "outSR": "4326",
+            "f": "geojson",
+        },
+        temporary_path=temp_path,
+        label=f"{county} addresses",
+    )
 
     if written != expected:
         raise RuntimeError(f"Validation failed: wrote {written}, expected {expected}")
@@ -212,6 +167,7 @@ def download_county(
         "county": county,
         "county_code": county_code,
         "object_id_field": oid_field,
+        "object_ids_sha256": object_ids_sha256(ids),
         "feature_count": written,
         "crs": "EPSG:4326",
         "source_last_edit_ms": source_last_edit_ms,

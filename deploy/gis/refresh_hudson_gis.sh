@@ -4,7 +4,7 @@ set -Eeuo pipefail
 REPO="/opt/city-manager-os"
 DATA_ROOT="/opt/citymanager-data/gis"
 RUN_ID="$(date '+%Y%m%d%H%M%S')"
-TMP_ROOT="${DATA_ROOT}/refresh/${RUN_ID}"
+TMP_ROOT="${DATA_ROOT}/refresh/hudson-current"
 ARCHIVE_ROOT="${DATA_ROOT}/archive/${RUN_ID}"
 LOCK_FILE="/var/lock/cmos-hudson-gis-refresh.lock"
 MODE="${GIS_REFRESH_MODE:-full}"
@@ -185,9 +185,21 @@ log "Production baseline: parcels=${PROD_P}, addresses=${PROD_A}"
 
 mkdir -p "$TMP_ROOT/parcels" "$TMP_ROOT/addresses" "$ARCHIVE_ROOT/parcels" "$ARCHIVE_ROOT/addresses"
 
-log "Downloading fresh Hudson parcel snapshot to isolated refresh directory"
+seed_snapshot(){
+  local source_data="$1" source_meta="$2" work_data="$3" work_meta="$4"
+  local part="${work_data}.part" checkpoint="${work_data}.part.checkpoint.json"
+  if [[ ! -e "$work_data" && ! -e "$work_meta" && ! -e "$part" && ! -e "$checkpoint"         && -f "$source_data" && -f "$source_meta" ]]; then
+    cp --reflink=auto "$source_data" "$work_data"
+    cp --reflink=auto "$source_meta" "$work_meta"
+  fi
+}
+
+seed_snapshot   "$DATA_ROOT/raw/parcels/$PARCEL_NAME"   "$DATA_ROOT/raw/parcels/$PARCEL_META_NAME"   "$TMP_ROOT/parcels/$PARCEL_NAME"   "$TMP_ROOT/parcels/$PARCEL_META_NAME"
+seed_snapshot   "$DATA_ROOT/raw/addresses/$ADDRESS_NAME"   "$DATA_ROOT/raw/addresses/$ADDRESS_META_NAME"   "$TMP_ROOT/addresses/$ADDRESS_NAME"   "$TMP_ROOT/addresses/$ADDRESS_META_NAME"
+
+log "Downloading or resuming Hudson parcel snapshot in persistent isolated workspace"
 python3 deploy/gis/download_parcels.py --counties HUDSON --output-dir "$TMP_ROOT/parcels"
-log "Downloading fresh Hudson NG911 address snapshot to isolated refresh directory"
+log "Downloading, reusing or resuming Hudson NG911 address snapshot"
 python3 deploy/gis/download_addresses.py --counties HUDSON --output-dir "$TMP_ROOT/addresses"
 
 PARCEL_DATA="$TMP_ROOT/parcels/$PARCEL_NAME"
@@ -201,6 +213,15 @@ A_INFO="$(validate_snapshot "$ADDRESS_DATA" "$ADDRESS_META" "addresses")"
 printf '%s\n%s\n' "$P_INFO" "$A_INFO"
 IFS='|' read -r _ NEW_P P_SHA P_DOWNLOADED <<< "$P_INFO"
 IFS='|' read -r _ NEW_A A_SHA A_DOWNLOADED <<< "$A_INFO"
+
+if [[ -f "${PARCEL_DATA}.reused" && -f "${ADDRESS_DATA}.reused" ]]; then
+  SUCCESS_MSG="Hudson GIS source revisions are unchanged. Existing local PostGIS datasets remain current. Parcels: ${NEW_P}; addresses: ${NEW_A}."
+  mark_health "OK" ""
+  notify_refresh "SUCCESS" "$SUCCESS_MSG"
+  rm -rf -- "$TMP_ROOT"
+  log "HUDSON GIS REFRESH PASSED: SOURCE UNCHANGED"
+  exit 0
+fi
 
 log "Applying row-count sanity gates against current production"
 sanity_check_count "parcels" "$NEW_P" "$PROD_P"
@@ -258,6 +279,7 @@ WHERE dataset_id IN ('NJOGIS_HUDSON_PARCELS','NJOGIS_HUDSON_ADDRESSES')
 ORDER BY dataset_id;
 SQL
 
+rm -rf -- "$TMP_ROOT"
 SUCCESS_MSG="Hudson GIS refresh completed successfully. Parcels: ${NEW_P}; addresses: ${NEW_A}; production validation passed."
 mark_health "OK" ""
 notify_refresh "SUCCESS" "$SUCCESS_MSG"
