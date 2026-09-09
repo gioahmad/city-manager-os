@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from schedule_app import app
 from app import db_conn, execute, query_all, query_one, templates
 from gis_import import MAX_UPLOAD_BYTES, read_import
+from geo_resolver import resolve_payload
 
 
 SYSTEM_LAYERS = [
@@ -113,7 +114,7 @@ def mapping_center(request: Request, msg: str = ""):
         WITH e AS (
           SELECT ST_Extent(geom) AS b
           FROM gis_parcels
-          WHERE lower(coalesce(mun_name,'')) LIKE '%%weehawken%%'
+          WHERE geom IS NOT NULL
         )
         SELECT ST_XMin(b) AS minx,ST_YMin(b) AS miny,ST_XMax(b) AS maxx,ST_YMax(b) AS maxy
         FROM e WHERE b IS NOT NULL
@@ -160,8 +161,7 @@ def map_search(q: str = ""):
                concat_ws(' · ',post_comm,post_code) AS detail,
                objectid::text AS source_id,ST_AsGeoJSON(geom)::json AS geometry
         FROM gis_addresses
-        WHERE lower(trim(coalesce(post_comm,'')))='weehawken'
-          AND fulladdr ILIKE %s AND geom IS NOT NULL
+        WHERE fulladdr ILIKE %s AND geom IS NOT NULL
         ORDER BY CASE WHEN status='A' THEN 0 ELSE 1 END,fulladdr LIMIT 8
         """, (like,)
     ))
@@ -169,11 +169,10 @@ def map_search(q: str = ""):
         """
         SELECT 'PARCEL' AS result_type,
                coalesce(nullif(prop_loc,''),'Block ' || coalesce(pclblock,'?') || ' Lot ' || coalesce(pcllot,'?')) AS label,
-               concat_ws(' · ','Block ' || coalesce(pclblock,'?'),'Lot ' || coalesce(pcllot,'?'),nullif(pams_pin,'')) AS detail,
+               concat_ws(' · ',mun_name,'Block ' || coalesce(pclblock,'?'),'Lot ' || coalesce(pcllot,'?'),nullif(pams_pin,'')) AS detail,
                objectid::text AS source_id,ST_AsGeoJSON(geom)::json AS geometry
         FROM gis_parcels
-        WHERE lower(coalesce(mun_name,'')) LIKE '%%weehawken%%'
-          AND (prop_loc ILIKE %s OR pams_pin ILIKE %s OR pclblock ILIKE %s OR pcllot ILIKE %s)
+        WHERE (prop_loc ILIKE %s OR pams_pin ILIKE %s OR pclblock ILIKE %s OR pcllot ILIKE %s)
           AND geom IS NOT NULL
         ORDER BY prop_loc NULLS LAST,objectid LIMIT 8
         """, (like, like, like, like)
@@ -192,19 +191,35 @@ def map_search(q: str = ""):
     return JSONResponse(_feature_collection(rows[:20]))
 
 
+@app.post("/map/resolve")
+async def map_resolve(request: Request):
+    """Resolve any fluid location payload strictly against local PostGIS."""
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Payload must be a JSON object")
+    entity_type = str(payload.pop("_entity_type", "") or "").strip() or None
+    entity_id = str(payload.pop("_entity_id", "") or "").strip() or None
+    with db_conn() as conn:
+        result = resolve_payload(
+            conn,
+            payload,
+            entity_type=entity_type,
+            entity_id=entity_id,
+        )
+    return JSONResponse(result)
+
+
 @app.get("/map/system/flood.geojson")
 def map_flood_geojson():
     rows = query_all(
         """
-        WITH b AS (
-          SELECT ST_UnaryUnion(ST_Collect(geom)) AS geom FROM gis_parcels
-          WHERE lower(coalesce(mun_name,'')) LIKE '%%weehawken%%'
-        )
         SELECT z.id,z.fld_zone,z.zone_subty,z.sfha_tf,z.static_bfe,
-               ST_AsGeoJSON(ST_Intersection(z.geom,b.geom))::json AS geometry
-        FROM gis_flood_zones z CROSS JOIN b
-        WHERE b.geom IS NOT NULL AND ST_Intersects(z.geom,b.geom)
-          AND NOT ST_IsEmpty(ST_Intersection(z.geom,b.geom))
+               ST_AsGeoJSON(z.geom)::json AS geometry
+        FROM gis_flood_zones z
+        WHERE z.geom IS NOT NULL AND NOT ST_IsEmpty(z.geom)
         ORDER BY CASE WHEN z.sfha_tf='T' THEN 0 ELSE 1 END,z.fld_zone,z.id
         """
     )
@@ -214,11 +229,10 @@ def map_flood_geojson():
 @app.get("/map/system/parcels.geojson")
 def map_parcels_geojson(bbox: str | None = None):
     box = _bbox(bbox)
-    params = []
-    where = ["lower(coalesce(mun_name,'')) LIKE '%%weehawken%%'"]
-    if box:
-        where.append("ST_Intersects(geom,ST_MakeEnvelope(%s,%s,%s,%s,4326))")
-        params.extend(box)
+    if not box:
+        return JSONResponse({"type": "FeatureCollection", "features": []})
+    params = list(box)
+    where = ["geom IS NOT NULL", "ST_Intersects(geom,ST_MakeEnvelope(%s,%s,%s,%s,4326))"]
     rows = query_all(
         f"""
         SELECT objectid,pams_pin,pclblock AS block,pcllot AS lot,prop_loc,
@@ -232,11 +246,10 @@ def map_parcels_geojson(bbox: str | None = None):
 @app.get("/map/system/addresses.geojson")
 def map_addresses_geojson(bbox: str | None = None):
     box = _bbox(bbox)
-    params = []
-    where = ["lower(trim(coalesce(post_comm,'')))='weehawken'"]
-    if box:
-        where.append("ST_Intersects(geom,ST_MakeEnvelope(%s,%s,%s,%s,4326))")
-        params.extend(box)
+    if not box:
+        return JSONResponse({"type": "FeatureCollection", "features": []})
+    params = list(box)
+    where = ["geom IS NOT NULL", "ST_Intersects(geom,ST_MakeEnvelope(%s,%s,%s,%s,4326))"]
     rows = query_all(
         f"""
         SELECT objectid,fulladdr,post_comm,post_code,status,ST_AsGeoJSON(geom)::json AS geometry

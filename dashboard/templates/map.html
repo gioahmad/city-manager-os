@@ -46,7 +46,7 @@
       </section>
 
       <section class="map-tool-panel" data-panel-name="layers">
-        <div class="map-section-title"><h3>System Layers</h3><button id="fit-town" class="map-mini-button" type="button">Fit Town</button></div>
+        <div class="map-section-title"><h3>System Layers</h3><button id="fit-town" class="map-mini-button" type="button">Fit Region</button></div>
         <div class="map-layer-list">
           {% for layer in system_layers %}
           <label class="map-layer-row">
@@ -131,12 +131,12 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 <script>
-const townBounds=[
+const regionBounds=[
   [{{ bounds.miny if bounds else 40.752 }},{{ bounds.minx if bounds else -74.035 }}],
   [{{ bounds.maxy if bounds else 40.783 }},{{ bounds.maxx if bounds else -74.008 }}]
 ];
 const map=L.map('city-map',{preferCanvas:true,zoomControl:true});
-map.fitBounds(townBounds,{padding:[20,20]});
+map.fitBounds(regionBounds,{padding:[20,20]});
 const statusEl=document.getElementById('map-status');
 const groups={};
 function status(msg){statusEl.textContent=msg;}
@@ -164,8 +164,8 @@ async function initialLoad(){for(const el of document.querySelectorAll('.custom-
 initialLoad();
 let viewportTimer=null;map.on('moveend',()=>{clearTimeout(viewportTimer);viewportTimer=setTimeout(()=>{document.querySelectorAll('.system-layer-toggle:checked').forEach(el=>{if(el.dataset.viewport==='1')loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,true).catch(e=>status(e.message));});},250);});
 
-function fitTown(){map.fitBounds(townBounds,{padding:[20,20]});}
-document.getElementById('fit-town')?.addEventListener('click',fitTown);document.getElementById('fit-town-tools')?.addEventListener('click',fitTown);
+function fitRegion(){map.fitBounds(regionBounds,{padding:[20,20]});}
+document.getElementById('fit-town')?.addEventListener('click',fitRegion);document.getElementById('fit-town-tools')?.addEventListener('click',fitRegion);
 
 document.querySelectorAll('.map-tab').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('.map-tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.map-tool-panel').forEach(x=>x.classList.remove('active'));button.classList.add('active');document.querySelector('[data-panel-name="'+button.dataset.panel+'"]').classList.add('active');}));
 

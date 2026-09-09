@@ -28,6 +28,7 @@ COPY operations_engine_windowed.py .
 COPY flood_app.py .
 COPY gis_import.py .
 COPY map_app.py .
+COPY geo_resolver.py .
 COPY integration_runtime.py .
 COPY integration_engine.py .
 COPY integrations_app.py .
