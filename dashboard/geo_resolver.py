@@ -479,8 +479,11 @@ def _save_cache(
             )
             VALUES (
                 %s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s::jsonb,%s::jsonb,
-                CASE WHEN %s IS NOT NULL AND %s IS NOT NULL
-                     THEN ST_SetSRID(ST_MakePoint(%s,%s),4326) ELSE NULL END,
+                CASE WHEN %s::double precision IS NOT NULL
+                           AND %s::double precision IS NOT NULL
+                     THEN ST_SetSRID(ST_MakePoint(
+                         %s::double precision,%s::double precision
+                     ),4326) ELSE NULL END,
                 now(),now()
             )
             ON CONFLICT (cache_key) DO UPDATE
@@ -527,9 +530,12 @@ def _save_entity_resolution(conn, entity_type: str, entity_id: str, cache_key: s
             )
             VALUES (
                 %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,
-                CASE WHEN %s IS NOT NULL AND %s IS NOT NULL
-                     THEN ST_SetSRID(ST_MakePoint(%s,%s),4326) ELSE NULL END,
-                %s,%s,CASE WHEN %s='RESOLVED' THEN now() ELSE NULL END,
+                CASE WHEN %s::double precision IS NOT NULL
+                           AND %s::double precision IS NOT NULL
+                     THEN ST_SetSRID(ST_MakePoint(
+                         %s::double precision,%s::double precision
+                     ),4326) ELSE NULL END,
+                %s,%s,CASE WHEN %s::text='RESOLVED' THEN now() ELSE NULL END,
                 now(),1,now()
             )
             ON CONFLICT (entity_type,entity_id) DO UPDATE
@@ -789,9 +795,12 @@ def process_pending_alerts(
                             UPDATE alerts
                             SET geom=ST_SetSRID(ST_MakePoint(%s,%s),4326),
                                 location=location || jsonb_strip_nulls(jsonb_build_object(
-                                  'label',%s,'address',coalesce(nullif(location->>'address',''),%s),
-                                  'municipality',%s,'state',%s,'zip',%s,
-                                  'parcel_id',%s,'longitude',%s,'latitude',%s
+                                  'label',%s::text,
+                                  'address',coalesce(nullif(location->>'address',''),%s::text),
+                                  'municipality',%s::text,'state',%s::text,'zip',%s::text,
+                                  'parcel_id',%s::text,
+                                  'longitude',%s::double precision,
+                                  'latitude',%s::double precision
                                 )),
                                 metadata=jsonb_set(metadata,'{geo_resolution}',%s::jsonb,true)
                             WHERE id=%s::uuid

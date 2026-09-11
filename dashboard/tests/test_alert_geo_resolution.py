@@ -6,13 +6,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from geo_resolver import (
     _address_variants,
     _cache_key,
+    _save_cache,
     _save_entity_resolution,
+    LocationCandidate,
     extract_location_candidates,
     normalize_text,
 )
 
 
 class _Cursor:
+    queries = []
+
     def __enter__(self):
         return self
 
@@ -21,6 +25,7 @@ class _Cursor:
 
     def execute(self, query, params):
         assert query.count("%s") == len(params)
+        self.queries.append(query)
 
 
 class _Connection:
@@ -62,6 +67,7 @@ def test_worker_contract_stays_inside_existing_alerts_and_resolver():
 
 
 def test_entity_resolution_sql_parameter_contract():
+    _Cursor.queries.clear()
     _save_entity_resolution(
         _Connection(),
         "ALERT",
@@ -83,3 +89,32 @@ def test_entity_resolution_sql_parameter_contract():
             "provenance": {"runtime_source": "LOCAL_POSTGIS"},
         },
     )
+    query = _Cursor.queries[-1]
+    assert query.count("%s::double precision") == 4
+    assert "%s::text='RESOLVED'" in query
+
+
+def test_cache_geometry_parameters_are_typed_for_postgres_nulls():
+    _Cursor.queries.clear()
+    _save_cache(
+        _Connection(),
+        "cache-key",
+        {
+            "status": "UNRESOLVED",
+            "match_type": None,
+            "confidence": 0,
+            "longitude": None,
+            "latitude": None,
+            "provenance": {"runtime_source": "LOCAL_POSTGIS"},
+        },
+        [LocationCandidate("address", "Unknown", "UNKNOWN", "message", 0.5)],
+        {"municipality": "", "county": "", "state": "NJ", "source": "BNN"},
+        {"NJOGIS_NJ_STATEWIDE_ADDRESSES": {"row_count": 3755307}},
+    )
+    assert _Cursor.queries[-1].count("%s::double precision") == 4
+
+
+def test_alert_metadata_parameters_have_explicit_sql_types():
+    source = Path(__file__).resolve().parents[1].joinpath("geo_resolver.py").read_text()
+    assert "'label',%s::text" in source
+    assert "'longitude',%s::double precision" in source
