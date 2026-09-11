@@ -75,6 +75,13 @@ boundaries, including:
 Dashboard-only presentation and ordinary dashboard application changes use
 targeted tests plus live health without forcing full E2E.
 
+Mapping Center application or presentation changes also run authenticated
+post-restart probes against `/map`, `/map/gis/status`, and the Alerts GeoJSON
+layer. Each probe must return HTTP 200 without redirecting to login, and JSON
+endpoints must parse successfully. This catches runtime SQL, authentication,
+and serialization failures without expanding a dashboard-only change into full
+E2E.
+
 ## Classification tests
 
 ```bash

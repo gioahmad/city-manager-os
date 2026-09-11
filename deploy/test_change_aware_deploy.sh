@@ -16,6 +16,7 @@ assert_line() {
 dashboard="$($HARNESS plan --files dashboard/templates/map.html dashboard/map_app.py)"
 assert_line "$dashboard" "build=yes"
 assert_line "$dashboard" "services=citymanager-dashboard"
+assert_line "$dashboard" "probes=/map,/map/gis/status,/map/system/alerts.geojson?days=30&min_priority=1"
 assert_line "$dashboard" "full_e2e=no"
 
 composition="$($HARNESS plan --files dashboard/phase3_app.py)"
@@ -48,6 +49,7 @@ assert_line "$workflow" "full_e2e=yes"
 docs="$($HARNESS plan --files docs/CHANGE_AWARE_DEPLOYMENT.md README.md)"
 assert_line "$docs" "build=no"
 assert_line "$docs" "services=none"
+assert_line "$docs" "probes=none"
 assert_line "$docs" "full_e2e=no"
 
 statewide="$($HARNESS plan --files deploy/gis/import_statewide_gis.sh deploy/gis/statewide_archive.py)"

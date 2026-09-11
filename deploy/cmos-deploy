@@ -31,6 +31,7 @@ class Plan:
     json_files: set[str] = field(default_factory=set)
     shell_files: set[str] = field(default_factory=set)
     template_files: set[str] = field(default_factory=set)
+    probes: set[str] = field(default_factory=set)
     external: set[str] = field(default_factory=set)
     reasons: set[str] = field(default_factory=set)
     unknown: set[str] = field(default_factory=set)
@@ -55,6 +56,10 @@ def add_dashboard(plan: Plan, *services: str) -> None:
 
 def add_test(plan: Plan, *names: str) -> None:
     plan.tests.update(f"tests/{name}" for name in names)
+
+
+def add_probe(plan: Plan, *paths: str) -> None:
+    plan.probes.update(paths)
 
 
 def classify(files: list[str]) -> Plan:
@@ -171,6 +176,7 @@ def classify(files: list[str]) -> Plan:
             plan.reasons.add("dashboard presentation")
             if "map" in name:
                 add_test(plan, "test_gis_import.py")
+                add_probe(plan, "/map", "/map/gis/status", "/map/system/alerts.geojson?days=30&min_priority=1")
             elif "today_board" in name:
                 add_test(plan, "test_today_board.py")
             elif "executive" in name or name in {"quick_capture_global.html", "issues.html", "my_day.html"}:
@@ -185,6 +191,8 @@ def classify(files: list[str]) -> Plan:
                 plan.reasons.add("dashboard composition/runtime contract")
             if name in {"gis_import.py", "map_app.py", "flood_app.py"}:
                 add_test(plan, "test_gis_import.py")
+                if name == "map_app.py":
+                    add_probe(plan, "/map", "/map/gis/status", "/map/system/alerts.geojson?days=30&min_priority=1")
             elif name in {"executive_workflow_app.py", "issues_app.py", "waiting_actions_app.py"}:
                 add_test(plan, "test_executive_workflow.py", "test_attention_engine.py")
             elif name in {"today_board_app.py", "today_board_engine.py"}:
@@ -265,6 +273,7 @@ def print_plan(plan: Plan, base: str, target: str) -> None:
     print(f"build={'yes' if plan.build else 'no'}")
     print(f"services={csv(plan.services)}")
     print(f"tests={csv(plan.tests)}")
+    print(f"probes={csv(plan.probes)}")
     print(f"backup_required={'yes' if plan.backup_required else 'no'}")
     print(f"external={csv(plan.external)}")
     print(f"full_e2e={'yes' if plan.full_e2e else 'no'}")
@@ -379,6 +388,27 @@ def wait_ready(service: str) -> None:
     raise RuntimeError(f"{service} did not reach stable ready state")
 
 
+def run_dashboard_probes(paths: set[str]) -> None:
+    if not paths:
+        return
+    code = r'''import json,os,sys,urllib.request
+token=os.environ.get("CMOS_AUTOMATION_TOKEN","").strip()
+headers={"X-CMOS-Automation-Key":token} if token else {}
+for path in sys.argv[1:]:
+    request=urllib.request.Request("http://127.0.0.1:8000"+path,headers=headers)
+    with urllib.request.urlopen(request,timeout=60) as response:
+        assert response.status == 200, (path,response.status)
+        assert "/login" not in response.geturl(), (path,response.geturl())
+        if path.split("?",1)[0].endswith(".geojson") or path == "/map/gis/status":
+            json.load(response)
+    print(f"AUTHENTICATED PROBE PASS: {path}")
+'''
+    run([
+        "docker", "exec", "citymanager-dashboard", "python", "-c", code,
+        *sorted(paths),
+    ])
+
+
 def rollback_state(services: set[str]) -> tuple[dict[str, str], str]:
     images = {
         service: subprocess.check_output(
@@ -420,6 +450,9 @@ def deploy(plan: Plan, target: str) -> None:
         run([*compose, "up", "-d", "--no-deps", "--force-recreate", *sorted(plan.services)])
         for service in sorted(plan.services):
             wait_ready(service)
+
+    if "citymanager-dashboard" in plan.services:
+        run_dashboard_probes(plan.probes)
 
     if plan.services or plan.external:
         run([str(ROOT / "deploy" / "cmos-health")])
