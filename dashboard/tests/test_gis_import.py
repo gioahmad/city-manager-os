@@ -63,6 +63,9 @@ def test_mapping_center_exposes_statewide_refresh_status():
     assert '@app.get("/map/gis/status")' in app_source
     assert "FROM gis_refresh_runs" in app_source
     assert "FROM pg_stat_progress_copy" in app_source
+    assert "LIKE 'NJOGIS_%%'" in app_source
+    assert "LIKE 'stg_nj_%%'" in app_source
+    assert "ILIKE '%%stg_nj_%%'" in app_source
     assert "Searches New Jersey NG911 addresses" in template
     assert "setInterval(loadGisStatus,30000)" in template
 

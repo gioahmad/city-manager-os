@@ -228,7 +228,8 @@ def map_gis_status():
         SELECT p.relid::regclass::text AS table_name,p.tuples_processed,p.tuples_excluded,
                p.bytes_processed,now()-a.query_start AS elapsed,a.wait_event_type,a.wait_event
         FROM pg_stat_progress_copy p JOIN pg_stat_activity a ON a.pid=p.pid
-        WHERE p.relid::regclass::text LIKE 'stg_nj_%' OR a.query ILIKE '%stg_nj_%'
+        WHERE p.relid::regclass::text LIKE 'stg_nj_%%'
+           OR a.query ILIKE '%%stg_nj_%%'
         ORDER BY a.query_start LIMIT 1
         """
     )
