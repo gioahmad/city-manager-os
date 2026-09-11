@@ -151,11 +151,12 @@ async function loadGisStatus(){
   try{
     const res=await fetch('/map/gis/status',{headers:{Accept:'application/json'}});
     if(!res.ok)throw new Error('status unavailable');
-    const data=await res.json(),run=data.run,copy=data.copy,datasets=data.datasets||[],rows=[];
+    const data=await res.json(),run=data.run,copy=data.copy,datasets=data.datasets||[],coverage=data.alert_coverage||[],rows=[];
     if(copy)rows.push('Importing '+String(copy.table_name||'statewide data').replace('stg_nj_','').replaceAll('_',' ')+' · '+compactNumber(copy.tuples_processed)+' rows');
     else if(run)rows.push(run.status+' · '+run.phase+(run.completed_at?' · '+new Date(run.completed_at).toLocaleString():''));
     else rows.push('No lifecycle run recorded yet');
     if(datasets.length)rows.push(datasets.map(d=>String(d.dataset_id).includes('PARCEL')?'Parcels '+compactNumber(d.row_count):'Addresses '+compactNumber(d.row_count)).join(' · '));
+    if(coverage.length){const total=coverage.reduce((n,r)=>n+Number(r.total||0),0),precise=coverage.reduce((n,r)=>n+Number(r.precise||0),0),approximate=coverage.reduce((n,r)=>n+Number(r.approximate||0),0),pending=coverage.reduce((n,r)=>n+Number(r.pending||0),0);rows.push('Alerts mapped '+compactNumber(precise+approximate)+'/'+compactNumber(total)+' · precise '+compactNumber(precise)+' · approximate '+compactNumber(approximate)+' · pending '+compactNumber(pending));}
     gisStatusEl.innerHTML='<strong>GIS data status</strong>'+rows.map(()=>'<small></small>').join('');
     rows.forEach((row,index)=>gisStatusEl.querySelectorAll('small')[index].textContent=row);
     gisStatusEl.classList.toggle('failed',run?.status==='FAILED');
@@ -163,18 +164,18 @@ async function loadGisStatus(){
 }
 loadGisStatus();setInterval(loadGisStatus,30000);
 
-const labels={item_type:'Type',priority:'Priority',status:'Status',assigned_to:'Owner',waiting_on:'Waiting on',next_action:'Next action',mapped_address:'Address',due_at:'Due',follow_up_at:'Follow up',prop_loc:'Property',pams_pin:'PAMS PIN',block:'Block',lot:'Lot',fulladdr:'Address',impact_level:'Impact',impact_score:'Score',impact_summary:'Impact summary',starts_at:'Starts',venue:'Venue',result_type:'Result',label:'Name',detail:'Details'};
+const labels={item_type:'Type',priority:'Priority',status:'Status',assigned_to:'Owner',waiting_on:'Waiting on',next_action:'Next action',mapped_address:'Address',due_at:'Due',follow_up_at:'Follow up',prop_loc:'Property',pams_pin:'PAMS PIN',block:'Block',lot:'Lot',fulladdr:'Address',impact_level:'Impact',impact_score:'Score',impact_summary:'Impact summary',starts_at:'Starts',venue:'Venue',result_type:'Result',label:'Name',detail:'Details',resolution_status:'Resolution',match_type:'Location match',confidence:'Confidence',spatial_precision:'Precision',approximate:'Approximate'};
 function popupFor(props,key=''){
   const wrap=document.createElement('div');wrap.className='map-popup';
   const nested=(props&&typeof props.properties==='object'&&props.properties)||{};
   const merged={...nested,...props};delete merged.properties;
-  const preferred=key==='operations'?['title','item_type','priority','status','assigned_to','waiting_on','next_action','mapped_address','due_at','follow_up_at']:key==='parcels'?['prop_loc','block','lot','pams_pin']:key==='addresses'?['fulladdr','post_comm','post_code']:key==='search'?['result_type','label','detail']:[];
+  const preferred=key==='operations'?['title','item_type','priority','status','assigned_to','waiting_on','next_action','mapped_address','due_at','follow_up_at']:key==='alerts'?['title','source','category','priority','status','mapped_address','resolution_status','confidence','spatial_precision','approximate','observed_at']:key==='parcels'?['prop_loc','block','lot','pams_pin']:key==='addresses'?['fulladdr','post_comm','post_code']:key==='search'?['result_type','label','detail']:[];
   const keys=[...preferred,...Object.keys(merged)].filter((v,i,a)=>a.indexOf(v)===i&&merged[v]!==null&&merged[v]!==''&&v!=='source_id').slice(0,12);
   keys.forEach(k=>{const row=document.createElement('div');const strong=document.createElement('strong');strong.textContent=(labels[k]||k.replaceAll('_',' '))+': ';const span=document.createElement('span');span.textContent=safeText(merged[k]);row.append(strong,span);wrap.appendChild(row);});
   return wrap;
 }
-function pointStyle(key){const color=key==='operations'?'#f2994a':key==='watchlist'?'#c792ea':key==='event-intelligence'?'#e26d6d':key==='search'?'#57b8ff':'#66c2a5';return{radius:key==='operations'||key==='search'?7:5,color:'#fff',weight:1,fillColor:color,fillOpacity:.92};}
-function geoOptions(key,color){return{style:feature=>{if(key==='flood'){const sfha=String(feature.properties?.sfha_tf||'').toUpperCase()==='T';return{color:sfha?'#d9534f':'#d7a441',weight:1,fillColor:sfha?'#d9534f':'#d7a441',fillOpacity:sfha ? .30 : .18};}return{color:color||'#4aa3df',weight:key==='parcels'?1:2,fillColor:color||'#4aa3df',fillOpacity:key==='parcels' ? .03 : .16};},pointToLayer:(feature,latlng)=>L.circleMarker(latlng,pointStyle(key)),onEachFeature:(feature,layer)=>layer.bindPopup(popupFor(feature.properties||{},key))};}
+function pointStyle(key,props={}){let color=key==='operations'?'#f2994a':key==='watchlist'?'#c792ea':key==='event-intelligence'?'#e26d6d':key==='search'?'#57b8ff':'#66c2a5';if(key==='alerts')color=Number(props.priority||0)>=5?'#d64545':Number(props.priority||0)>=4?'#f2994a':'#f2c94c';const approximate=key==='alerts'&&Boolean(props.approximate);return{radius:key==='operations'||key==='search'||key==='alerts'?7:5,color:approximate?'#222':'#fff',weight:approximate?2:1,dashArray:approximate?'3 3':null,fillColor:color,fillOpacity:approximate ? .48 : .92};}
+function geoOptions(key,color){return{style:feature=>{if(key==='flood'){const sfha=String(feature.properties?.sfha_tf||'').toUpperCase()==='T';return{color:sfha?'#d9534f':'#d7a441',weight:1,fillColor:sfha?'#d9534f':'#d7a441',fillOpacity:sfha ? .30 : .18};}return{color:color||'#4aa3df',weight:key==='parcels'?1:2,fillColor:color||'#4aa3df',fillOpacity:key==='parcels' ? .03 : .16};},pointToLayer:(feature,latlng)=>L.circleMarker(latlng,pointStyle(key,feature.properties||{})),onEachFeature:(feature,layer)=>layer.bindPopup(popupFor(feature.properties||{},key))};}
 function boundsParam(){const b=map.getBounds();return[b.getWest(),b.getSouth(),b.getEast(),b.getNorth()].join(',');}
 async function loadGeo(key,endpoint,color,viewport=false){status('Loading '+key+'...');let url=endpoint;if(viewport)url+=(url.includes('?')?'&':'?')+'bbox='+encodeURIComponent(boundsParam());const res=await fetch(url,{headers:{Accept:'application/geo+json'}});if(!res.ok)throw new Error(key+' layer failed: '+res.status);const data=await res.json();if(groups[key])groups[key].clearLayers();else groups[key]=L.geoJSON(null,geoOptions(key,color)).addTo(map);groups[key].addData(data);status(key+' · '+(data.features?.length||0)+' features');return groups[key];}
 function removeLayer(key){if(groups[key]){map.removeLayer(groups[key]);groups[key]=null;}}

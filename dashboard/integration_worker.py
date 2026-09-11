@@ -4,7 +4,8 @@ import os
 import time
 from datetime import datetime
 
-from integration_engine import mark_stale_events, run_due_integrations
+from geo_resolver import process_pending_alerts
+from integration_engine import db_conn, mark_stale_events, run_due_integrations
 from transit_engine import mark_stale_transit_observations, run_due_transit_integrations
 
 
@@ -14,6 +15,7 @@ def log(message: str) -> None:
 
 def main() -> None:
     interval = max(30, int(os.getenv("INTEGRATION_ENGINE_INTERVAL_SECONDS", "60")))
+    geo_limit = max(1, min(int(os.getenv("ALERT_GEO_BATCH_SIZE", "50")), 500))
     log(f"integration engine starting interval={interval}s")
     while True:
         try:
@@ -41,6 +43,15 @@ def main() -> None:
             if stale_transit:
                 log(f"transit stale clear complete observations={stale_transit}")
             mark_stale_events()
+            with db_conn() as conn:
+                geo = process_pending_alerts(conn, limit=geo_limit, since_days=30)
+            if geo.get("selected") or geo.get("errors"):
+                log(
+                    "alert geo complete "
+                    f"selected={geo.get('selected', 0)} processed={geo.get('processed', 0)} "
+                    f"precise={geo.get('precise', 0)} approximate={geo.get('approximate', 0)} "
+                    f"unresolved={geo.get('unresolved', 0)} errors={geo.get('errors', 0)}"
+                )
         except Exception as exc:
             log(f"engine cycle error: {exc}")
         time.sleep(interval)

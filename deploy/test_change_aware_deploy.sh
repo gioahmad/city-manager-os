@@ -30,6 +30,11 @@ integration="$($HARNESS plan --files dashboard/integration_runtime.py)"
 assert_line "$integration" "services=citymanager-dashboard,citymanager-integration-engine"
 assert_line "$integration" "full_e2e=yes"
 
+geo="$($HARNESS plan --files dashboard/geo_resolver.py dashboard/integration_worker.py dashboard/tests/test_alert_geo_resolution.py)"
+assert_line "$geo" "services=citymanager-dashboard,citymanager-integration-engine"
+assert_line "$geo" "tests=tests/test_alert_geo_resolution.py,tests/test_event_source_pack.py,tests/test_gis_import.py,tests/test_source_onboarding.py"
+assert_line "$geo" "full_e2e=yes"
+
 schema="$($HARNESS plan --files deploy/postgis/init/028_geo_resolution.sql)"
 assert_line "$schema" "build=no"
 assert_line "$schema" "backup_required=yes"

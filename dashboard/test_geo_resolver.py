@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """Focused unit tests for the local shared Geo Resolver."""
 
-from geo_resolver import classify_text, extract_coordinates, extract_location_candidates, normalize_text
+from geo_resolver import (
+    _address_variants,
+    _cache_key,
+    classify_text,
+    extract_coordinates,
+    extract_location_candidates,
+    normalize_text,
+)
 
 
 def check(condition, message):
@@ -41,6 +48,18 @@ def main():
     coordinate = extract_coordinates({"deep": {"unknown": {"lng": -74.021, "lat": 40.77}}})
     check(coordinate == (-74.021, 40.77, "deep.unknown"), "nested coordinates failed")
     check(extract_coordinates({"longitude": 500, "latitude": 40}) is None, "invalid coordinate accepted")
+
+    embedded = extract_location_candidates(
+        {"source": "BNN", "message": "Working Fire reported at 4100 Park Ave, Weehawken NJ"}
+    )
+    check(any(item.normalized == "4100 PARK AVE" for item in embedded), "embedded address missing")
+    variants = {normalize_text(item) for item in _address_variants("4100 Park Ave")}
+    check("4100 PARK AVENUE" in variants, "street suffix expansion missing")
+
+    versions = {"NJ": {"row_count": 1}}
+    first_key = _cache_key([], {}, versions, (-74.02, 40.77, "location"))
+    second_key = _cache_key([], {}, versions, (-74.03, 40.78, "location"))
+    check(first_key != second_key, "distinct coordinates shared a cache key")
 
     print("CMOS GEO RESOLVER UNIT TESTS: PASS")
 

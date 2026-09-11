@@ -65,3 +65,15 @@ def test_mapping_center_exposes_statewide_refresh_status():
     assert "FROM pg_stat_progress_copy" in app_source
     assert "Searches New Jersey NG911 addresses" in template
     assert "setInterval(loadGisStatus,30000)" in template
+
+
+def test_mapping_center_exposes_alert_geography():
+    root = Path(__file__).resolve().parents[1]
+    app_source = (root / "map_app.py").read_text()
+    template = (root / "templates" / "map.html").read_text()
+    assert '"key": "alerts"' in app_source
+    assert '@app.get("/map/system/alerts.geojson")' in app_source
+    assert "FROM alert_geo_coverage" in app_source
+    assert "geo_entity_resolutions" in app_source
+    assert "Alerts mapped" in template
+    assert "spatial_precision" in template

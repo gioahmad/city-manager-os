@@ -90,6 +90,11 @@ def classify(files: list[str]) -> Plan:
             plan.reasons.add("test-only change")
             continue
 
+        if path == "dashboard/test_geo_resolver.py":
+            add_test(plan, "test_alert_geo_resolution.py")
+            plan.reasons.add("geo resolver test-only change")
+            continue
+
         if path in {"dashboard/Dockerfile", "dashboard/requirements.txt", "dashboard/docker-compose.yml"}:
             add_dashboard(plan, *ALL_SERVICES)
             plan.full_e2e = True
@@ -119,7 +124,19 @@ def classify(files: list[str]) -> Plan:
             add_dashboard(plan, "citymanager-integration-engine")
             plan.full_e2e = True
             plan.reasons.add("integration worker runtime")
-            add_test(plan, "test_event_source_pack.py", "test_source_onboarding.py")
+            add_test(
+                plan,
+                "test_alert_geo_resolution.py",
+                "test_event_source_pack.py",
+                "test_source_onboarding.py",
+            )
+            continue
+
+        if path == "dashboard/geo_resolver.py":
+            add_dashboard(plan, "citymanager-dashboard", "citymanager-integration-engine")
+            plan.full_e2e = True
+            plan.reasons.add("shared local geo resolver runtime")
+            add_test(plan, "test_alert_geo_resolution.py", "test_gis_import.py")
             continue
 
         if path in {

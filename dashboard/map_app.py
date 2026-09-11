@@ -3,6 +3,7 @@ import re
 import uuid
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import File, Form, HTTPException, Request, UploadFile
@@ -19,6 +20,7 @@ SYSTEM_LAYERS = [
     {"key": "parcels", "name": "Parcels", "endpoint": "/map/system/parcels.geojson", "default_visible": False, "style": {"color": "#7fb3d5"}, "viewport": True},
     {"key": "addresses", "name": "NG911 Addresses", "endpoint": "/map/system/addresses.geojson", "default_visible": False, "point": True, "viewport": True},
     {"key": "watchlist", "name": "Watch Locations", "endpoint": "/map/system/watchlist.geojson", "default_visible": True, "point": True},
+    {"key": "alerts", "name": "Alerts", "endpoint": "/map/system/alerts.geojson", "default_visible": True, "point": True, "viewport": True},
     {"key": "operations", "name": "Operations / Work Items", "endpoint": "/map/system/issues.geojson", "default_visible": True, "point": True},
     {"key": "event-intelligence", "name": "Event Intelligence", "endpoint": "/map/system/events.geojson", "default_visible": False, "point": True},
     {"key": "managed-events", "name": "Managed Events", "endpoint": "/map/system/managed-events.geojson", "default_visible": False, "point": True},
@@ -228,7 +230,15 @@ def map_gis_status():
         ORDER BY a.query_start LIMIT 1
         """
     )
-    return JSONResponse(_json_safe({"run": latest, "datasets": datasets, "copy": copy}))
+    coverage = query_all(
+        """
+        SELECT source,total,precise,approximate,visible,ambiguous,unresolved,pending,
+               visible_percent,average_confidence,last_resolution_at
+        FROM alert_geo_coverage
+        ORDER BY total DESC,source
+        """
+    )
+    return JSONResponse(_json_safe({"run": latest, "datasets": datasets, "copy": copy, "alert_coverage": coverage}))
 
 
 @app.post("/map/resolve")
@@ -309,6 +319,48 @@ def map_watchlist_geojson():
         """
     )
     return JSONResponse(_feature_collection(rows))
+
+
+@app.get("/map/system/alerts.geojson")
+def map_alerts_geojson(
+    bbox: str | None = None,
+    days: int = 30,
+    min_priority: int = 1,
+    active_only: bool = False,
+):
+    days = max(1, min(days, 365))
+    min_priority = max(1, min(min_priority, 5))
+    box = _bbox(bbox)
+    params: list[Any] = [days, min_priority]
+    where = [
+        "a.received_at >= now()-(%s * interval '1 day')",
+        "a.priority >= %s",
+        "coalesce(a.geom,r.geom) IS NOT NULL",
+    ]
+    if active_only:
+        where.append("a.status <> 'RESOLVED' AND (a.expires_at IS NULL OR a.expires_at > now())")
+    if box:
+        where.append("ST_Intersects(coalesce(a.geom,r.geom),ST_MakeEnvelope(%s,%s,%s,%s,4326))")
+        params.extend(box)
+    rows = query_all(
+        f"""
+        SELECT a.id,a.alert_id,a.source,a.category,a.subtype,a.status,a.event_action,
+               a.title,left(a.message,2000) AS message,a.priority,a.county,a.municipality,
+               coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address',''),r.resolved_label) AS mapped_address,
+               a.observed_at,a.received_at,a.click_url,
+               r.status AS resolution_status,r.match_type,r.confidence,
+               r.spatial_precision,(a.geom IS NULL) AS approximate,
+               ST_AsGeoJSON(coalesce(a.geom,r.geom))::json AS geometry
+        FROM alerts a
+        LEFT JOIN geo_entity_resolutions r
+          ON r.entity_type='ALERT' AND r.entity_id=a.id::text
+        WHERE {' AND '.join(where)}
+        ORDER BY a.priority DESC,a.received_at DESC
+        LIMIT 5000
+        """,
+        tuple(params),
+    )
+    return JSONResponse(_feature_collection(rows), media_type="application/geo+json")
 
 
 @app.get("/map/system/issues.geojson")

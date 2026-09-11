@@ -21,19 +21,31 @@ runtime dependencies and are not called for individual lookups.
 BNN is intentionally handled as a fluid semi-structured source. No single BNN
 field is assumed to contain its location.
 
-## Current slice
+## Active alert-resolution slice
 
-The first slice provides flexible candidate extraction, supplied-coordinate
-resolution, exact local NG911 address resolution, cache and coverage records,
-an internal Mapping Center resolution endpoint, and countywide Hudson Mapping
-Center access.
+The existing integration engine continuously processes bounded batches from
+the existing `alerts` table. It passes the complete normalized alert, location,
+metadata and raw payload into the shared resolver. There is no second ingestion
+queue or notification path.
 
-Intersection, facility, corridor, statewide NJ and NYC resolution plug into
-the same resolver as their local reference datasets are added. There will be
-no parallel resolver, GIS database or notification path.
+The resolver now provides supplied-coordinate resolution, exact and common
+street-suffix NG911 address matching, addresses embedded inside longer BNN or
+source messages, and low-confidence municipality or county centroids when no
+precise point is available. Only resolutions at or above the precise confidence
+threshold populate `alerts.geom`. Approximate points remain separately labeled
+in entity provenance and are excluded from precise spatial matching.
+
+Mapping Center exposes precise and approximate alerts, per-source coverage,
+confidence, provenance and pending counts. A bounded local backfill uses the
+same worker and cache as live resolution.
+
+Intersection, facility and corridor resolution plug into this resolver when
+the #58 reference catalog is added. NYC uses the same contracts when its local
+reference datasets are loaded. There will be no parallel resolver, GIS
+database or notification path.
 
 ## Cache invalidation
 
-The cache key includes the active `gis_dataset_versions` records. Promoting a
-new dataset version therefore produces new resolution keys without deleting
-the historical provenance of earlier results.
+The cache key includes coordinates and the active `gis_dataset_versions`
+records. Distinct supplied points cannot collide, and promoting a new dataset
+version produces new resolution keys without deleting historical provenance.
