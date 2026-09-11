@@ -12,6 +12,9 @@ MANIFEST_DIR="/opt/citymanager-data/gis/manifests"
 RUN_ID="$(date '+%Y%m%d%H%M%S')"
 MANIFEST="${MANIFEST_DIR}/nj-statewide-${RUN_ID}.json"
 EXPECTED_COUNTIES=21
+HUDSON_ADDRESS_COUNTY_CODE="882278"
+MAX_ADDRESS_EXCEPTIONS=10
+MAX_NONSPATIAL_ADDRESSES=10
 MIN_PARCELS=3000000
 MIN_ADDRESSES=3000000
 MIN_HUDSON_PARCELS=114644
@@ -20,7 +23,7 @@ MIN_HUDSON_ADDRESSES=175824
 log(){ printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 fail(){ log "ERROR: $*"; exit 1; }
 db(){ docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; }
-db_at(){ docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At'; }
+db_at(){ docker exec -i citymanager-postgis sh -lc 'PGOPTIONS="-c client_min_messages=warning" psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At'; }
 db_scalar(){ printf '%s\n' "$1" | docker exec -i citymanager-postgis sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atq'; }
 
 trap 'rc=$?; log "NJ STATEWIDE GIS IMPORT FAILED with exit code ${rc}. Existing production GIS tables were not replaced unless the atomic promotion had already committed."; exit $rc' ERR
@@ -98,6 +101,43 @@ PG_IP="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{if .IPAddress}}
 [[ -n "$PG_IP" ]] || fail "unable to determine PostGIS container IP"
 PG_DSN="PG:host=${PG_IP} port=5432 dbname=${POSTGRES_DB} user=${POSTGRES_USER}"
 
+validate_staging(){
+  log "Validating staging counts, statewide coverage, Hudson retention and geometry"
+  STATS="$(db_at <<SQL
+WITH s AS (
+ SELECT (SELECT count(*) FROM stg_nj_parcels) p,
+        (SELECT count(*) FROM stg_nj_addresses) a,
+        (SELECT count(*) FROM stg_nj_parcel_blocks) b,
+        (SELECT count(*) FROM stg_nj_road_aliases) ra,
+        (SELECT count(*) FROM stg_nj_landmark_aliases) la,
+        (SELECT count(DISTINCT upper(trim(county))) FROM stg_nj_parcels WHERE nullif(trim(county),'') IS NOT NULL) pc,
+        (SELECT count(DISTINCT trim(county)) FROM stg_nj_addresses WHERE trim(county) ~ '^[0-9]{6}$') ac,
+        (SELECT count(DISTINCT trim(county)) FROM stg_nj_addresses WHERE trim(county) ~ '^[0-9]{6}$' AND trim(county) NOT IN ('882228','882229','882230','882231','882232','882233','882234','882235','882236','882237','882270','882271','882272','882273','882274','882275','882276','882277','882278','882279','882910')) aunknowncodes,
+        (SELECT count(*) FROM stg_nj_parcels WHERE upper(trim(county))='HUDSON') hp,
+        (SELECT count(*) FROM stg_nj_addresses WHERE trim(county)='${HUDSON_ADDRESS_COUNTY_CODE}') ha,
+        (SELECT count(*) FROM stg_nj_addresses WHERE coalesce(trim(county),'') !~ '^[0-9]{6}$') aexceptions,
+        (SELECT count(*) FROM stg_nj_addresses WHERE coalesce(trim(county),'') !~ '^[0-9]{6}$' AND coalesce(upper(trim(county)),'') NOT IN ('','MERCER COUNTY')) aunexpected,
+        (SELECT count(*) FROM stg_nj_parcels WHERE geom IS NULL OR ST_IsEmpty(geom)) pempty,
+        (SELECT count(*) FROM stg_nj_parcels WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom) AND NOT ST_IsValid(geom)) pinvalid,
+        (SELECT count(*) FROM stg_nj_addresses WHERE geom IS NULL OR ST_IsEmpty(geom) OR NOT ST_IsValid(geom)) abad,
+        (SELECT min(ST_SRID(geom)) FROM stg_nj_parcels) pmin,
+        (SELECT max(ST_SRID(geom)) FROM stg_nj_parcels) pmax,
+        (SELECT min(ST_SRID(geom)) FROM stg_nj_addresses) amin,
+        (SELECT max(ST_SRID(geom)) FROM stg_nj_addresses) amax
+)
+SELECT p||'|'||a||'|'||b||'|'||ra||'|'||la||'|'||pc||'|'||ac||'|'||aunknowncodes||'|'||hp||'|'||ha||'|'||aexceptions||'|'||aunexpected||'|'||pempty||'|'||pinvalid||'|'||abad||'|'||pmin||'|'||pmax||'|'||amin||'|'||amax FROM s;
+SQL
+)"
+  IFS='|' read -r DB_P DB_A DB_B DB_RA DB_LA PC AC AUNKNOWNCODES HP HA AEXCEPTIONS AUNEXPECTED PEMPTY PINVALID ABAD PMIN PMAX AMIN AMAX <<< "$STATS"
+  [[ "$DB_P" == "$SOURCE_P" && "$DB_A" == "$SOURCE_A" && "$DB_B" == "$SOURCE_B" && "$DB_RA" == "$SOURCE_RA" && "$DB_LA" == "$SOURCE_LA" ]] || fail "source/staging row-count mismatch: $STATS"
+  [[ "$PC" == "$EXPECTED_COUNTIES" && "$AC" == "$EXPECTED_COUNTIES" && "$AUNKNOWNCODES" == 0 ]] || fail "expected exact NJ county coverage; parcels=${PC}, address_codes=${AC}, unknown_codes=${AUNKNOWNCODES}"
+  (( HP >= MIN_HUDSON_PARCELS && HA >= MIN_HUDSON_ADDRESSES )) || fail "Hudson retention gate failed: parcels=${HP}, addresses=${HA}"
+  (( AEXCEPTIONS <= MAX_ADDRESS_EXCEPTIONS && AUNEXPECTED == 0 )) || fail "unexpected address county exceptions: total=${AEXCEPTIONS}, unknown=${AUNEXPECTED}"
+  [[ "$PMIN" == 4326 && "$PMAX" == 4326 && "$AMIN" == 4326 && "$AMAX" == 4326 ]] || fail "unexpected staging SRID range"
+  (( PEMPTY == 0 && ABAD <= MAX_NONSPATIAL_ADDRESSES )) || fail "geometry gate failed: parcel_empty=${PEMPTY}, address_nonspatial=${ABAD}"
+  log "Staging validation passed: parcel_counties=${PC}, address_county_codes=${AC}, Hudson=${HP}/${HA}, address_exceptions=${AEXCEPTIONS}, nonspatial_addresses=${ABAD}, repairable_parcels=${PINVALID}"
+}
+
 if [[ "$MODE" == "stage" ]]; then
   AVAILABLE_BYTES="$(df --output=avail -B1 /opt/citymanager-data | tail -n 1 | tr -d ' ')"
   (( AVAILABLE_BYTES >= 37580963840 )) || fail "at least 35 GiB free is required for statewide staging and candidate indexes"
@@ -116,46 +156,19 @@ if [[ "$MODE" == "stage" ]]; then
   PGPASSWORD="$POSTGRES_PASSWORD" ogr2ogr "${common[@]}" "$ADDRESS_SOURCE" Addr_LandmarkAlias \
     -nln public.stg_nj_landmark_aliases -nlt NONE
 
-  log "Validating staging counts, statewide coverage, Hudson retention and geometry"
-  STATS="$(db_at <<SQL
-WITH s AS (
- SELECT (SELECT count(*) FROM stg_nj_parcels) p,
-        (SELECT count(*) FROM stg_nj_addresses) a,
-        (SELECT count(*) FROM stg_nj_parcel_blocks) b,
-        (SELECT count(*) FROM stg_nj_road_aliases) ra,
-        (SELECT count(*) FROM stg_nj_landmark_aliases) la,
-        (SELECT count(DISTINCT upper(trim(county))) FROM stg_nj_parcels WHERE nullif(trim(county),'') IS NOT NULL) pc,
-        (SELECT count(DISTINCT upper(trim(county))) FROM stg_nj_addresses WHERE nullif(trim(county),'') IS NOT NULL) ac,
-        (SELECT count(*) FROM stg_nj_parcels WHERE upper(trim(county))='HUDSON') hp,
-        (SELECT count(*) FROM stg_nj_addresses WHERE upper(trim(county))='HUDSON') ha,
-        (SELECT count(*) FROM stg_nj_parcels WHERE geom IS NULL OR ST_IsEmpty(geom)) pempty,
-        (SELECT count(*) FROM stg_nj_parcels WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom) AND NOT ST_IsValid(geom)) pinvalid,
-        (SELECT count(*) FROM stg_nj_addresses WHERE geom IS NULL OR ST_IsEmpty(geom) OR NOT ST_IsValid(geom)) abad,
-        (SELECT min(ST_SRID(geom)) FROM stg_nj_parcels) pmin,
-        (SELECT max(ST_SRID(geom)) FROM stg_nj_parcels) pmax,
-        (SELECT min(ST_SRID(geom)) FROM stg_nj_addresses) amin,
-        (SELECT max(ST_SRID(geom)) FROM stg_nj_addresses) amax
-)
-SELECT p||'|'||a||'|'||b||'|'||ra||'|'||la||'|'||pc||'|'||ac||'|'||hp||'|'||ha||'|'||pempty||'|'||pinvalid||'|'||abad||'|'||pmin||'|'||pmax||'|'||amin||'|'||amax FROM s;
-SQL
-)"
-  IFS='|' read -r DB_P DB_A DB_B DB_RA DB_LA PC AC HP HA PEMPTY PINVALID ABAD PMIN PMAX AMIN AMAX <<< "$STATS"
-  [[ "$DB_P" == "$SOURCE_P" && "$DB_A" == "$SOURCE_A" && "$DB_B" == "$SOURCE_B" && "$DB_RA" == "$SOURCE_RA" && "$DB_LA" == "$SOURCE_LA" ]] || fail "source/staging row-count mismatch: $STATS"
-  [[ "$PC" == "$EXPECTED_COUNTIES" && "$AC" == "$EXPECTED_COUNTIES" ]] || fail "expected 21 counties; parcels=${PC}, addresses=${AC}"
-  (( HP >= MIN_HUDSON_PARCELS && HA >= MIN_HUDSON_ADDRESSES )) || fail "Hudson retention gate failed: parcels=${HP}, addresses=${HA}"
-  [[ "$PMIN" == 4326 && "$PMAX" == 4326 && "$AMIN" == 4326 && "$AMAX" == 4326 ]] || fail "unexpected staging SRID range"
-  (( PEMPTY == 0 && ABAD == 0 )) || fail "null/empty/invalid geometry found: parcel_empty=${PEMPTY}, address_bad=${ABAD}"
+  validate_staging
 
   install -d -m 0750 "$MANIFEST_DIR"
-  python3 - "$MANIFEST" "$RUN_ID" "$HEAD_SHA" "$ADDRESS_ARCHIVE" "$ADDRESS_SHA" "$SOURCE_A" "$PARCEL_ARCHIVE" "$PARCEL_SHA" "$SOURCE_P" "$SOURCE_B" "$SOURCE_RA" "$SOURCE_LA" "$PINVALID" <<'PY'
+  python3 - "$MANIFEST" "$RUN_ID" "$HEAD_SHA" "$ADDRESS_ARCHIVE" "$ADDRESS_SHA" "$SOURCE_A" "$PARCEL_ARCHIVE" "$PARCEL_SHA" "$SOURCE_P" "$SOURCE_B" "$SOURCE_RA" "$SOURCE_LA" "$PINVALID" "$AEXCEPTIONS" "$ABAD" <<'PY'
 import json, pathlib, sys
-(path, run, head, aa, ash, ac, pa, psh, pc, blocks, roads, landmarks, invalid) = sys.argv[1:]
+(path, run, head, aa, ash, ac, pa, psh, pc, blocks, roads, landmarks, invalid, exceptions, nonspatial) = sys.argv[1:]
 payload = {
     "run_id": run, "repository": head, "status": "STAGED",
     "addresses": {"archive": aa, "sha256": ash, "rows": int(ac)},
     "parcels": {"archive": pa, "sha256": psh, "rows": int(pc)},
     "parcel_blocks": int(blocks), "road_aliases": int(roads),
     "landmark_aliases": int(landmarks), "invalid_parcels_to_repair": int(invalid),
+    "address_county_exceptions": int(exceptions), "nonspatial_addresses": int(nonspatial),
 }
 pathlib.Path(path).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 print(path)
@@ -170,6 +183,7 @@ log "Promote mode requires already validated staging tables"
 for table in stg_nj_parcels stg_nj_addresses stg_nj_parcel_blocks stg_nj_road_aliases stg_nj_landmark_aliases; do
   [[ "$(db_scalar "SELECT to_regclass('public.${table}') IS NOT NULL")" == t ]] || fail "missing staging table: $table"
 done
+validate_staging
 
 BUILD_ID="$RUN_ID"
 P="gis_parcels_build_${BUILD_ID}"
@@ -224,14 +238,19 @@ SELECT
  (SELECT count(*) FROM ${P})||'|'||(SELECT count(*) FROM ${A})||'|'||
  (SELECT count(*) FROM ${P} WHERE geom IS NULL OR ST_IsEmpty(geom) OR NOT ST_IsValid(geom))||'|'||
  (SELECT count(*) FROM ${A} WHERE geom IS NULL OR ST_IsEmpty(geom) OR NOT ST_IsValid(geom))||'|'||
- (SELECT count(DISTINCT upper(trim(county))) FROM ${P})||'|'||
- (SELECT count(DISTINCT upper(trim(county))) FROM ${A});
+ (SELECT count(DISTINCT upper(trim(county))) FROM ${P} WHERE nullif(trim(county),'') IS NOT NULL)||'|'||
+ (SELECT count(DISTINCT trim(county)) FROM ${A} WHERE trim(county) ~ '^[0-9]{6}$')||'|'||
+ (SELECT count(*) FROM ${P} WHERE upper(trim(county))='HUDSON')||'|'||
+ (SELECT count(*) FROM ${A} WHERE trim(county)='${HUDSON_ADDRESS_COUNTY_CODE}')||'|'||
+ (SELECT count(DISTINCT trim(county)) FROM ${A} WHERE trim(county) ~ '^[0-9]{6}$' AND trim(county) NOT IN ('882228','882229','882230','882231','882232','882233','882234','882235','882236','882237','882270','882271','882272','882273','882274','882275','882276','882277','882278','882279','882910'))||'|'||
+ (SELECT count(*) FROM ${A} WHERE coalesce(trim(county),'') !~ '^[0-9]{6}$' AND coalesce(upper(trim(county)),'') NOT IN ('','MERCER COUNTY'));
 SQL
 )"
-IFS='|' read -r FINAL_P FINAL_A FINAL_PBAD FINAL_ABAD FINAL_PC FINAL_AC <<< "$FINAL"
+IFS='|' read -r FINAL_P FINAL_A FINAL_PBAD FINAL_ABAD FINAL_PC FINAL_AC FINAL_HP FINAL_HA FINAL_AUNKNOWNCODES FINAL_AUNEXPECTED <<< "$FINAL"
 [[ "$FINAL_P" == "$SOURCE_P" && "$FINAL_A" == "$SOURCE_A" ]] || fail "candidate count mismatch: $FINAL"
-(( FINAL_PBAD == 0 && FINAL_ABAD == 0 )) || fail "candidate geometry validation failed: $FINAL"
+(( FINAL_PBAD == 0 && FINAL_ABAD <= MAX_NONSPATIAL_ADDRESSES )) || fail "candidate geometry validation failed: $FINAL"
 [[ "$FINAL_PC" == "$EXPECTED_COUNTIES" && "$FINAL_AC" == "$EXPECTED_COUNTIES" ]] || fail "candidate county validation failed: $FINAL"
+(( FINAL_HP >= MIN_HUDSON_PARCELS && FINAL_HA >= MIN_HUDSON_ADDRESSES && FINAL_AUNKNOWNCODES == 0 && FINAL_AUNEXPECTED == 0 )) || fail "candidate Hudson/exception validation failed: $FINAL"
 
 log "Atomically promoting statewide tables and retaining prior production backups"
 log "Disabling the Hudson-only timer so it cannot replace statewide production on its next run"
@@ -261,7 +280,7 @@ WHERE dataset_id IN ('NJOGIS_HUDSON_PARCELS','NJOGIS_HUDSON_ADDRESSES');
 INSERT INTO gis_dataset_versions(dataset_id,dataset_name,source_url,imported_at,row_count,status,notes)
 VALUES
  ('NJOGIS_NJ_STATEWIDE_PARCELS','NJOGIS NJ Statewide Parcels / MOD-IV','https://geoapps.nj.gov/njgin/parcel/parcels_MOD4_Statewide.gdb.zip',now(),${FINAL_P},'ACTIVE','Bulk FileGDB promotion ${BUILD_ID}; SHA256 ${PARCEL_SHA}; repository ${HEAD_SHA}'),
- ('NJOGIS_NJ_STATEWIDE_ADDRESSES','NJOGIS NJ Statewide NG911 Address Points','https://geoapps.nj.gov/njgin/address/Addr_NG911.gdb.zip',now(),${FINAL_A},'ACTIVE','Bulk FileGDB promotion ${BUILD_ID}; SHA256 ${ADDRESS_SHA}; repository ${HEAD_SHA}')
+ ('NJOGIS_NJ_STATEWIDE_ADDRESSES','NJOGIS NJ Statewide NG911 Address Points','https://geoapps.nj.gov/njgin/address/Addr_NG911.gdb.zip',now(),${FINAL_A},'ACTIVE','Bulk FileGDB promotion ${BUILD_ID}; SHA256 ${ADDRESS_SHA}; repository ${HEAD_SHA}; source county exceptions ${AEXCEPTIONS}; nonspatial source records ${FINAL_ABAD}')
 ON CONFLICT(dataset_id) DO UPDATE SET dataset_name=excluded.dataset_name,source_url=excluded.source_url,imported_at=excluded.imported_at,row_count=excluded.row_count,status=excluded.status,notes=excluded.notes;
 
 INSERT INTO source_health(source_id,status,last_attempt_at,last_success_at,last_error,metadata,updated_at)

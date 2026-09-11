@@ -57,9 +57,21 @@ def test_curved_polygon_import_contract() -> None:
     assert "-skipfailures" not in script
 
 
+def test_statewide_county_and_reuse_contract() -> None:
+    script = Path(__file__).with_name("import_statewide_gis.sh").read_text()
+    assert 'HUDSON_ADDRESS_COUNTY_CODE="882278"' in script
+    assert "'882278','882279','882910'" in script
+    assert "trim(county) ~ '^[0-9]{6}$'" in script
+    assert "'','MERCER COUNTY'" in script
+    assert "MAX_NONSPATIAL_ADDRESSES=10" in script
+    assert script.count("validate_staging") == 3
+    assert 'PGOPTIONS="-c client_min_messages=warning"' in script
+
+
 if __name__ == "__main__":
     test_valid_archive()
     test_wrong_checksum()
     test_multiple_gdb_roots_rejected()
     test_curved_polygon_import_contract()
+    test_statewide_county_and_reuse_contract()
     print("CMOS STATEWIDE ARCHIVE TESTS: PASS")
