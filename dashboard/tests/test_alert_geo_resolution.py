@@ -64,6 +64,8 @@ def test_worker_contract_stays_inside_existing_alerts_and_resolver():
     assert "geo_entity_resolutions" in source
     assert "CMOS_ALERT_GEO_RESOLVER" in source
     assert "process_pending_alerts" in worker
+    assert "a.geom IS NULL" in source
+    assert "r.spatial_precision IN ('ADDRESS_POINT','SUPPLIED_COORDINATE')" in source
 
 
 def test_entity_resolution_sql_parameter_contract():
@@ -118,3 +120,10 @@ def test_alert_metadata_parameters_have_explicit_sql_types():
     source = Path(__file__).resolve().parents[1].joinpath("geo_resolver.py").read_text()
     assert "'label',%s::text" in source
     assert "'longitude',%s::double precision" in source
+
+
+def test_map_alert_geojson_serializes_numeric_confidence_and_escapes_like():
+    source = Path(__file__).resolve().parents[1].joinpath("map_app.py").read_text()
+    assert "elif isinstance(value, Decimal):" in source
+    assert "props[key] = float(value)" in source
+    assert "LIKE 'NJOGIS_%%'" in source

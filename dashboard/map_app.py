@@ -57,6 +57,8 @@ def _feature_collection(rows, geometry_field="geometry"):
                 props[key] = str(value)
             elif isinstance(value, (datetime, date)):
                 props[key] = value.isoformat()
+            elif isinstance(value, Decimal):
+                props[key] = float(value)
         features.append({"type": "Feature", "geometry": geom, "properties": props})
     return {"type": "FeatureCollection", "features": features}
 
@@ -217,7 +219,7 @@ def map_gis_status():
         """
         SELECT dataset_id,dataset_name,row_count,status,imported_at
         FROM gis_dataset_versions
-        WHERE dataset_id LIKE 'NJOGIS_%' AND status='ACTIVE'
+        WHERE dataset_id LIKE 'NJOGIS_%%' AND status='ACTIVE'
         ORDER BY dataset_id
         """
     )

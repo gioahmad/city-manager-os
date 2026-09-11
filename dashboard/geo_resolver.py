@@ -747,12 +747,18 @@ def process_pending_alerts(
                   AND (
                     %s
                     OR r.id IS NULL
+                    OR (
+                      a.geom IS NULL
+                      AND r.status='RESOLVED'
+                      AND r.confidence >= %s
+                      AND r.spatial_precision IN ('ADDRESS_POINT','SUPPLIED_COORDINATE')
+                    )
                     OR a.updated_at > r.updated_at + interval '5 minutes'
                   )
                 ORDER BY a.priority DESC,a.received_at DESC,a.id
                 LIMIT %s
                 """,
-                (since_days, sources, sources, force, limit),
+                (since_days, sources, sources, force, MIN_PRECISE_CONFIDENCE, limit),
             )
             rows = cur.fetchall()
         summary["selected"] = len(rows)
