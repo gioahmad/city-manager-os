@@ -54,3 +54,14 @@ def test_dispatch_rejects_unknown_format():
         assert "Supported imports" in str(exc)
     else:
         raise AssertionError("Unknown import format should fail")
+
+
+def test_mapping_center_exposes_statewide_refresh_status():
+    root = Path(__file__).resolve().parents[1]
+    app_source = (root / "map_app.py").read_text()
+    template = (root / "templates" / "map.html").read_text()
+    assert '@app.get("/map/gis/status")' in app_source
+    assert "FROM gis_refresh_runs" in app_source
+    assert "FROM pg_stat_progress_copy" in app_source
+    assert "Searches New Jersey NG911 addresses" in template
+    assert "setInterval(loadGisStatus,30000)" in template

@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
   <link rel="stylesheet" href="/static/map.css?v=20260908-1">
+  <link rel="stylesheet" href="/static/map_status.css?v=20260909-1">
 </head>
 <body>
 <header class="topbar">
@@ -41,7 +42,10 @@
           <input id="map-search-input" autocomplete="off" placeholder="Address, block, lot, PAMS PIN..." required>
           <button class="primary-button" type="submit">Find</button>
         </form>
-        <p class="muted small-copy">Searches Weehawken NG911 addresses, parcels and names/properties in your custom layers.</p>
+        <p class="muted small-copy">Searches New Jersey NG911 addresses, parcels and names/properties in your custom layers.</p>
+        <div id="gis-refresh-status" class="map-gis-refresh" aria-live="polite">
+          <strong>GIS data status</strong><small>Loading local dataset status...</small>
+        </div>
         <div id="map-search-results" class="map-search-results"><div class="map-help-card">Try “4100 Park”, a block/lot number, or a PAMS PIN.</div></div>
       </section>
 
@@ -141,6 +145,23 @@ const statusEl=document.getElementById('map-status');
 const groups={};
 function status(msg){statusEl.textContent=msg;}
 function safeText(v){return v===null||v===undefined||v===''?'—':String(v);}
+const gisStatusEl=document.getElementById('gis-refresh-status');
+function compactNumber(value){return Number(value||0).toLocaleString();}
+async function loadGisStatus(){
+  try{
+    const res=await fetch('/map/gis/status',{headers:{Accept:'application/json'}});
+    if(!res.ok)throw new Error('status unavailable');
+    const data=await res.json(),run=data.run,copy=data.copy,datasets=data.datasets||[],rows=[];
+    if(copy)rows.push('Importing '+String(copy.table_name||'statewide data').replace('stg_nj_','').replaceAll('_',' ')+' · '+compactNumber(copy.tuples_processed)+' rows');
+    else if(run)rows.push(run.status+' · '+run.phase+(run.completed_at?' · '+new Date(run.completed_at).toLocaleString():''));
+    else rows.push('No lifecycle run recorded yet');
+    if(datasets.length)rows.push(datasets.map(d=>String(d.dataset_id).includes('PARCEL')?'Parcels '+compactNumber(d.row_count):'Addresses '+compactNumber(d.row_count)).join(' · '));
+    gisStatusEl.innerHTML='<strong>GIS data status</strong>'+rows.map(()=>'<small></small>').join('');
+    rows.forEach((row,index)=>gisStatusEl.querySelectorAll('small')[index].textContent=row);
+    gisStatusEl.classList.toggle('failed',run?.status==='FAILED');
+  }catch(error){gisStatusEl.innerHTML='<strong>GIS data status</strong><small>Status temporarily unavailable</small>';}
+}
+loadGisStatus();setInterval(loadGisStatus,30000);
 
 const labels={item_type:'Type',priority:'Priority',status:'Status',assigned_to:'Owner',waiting_on:'Waiting on',next_action:'Next action',mapped_address:'Address',due_at:'Due',follow_up_at:'Follow up',prop_loc:'Property',pams_pin:'PAMS PIN',block:'Block',lot:'Lot',fulladdr:'Address',impact_level:'Impact',impact_score:'Score',impact_summary:'Impact summary',starts_at:'Starts',venue:'Venue',result_type:'Result',label:'Name',detail:'Details'};
 function popupFor(props,key=''){

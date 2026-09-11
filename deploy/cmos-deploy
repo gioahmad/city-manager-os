@@ -216,6 +216,9 @@ def classify(files: list[str]) -> Plan:
         if path in {
             "deploy/gis/import_statewide_gis.sh",
             "deploy/gis/statewide_archive.py",
+            "deploy/gis/refresh_statewide_gis.sh",
+            "deploy/gis/statewide_bulk_refresh.py",
+            "deploy/gis/install_statewide_gis_refresh_timer.sh",
         }:
             plan.external.add("postgis-statewide-import")
             plan.backup_required = True

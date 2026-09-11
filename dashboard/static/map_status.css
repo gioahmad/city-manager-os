@@ -1,0 +1,16 @@
+.map-gis-refresh {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid #35516a;
+  border-radius: 8px;
+  background: #101f2d;
+}
+
+.map-gis-refresh strong { color: #f4f8fb; }
+.map-gis-refresh small { color: #a9bdcd; }
+.map-gis-refresh.failed {
+  border-color: #b85c5c;
+  background: #2a1719;
+}

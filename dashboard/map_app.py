@@ -1,7 +1,8 @@
 import json
 import re
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 from urllib.parse import urlparse
 
 from fastapi import File, Form, HTTPException, Request, UploadFile
@@ -56,6 +57,16 @@ def _feature_collection(rows, geometry_field="geometry"):
                 props[key] = value.isoformat()
         features.append({"type": "Feature", "geometry": geom, "properties": props})
     return {"type": "FeatureCollection", "features": features}
+
+
+def _json_safe(value):
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (datetime, date, timedelta, Decimal, uuid.UUID)):
+        return str(value)
+    return value
 
 
 def _feature_name(properties: dict) -> str | None:
@@ -189,6 +200,35 @@ def map_search(q: str = ""):
         """, (like, like)
     ))
     return JSONResponse(_feature_collection(rows[:20]))
+
+
+@app.get("/map/gis/status")
+def map_gis_status():
+    latest = query_one(
+        """
+        SELECT run_id,scope,mode,status,phase,source_manifest,progress,
+               repository_sha,started_at,updated_at,completed_at,error_message
+        FROM gis_refresh_runs ORDER BY started_at DESC LIMIT 1
+        """
+    )
+    datasets = query_all(
+        """
+        SELECT dataset_id,dataset_name,row_count,status,imported_at
+        FROM gis_dataset_versions
+        WHERE dataset_id LIKE 'NJOGIS_%' AND status='ACTIVE'
+        ORDER BY dataset_id
+        """
+    )
+    copy = query_one(
+        """
+        SELECT p.relid::regclass::text AS table_name,p.tuples_processed,p.tuples_excluded,
+               p.bytes_processed,now()-a.query_start AS elapsed,a.wait_event_type,a.wait_event
+        FROM pg_stat_progress_copy p JOIN pg_stat_activity a ON a.pid=p.pid
+        WHERE p.relid::regclass::text LIKE 'stg_nj_%' OR a.query ILIKE '%stg_nj_%'
+        ORDER BY a.query_start LIMIT 1
+        """
+    )
+    return JSONResponse(_json_safe({"run": latest, "datasets": datasets, "copy": copy}))
 
 
 @app.post("/map/resolve")

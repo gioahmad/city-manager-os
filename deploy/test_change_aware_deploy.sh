@@ -52,6 +52,13 @@ assert_line "$statewide" "backup_required=yes"
 assert_line "$statewide" "external=postgis-statewide-import"
 assert_line "$statewide" "full_e2e=no"
 
+lifecycle="$($HARNESS plan --files deploy/gis/refresh_statewide_gis.sh deploy/gis/statewide_bulk_refresh.py deploy/gis/install_statewide_gis_refresh_timer.sh)"
+assert_line "$lifecycle" "build=no"
+assert_line "$lifecycle" "services=none"
+assert_line "$lifecycle" "backup_required=yes"
+assert_line "$lifecycle" "external=postgis-statewide-import"
+assert_line "$lifecycle" "full_e2e=no"
+
 set +e
 unknown="$($HARNESS plan --files unexplained/runtime.bin 2>&1)"
 rc=$?

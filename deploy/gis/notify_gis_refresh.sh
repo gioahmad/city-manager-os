@@ -24,7 +24,7 @@ case "$RESULT" in
     ;;
 esac
 
-[[ -n "$MESSAGE" ]] || MESSAGE="Hudson GIS refresh ${RESULT,,}."
+[[ -n "$MESSAGE" ]] || MESSAGE="GIS refresh ${RESULT,,}."
 
 for cmd in docker curl; do
   command -v "$cmd" >/dev/null || { echo "ERROR: $cmd is required" >&2; exit 1; }
@@ -69,7 +69,7 @@ INSERT INTO alerts(
 )
 VALUES (
   :'alert_key','GIS_REFRESH',:'run_id','SYSTEM','GIS_REFRESH','ACTIVE','UPDATE',
-  :'title',:'message',:'priority'::integer,'Weehawken','{}'::jsonb,
+  :'title',:'message',:'priority'::integer,NULL,'{}'::jsonb,
   ARRAY['gis','refresh','system'],now(),now(),
   jsonb_build_object('run_id',:'run_id','result',:'result'),
   'GIS_REFRESH SYSTEM GIS REFRESH ' || :'result' || ' ' || :'title' || ' ' || :'message'

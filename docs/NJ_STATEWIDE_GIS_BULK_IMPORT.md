@@ -23,6 +23,24 @@ A current, checksum-valid PostgreSQL backup is mandatory for promotion. Create i
 
 Existing Hudson production tables are renamed as timestamped backups and retained after promotion. Hudson dataset-version records are marked `SUPERSEDED`; statewide records become `ACTIVE`.
 
-Promotion disables the old Hudson-only monthly timer. This prevents a later Hudson refresh from replacing the statewide tables. A statewide monthly refresh timer must be installed in the follow-up refresh feature after the initial load is accepted.
+Promotion disables the old Hudson-only monthly timer. This prevents a later Hudson refresh from replacing the statewide tables.
 
-The initial statewide import is intentionally separate from the monthly batch downloader. Monthly bulk-first refresh automation can be enabled only after the initial statewide load is accepted.
+## Monthly lifecycle
+
+After the initial statewide load is accepted, `install_statewide_gis_refresh_timer.sh` installs the replacement monthly timer. It does not start a refresh during installation.
+
+The lifecycle runs on the first Sunday of each month at 03:15 Eastern with up to 15 minutes of jitter:
+
+1. Probe both official bulk sources and write a source manifest.
+2. Reuse unchanged local ZIPs without downloading them.
+3. Resume interrupted downloads into `.part` files when a source revision changed.
+4. Retain the prior local source revision as `.previous`.
+5. Create and verify a database backup only when source data changed.
+6. Stage and validate all five statewide layers.
+7. Retry staging once with retained prior archives if a new revision fails validation, retain the rejected revision for diagnosis, and force a fresh source comparison on the next run.
+8. Atomically promote validated tables, then remove staging tables and all but the newest database rollback generation.
+9. Record each run in `gis_refresh_runs` and use the existing alert, subscriber, delivery and ntfy route for completion or failure.
+
+Rejected source revisions are deleted only after a later statewide promotion succeeds. The immediate prior accepted source revision and database table generation remain available for rollback.
+
+The Mapping Center reads this run ledger and PostgreSQL COPY progress every 30 seconds, so status and active dataset row counts are visible from any authenticated login. Runtime address and parcel lookup remains local in PostGIS.
