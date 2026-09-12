@@ -35,6 +35,16 @@ docker exec -i citymanager-postgis sh -lc \
   'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < deploy/postgis/init/031_spatial_reference_catalog.sql
 
+log "Validating parcel-context SQL before the source refresh"
+FUNCTION_STATE="$(docker exec -i citymanager-postgis sh -lc \
+  'psql -X -Atq -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SET ROLE citymanager_app;
+SELECT gis_parcel_context(NULL::integer,500.0) IS NULL;
+RESET ROLE;
+SQL
+)"
+[[ "$FUNCTION_STATE" == "t" ]] || fail "parcel-context SQL validation failed: ${FUNCTION_STATE}"
+
 log "Linking existing Hudson parcel facilities, NG911 landmarks, and transit assets"
 docker exec -i citymanager-postgis sh -lc \
   'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'

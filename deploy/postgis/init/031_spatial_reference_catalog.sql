@@ -765,7 +765,7 @@ SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM target) THEN NULL ELSE jsonb_build_ob
   FROM target t JOIN spatial_reference_entities r
     ON r.active=true
    AND ST_DWithin(r.centroid::geography,t.geom::geography,
-                  greatest(1.0,least(coalesce(p_radius_ft,500.0),26400.0))*0.3048))),'[]'::jsonb),
+                  greatest(1.0,least(coalesce(p_radius_ft,500.0),26400.0))*0.3048)),'[]'::jsonb),
   'spatial_impact',(SELECT gis_spatial_impact_context(
     t.geom,greatest(1.0,least(coalesce(p_radius_ft,500.0),26400.0)),interval '30 days'
   ) FROM target t),

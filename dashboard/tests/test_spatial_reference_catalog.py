@@ -23,9 +23,19 @@ def test_catalog_migration_is_additive_and_reuses_watchlist():
     assert "CASE WHEN c.link_method='FUZZY_BOUNDARY'" in sql
     assert "/0.3048" in sql
     assert "*0.3048" in sql
+    assert "26400.0))*0.3048)),'[]'::jsonb" in sql
     assert "CREATE TABLE IF NOT EXISTS watch_items" not in sql
     assert "CREATE TABLE IF NOT EXISTS subscribers" not in sql
     assert "CREATE TABLE IF NOT EXISTS deliveries" not in sql
+
+
+def test_installer_validates_function_sql_before_refreshing_sources():
+    installer = (ROOT / "deploy/gis/install_spatial_reference_catalog.sh").read_text()
+    validation = "SELECT gis_parcel_context(NULL::integer,500.0) IS NULL;"
+    refresh = "SELECT spatial_reference_refresh_local_sources() AS refresh_result;"
+    assert validation in installer
+    assert refresh in installer
+    assert installer.index(validation) < installer.index(refresh)
 
 
 def test_catalog_routes_and_normal_watch_promotion():
