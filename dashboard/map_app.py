@@ -20,6 +20,7 @@ SYSTEM_LAYERS = [
     {"key": "parcels", "name": "Parcels", "endpoint": "/map/system/parcels.geojson", "default_visible": False, "style": {"color": "#7fb3d5"}, "viewport": True},
     {"key": "addresses", "name": "NG911 Addresses", "endpoint": "/map/system/addresses.geojson", "default_visible": False, "point": True, "viewport": True},
     {"key": "watchlist", "name": "Watch Locations", "endpoint": "/map/system/watchlist.geojson", "default_visible": True, "point": True},
+    {"key": "spatial-references", "name": "Regional References", "endpoint": "/map/system/spatial-references.geojson", "default_visible": True, "style": {"color": "#9b7ede"}, "viewport": True},
     {"key": "alerts", "name": "Alerts", "endpoint": "/map/system/alerts.geojson", "default_visible": True, "point": True, "viewport": True},
     {"key": "operations", "name": "Operations / Work Items", "endpoint": "/map/system/issues.geojson", "default_visible": True, "point": True},
     {"key": "event-intelligence", "name": "Event Intelligence", "endpoint": "/map/system/events.geojson", "default_visible": False, "point": True},
@@ -194,6 +195,18 @@ def map_search(q: str = ""):
     ))
     rows.extend(query_all(
         """
+        SELECT 'REFERENCE' AS result_type,canonical_name AS label,
+               concat_ws(' · ',entity_type,entity_subtype,municipality,state) AS detail,
+               entity_id::text AS source_id,ST_AsGeoJSON(geom)::json AS geometry
+        FROM spatial_reference_entities
+        WHERE active=true AND geom IS NOT NULL
+          AND (canonical_name ILIKE %s OR coalesce(normalized_address,'') ILIKE %s
+               OR EXISTS (SELECT 1 FROM unnest(aliases) a WHERE a ILIKE %s))
+        ORDER BY importance_tier,canonical_name LIMIT 8
+        """, (like, like, like)
+    ))
+    rows.extend(query_all(
+        """
         SELECT 'CUSTOM' AS result_type,coalesce(nullif(f.name,''),l.name) AS label,
                l.name AS detail,f.id::text AS source_id,ST_AsGeoJSON(f.geom)::json AS geometry
         FROM map_features f JOIN map_layers l ON l.id=f.layer_id
@@ -317,8 +330,11 @@ def map_addresses_geojson(bbox: str | None = None):
 def map_watchlist_geojson():
     rows = query_all(
         """
-        SELECT watch_id,display_name,address,watch_type,min_priority,ST_AsGeoJSON(geom)::json AS geometry
-        FROM watch_items WHERE active=true AND geom IS NOT NULL ORDER BY display_name LIMIT 5000
+        SELECT watch_id,display_name,address,watch_type,min_priority,radius_ft,spatial_scope,
+               starts_at,expires_at,source_filter,alert_category_filter,
+               ST_AsGeoJSON(coalesce(spatial_geom,geom))::json AS geometry
+        FROM watch_items WHERE active=true AND coalesce(spatial_geom,geom) IS NOT NULL
+        ORDER BY display_name LIMIT 5000
         """
     )
     return JSONResponse(_feature_collection(rows))

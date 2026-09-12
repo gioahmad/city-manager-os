@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ entity.canonical_name }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><div class="eyebrow">REGIONAL SPATIAL REFERENCE</div><div class="brand-row"><h1>{{ entity.canonical_name }}</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">{{ entity.entity_type|replace('_',' ')|title }}{% if entity.entity_subtype %} · {{ entity.entity_subtype|replace('_',' ')|title }}{% endif %}</div></div></header>
+{% include "nav.html" %}
+<main>
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+  <p><a href="/spatial-reference">← Back to Reference Catalog</a> · <a href="/map">Open Mapping Center</a> · <a href="/api/spatial-reference/{{ entity.entity_id }}/impact-buffer.geojson?radius_ft={{ radius_ft }}">Open Impact Buffer GeoJSON</a></p>
+  <section class="metrics">
+    <div class="metric"><span>Source</span><strong>{{ entity.source_provider }}</strong><small>{{ 'Authoritative' if entity.authoritative else 'Managed reference' }}</small></div>
+    <div class="metric"><span>Importance</span><strong>{{ entity.importance_tier }}</strong><small>1 highest, 5 lowest</small></div>
+    <div class="metric"><span>Parcel</span><strong>{{ entity.parcel_objectid or 'None' }}</strong><small>{{ entity.parcel_id or 'Not linked' }}</small></div>
+    <div class="metric"><span>Watch</span><strong>{{ 'Active' if entity.watch_active else ('Inactive' if entity.watch_item_id else 'Not watched') }}</strong><small>Existing Watchlist pipeline</small></div>
+  </section>
+  <section class="panel"><div class="panel-head"><div><div class="panel-kicker">REFERENCE</div><h2>Details</h2></div></div><div class="panel-body">
+    <dl><dt>Address</dt><dd>{{ entity.normalized_address or 'Not provided' }}</dd><dt>Municipality</dt><dd>{{ entity.municipality or 'Not provided' }}, {{ entity.state or '' }}</dd><dt>Aliases</dt><dd>{{ entity.aliases|join(', ') if entity.aliases else 'None' }}</dd><dt>Coordinates</dt><dd>{{ entity.latitude }}, {{ entity.longitude }}</dd><dt>Source reference</dt><dd>{% if entity.source_reference and entity.source_reference.startswith('http') %}<a href="{{ entity.source_reference }}">{{ entity.source_reference }}</a>{% else %}{{ entity.source_reference or 'Not recorded' }}{% endif %}</dd><dt>Verified</dt><dd>{{ entity.verified_at or 'Not recorded' }}</dd><dt>Refreshed</dt><dd>{{ entity.refreshed_at or 'Not recorded' }}</dd></dl>
+  </div></section>
+  <section class="panel"><div class="panel-head"><div><div class="panel-kicker">TRACK IT → TELL ME</div><h2>Watch This</h2></div></div><div class="panel-body">
+    <p class="muted">This creates or updates one normal GIS-enabled Watchlist item with exact reference, adjoining-parcel, or buffered geometry. Existing name, category, subscriber, Routing, Delivery Guard, and ntfy behavior remains in place. The stored geometry is also ready for the separate #56 live spatial matcher.</p>
+    <form method="post" action="/spatial-reference/{{ entity.entity_id }}/watch" class="form-grid three-col">
+      <label>Spatial Scope<select name="spatial_scope">{% for value in spatial_scopes %}<option value="{{ value }}" {% if (entity.watch_spatial_scope or 'RADIUS') == value %}selected{% endif %}>{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label>
+      <label>Radius / Buffer (feet)<input type="number" name="radius_ft" min="1" max="26400" value="{{ entity.watch_radius_ft or entity.default_buffer_ft or 500 }}"></label>
+      <label>Minimum Priority<input type="number" name="min_priority" min="1" max="5" value="{{ entity.watch_min_priority or 1 }}"></label>
+      <label>Duration<select name="duration"><option value="ALWAYS" {% if watch_duration == 'ALWAYS' %}selected{% endif %}>No expiration</option><option value="24_HOURS">24 hours</option><option value="7_DAYS">7 days</option><option value="CUSTOM" {% if watch_duration == 'CUSTOM' %}selected{% endif %}>Custom window</option></select></label>
+      <label>Starts (Eastern)<input type="datetime-local" name="starts_at" value="{{ watch_starts_local }}"></label>
+      <label>Ends (Eastern)<input type="datetime-local" name="expires_at" value="{{ watch_expires_local }}"></label>
+      <label>Source Filters<input name="source_filter" value="{{ entity.watch_source_filter|join(', ') if entity.watch_source_filter else '' }}" placeholder="Comma-separated, blank for all"></label>
+      <label>Alert Categories<input name="alert_category_filter" value="{{ entity.watch_category_filter|join(', ') if entity.watch_category_filter else '' }}" placeholder="Comma-separated, blank for all"></label>
+      <fieldset><legend>Subscribers</legend>{% for subscriber in subscribers %}<label><input type="checkbox" name="subscriber_ids" value="{{ subscriber.id }}" {% if subscriber.id|string in selected_subscribers %}checked{% endif %}> {{ subscriber.name }}</label>{% else %}<span>No active subscribers.</span>{% endfor %}</fieldset>
+      <div><button type="submit">{{ 'Update Watch' if entity.watch_item_id else 'Watch This' }}</button></div>
+    </form>
+  </div></section>
+  {% if context %}
+  <section class="panel"><div class="panel-head"><div><div class="panel-kicker">PARCEL TOPOLOGY</div><h2>Parcel Context</h2></div><form method="get"><label>Radius (feet)<input type="number" name="radius_ft" min="1" max="26400" value="{{ radius_ft }}"></label><button type="submit">Refresh</button></form></div>
+    <div class="panel-body"><p><strong>{{ context.parcel.property_location or entity.normalized_address }}</strong> · Block {{ context.parcel.block or '?' }} · Lot {{ context.parcel.lot or '?' }}</p></div>
+    <div class="table-wrap"><table><thead><tr><th>Same-parcel addresses</th><th>Link</th><th>Distance</th></tr></thead><tbody>{% for row in context.addresses %}<tr><td>{{ row.full_address }}</td><td>{{ row.link_method|replace('_',' ')|title }}</td><td>{{ '%.1f'|format(row.distance_ft) }} ft</td></tr>{% else %}<tr><td colspan="3">No linked active addresses.</td></tr>{% endfor %}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Adjoining parcel</th><th>Relationship</th><th>Shared boundary</th></tr></thead><tbody>{% for row in context.adjoining_parcels %}<tr><td>{{ row.property_location or ('Block ' ~ row.block ~ ' Lot ' ~ row.lot) }}</td><td>{{ row.relation_type|replace('_',' ')|title }}</td><td>{{ '%.1f'|format(row.shared_boundary_ft) }} ft</td></tr>{% else %}<tr><td colspan="3">No adjoining parcels within the topology tolerance.</td></tr>{% endfor %}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Nearby parcel</th><th>Relationship</th><th>Distance</th><th>Separator</th></tr></thead><tbody>{% for row in context.nearby_parcels %}<tr><td>{{ row.property_location or ('Block ' ~ row.block ~ ' Lot ' ~ row.lot) }}</td><td>{{ row.relation_type|replace('_',' ')|title }}</td><td>{{ '%.1f'|format(row.distance_ft) }} ft</td><td>{{ row.separating_reference_name or '' }}</td></tr>{% else %}<tr><td colspan="4">No nearby parcels within {{ radius_ft }} feet.</td></tr>{% endfor %}</tbody></table></div>
+  </section>
+  {% endif %}
+  {% if impact %}
+  <section class="metrics">
+    <div class="metric"><span>Active Watches Nearby</span><strong>{{ impact.active_watches|length }}</strong><small>{{ radius_ft|int }} foot context</small></div>
+    <div class="metric"><span>Open Issues Nearby</span><strong>{{ impact.open_issues|length }}</strong><small>Command Center</small></div>
+    <div class="metric"><span>Recent Alerts Nearby</span><strong>{{ impact.recent_alerts|length }}</strong><small>Past {{ history_days }} days</small></div>
+    <div class="metric"><span>Events / Transit</span><strong>{{ (impact.events|length) + (impact.transit|length) }}</strong><small>Existing intelligence</small></div>
+    <div class="metric"><span>Flood Zones</span><strong>{{ impact.flood_zones|length }}</strong><small>Within impact radius</small></div>
+  </section>
+  <section class="panel"><div class="panel-head"><div><div class="panel-kicker">OPEN NEARBY HISTORY</div><h2>Spatial History and Impact</h2></div><form method="get"><label>Radius (feet)<input type="number" name="radius_ft" min="1" max="26400" value="{{ radius_ft }}"></label><label>Days<input type="number" name="history_days" min="1" max="365" value="{{ history_days }}"></label><button type="submit">Refresh</button></form></div>
+    <div class="table-wrap"><table><thead><tr><th>Alert</th><th>Source / Category</th><th>Priority</th><th>Distance</th><th>Received</th></tr></thead><tbody>{% for row in impact.recent_alerts %}<tr><td>{{ row.title }}</td><td>{{ row.source }} · {{ row.category }}</td><td>{{ row.priority }}</td><td>{{ '%.1f'|format(row.distance_ft) }} ft</td><td>{{ row.received_at }}</td></tr>{% else %}<tr><td colspan="5">No mapped alerts in this window.</td></tr>{% endfor %}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Event / Transit</th><th>Type</th><th>Impact</th><th>Distance</th><th>Time</th></tr></thead><tbody>{% for row in impact.events %}<tr><td>{{ row.title }}</td><td>{{ row.event_type }}{% if row.venue %} · {{ row.venue }}{% endif %}</td><td>{{ row.impact_level }} · {{ row.impact_score }}</td><td>{{ '%.1f'|format(row.distance_ft) }} ft</td><td>{{ row.starts_at or row.ends_at }}</td></tr>{% endfor %}{% for row in impact.transit %}<tr><td>{{ row.title }}</td><td>Transit{% if row.route_name %} · {{ row.route_name }}{% endif %}</td><td>{{ row.impact_level }} · {{ row.impact_score }}</td><td>{{ '%.1f'|format(row.distance_ft) }} ft</td><td>{{ row.starts_at or row.last_seen_at }}</td></tr>{% else %}{% if not impact.events %}<tr><td colspan="5">No mapped events or transit observations in this window.</td></tr>{% endif %}{% endfor %}</tbody></table></div>
+    <p><a href="/api/spatial-reference/{{ entity.entity_id }}/nearby-history?radius_ft={{ radius_ft }}&days={{ history_days }}">Open nearby history JSON</a> · <a href="/api/spatial-reference/{{ entity.entity_id }}/impact-buffer.geojson?radius_ft={{ radius_ft }}">Create spatial impact buffer</a></p>
+  </section>
+  {% endif %}
+</main>
+</body>
+</html>

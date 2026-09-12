@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Regional Spatial Reference Catalog</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><div class="eyebrow">SEE IT → TRACK IT → TELL ME</div><div class="brand-row"><h1>Regional Spatial Reference Catalog</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Permanent facilities, venues, corridors and parcel context</div></div></header>
+{% include "nav.html" %}
+<main>
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+  <section class="metrics">
+    <div class="metric"><span>Total References</span><strong>{{ counts.total or 0 }}</strong><small>Canonical entities</small></div>
+    <div class="metric"><span>Active</span><strong>{{ counts.active or 0 }}</strong><small>Searchable now</small></div>
+    <div class="metric"><span>Authoritative</span><strong>{{ counts.authoritative or 0 }}</strong><small>Source-backed geometry</small></div>
+    <div class="metric"><span>Parcel Linked</span><strong>{{ counts.parcel_linked or 0 }}</strong><small>Topology ready</small></div>
+    <div class="metric"><span>Transit Linked</span><strong>{{ counts.transit_linked or 0 }}</strong><small>Existing transit assets reused</small></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div><div class="panel-kicker">CATALOG SEARCH</div><h2>Find a reference</h2></div></div>
+    <div class="panel-body">
+      <form method="get" action="/spatial-reference" class="form-grid three-col">
+        <label>Search<input name="q" value="{{ q }}" placeholder="Name, alias or address"></label>
+        <label>Type<select name="entity_type"><option value="">All types</option>{% for value in entity_types %}<option value="{{ value }}" {% if entity_type == value %}selected{% endif %}>{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label>
+        <label>&nbsp;<button type="submit">Search</button></label>
+      </form>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div><div class="panel-kicker">AUTHORITATIVE SOURCE</div><h2>Add or refresh a reference</h2></div><form method="post" action="/spatial-reference/refresh"><button type="submit" class="secondary">Refresh Linked Sources</button></form></div>
+    <div class="panel-body">
+      <p class="muted">Search statewide NG911 addresses and landmarks, NJOGIS parcels, existing transit assets, or Mapping Center custom features. Geometry and provenance are adopted from the selected source. Coordinates are never guessed.</p>
+      <div class="form-grid two-col">
+        <label>Find source<input id="source-search" placeholder="Address, parcel, block, lot or custom feature"></label>
+        <label>&nbsp;<button type="button" id="source-search-button">Find</button></label>
+      </div>
+      <div id="source-results" class="table-wrap"></div>
+      <form method="post" action="/spatial-reference/adopt" class="form-grid three-col" id="adopt-form">
+        <label>Source Type<select name="source_kind" id="source-kind">{% for value in source_kinds %}<option value="{{ value }}">{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label>
+        <label>Source ID<input name="source_id" id="source-id" required></label>
+        <label>Canonical Name<input name="canonical_name" id="canonical-name" placeholder="Defaults to source label"></label>
+        <label>Entity Type<select name="entity_type">{% for value in entity_types %}<option value="{{ value }}">{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label>
+        <label>Subtype<input name="entity_subtype" placeholder="Healthcare, school, street..."></label>
+        <label>Importance Tier<input type="number" name="importance_tier" min="1" max="5" value="3"></label>
+        <label style="grid-column:1/-1">Aliases<input name="aliases" placeholder="Comma-separated alternate names"></label>
+        <div><button type="submit">Save Reference</button></div>
+      </form>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div><div class="panel-kicker">REFRESH STATUS</div><h2>Linked source coverage</h2></div><small>{{ counts.last_refreshed_at or 'Not refreshed' }}</small></div>
+    <div class="table-wrap"><table><thead><tr><th>Provider</th><th>Active</th><th>Total</th><th>Last refreshed</th></tr></thead><tbody>
+      {% for source in sources %}<tr><td>{{ source.source_provider }}</td><td>{{ source.active }}</td><td>{{ source.total }}</td><td>{{ source.last_refreshed_at }}</td></tr>{% else %}<tr><td colspan="4">No linked sources have been refreshed.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div><div class="panel-kicker">REFERENCE GEOGRAPHY</div><h2>Catalog</h2></div><a class="button secondary" href="/map">Open Mapping Center</a></div>
+    <div class="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Location</th><th>Source</th><th>Parcel</th><th>Watch</th></tr></thead><tbody>
+      {% for row in rows %}<tr>
+        <td><a href="/spatial-reference/{{ row.entity_id }}"><strong>{{ row.canonical_name }}</strong></a>{% if row.aliases %}<br><small>{{ row.aliases|join(', ') }}</small>{% endif %}</td>
+        <td>{{ row.entity_type|replace('_',' ')|title }}{% if row.entity_subtype %}<br><small>{{ row.entity_subtype|replace('_',' ')|title }}</small>{% endif %}</td>
+        <td>{{ row.normalized_address or row.municipality or 'Mapped geometry' }}{% if row.state %}<br><small>{{ row.state }}</small>{% endif %}</td>
+        <td>{{ row.source_provider }}{% if row.authoritative %}<br><small>Authoritative</small>{% endif %}</td>
+        <td>{% if row.parcel_objectid %}<a href="/spatial-reference/{{ row.entity_id }}">#{{ row.parcel_objectid }}</a>{% else %}Not linked{% endif %}</td>
+        <td>{% if row.watch_item_id %}<a href="/alert-admin">{{ 'Active' if row.watch_active else 'Inactive' }}</a>{% else %}<a href="/spatial-reference/{{ row.entity_id }}">Watch This</a>{% endif %}</td>
+      </tr>{% else %}<tr><td colspan="6">No references match this search.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</main>
+<script>
+const input=document.getElementById('source-search'),button=document.getElementById('source-search-button'),results=document.getElementById('source-results');
+async function findSources(){const q=input.value.trim();if(q.length<2){results.textContent='Enter at least two characters.';return;}results.textContent='Searching…';try{const response=await fetch('/api/spatial-reference/source-search?q='+encodeURIComponent(q));if(!response.ok)throw new Error('Search failed');const data=await response.json();if(!data.items.length){results.textContent='No source records found.';return;}const table=document.createElement('table'),body=document.createElement('tbody');table.innerHTML='<thead><tr><th>Source</th><th>Result</th><th>Detail</th><th></th></tr></thead>';data.items.forEach(item=>{const row=document.createElement('tr');[item.source_kind,item.label,item.detail].forEach(value=>{const cell=document.createElement('td');cell.textContent=value||'';row.appendChild(cell);});const cell=document.createElement('td'),pick=document.createElement('button');pick.type='button';pick.textContent='Select';pick.onclick=()=>{document.getElementById('source-kind').value=item.source_kind;document.getElementById('source-id').value=item.source_id;document.getElementById('canonical-name').value=item.label||'';document.getElementById('adopt-form').scrollIntoView({behavior:'smooth'});};cell.appendChild(pick);row.appendChild(cell);body.appendChild(row);});table.appendChild(body);results.replaceChildren(table);}catch(error){results.textContent=error.message;}}
+button.addEventListener('click',findSources);input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();findSources();}});
+</script>
+</body>
+</html>

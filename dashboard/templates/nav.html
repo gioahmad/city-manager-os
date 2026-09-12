@@ -9,7 +9,7 @@
     <a href="/inbox" class="{% if request.url.path.startswith('/inbox') %}active{% endif %}">Inbox</a>
     <a href="/staff-admin" class="{% if request.url.path.startswith('/staff-admin') or request.url.path.startswith('/operations-routines') %}active{% endif %}">Operations</a>
     <a href="/schedule" class="{% if request.url.path.startswith('/schedule') or request.url.path.startswith('/event-intelligence') %}active{% endif %}">Events</a>
-    <a href="/map" class="{% if request.url.path.startswith('/map') or request.url.path.startswith('/flood') %}active{% endif %}">Map</a>
+    <a href="/map" class="{% if request.url.path.startswith('/map') or request.url.path.startswith('/flood') or request.url.path.startswith('/spatial-reference') %}active{% endif %}">Map</a>
     <a href="/transit" class="{% if request.url.path.startswith('/transit') %}active{% endif %}">Transit</a>
     <a href="/alerts" class="{% if request.url.path.startswith('/alerts') %}active{% endif %}">Alerts</a>
 
@@ -25,6 +25,7 @@
         <a href="/today-board">Today Board</a>
         <a href="/today-board/setup">Today Board Setup Wizard</a>
         <a href="/watchlist">Watchlists</a>
+        <a href="/spatial-reference">Reference Catalog</a>
         <a href="/subscribers">Subscribers</a>
         <a href="/routing">Routing</a>
         <a href="/integrations">Integrations</a>
@@ -60,6 +61,7 @@
       <a href="/today-board">Today Board</a>
       <a href="/today-board/setup">Today Board Setup Wizard</a>
       <a href="/watchlist">Watchlists</a>
+      <a href="/spatial-reference">Reference Catalog</a>
       <a href="/subscribers">Subscribers</a>
       <a href="/routing">Routing</a>
       <a href="/integrations">Integrations</a>
