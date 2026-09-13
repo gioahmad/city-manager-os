@@ -1,11 +1,20 @@
 from pathlib import Path
+from unittest import SkipTest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+DASHBOARD_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = DASHBOARD_ROOT.parent
+
+
+def _deployment_file(relative_path):
+    path = REPOSITORY_ROOT / relative_path
+    if not path.is_file():
+        raise SkipTest("deployment source is outside the dashboard-only test mount")
+    return path
 
 
 def test_catalog_migration_is_additive_and_reuses_watchlist():
-    sql = (ROOT / "deploy/postgis/init/031_spatial_reference_catalog.sql").read_text()
+    sql = _deployment_file("deploy/postgis/init/031_spatial_reference_catalog.sql").read_text()
     assert "CREATE TABLE IF NOT EXISTS spatial_reference_entities" in sql
     assert "ALTER TABLE watch_items" in sql
     assert "spatial_reference_entity_id" in sql
@@ -30,7 +39,7 @@ def test_catalog_migration_is_additive_and_reuses_watchlist():
 
 
 def test_installer_validates_function_sql_before_refreshing_sources():
-    installer = (ROOT / "deploy/gis/install_spatial_reference_catalog.sh").read_text()
+    installer = _deployment_file("deploy/gis/install_spatial_reference_catalog.sh").read_text()
     validation = "SELECT gis_parcel_context(NULL::integer,500.0) IS NULL;"
     refresh = "SELECT spatial_reference_refresh_local_sources() AS refresh_result;"
     assert validation in installer
@@ -39,7 +48,7 @@ def test_installer_validates_function_sql_before_refreshing_sources():
 
 
 def test_catalog_routes_and_normal_watch_promotion():
-    source = (ROOT / "dashboard/spatial_reference_app.py").read_text()
+    source = (DASHBOARD_ROOT / "spatial_reference_app.py").read_text()
     assert '@app.get("/spatial-reference"' in source
     assert '@app.get("/api/spatial-reference/release")' in source
     assert '@app.post("/spatial-reference/adopt")' in source
@@ -63,9 +72,9 @@ def test_catalog_routes_and_normal_watch_promotion():
 
 
 def test_composition_and_mapping_layer():
-    phase3 = (ROOT / "dashboard/phase3_app.py").read_text()
-    map_app = (ROOT / "dashboard/map_app.py").read_text()
-    nav = (ROOT / "dashboard/templates/nav.html").read_text()
+    phase3 = (DASHBOARD_ROOT / "phase3_app.py").read_text()
+    map_app = (DASHBOARD_ROOT / "map_app.py").read_text()
+    nav = (DASHBOARD_ROOT / "templates/nav.html").read_text()
     assert "import spatial_reference_app" in phase3
     assert '"key": "spatial-references"' in map_app
     assert "SELECT 'REFERENCE' AS result_type" in map_app
