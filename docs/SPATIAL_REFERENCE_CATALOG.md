@@ -10,7 +10,9 @@ The first refresh reuses and links data already in PostGIS:
 
 - Hudson County named facilities from statewide `gis_parcels`
 - Hudson County landmark aliases from statewide `gis_landmark_aliases` and `gis_addresses`
-- all active mapped `transit_assets`, linked by their existing UUID rather than copied into another transit model
+- active mapped stationary `transit_assets` such as stops, stations, and terminals, linked by their existing UUID rather than copied into another transit model
+
+Live vehicle positions remain in the existing Transit system and are deliberately excluded from the permanent reference catalog. This prevents moving vehicles from creating catalog churn while preserving them for live transit observations and impact context.
 
 `spatial_reference_refresh_local_sources()` is idempotent. It upserts by stable source ID and retires missing linked records. Operators can run it from the Reference Catalog after an authoritative source promotion. A later lifecycle update can invoke the same function without creating another GIS refresh system.
 

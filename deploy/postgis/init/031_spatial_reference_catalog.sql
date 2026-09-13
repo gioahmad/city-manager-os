@@ -338,6 +338,7 @@ BEGIN
       SELECT ta.*,tp.provider_key,tp.name AS provider_name
       FROM transit_assets ta JOIN transit_providers tp ON tp.id=ta.provider_id
       WHERE ta.active AND ta.geom IS NOT NULL AND NOT ST_IsEmpty(ta.geom)
+        AND upper(coalesce(ta.asset_type,'')) <> 'VEHICLE'
     ), upserted AS (
       INSERT INTO spatial_reference_entities(
         entity_type,entity_subtype,canonical_name,aliases,municipality,county,state,
@@ -376,6 +377,7 @@ BEGIN
       AND NOT EXISTS (
         SELECT 1 FROM transit_assets ta
         WHERE ta.id::text=r.source_record_id AND ta.active AND ta.geom IS NOT NULL
+          AND upper(coalesce(ta.asset_type,'')) <> 'VEHICLE'
       );
     GET DIAGNOSTICS affected_rows = ROW_COUNT;
     retired_rows := retired_rows + affected_rows;

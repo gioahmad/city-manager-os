@@ -33,6 +33,7 @@ def test_catalog_migration_is_additive_and_reuses_watchlist():
     assert "/0.3048" in sql
     assert "*0.3048" in sql
     assert "26400.0))*0.3048)),'[]'::jsonb" in sql
+    assert sql.count("upper(coalesce(ta.asset_type,'')) <> 'VEHICLE'") >= 2
     assert "CREATE TABLE IF NOT EXISTS watch_items" not in sql
     assert "CREATE TABLE IF NOT EXISTS subscribers" not in sql
     assert "CREATE TABLE IF NOT EXISTS deliveries" not in sql
