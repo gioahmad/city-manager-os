@@ -330,11 +330,24 @@ def map_addresses_geojson(bbox: str | None = None):
 def map_watchlist_geojson():
     rows = query_all(
         """
-        SELECT watch_id,display_name,address,watch_type,min_priority,radius_ft,spatial_scope,
-               starts_at,expires_at,source_filter,alert_category_filter,
-               ST_AsGeoJSON(coalesce(spatial_geom,geom))::json AS geometry
-        FROM watch_items WHERE active=true AND coalesce(spatial_geom,geom) IS NOT NULL
-        ORDER BY display_name LIMIT 5000
+        SELECT w.watch_id,w.display_name,w.address,w.watch_type,w.min_priority,w.radius_ft,
+               w.spatial_scope,w.starts_at,w.expires_at,w.source_filter,w.alert_category_filter,
+               CASE
+                 WHEN w.starts_at>now() THEN 'SCHEDULED'
+                 WHEN w.expires_at<=now() THEN 'EXPIRED'
+                 WHEN w.expires_at IS NULL THEN 'PERMANENT'
+                 ELSE 'ACTIVE NOW'
+               END AS watch_state,
+               coalesce((
+                 SELECT string_agg(s.name,', ' ORDER BY s.name)
+                 FROM watch_item_recipients wir
+                 JOIN subscribers s ON s.id=wir.subscriber_id AND s.active=true
+                 WHERE wir.watch_item_id=w.id AND wir.active=true
+               ),'None') AS intended_recipients,
+               ST_AsGeoJSON(coalesce(w.spatial_geom,w.geom))::json AS geometry
+        FROM watch_items w
+        WHERE w.active=true AND coalesce(w.spatial_geom,w.geom) IS NOT NULL
+        ORDER BY w.display_name LIMIT 5000
         """
     )
     return JSONResponse(_feature_collection(rows))

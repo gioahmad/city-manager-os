@@ -195,7 +195,7 @@ alert_category_filter: FIRE|POLICE
 
 Blank means the watch is allowed to match alerts from any source/category.
 
-## GIS / Future Property Intelligence
+## GIS / Spatial Intelligence
 
 An address or facility can begin with only:
 
@@ -216,7 +216,7 @@ latitude
 longitude
 ```
 
-If `nearby_enabled=TRUE`, `radius_ft` defines the future proximity search area.
+If `nearby_enabled=TRUE`, `radius_ft` defines the proximity search area.
 
 Example:
 
@@ -226,7 +226,7 @@ nearby_enabled: TRUE
 radius_ft: 500
 ```
 
-A future GIS workflow can then find nearby parcels, facilities, flood zones, or other watched locations without changing the original watch item.
+The Unified Spatial Watch Pack uses local PostGIS to match precise alert geometry against the row. Point, parcel, facility, corridor, adjoining-parcel, and area geometry reuse the same `watch_items` record, subscriber assignments, central router, Delivery Guard, and ntfy path. Alerts without trustworthy geometry continue through text and field matching only.
 
 ## Temporary Watch Items
 

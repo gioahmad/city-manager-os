@@ -54,7 +54,7 @@ collect → parse → detect → normalize → send to router
 
 - Structured field matches: source, category, municipality, county, incident type
 - Text matches: addresses, facilities, phrases, aliases
-- Future spatial matches: point within radius/area, nearby watched property, flood-zone intersection
+- Spatial matches: precise alert geometry within a point/corridor buffer or intersecting an entity/adjoining-parcel area
 
 ## Duplicate Handling
 

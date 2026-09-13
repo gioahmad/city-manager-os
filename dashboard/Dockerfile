@@ -29,6 +29,7 @@ COPY flood_app.py .
 COPY gis_import.py .
 COPY map_app.py .
 COPY spatial_reference_app.py .
+COPY spatial_watch_app.py .
 COPY geo_resolver.py .
 COPY integration_runtime.py .
 COPY integration_engine.py .
