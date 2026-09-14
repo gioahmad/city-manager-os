@@ -38,12 +38,18 @@ publish_matcher(){
   fi
 }
 
+prepare_node_file(){
+  docker exec -u root n8n chown node:node "$1"
+  docker exec -u root n8n chmod 600 "$1"
+}
+
 restore_matcher(){
   local rc=$?
   trap - ERR
   if (( PUBLISHED == 1 )) && [[ -s "$BACKUP_DIR/CORE_Watchlist_Matcher_pre56.json" ]]; then
     log "ROLLBACK: restoring the prior central matcher"
     docker cp "$BACKUP_DIR/CORE_Watchlist_Matcher_pre56.json" "n8n:$TMP_BACKUP" >/dev/null 2>&1 || true
+    prepare_node_file "$TMP_BACKUP" >/dev/null 2>&1 || true
     docker exec -u node n8n n8n import:workflow --input="$TMP_BACKUP" >/dev/null 2>&1 || true
     publish_matcher >/dev/null 2>&1 || true
     docker restart n8n >/dev/null 2>&1 || true
@@ -125,10 +131,12 @@ console.log('MATCHER CONTRACT text_plus_spatial=ONE recipient_delivery=ONE');
 open(sys.argv[2],'w').write(script)
 PY
 docker cp "$TMP_CONTRACT" "n8n:$TMP_CONTRACT"
+prepare_node_file "$TMP_CONTRACT"
 docker exec -u node n8n node "$TMP_CONTRACT"
 
 log "Importing and publishing the central matcher"
 docker cp "$TMP_TARGET" "n8n:$TMP_TARGET"
+prepare_node_file "$TMP_TARGET"
 docker exec -u node n8n n8n import:workflow --input="$TMP_TARGET" >/dev/null
 PUBLISHED=1
 publish_matcher

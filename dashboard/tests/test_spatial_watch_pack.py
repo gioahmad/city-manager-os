@@ -56,6 +56,10 @@ def test_guarded_database_installer_covers_point_corridor_and_no_writes():
     assert "BEGIN;" in installer and "ROLLBACK;" in installer
     assert "INSERT INTO deliveries" not in installer
     assert "ntfy" not in installer.lower()
+    matcher_installer = _repository_file("deploy/n8n/install_spatial_watch_matcher.sh").read_text()
+    assert "chown node:node" in matcher_installer
+    assert 'prepare_node_file "$TMP_CONTRACT"' in matcher_installer
+    assert 'prepare_node_file "$TMP_TARGET"' in matcher_installer
 
 
 def test_browser_uses_existing_watchlist_resolver_subscribers_and_routing():
