@@ -236,7 +236,7 @@ publish_report(){ (
   report_file="$report_dir/${RUN_ID}-${status,,}.md"
   latest_file="$report_dir/latest.md"
   raw_sha="$(sha256sum "$LOG_FILE" | awk '{print $1}')"
-  changed="$(safe_git_value status --short | redact)"
+  changed="$(git -C "$REPO" status --short 2>/dev/null | redact || true)"
   {
     printf '# City Manager OS issue #56 release report\n\n'
     printf '> This repository is public. This report is intentionally redacted. The complete mode-600 log remains on the VPS.\n\n'
@@ -264,6 +264,14 @@ publish_report(){ (
     grep -Eai '(^|[[:space:]])(ERROR|FATAL|FAIL|FAILED|EXCEPTION|TRACEBACK|ASSERT|SYNTAX|UNEXPECTED|MISMATCH|PASS|PLAN|READINESS|HEALTH|SPATIAL|MATCHER|DATABASE|DASHBOARD|E2E|ROLLBACK)|^(base|target|changed|build|services|tests|probes|backup_required|external|full_e2e|unknown)=' "$LOG_FILE" \
       | grep -v '^FAILED_COMMAND=' | redact | tail -n 240 || true
     printf '```\n'
+    if [[ "$status" == "FAIL" ]]; then
+      printf '\n## Redacted traceback context\n\n```text\n'
+      awk '
+        /Traceback \(most recent call last\):/ { remaining=80 }
+        remaining>0 { print; remaining-- }
+      ' "$LOG_FILE" | redact | tail -n 160 || true
+      printf '```\n'
+    fi
   } > "$report_file"
   install -m 600 "$report_file" "$latest_file"
   git -C "$worktree" add "release-results/issue-56/$(basename "$report_file")" "release-results/issue-56/latest.md"
@@ -420,7 +428,7 @@ for name in ('map.html','watchlist.html'):
     env.get_template(name)
 print('JINJA TARGETED VALIDATION: PASS')
 import phase3_app
-paths={(route.path,tuple(sorted(route.methods or ()))) for route in phase3_app.app.routes}
+paths={(getattr(route,'path',None),tuple(sorted(getattr(route,'methods',None) or ()))) for route in phase3_app.app.routes}
 assert any(path=='/watchlist' for path,_ in paths)
 assert any(path=='/api/spatial-watch/release' for path,_ in paths)
 print('DASHBOARD RUNTIME IMPORT: PASS')
