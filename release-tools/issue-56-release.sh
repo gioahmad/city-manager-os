@@ -4,8 +4,9 @@ export LC_ALL=C
 
 REPO="/opt/city-manager-os"
 EXPECTED_BASE="c68b88461578d135db114681d0a4bdae76a4b3ee"
-CANDIDATE_SHA="c02fbde1c6bda440e2076400d2ed3371c30f09fa"
-SUPERSEDED_CANDIDATE="26a76d501b1a959f66983976ac803d11da2319de"
+CANDIDATE_SHA="7bd25e3e36ebc5151d5ed9381d000257f7b722f1"
+PREVIOUS_CANDIDATE="c02fbde1c6bda440e2076400d2ed3371c30f09fa"
+ORIGINAL_CANDIDATE="26a76d501b1a959f66983976ac803d11da2319de"
 CANDIDATE_BRANCH="release-candidate/56"
 REPORT_BRANCH="release-output/56"
 RELEASE_ID="issue-56-unified-spatial-watch-pack-v1"
@@ -192,6 +193,8 @@ rollback_runtime(){
     log "ROLLBACK: restoring the prior central Watchlist Matcher"
     local restore_path="/tmp/issue-56-matcher-restore-${RUN_ID}.json"
     docker cp "$N8N_ROLLBACK_FILE" "n8n:$restore_path" >/dev/null 2>&1
+    docker exec -u root n8n chown node:node "$restore_path" >/dev/null 2>&1
+    docker exec -u root n8n chmod 600 "$restore_path" >/dev/null 2>&1
     docker exec -u node n8n n8n import:workflow --input="$restore_path" >/dev/null 2>&1
     publish_matcher >/dev/null 2>&1
     docker restart n8n >/dev/null 2>&1
@@ -328,9 +331,11 @@ git fetch -q origin main \
   "+refs/heads/${REPORT_BRANCH}:refs/remotes/origin/${REPORT_BRANCH}"
 [[ "$(git rev-parse "origin/${CANDIDATE_BRANCH}")" == "$CANDIDATE_SHA" ]] \
   || fail "published #56 candidate moved unexpectedly"
-[[ "$(git rev-parse "${CANDIDATE_SHA}^")" == "$SUPERSEDED_CANDIDATE" ]] \
-  || fail "#56 repaired candidate is not based on the inspected failed candidate"
-[[ "$(git rev-parse "${SUPERSEDED_CANDIDATE}^")" == "$EXPECTED_BASE" ]] \
+[[ "$(git rev-parse "${CANDIDATE_SHA}^")" == "$PREVIOUS_CANDIDATE" ]] \
+  || fail "#56 repaired candidate is not based on the latest inspected candidate"
+[[ "$(git rev-parse "${PREVIOUS_CANDIDATE}^")" == "$ORIGINAL_CANDIDATE" ]] \
+  || fail "#56 repaired candidate chain changed unexpectedly"
+[[ "$(git rev-parse "${ORIGINAL_CANDIDATE}^")" == "$EXPECTED_BASE" ]] \
   || fail "#56 candidate chain is not based on the accepted production commit"
 [[ "$(git diff --name-only "$EXPECTED_BASE".."$CANDIDATE_SHA" | sort)" == "$EXPECTED_PATHS" ]] \
   || fail "#56 candidate path manifest mismatch"
@@ -338,10 +343,10 @@ git fetch -q origin main \
 HEAD_SHA="$(git rev-parse HEAD)"
 ORIGIN_SHA="$(git rev-parse origin/main)"
 if [[ "$ORIGIN_SHA" == "$EXPECTED_BASE" ]]; then
-  [[ "$HEAD_SHA" == "$EXPECTED_BASE" || "$HEAD_SHA" == "$SUPERSEDED_CANDIDATE" || "$HEAD_SHA" == "$CANDIDATE_SHA" ]] \
+  [[ "$HEAD_SHA" == "$EXPECTED_BASE" || "$HEAD_SHA" == "$ORIGINAL_CANDIDATE" || "$HEAD_SHA" == "$PREVIOUS_CANDIDATE" || "$HEAD_SHA" == "$CANDIDATE_SHA" ]] \
     || fail "local main is not the accepted base or exact resumable #56 candidate"
 elif [[ "$ORIGIN_SHA" == "$CANDIDATE_SHA" ]]; then
-  [[ "$HEAD_SHA" == "$EXPECTED_BASE" || "$HEAD_SHA" == "$SUPERSEDED_CANDIDATE" || "$HEAD_SHA" == "$CANDIDATE_SHA" ]] \
+  [[ "$HEAD_SHA" == "$EXPECTED_BASE" || "$HEAD_SHA" == "$ORIGINAL_CANDIDATE" || "$HEAD_SHA" == "$PREVIOUS_CANDIDATE" || "$HEAD_SHA" == "$CANDIDATE_SHA" ]] \
     || fail "local main is not compatible with accepted #56 production"
 else
   fail "origin/main moved beyond the accepted #56 release boundary"
