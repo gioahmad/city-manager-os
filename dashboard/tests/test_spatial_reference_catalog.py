@@ -79,5 +79,5 @@ def test_composition_and_mapping_layer():
     assert "import spatial_reference_app" in phase3
     assert '"key": "spatial-references"' in map_app
     assert "SELECT 'REFERENCE' AS result_type" in map_app
-    assert "coalesce(spatial_geom,geom)" in map_app.lower()
+    assert "coalesce(w.spatial_geom,w.geom)" in map_app.lower()
     assert 'href="/spatial-reference"' in nav
