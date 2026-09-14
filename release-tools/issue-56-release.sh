@@ -4,7 +4,8 @@ export LC_ALL=C
 
 REPO="/opt/city-manager-os"
 EXPECTED_BASE="c68b88461578d135db114681d0a4bdae76a4b3ee"
-CANDIDATE_SHA="26a76d501b1a959f66983976ac803d11da2319de"
+CANDIDATE_SHA="c02fbde1c6bda440e2076400d2ed3371c30f09fa"
+SUPERSEDED_CANDIDATE="26a76d501b1a959f66983976ac803d11da2319de"
 CANDIDATE_BRANCH="release-candidate/56"
 REPORT_BRANCH="release-output/56"
 RELEASE_ID="issue-56-unified-spatial-watch-pack-v1"
@@ -33,7 +34,7 @@ OLD_LATEST_IMAGE=""
 N8N_DIR=""
 N8N_DB=""
 
-EXPECTED_PATHS=$'dashboard/Dockerfile\ndashboard/map_app.py\ndashboard/phase3_app.py\ndashboard/spatial_watch_app.py\ndashboard/templates/map.html\ndashboard/templates/watchlist.html\ndashboard/tests/test_spatial_watch_pack.py\ndeploy/gis/install_spatial_watch_pack.sh\ndeploy/n8n/install_spatial_watch_matcher.sh\ndeploy/postgis/init/032_unified_spatial_watch_pack.sql\ndocs/UNIFIED_SPATIAL_WATCH_PACK.md\nmodules/ALERT_ROUTER.md\nmodules/WATCHLIST.md\nworkflows/core/CORE_Watchlist_Matcher_v1.json\nworkflows/live/CORE_Watchlist_Matcher_live.json'
+EXPECTED_PATHS=$'dashboard/Dockerfile\ndashboard/map_app.py\ndashboard/phase3_app.py\ndashboard/spatial_watch_app.py\ndashboard/templates/map.html\ndashboard/templates/watchlist.html\ndashboard/tests/test_spatial_reference_catalog.py\ndashboard/tests/test_spatial_watch_pack.py\ndeploy/gis/install_spatial_watch_pack.sh\ndeploy/n8n/install_spatial_watch_matcher.sh\ndeploy/postgis/init/032_unified_spatial_watch_pack.sql\ndocs/UNIFIED_SPATIAL_WATCH_PACK.md\nmodules/ALERT_ROUTER.md\nmodules/WATCHLIST.md\nworkflows/core/CORE_Watchlist_Matcher_v1.json\nworkflows/live/CORE_Watchlist_Matcher_live.json'
 
 umask 077
 mkdir -p "$LOG_DIR" "$STATE_DIR"
@@ -319,23 +320,25 @@ git fetch -q origin main \
   "+refs/heads/${REPORT_BRANCH}:refs/remotes/origin/${REPORT_BRANCH}"
 [[ "$(git rev-parse "origin/${CANDIDATE_BRANCH}")" == "$CANDIDATE_SHA" ]] \
   || fail "published #56 candidate moved unexpectedly"
-[[ "$(git rev-parse "${CANDIDATE_SHA}^")" == "$EXPECTED_BASE" ]] \
-  || fail "#56 candidate is not based on the accepted production commit"
+[[ "$(git rev-parse "${CANDIDATE_SHA}^")" == "$SUPERSEDED_CANDIDATE" ]] \
+  || fail "#56 repaired candidate is not based on the inspected failed candidate"
+[[ "$(git rev-parse "${SUPERSEDED_CANDIDATE}^")" == "$EXPECTED_BASE" ]] \
+  || fail "#56 candidate chain is not based on the accepted production commit"
 [[ "$(git diff --name-only "$EXPECTED_BASE".."$CANDIDATE_SHA" | sort)" == "$EXPECTED_PATHS" ]] \
   || fail "#56 candidate path manifest mismatch"
 
 HEAD_SHA="$(git rev-parse HEAD)"
 ORIGIN_SHA="$(git rev-parse origin/main)"
 if [[ "$ORIGIN_SHA" == "$EXPECTED_BASE" ]]; then
-  [[ "$HEAD_SHA" == "$EXPECTED_BASE" || "$HEAD_SHA" == "$CANDIDATE_SHA" ]] \
+  [[ "$HEAD_SHA" == "$EXPECTED_BASE" || "$HEAD_SHA" == "$SUPERSEDED_CANDIDATE" || "$HEAD_SHA" == "$CANDIDATE_SHA" ]] \
     || fail "local main is not the accepted base or exact resumable #56 candidate"
 elif [[ "$ORIGIN_SHA" == "$CANDIDATE_SHA" ]]; then
-  [[ "$HEAD_SHA" == "$EXPECTED_BASE" || "$HEAD_SHA" == "$CANDIDATE_SHA" ]] \
+  [[ "$HEAD_SHA" == "$EXPECTED_BASE" || "$HEAD_SHA" == "$SUPERSEDED_CANDIDATE" || "$HEAD_SHA" == "$CANDIDATE_SHA" ]] \
     || fail "local main is not compatible with accepted #56 production"
 else
   fail "origin/main moved beyond the accepted #56 release boundary"
 fi
-if [[ "$HEAD_SHA" == "$EXPECTED_BASE" ]]; then
+if [[ "$HEAD_SHA" != "$CANDIDATE_SHA" ]]; then
   git merge --ff-only "$CANDIDATE_SHA"
 fi
 [[ "$(git rev-parse HEAD)" == "$CANDIDATE_SHA" ]] || fail "local main did not reach the exact #56 candidate"
