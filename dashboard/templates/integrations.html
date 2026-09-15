@@ -21,6 +21,11 @@
 
   {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
 
+  <section class="panel" style="margin-top:16px">
+    <div class="panel-head"><div><div class="panel-kicker">UTILITY INTELLIGENCE</div><h2>PSEG Spatial + NJ Statewide Alerts</h2></div><a class="primary-button" href="/integrations/pseg">Open PSEG Controls</a></div>
+    <div class="panel-body"><p class="muted small-copy">Manage the existing Hudson feed, approximate local spatial context, and adjustable statewide thresholds from one central path. Statewide alerts always exclude Hudson.</p></div>
+  </section>
+
   <section class="metrics">
     <div class="metric"><span>Total</span><strong>{{ counts.total or 0 }}</strong><small>Registered sources</small></div>
     <div class="metric"><span>Active</span><strong>{{ counts.active or 0 }}</strong><small>Enabled</small></div>

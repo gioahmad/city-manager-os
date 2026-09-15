@@ -6,6 +6,7 @@ from datetime import datetime
 
 from geo_resolver import process_pending_alerts
 from integration_engine import db_conn, mark_stale_events, run_due_integrations
+from pseg_engine import run_due_pseg
 from transit_engine import mark_stale_transit_observations, run_due_transit_integrations
 
 
@@ -19,6 +20,18 @@ def main() -> None:
     log(f"integration engine starting interval={interval}s")
     while True:
         try:
+            pseg = run_due_pseg()
+            if not pseg.get("skipped"):
+                if pseg.get("ok"):
+                    log(
+                        "PSEG poll complete "
+                        f"municipalities={pseg.get('municipalities', 0)} "
+                        f"hudson_active={pseg.get('hudson_active', 0)} "
+                        f"statewide_eligible={pseg.get('statewide_eligible', 0)} "
+                        f"alerts={pseg.get('alerts_created', 0)}"
+                    )
+                else:
+                    log(f"PSEG ERROR: {pseg.get('error', 'unknown error')}")
             summaries = run_due_integrations(limit=25)
             if summaries:
                 good = sum(1 for row in summaries if row["ok"])

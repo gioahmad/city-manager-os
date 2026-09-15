@@ -1046,3 +1046,142 @@ def event_intelligence_level(event_id: uuid.UUID, impact_level: str = Form(...))
 def event_intelligence_dismiss(event_id: uuid.UUID):
     execute("UPDATE event_intelligence SET active=false,alert_pending=false,updated_at=now() WHERE id=%s", (event_id,))
     return RedirectResponse("/event-intelligence?msg=Event+dismissed", status_code=303)
+
+
+PSEG_RELEASE_ID = "issue-60-pseg-spatial-alerts-v1"
+PSEG_PRESETS = {
+    "MAJOR": {"minimum_customers": 2000, "material_increase_customers": 1000},
+    "STANDARD": {"minimum_customers": 500, "material_increase_customers": 250},
+    "EXPANDED": {"minimum_customers": 100, "material_increase_customers": 50},
+}
+NJ_COUNTIES = [
+    "ATLANTIC", "BERGEN", "BURLINGTON", "CAMDEN", "CAPE MAY", "CUMBERLAND",
+    "ESSEX", "GLOUCESTER", "HUNTERDON", "MERCER", "MIDDLESEX", "MONMOUTH",
+    "MORRIS", "OCEAN", "PASSAIC", "SALEM", "SOMERSET", "SUSSEX", "UNION",
+    "WARREN",
+]
+
+
+def _pseg_percent(value: str) -> float | None:
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise HTTPException(400, "Minimum percentage must be a number") from exc
+    if not 0 < parsed <= 100:
+        raise HTTPException(400, "Minimum percentage must be greater than 0 and at most 100")
+    return parsed
+
+
+@app.get("/api/pseg/release")
+def pseg_release():
+    status = query_one("SELECT * FROM pseg_alert_status WHERE settings_key='DEFAULT'")
+    return {
+        "release_id": PSEG_RELEASE_ID,
+        "architecture": "SEE IT -> TRACK IT -> TELL ME",
+        "poll_minutes": status.get("poll_minutes"),
+        "hudson_excluded_from_statewide": True,
+        "route": [
+            "Alerts", "Geo Resolver", "Mapping Center", "Watchlist",
+            "Subscribers", "Routing", "Delivery Guard", "ntfy",
+        ],
+        "status": status,
+    }
+
+
+@app.get("/integrations/pseg", response_class=HTMLResponse)
+def pseg_settings_page(request: Request, msg: str = ""):
+    settings = query_one("SELECT * FROM pseg_alert_settings WHERE settings_key='DEFAULT'")
+    status = query_one("SELECT * FROM pseg_alert_status WHERE settings_key='DEFAULT'")
+    health = query_one("SELECT * FROM source_health WHERE source_id='PSEG'")
+    active = query_all(
+        """
+        SELECT scope,county,municipality,customers_out,customers_served,percent_out,
+               eligible,location_context,last_seen_at,last_alert_reason
+        FROM pseg_outage_state
+        WHERE customers_out>0
+        ORDER BY CASE scope WHEN 'HUDSON' THEN 0 ELSE 1 END,customers_out DESC
+        LIMIT 100
+        """
+    )
+    recent = query_all(
+        """
+        SELECT alert_id,title,status,event_action,county,municipality,received_at,
+               metadata->>'scope' AS scope,
+               coalesce((metadata#>>'{_cmos,route_pending}')::boolean,false) AS route_pending
+        FROM alerts WHERE source='PSEG'
+        ORDER BY received_at DESC LIMIT 30
+        """
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="pseg_settings.html",
+        context={
+            "settings": settings,
+            "status": status,
+            "health": health,
+            "active": active,
+            "recent": recent,
+            "counties": NJ_COUNTIES,
+            "selected_counties": set(settings.get("counties") or []),
+            "msg": msg,
+            "page": "integrations",
+        },
+    )
+
+
+@app.post("/integrations/pseg/settings")
+def pseg_settings_update(
+    request: Request,
+    preset: str = Form("STANDARD"),
+    statewide_enabled: str | None = Form(None),
+    minimum_customers: int = Form(500),
+    minimum_percent: str = Form(""),
+    counties: list[str] = Form([]),
+    material_increase_customers: int = Form(250),
+    restoration_notifications: str | None = Form(None),
+    reminder_minutes: int = Form(0),
+    mapping_enabled: str | None = Form(None),
+):
+    preset = preset.strip().upper()
+    if preset not in {*PSEG_PRESETS, "CUSTOM"}:
+        raise HTTPException(400, "Invalid PSEG alert preset")
+    if preset != "CUSTOM":
+        minimum_customers = PSEG_PRESETS[preset]["minimum_customers"]
+        material_increase_customers = PSEG_PRESETS[preset]["material_increase_customers"]
+    if not 1 <= minimum_customers <= 10_000_000:
+        raise HTTPException(400, "Minimum customers is outside the allowed range")
+    if not 1 <= material_increase_customers <= 10_000_000:
+        raise HTTPException(400, "Material increase is outside the allowed range")
+    if not 0 <= reminder_minutes <= 10_080:
+        raise HTTPException(400, "Reminder interval must be between 0 and 10,080 minutes")
+    selected = sorted({value.strip().upper() for value in counties if value.strip()})
+    invalid = set(selected) - set(NJ_COUNTIES)
+    if invalid:
+        raise HTTPException(400, "Invalid county selection: " + ", ".join(sorted(invalid)))
+    actor = str(getattr(request.state, "cmos_user", None) or "local")
+    execute(
+        """
+        UPDATE pseg_alert_settings
+        SET statewide_enabled=%s,minimum_customers=%s,minimum_percent=%s,
+            counties=%s,preset=%s,material_increase_customers=%s,
+            restoration_notifications=%s,reminder_minutes=%s,mapping_enabled=%s,
+            updated_by=%s
+        WHERE settings_key='DEFAULT'
+        """,
+        (
+            statewide_enabled is not None,
+            minimum_customers,
+            _pseg_percent(minimum_percent),
+            selected,
+            preset,
+            material_increase_customers,
+            restoration_notifications is not None,
+            reminder_minutes,
+            mapping_enabled is not None,
+            actor,
+        ),
+    )
+    return RedirectResponse("/integrations/pseg?msg=PSEG+alert+settings+saved", status_code=303)

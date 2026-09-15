@@ -15,7 +15,7 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping
 
-RESOLVER_VERSION = 2
+RESOLVER_VERSION = 3
 MAX_CANDIDATE_LENGTH = 300
 MAX_CANDIDATES = 40
 MIN_PRECISE_CONFIDENCE = 0.75
@@ -584,12 +584,15 @@ def resolve_payload(
     use_cache: bool = True,
 ) -> dict[str, Any]:
     """Resolve a fluid payload using local PostGIS data and persist provenance."""
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), Mapping) else {}
+    approximate_coordinate = bool(metadata.get("location_approximate"))
     candidates = extract_location_candidates(payload)
     context = {
         "municipality": _context_value(payload, {"municipality", "city", "borough", "post_comm"}),
         "county": _context_value(payload, {"county"}),
         "state": _context_value(payload, {"state", "state_code"}),
         "source": _context_value(payload, {"source"}),
+        "coordinate_policy": "APPROXIMATE_PROVIDER_AREA" if approximate_coordinate else "PRECISE",
     }
     versions = _dataset_versions(conn)
     coordinate = extract_coordinates(payload)
@@ -606,16 +609,21 @@ def resolve_payload(
         longitude, latitude, path = coordinate
         result: dict[str, Any] = {
             "status": "RESOLVED",
-            "match_type": "SUPPLIED_COORDINATES",
-            "confidence": 1.0,
+            "match_type": "PROVIDER_APPROXIMATE_COORDINATE" if approximate_coordinate else "SUPPLIED_COORDINATES",
+            "confidence": 0.60 if approximate_coordinate else 1.0,
             "label": next((candidate.text for candidate in candidates), "Supplied coordinates"),
             "municipality": context["municipality"] or None,
             "county": context["county"] or None,
             "state": context["state"] or None,
             "longitude": longitude,
             "latitude": latitude,
-            "spatial_precision": "SUPPLIED_COORDINATE",
-            "provenance": {"source_path": path, "resolver_version": RESOLVER_VERSION},
+            "spatial_precision": "APPROXIMATE_PROVIDER_AREA" if approximate_coordinate else "SUPPLIED_COORDINATE",
+            "provenance": {
+                "source_path": path,
+                "resolver_version": RESOLVER_VERSION,
+                "approximate": approximate_coordinate,
+                "not_customer_specific": bool(metadata.get("location_not_customer_specific")),
+            },
         }
     else:
         result = {}

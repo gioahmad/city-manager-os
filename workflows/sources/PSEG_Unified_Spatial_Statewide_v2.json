@@ -1,0 +1,124 @@
+{
+  "name": "PSEG Hudson + NJ Statewide - City Manager OS v2",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "name": "Central Route Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "id": "pseg60-schedule"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT raw_payload AS alert FROM alerts WHERE source='PSEG' AND metadata @> '{\"_cmos\":{\"route_pending\":true}}'::jsonb ORDER BY received_at,alert_id LIMIT 50;",
+        "options": {}
+      },
+      "name": "Load Pending PSEG Alerts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [240, 0],
+      "id": "pseg60-load",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => {\n  const alert = item.json && item.json.alert;\n  if (!alert || typeof alert !== 'object') throw new Error('Pending PSEG row did not contain a Standard Alert');\n  if (alert.source !== 'PSEG') throw new Error('PSEG router received a non-PSEG alert');\n  return { json: alert };\n});"
+      },
+      "name": "Restore Standard PSEG Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "id": "pseg60-restore"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ESH9c2pZ8QfkMosO",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ESH9c2pZ8QfkMosO",
+          "cachedResultName": "CORE - Watchlist Matcher v1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "name": "Send to Central Watchlist Matcher",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [720, 0],
+      "id": "pseg60-match",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH d AS (SELECT $1::jsonb AS p) UPDATE alerts SET metadata=jsonb_set(metadata,'{_cmos,route_pending}','false'::jsonb,true), raw_payload=jsonb_set(raw_payload,'{metadata,_cmos,route_pending}','false'::jsonb,true), updated_at=now() FROM d WHERE alerts.alert_id=d.p->>'alert_id' AND alerts.source='PSEG' RETURNING alerts.alert_id,alerts.updated_at;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($('Restore Standard PSEG Alert').item.json) }}"
+        }
+      },
+      "name": "Mark PSEG Alert Routed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [960, 0],
+      "id": "pseg60-mark",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Central Route Schedule": {
+      "main": [[{"node": "Load Pending PSEG Alerts", "type": "main", "index": 0}]]
+    },
+    "Load Pending PSEG Alerts": {
+      "main": [[{"node": "Restore Standard PSEG Alert", "type": "main", "index": 0}]]
+    },
+    "Restore Standard PSEG Alert": {
+      "main": [[{"node": "Send to Central Watchlist Matcher", "type": "main", "index": 0}]]
+    },
+    "Send to Central Watchlist Matcher": {
+      "main": [[{"node": "Mark PSEG Alert Routed", "type": "main", "index": 0}]]
+    },
+    "Mark PSEG Alert Routed": {
+      "main": [[]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "release": "issue-60-pseg-spatial-alerts-v1"
+  }
+}
