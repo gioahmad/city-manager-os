@@ -32,6 +32,7 @@ COPY spatial_reference_app.py .
 COPY spatial_watch_app.py .
 COPY geo_resolver.py .
 COPY integration_runtime.py .
+COPY transcom_runtime.py .
 COPY integration_engine.py .
 COPY pseg_engine.py .
 COPY integrations_app.py .
