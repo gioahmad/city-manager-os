@@ -87,12 +87,9 @@ safe_git_value(){
 }
 
 cleanup(){
-  local rc=$?
-  trap - EXIT
   [[ -z "$HOST_CONFIG" || ! -f "$HOST_CONFIG" ]] || rm -f "$HOST_CONFIG"
   [[ -z "$TRANSPORT_PAYLOAD" || ! -f "$TRANSPORT_PAYLOAD" ]] || rm -f "$TRANSPORT_PAYLOAD"
   docker exec citymanager-dashboard rm -f "$CONTAINER_CONFIG" >/dev/null 2>&1 || true
-  exit "$rc"
 }
 
 publish_report(){ (
