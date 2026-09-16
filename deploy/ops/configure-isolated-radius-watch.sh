@@ -392,9 +392,6 @@ with db_conn() as conn:
             ''',
             (watch_uuid, subscriber_uuid),
         )
-    conn.commit()
-
-    with conn.cursor() as cur:
         cur.execute(
             '''
             SELECT count(*) AS n
@@ -408,7 +405,7 @@ with db_conn() as conn:
             raise RuntimeError('private watch does not have exactly one active destination')
 
         test_alert_id = f'SYSTEM_TEST:PRIVATE_RADIUS:{uuid.uuid4()}'
-        cur.execute('BEGIN')
+        cur.execute('SAVEPOINT private_spatial_probe')
         cur.execute(
             '''
             INSERT INTO alerts(
@@ -431,7 +428,8 @@ with db_conn() as conn:
             (test_alert_id, watch_uuid),
         )
         spatial_test = cur.fetchone()['n'] == 1
-        conn.rollback()
+        cur.execute('ROLLBACK TO SAVEPOINT private_spatial_probe')
+        cur.execute('RELEASE SAVEPOINT private_spatial_probe')
         if not spatial_test:
             raise RuntimeError('rolled-back spatial match test failed')
 
@@ -453,6 +451,7 @@ with db_conn() as conn:
             (lon, lat, radius_ft),
         )
         volume = cur.fetchone()
+    conn.commit()
 
 receipt = {
     'status': 'PASS',
