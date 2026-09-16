@@ -17,7 +17,7 @@ from schedule_app import app
 from transit_engine import TRANSIT_ADAPTERS, is_transit_adapter, run_transit_integration
 
 
-AUTH_TYPES = ["NONE", "BEARER_ENV", "BASIC_ENV", "API_KEY_HEADER_ENV", "API_KEY_QUERY_ENV"]
+AUTH_TYPES = ["NONE", "BEARER_ENV", "BASIC_ENV", "API_KEY_HEADER_ENV", "API_KEY_QUERY_ENV", "TRANSCOM_TOKEN_ENV"]
 PARSER_KINDS = ["NONE", "JSON_EVENTS", "RSS_EVENTS", "ATOM_EVENTS", "ICS_EVENTS", "JSONLD_EVENTS"]
 CATEGORIES = ["GENERIC", "EVENTS", "TRANSIT", "TRAFFIC", "WEATHER", "UTILITY", "PUBLIC_SAFETY", "GOVERNMENT"]
 METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]
@@ -103,6 +103,17 @@ def connection_setup_issues(integration: dict[str, Any]) -> list[str]:
         required = [("token_env", "Bearer token environment reference")]
     elif auth_type == "BASIC_ENV":
         required = [("username_env", "Basic-auth username environment reference"), ("password_env", "Basic-auth password environment reference")]
+    elif auth_type == "TRANSCOM_TOKEN_ENV":
+        required = [
+            (
+                "username_env",
+                "TRANSCOM username environment reference",
+            ),
+            (
+                "password_env",
+                "TRANSCOM password environment reference",
+            ),
+        ]
     elif auth_type in {"API_KEY_HEADER_ENV", "API_KEY_QUERY_ENV"}:
         required = [("key_env", "API-key environment reference")]
         if not str(auth.get("key_name") or "").strip():

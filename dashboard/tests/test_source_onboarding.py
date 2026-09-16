@@ -75,3 +75,43 @@ def test_gtfs_static_requires_provider_key():
 
 def test_keyword_split_is_deduplicated_case_insensitively():
     assert so._split_keywords("Weehawken, Lincoln Tunnel\nweehawken") == ["Weehawken", "Lincoln Tunnel"]
+
+
+def test_transcom_auth_requires_environment_refs(
+    monkeypatch,
+):
+    monkeypatch.delenv(
+        "TEST_TRANSCOM_USERNAME",
+        raising=False,
+    )
+
+    monkeypatch.delenv(
+        "TEST_TRANSCOM_PASSWORD",
+        raising=False,
+    )
+
+    source = base_source(
+        auth_type="TRANSCOM_TOKEN_ENV",
+        auth_config={
+            "username_env": (
+                "TEST_TRANSCOM_USERNAME"
+            ),
+            "password_env": (
+                "TEST_TRANSCOM_PASSWORD"
+            ),
+        },
+    )
+
+    state = so.activation_state(source)
+
+    assert (
+        "TEST_TRANSCOM_USERNAME"
+        in state["missing_secrets"]
+    )
+
+    assert (
+        "TEST_TRANSCOM_PASSWORD"
+        in state["missing_secrets"]
+    )
+
+    assert not state["can_activate"]

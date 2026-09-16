@@ -387,6 +387,62 @@ def integration_auth_from_env(integration: dict[str, Any], headers: dict[str, st
         else:
             query[key_name] = key_value
         return [key_value]
+
+    if auth_type == "TRANSCOM_TOKEN_ENV":
+        username = env("username_env")
+        password = env("password_env")
+
+        if not username or not password:
+            raise ValueError(
+                "Configured TRANSCOM username/password environment variables are missing"
+            )
+
+        base_url_env = str(
+            auth_config.get("base_url_env")
+            or "TRANSCOM_BASE_URL"
+        )
+
+        base_url = (
+            os.getenv(base_url_env, "").strip()
+            or "https://de.infosensedigital.com"
+        )
+
+        from transcom_runtime import get_cached_transcom_token
+
+        token = get_cached_transcom_token(
+            username=username,
+            password=password,
+            base_url=base_url,
+        )
+
+        token_name = str(
+            auth_config.get("key_name")
+            or "token"
+        ).strip() or "token"
+
+        token_location = str(
+            auth_config.get("token_location")
+            or "QUERY"
+        ).upper()
+
+        if token_location == "QUERY":
+            query[token_name] = token
+
+        elif token_location == "HEADER":
+            headers[token_name] = token
+
+        elif token_location == "BEARER":
+            headers["Authorization"] = (
+                f"Bearer {token}"
+            )
+
+        else:
+            raise ValueError(
+                "TRANSCOM token_location must be QUERY, HEADER, or BEARER"
+            )
+
+        return [password, token]
+
     raise ValueError(f"Unsupported permanent integration auth type: {auth_type}")
 
 
