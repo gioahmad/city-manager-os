@@ -104,6 +104,12 @@ def test_mapping_center_previews_and_reuses_canonical_references():
     assert "Watch This Corridor" in template
     assert "showImpactArea" in template
     assert "watch-preview" in template
+    assert "watchCenterMarker" in template
+    assert "Watch center" in template
+    assert "pane:'markerPane'" in template
+    assert "L.featureGroup([previewArea,previewCenter])" in template
+    assert "if(key==='watchlist')addWatchCenter(feature,layer)" in template
+    assert "if(key==='watchlist')removeLayer('watch-centers')" in template
     assert "/api/spatial-watch-point/nearby-history" in template
     assert "Create One-Mile Watch" in template
     assert "Search Visible Area" in template
