@@ -82,6 +82,7 @@
         </div>
 
         <div class="map-section-title map-subhead"><h3>Your Layers</h3><span class="count-pill">{{ custom_layers|length }}</span></div>
+        <p class="muted small-copy">Basemaps provide street context only. Alerts, Watches, parcels, searches, and other operational layers remain available if a basemap provider is temporarily unavailable.</p>
         {% for layer in custom_layers %}
         <article class="map-custom-row {{ '' if layer.active else 'inactive' }}">
           <div class="map-custom-main">
@@ -216,7 +217,33 @@ function removeLayer(key){if(groups[key]){map.removeLayer(groups[key]);groups[ke
 async function showImpactArea(alertId){const requested=window.prompt('Impact buffer in feet','500');if(requested===null)return;const radius=Math.max(1,Math.min(Number(requested)||500,26400));status('Loading impact area...');const res=await fetch('/api/alerts/'+encodeURIComponent(alertId)+'/impact-buffer.geojson?radius_ft='+radius,{headers:{Accept:'application/geo+json'}});if(!res.ok){status('Impact area unavailable');return;}const data=await res.json();removeLayer('impact-preview');groups['impact-preview']=L.geoJSON(data,{style:{color:'#d64545',weight:3,fillColor:'#d64545',fillOpacity:.16}}).addTo(map);const bounds=groups['impact-preview'].getBounds();if(bounds.isValid())map.fitBounds(bounds,{padding:[30,30],maxZoom:18});status('Impact area · '+radius.toLocaleString()+' ft');}
 
 document.querySelectorAll('.system-layer-toggle').forEach(el=>{el.addEventListener('change',async()=>{if(el.checked){try{await loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,el.dataset.viewport==='1');}catch(e){status(e.message);}}else removeLayer(el.dataset.key);});});
-document.querySelectorAll('.custom-layer-toggle').forEach(el=>{const key='custom-'+el.dataset.id;el.addEventListener('change',async()=>{if(!el.checked){removeLayer(key);return;}try{if(el.dataset.type==='XYZ'){groups[key]=L.tileLayer(el.dataset.url,{maxZoom:20,attribution:el.dataset.attribution||''}).addTo(map);status('Basemap enabled');}else await loadGeo(key,'/map/layer/'+el.dataset.id+'.geojson',el.dataset.color,false);}catch(e){status(e.message);}});});
+const OSM_TILE_HOST='tile.openstreetmap.org';
+const OSM_REFERRER_POLICY='strict-origin-when-cross-origin';
+const OSM_ATTRIBUTION='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+function xyzOptions(el){
+  const options={maxZoom:20,attribution:el.dataset.attribution||''};
+  try{
+    if(new URL(el.dataset.url,window.location.href).hostname===OSM_TILE_HOST){
+      options.referrerPolicy=OSM_REFERRER_POLICY;
+      options.attribution=OSM_ATTRIBUTION;
+    }
+  }catch(error){/* The server validates new XYZ URLs before they reach this page. */}
+  return options;
+}
+function addBasemap(el,key){
+  let consecutiveErrors=0;
+  const layer=L.tileLayer(el.dataset.url,xyzOptions(el));
+  layer.on('tileerror',()=>{
+    consecutiveErrors+=1;
+    if(consecutiveErrors===3){
+      status('Street basemap unavailable. Local alerts, Watches, parcels, and searches still work.');
+    }
+  });
+  layer.on('tileload',()=>{consecutiveErrors=Math.max(0,consecutiveErrors-1);});
+  groups[key]=layer.addTo(map);
+  status('Basemap enabled');
+}
+document.querySelectorAll('.custom-layer-toggle').forEach(el=>{const key='custom-'+el.dataset.id;el.addEventListener('change',async()=>{if(!el.checked){removeLayer(key);return;}try{if(el.dataset.type==='XYZ')addBasemap(el,key);else await loadGeo(key,'/map/layer/'+el.dataset.id+'.geojson',el.dataset.color,false);}catch(e){status(e.message);}});});
 const alertToggle=document.querySelector('.system-layer-toggle[data-key="alerts"]');
 function alertEndpoint(){const params=new URLSearchParams({hours:document.getElementById('alert-window')?.value||'12',min_priority:document.getElementById('alert-map-priority')?.value||'1'});const q=document.getElementById('alert-map-query')?.value.trim(),source=document.getElementById('alert-map-source')?.value,category=document.getElementById('alert-map-category')?.value;if(q)params.set('q',q);if(source)params.set('source',source);if(category)params.set('category',category);if(document.getElementById('alert-map-active')?.checked)params.set('active_only','true');return '/map/system/alerts.geojson?'+params;}
 async function applyAlertFilters(){if(!alertToggle)return;alertToggle.dataset.endpoint=alertEndpoint();alertToggle.checked=true;try{await loadGeo('alerts',alertToggle.dataset.endpoint,alertToggle.dataset.color||null,true);}catch(e){status(e.message);}}
