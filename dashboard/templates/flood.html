@@ -29,6 +29,7 @@
     <div class="panel-body">
       <div class="flood-legend"><span><i class="legend-sfha"></i> Special Flood Hazard Area</span><span><i class="legend-moderate"></i> Other FEMA mapped area</span></div>
       <div id="flood-map" role="application" aria-label="Interactive FEMA flood hazard map around Weehawken"></div>
+      <div id="flood-basemap-status" class="flood-map-detail" role="status" hidden></div>
       <div id="flood-map-detail" class="flood-map-detail">Click a mapped flood area for details. Pan and zoom like a normal map.</div>
     </div>
   </section>
@@ -54,8 +55,26 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script>
 const detail=document.getElementById('flood-map-detail');
+const basemapStatus=document.getElementById('flood-basemap-status');
 const map=L.map('flood-map',{preferCanvas:true}).setView([40.769,-74.02],14);
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);
+let basemapErrors=0;
+const basemap=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  maxZoom:19,
+  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  referrerPolicy:'strict-origin-when-cross-origin'
+});
+basemap.on('tileerror',()=>{
+  basemapErrors+=1;
+  if(basemapErrors===3){
+    basemapStatus.hidden=false;
+    basemapStatus.textContent='Street basemap unavailable. Local FEMA flood zones remain available.';
+  }
+});
+basemap.on('tileload',()=>{
+  basemapErrors=Math.max(0,basemapErrors-1);
+  if(basemapErrors===0)basemapStatus.hidden=true;
+});
+basemap.addTo(map);
 fetch('/map/system/flood.geojson',{headers:{'Accept':'application/geo+json'}})
   .then(r=>{if(!r.ok)throw new Error('Flood layer unavailable');return r.json();})
   .then(data=>{
