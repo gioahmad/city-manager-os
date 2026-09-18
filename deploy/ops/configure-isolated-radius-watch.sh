@@ -279,9 +279,15 @@ subscriber_key = str(config['subscriber_key']).strip()
 watch_key = str(config['watch_key']).strip()
 watch_name = str(config['watch_name']).strip()
 radius_ft = float(config['radius_ft'])
+address_parts = [part.strip() for part in address.split(',') if part.strip()]
+address_line = address_parts[0] if address_parts else address
+municipality_hint = address_parts[1] if len(address_parts) >= 2 else ''
 
 with db_conn() as conn:
-    resolved = resolve_payload(conn, {'address': address, 'location': {}})
+    resolved = resolve_payload(
+        conn,
+        {'address': address_line, 'municipality': municipality_hint, 'location': {}},
+    )
     confidence = float(resolved.get('confidence') or 0)
     if (
         resolved.get('status') != 'RESOLVED'
@@ -293,7 +299,6 @@ with db_conn() as conn:
 
     lat = float(resolved['latitude'])
     lon = float(resolved['longitude'])
-    address_line = address.split(',', 1)[0].strip()
     aliases = []
     normalized_address = str(resolved.get('normalized_address') or '').strip()
     normalized_line = normalized_address.split(',', 1)[0].strip()
@@ -364,7 +369,7 @@ with db_conn() as conn:
                 resolved.get('municipality'),
                 resolved.get('county'),
                 resolved.get('state'),
-                resolved.get('zip'),
+                resolved.get('postal_code'),
                 resolved.get('block'),
                 resolved.get('lot'),
                 resolved.get('qualifier'),

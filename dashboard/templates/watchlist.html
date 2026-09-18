@@ -19,6 +19,7 @@
 {% set operator_help_key = "watchlist" %}
 {% include "operator_help.html" %}
 {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+{% if error %}<div class="flash flash-error"><strong>Could not save:</strong> {{ error }}</div>{% endif %}
 
 <section class="metrics watch-metrics">
   <div class="metric"><span>Active Now</span><strong>{{ counts.active or 0 }}</strong><small>Eligible to match</small></div>
@@ -27,57 +28,119 @@
   <div class="metric"><span>Paused / Expired</span><strong>{{ (counts.paused or 0) + (counts.expired or 0) }}</strong><small>Not matching now</small></div>
 </section>
 
+<article class="panel watch-health-panel">
+  <div class="panel-head">
+    <div><div class="panel-kicker">VERIFY</div><h2>Watchlist Health</h2></div>
+    <span class="status {{ health.status_class }}">{{ health.status }}</span>
+  </div>
+  <div class="panel-body watch-health-grid">
+    <div><strong>{{ health.routed_now or 0 }}/{{ health.active_now or 0 }}</strong><span>active watches routed</span></div>
+    <div><strong>{{ health.matches_7d or 0 }}</strong><span>matches in 7 days</span></div>
+    <div><strong>{{ health.sent_24h or 0 }}</strong><span>notifications sent in 24 hours</span></div>
+    <div><strong>{{ health.failed_24h or 0 }}</strong><span>failed deliveries in 24 hours</span></div>
+  </div>
+  {% if health.status == 'WARN' %}
+  <div class="watch-health-warning">
+    Review: {{ health.unrouted_now or 0 }} active without a channel,
+    {{ health.spatial_missing_target or 0 }} spatial without a target,
+    {{ health.routes_to_inactive_subscribers or 0 }} routed to an inactive subscriber.
+  </div>
+  {% endif %}
+  <div class="watch-health-links">
+    <a href="/routing">Routing</a><a href="/deliveries">Delivery history</a><a href="/source-health">Source health</a>
+  </div>
+</article>
+
 <section class="grid watch-layout" style="margin-top:16px">
 <article class="panel">
-  <div class="panel-head"><div><div class="panel-kicker">NEW</div><h2>Add Watch Item</h2></div></div>
+  <div class="panel-head"><div><div class="panel-kicker">NEW</div><h2>Create a Watch</h2></div></div>
   <div class="panel-body form-panel">
-    <form method="post" action="/watchlist/create" class="watch-form">
-      <label>Display Name<input name="display_name" value="{{ prefill.display_name }}" required placeholder="Park Avenue watch"></label>
-      <div class="form-grid two-col">
-        <label>Type<select name="watch_type">{% for wt in watch_types %}<option value="{{ wt }}">{{ wt }}</option>{% endfor %}</select></label>
-        <label>Minimum Priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}</option>{% endfor %}</select></label>
-      </div>
-      <label>Keyword / Phrase<input name="search_term" placeholder="Optional. Add one only if text should also match."></label>
+    <form method="post" action="/watchlist/create" class="watch-form" id="quick-watch-form">
+      <label>1. Name this watch
+        <input name="display_name" value="{{ prefill.display_name }}" required placeholder="Home area, Park Avenue, or PSEG">
+        <span class="hint">This is the private label you will recognize later.</span>
+      </label>
+      <label>2. What should it watch?
+        <select name="setup_mode" id="watch-setup-mode">
+          <option value="NEARBY" selected>Alerts near an address</option>
+          <option value="KEYWORD">Alerts containing words</option>
+        </select>
+      </label>
 
-      <details {% if prefill.latitude and prefill.longitude %}open{% endif %}>
-        <summary>Location / Proximity</summary>
+      <div class="watch-mode-section" data-watch-mode="NEARBY">
+        <label>Full street address
+          <input name="location_query" value="{{ prefill.location_query }}" placeholder="123 Main Street, Weehawken, NJ">
+          <span class="hint">Resolved only against the local statewide GIS data. Your address is not sent to an outside geocoder.</span>
+        </label>
+        <label>Distance
+          <select name="radius_ft">
+            <option value="500">500 feet · building or block</option>
+            <option value="1000">1,000 feet · nearby blocks</option>
+            <option value="2640">Half mile</option>
+            <option value="5280" selected>1 mile · broad test coverage</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="watch-mode-section" data-watch-mode="KEYWORD" hidden>
+        <label>Words to match
+          <input name="search_term" placeholder="Park Avenue, water main, or PSEG">
+          <span class="hint">Use the specific street, organization, facility, or incident wording you expect in an alert.</span>
+        </label>
+      </div>
+
+      <fieldset class="recipient-picker"><legend>3. Send alerts to</legend>
+        {% for sub in subscribers %}
+        <label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}" {% if subscribers|length == 1 %}checked{% endif %}> {{ sub.name }} <span class="hint">notification channel</span></label>
+        {% else %}
+        <span>No active notification channels. <a href="/subscribers">Create one in Subscribers</a>.</span>
+        {% endfor %}
+        <div class="hint">Selecting no channel saves the watch for tracking, but it cannot notify you.</div>
+      </fieldset>
+
+      <details class="watch-examples">
+        <summary>Examples and setup tips</summary>
+        <div class="map-help-card">
+          <strong>Nearby:</strong> “Home area” + full street address + 1 mile.<br>
+          <strong>Street:</strong> “Park Avenue” + keyword “Park Avenue.”<br>
+          <strong>Utility:</strong> “PSEG” + keyword “PSEG.”<br>
+          Start broad, then narrow source, category, priority, or time under Advanced if it is too noisy.
+        </div>
+      </details>
+
+      <details>
+        <summary>Advanced options</summary>
         <div class="watch-form compact" style="margin-top:12px">
-          <label class="checkbox-row"><input type="checkbox" name="spatial_enabled" value="1" {% if prefill.latitude and prefill.longitude %}checked{% endif %}> Enable spatial matching</label>
-          <label>Address or Place<input name="location_query" value="{{ prefill.location_query }}" placeholder="4100 Park Avenue, Weehawken"></label>
           <div class="form-grid two-col">
-            <label>Latitude<input name="latitude" value="{{ prefill.latitude }}" inputmode="decimal"></label>
-            <label>Longitude<input name="longitude" value="{{ prefill.longitude }}" inputmode="decimal"></label>
-          </div>
-          <label>Radius / Buffer (feet)<input type="number" name="radius_ft" min="1" max="26400" value="500"></label>
-          <div class="form-grid two-col">
+            <label>Minimum Priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · all priorities{% endif %}</option>{% endfor %}</select></label>
             <label>Duration<select name="duration">{% for value in spatial_durations %}<option value="{{ value }}">{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label>
-            <label>Municipality<input name="municipality" placeholder="Optional resolution context"></label>
           </div>
           <div class="form-grid two-col">
             <label>Starts (Eastern)<input type="datetime-local" name="starts_at"></label>
             <label>Ends (Eastern)<input type="datetime-local" name="expires_at"></label>
           </div>
-          <label>Source Filters<input name="source_filter" placeholder="Comma-separated, blank for all"></label>
-          <label>Alert Categories<input name="alert_category_filter" placeholder="Comma-separated, blank for all"></label>
-        </div>
-      </details>
-
-      <details>
-        <summary>Recipients and Advanced Matching</summary>
-        <div class="watch-form compact" style="margin-top:12px">
-          <fieldset><legend>Subscribers</legend>{% for sub in subscribers %}<label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}"> {{ sub.name }} <span class="hint">{{ sub.ntfy_topic }}</span></label>{% else %}<span>No active subscribers.</span>{% endfor %}</fieldset>
+          <label>Only these sources<input name="source_filter" placeholder="Blank means every source"></label>
+          <label>Only these alert categories<input name="alert_category_filter" placeholder="Blank means every category"></label>
+          <div class="form-grid two-col">
+            <label>Municipality<input name="municipality" placeholder="Optional address context"></label>
+            <label>Watch Type<select name="watch_type"><option value="">Automatic</option>{% for wt in watch_types %}<option value="{{ wt }}">{{ wt }}</option>{% endfor %}</select></label>
+          </div>
+          <div class="form-grid two-col">
+            <label>Latitude<input name="latitude" value="{{ prefill.latitude }}" inputmode="decimal" placeholder="Optional"></label>
+            <label>Longitude<input name="longitude" value="{{ prefill.longitude }}" inputmode="decimal" placeholder="Optional"></label>
+          </div>
           <div class="form-grid two-col">
             <label>Match Mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == 'CONTAINS' %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
-            <label>Match Field<input name="match_field" placeholder="Only required for FIELD"></label>
+            <label>Match Field<input name="match_field" placeholder="Only for FIELD mode"></label>
           </div>
-          <label>Aliases<input name="aliases" placeholder="Comma-separated"></label>
-          <label>Category<input name="category"></label>
-          <label>Tags<input name="tags" placeholder="Comma-separated"></label>
-          <label>Address Label<input name="address"></label>
+          <label>Aliases<input name="aliases" placeholder="Other spellings, comma-separated"></label>
+          <div class="form-grid two-col"><label>Category Label<input name="category"></label><label>Tags<input name="tags" placeholder="Comma-separated"></label></div>
+          <label>Address Label<input name="address" placeholder="Optional alternate label"></label>
           <label>Notes<textarea name="notes" rows="2"></textarea></label>
         </div>
       </details>
-      <button class="primary-button" type="submit">Save Watch and Routing</button>
+      <button class="primary-button" type="submit">Create Watch</button>
+      <span class="hint">Setup does not send a test notification. You can pause or edit the watch at any time.</span>
     </form>
   </div>
 </article>
@@ -100,11 +163,16 @@
         <summary>
           <div class="watch-summary-main">
             <span class="status {{ w.state_class }}">{{ w.state_label }}</span>
-            <div><strong>{{ w.display_name }}</strong><div class="meta">{{ w.watch_type }} · {{ 'SPATIAL ' ~ (w.spatial_scope or 'RADIUS') if w.nearby_enabled else w.match_mode }} · P{{ w.min_priority }}+</div></div>
+            <div><strong>{{ w.display_name }}</strong><div class="meta">{{ w.watch_type }} · {{ 'SPATIAL ' ~ (w.spatial_scope or 'RADIUS') if w.nearby_enabled else w.match_mode }} · P{{ w.min_priority }}+ · {{ w.matches_7d or 0 }} matches / {{ w.sent_7d or 0 }} sent in 7 days</div></div>
           </div>
           <span class="watch-id">{{ w.watch_id }}</span>
         </summary>
         <div class="watch-card-body">
+          <div class="watch-runtime-note">
+            <strong>Runtime evidence:</strong>
+            {% if w.last_match_at %}last match {{ w.last_match_at.strftime('%m/%d %H:%M') }}{% else %}no recorded match yet{% endif %};
+            {{ w.recipient_ids|length }} notification channel{{ '' if w.recipient_ids|length == 1 else 's' }} selected.
+          </div>
           <form method="post" action="/watchlist/{{ w.id }}/update" class="watch-form compact">
             <div class="form-grid two-col">
               <label>Display Name<input name="display_name" value="{{ w.display_name }}" required></label>
@@ -127,7 +195,7 @@
                 {% if w.spatial_reference_entity_id %}
                   <div class="map-help-card">Geometry is linked to <a href="/spatial-reference/{{ w.spatial_reference_entity_id }}">the canonical reference</a>. Buffer and schedule remain editable here.</div>
                 {% else %}
-                  <label>Address or Place<input name="location_query" value="{{ w.address or '' }}"></label>
+                  <label>Full Street Address<input name="location_query" value="{{ w.address or '' }}"></label>
                   <div class="form-grid two-col"><label>Latitude<input name="latitude" value="{{ w.latitude or '' }}" inputmode="decimal"></label><label>Longitude<input name="longitude" value="{{ w.longitude or '' }}" inputmode="decimal"></label></div>
                 {% endif %}
                 <label>Radius / Buffer (feet)<input type="number" name="radius_ft" min="1" max="26400" value="{{ w.radius_ft or 500 }}"></label>
@@ -142,7 +210,7 @@
               </div>
             </details>
 
-            <fieldset><legend>Subscribers</legend>{% for sub in subscribers %}<label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}" {% if sub.id in w.recipient_ids %}checked{% endif %}> {{ sub.name }} <span class="hint">{{ sub.ntfy_topic }}</span></label>{% else %}<span>No active subscribers.</span>{% endfor %}</fieldset>
+            <fieldset><legend>Send alerts to</legend>{% for sub in subscribers %}<label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}" {% if sub.id in w.recipient_ids %}checked{% endif %}> {{ sub.name }} <span class="hint">notification channel</span></label>{% else %}<span>No active subscribers.</span>{% endfor %}</fieldset>
             <label>Notes<textarea name="notes" rows="2">{{ w.notes or '' }}</textarea></label>
             <label class="checkbox-row"><input type="checkbox" name="active" value="1" {% if w.active %}checked{% endif %}> Active</label>
             <button class="primary-button" type="submit">Save Watch and Routing</button>
@@ -157,5 +225,18 @@
 </section>
 <footer><span>City Manager OS</span><span>One Watchlist · one routing path</span></footer>
 </main>
+<script>
+(() => {
+  const selector = document.getElementById('watch-setup-mode');
+  if (!selector) return;
+  const refresh = () => {
+    document.querySelectorAll('[data-watch-mode]').forEach((section) => {
+      section.hidden = section.dataset.watchMode !== selector.value;
+    });
+  };
+  selector.addEventListener('change', refresh);
+  refresh();
+})();
+</script>
 </body>
 </html>

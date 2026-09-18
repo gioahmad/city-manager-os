@@ -71,7 +71,7 @@ def test_browser_uses_existing_watchlist_resolver_subscribers_and_routing():
     assert '@app.get("/api/alerts/{alert_id}/spatial-impact")' in source
     assert '@app.get("/api/alerts/{alert_id}/impact-buffer.geojson")' in source
     assert "MIN_PRECISE_CONFIDENCE" in source and "resolve_payload" in source
-    assert '("" if spatial_enabled is not None else display_name)' in source
+    assert 'spatial_requested = setup_mode == "NEARBY" or spatial_enabled is not None' in source
     assert "INSERT INTO watch_items" in source
     assert "INSERT INTO watch_item_recipients" in source
     assert "FROM subscribers WHERE active=true" in source
