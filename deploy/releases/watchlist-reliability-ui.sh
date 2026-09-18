@@ -33,6 +33,27 @@ section(){ printf '\n===========================================================
 log(){ printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 fail(){ log "ERROR: $*"; return 1; }
 
+dashboard_release_is_live(){
+  docker exec -i citymanager-dashboard python - "$RELEASE_ID" <<'PY' >/dev/null 2>&1
+import json
+import os
+import sys
+import urllib.request
+
+token = os.environ.get("CMOS_AUTOMATION_TOKEN", "").strip()
+if not token:
+    raise SystemExit(1)
+request = urllib.request.Request(
+    "http://127.0.0.1:8000/api/spatial-watch/release",
+    headers={"X-CMOS-Automation-Key": token},
+)
+with urllib.request.urlopen(request, timeout=10) as response:
+    payload = json.load(response)
+if payload.get("release_id") != sys.argv[1]:
+    raise SystemExit(1)
+PY
+}
+
 safe_git_value(){
   local value=""
   value="$(git -C "$REPO" "$@" 2>/dev/null || true)"
@@ -251,9 +272,17 @@ grep -q '^full_e2e=no$' <<<"$PLAN"
 grep -q '^unknown=none$' <<<"$PLAN"
 log "PREFLIGHT PASS: dashboard-only change, no schema/workflow/full-E2E action"
 
+CURRENT_PHASE="deployment-receipt"
+publish_report "RUNNING" "0" || log "WARNING: start receipt could not be published"
+
 CURRENT_PHASE="change-aware-deploy"
-python3 deploy/cmos-deploy apply --base "$EXPECTED_BASE" --target "$TARGET_HEAD"
-DEPLOYMENT_ACTION="dashboard-only-pass"
+if dashboard_release_is_live; then
+  DEPLOYMENT_ACTION="already-current-no-build"
+  log "DEPLOYMENT SKIP: expected watchlist release is already live"
+else
+  python3 deploy/cmos-deploy apply --base "$EXPECTED_BASE" --target "$TARGET_HEAD"
+  DEPLOYMENT_ACTION="dashboard-only-pass"
+fi
 
 CURRENT_PHASE="focused-acceptance"
 HEALTH_RESULT="$(docker exec -i citymanager-dashboard python - "$RELEASE_ID" "$PROBE_PREFIX" <<'PY'
