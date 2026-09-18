@@ -188,6 +188,11 @@ on_error(){
 on_exit(){
   local rc=$?
   trap - ERR EXIT
+  if (( rc == 0 )) && [[ "$CURRENT_PHASE" != "complete" ]]; then
+    rc=1
+    FAIL_LINE="unexpected-eof"
+    log "ERROR: release ended before focused acceptance completed"
+  fi
   cleanup_probe
   if (( rc != 0 )) && [[ "$DEPLOYMENT_ACTION" == "dashboard-only-pass" ]]; then
     rollback_dashboard || true
@@ -262,7 +267,7 @@ for name in citymanager-dashboard citymanager-postgis n8n ntfy; do
     || fail "required container is not running: $name"
 done
 
-PLAN="$(python3 deploy/cmos-deploy plan --base "$EXPECTED_BASE" --target "$TARGET_HEAD")"
+PLAN="$(python3 deploy/cmos-deploy plan --base "$EXPECTED_BASE" --target "$TARGET_HEAD" </dev/null)"
 printf '%s\n' "$PLAN"
 grep -q '^build=yes$' <<<"$PLAN"
 grep -q '^services=citymanager-dashboard$' <<<"$PLAN"
@@ -280,7 +285,7 @@ if dashboard_release_is_live; then
   DEPLOYMENT_ACTION="already-current-no-build"
   log "DEPLOYMENT SKIP: expected watchlist release is already live"
 else
-  python3 deploy/cmos-deploy apply --base "$EXPECTED_BASE" --target "$TARGET_HEAD"
+  python3 deploy/cmos-deploy apply --base "$EXPECTED_BASE" --target "$TARGET_HEAD" </dev/null
   DEPLOYMENT_ACTION="dashboard-only-pass"
 fi
 
