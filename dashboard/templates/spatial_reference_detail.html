@@ -22,7 +22,7 @@
     <dl><dt>Address</dt><dd>{{ entity.normalized_address or 'Not provided' }}</dd><dt>Municipality</dt><dd>{{ entity.municipality or 'Not provided' }}, {{ entity.state or '' }}</dd><dt>Aliases</dt><dd>{{ entity.aliases|join(', ') if entity.aliases else 'None' }}</dd><dt>Coordinates</dt><dd>{{ entity.latitude }}, {{ entity.longitude }}</dd><dt>Source reference</dt><dd>{% if entity.source_reference and entity.source_reference.startswith('http') %}<a href="{{ entity.source_reference }}">{{ entity.source_reference }}</a>{% else %}{{ entity.source_reference or 'Not recorded' }}{% endif %}</dd><dt>Verified</dt><dd>{{ entity.verified_at or 'Not recorded' }}</dd><dt>Refreshed</dt><dd>{{ entity.refreshed_at or 'Not recorded' }}</dd></dl>
   </div></section>
   <section class="panel"><div class="panel-head"><div><div class="panel-kicker">TRACK IT → TELL ME</div><h2>Watch This</h2></div></div><div class="panel-body">
-    <p class="muted">This creates or updates one normal GIS-enabled Watchlist item with exact reference, adjoining-parcel, or buffered geometry. Existing name, category, subscriber, Routing, Delivery Guard, and ntfy behavior remains in place. The stored geometry is also ready for the separate #56 live spatial matcher.</p>
+    <p class="muted">This creates or updates one Watch tied to this saved map reference. Existing Recipient, Delivery Guard, and ntfy behavior remains in place. Technical map controls on this page are intended for advanced use.</p>
     <form method="post" action="/spatial-reference/{{ entity.entity_id }}/watch" class="form-grid three-col">
       <label>Spatial Scope<select name="spatial_scope">{% for value in spatial_scopes %}<option value="{{ value }}" {% if (entity.watch_spatial_scope or 'RADIUS') == value %}selected{% endif %}>{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label>
       <label>Radius / Buffer (feet)<input type="number" name="radius_ft" min="1" max="26400" value="{{ entity.watch_radius_ft or entity.default_buffer_ft or 500 }}"></label>
@@ -32,7 +32,7 @@
       <label>Ends (Eastern)<input type="datetime-local" name="expires_at" value="{{ watch_expires_local }}"></label>
       <label>Source Filters<input name="source_filter" value="{{ entity.watch_source_filter|join(', ') if entity.watch_source_filter else '' }}" placeholder="Comma-separated, blank for all"></label>
       <label>Alert Categories<input name="alert_category_filter" value="{{ entity.watch_category_filter|join(', ') if entity.watch_category_filter else '' }}" placeholder="Comma-separated, blank for all"></label>
-      <fieldset><legend>Subscribers</legend>{% for subscriber in subscribers %}<label><input type="checkbox" name="subscriber_ids" value="{{ subscriber.id }}" {% if subscriber.id|string in selected_subscribers %}checked{% endif %}> {{ subscriber.name }}</label>{% else %}<span>No active subscribers.</span>{% endfor %}</fieldset>
+      <fieldset><legend>Recipients</legend>{% for subscriber in subscribers %}<label><input type="checkbox" name="subscriber_ids" value="{{ subscriber.id }}" {% if subscriber.id|string in selected_subscribers %}checked{% endif %}> {{ subscriber.name }}</label>{% else %}<span>No active Recipients.</span>{% endfor %}</fieldset>
       <div><button type="submit">{{ 'Update Watch' if entity.watch_item_id else 'Watch This' }}</button></div>
     </form>
   </div></section>

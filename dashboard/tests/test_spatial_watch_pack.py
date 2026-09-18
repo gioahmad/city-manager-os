@@ -67,11 +67,18 @@ def test_browser_uses_existing_watchlist_resolver_subscribers_and_routing():
     assert '@app.get("/watchlist"' in source
     assert '@app.post("/watchlist/create")' in source
     assert '@app.post("/watchlist/{item_id}/update")' in source
+    assert '@app.post("/watchlist/{item_id}/toggle")' in source
+    assert '@app.post("/watchlist/{item_id}/delete")' in source
+    assert '@app.post("/api/watchlist/test-notification")' in source
+    assert '@app.get("/api/watch-locations/search")' in source
     assert '@app.get("/api/spatial-watch-point/nearby-history")' in source
     assert '@app.get("/api/alerts/{alert_id}/spatial-impact")' in source
     assert '@app.get("/api/alerts/{alert_id}/impact-buffer.geojson")' in source
     assert "MIN_PRECISE_CONFIDENCE" in source and "resolve_payload" in source
-    assert 'spatial_requested = setup_mode == "NEARBY" or spatial_enabled is not None' in source
+    assert 'SETUP_MODES = {"LOCATION", "TOPIC", "LOCATION_TOPIC"}' in source
+    assert "spatial_requested = bool(target and target.get(\"spatial\"))" in source
+    assert "radius_ft: float = Form(5280.0)" in source
+    assert 'saved_watch_type = "LOCATION_TOPIC"' in source
     assert "INSERT INTO watch_items" in source
     assert "INSERT INTO watch_item_recipients" in source
     assert "FROM subscribers WHERE active=true" in source
@@ -80,6 +87,10 @@ def test_browser_uses_existing_watchlist_resolver_subscribers_and_routing():
     assert "INSERT INTO deliveries" not in source
     assert "INSERT INTO alerts" not in source
     assert "requests." not in source
+    test_endpoint = source.split('def watchlist_test_notification', 1)[1].split('@app.get("/api/spatial-watch', 1)[0]
+    assert "urllib_request.urlopen" in test_endpoint
+    assert "INSERT INTO" not in test_endpoint
+    assert "UPDATE " not in test_endpoint
 
 
 def test_mapping_center_previews_and_reuses_canonical_references():
@@ -94,10 +105,12 @@ def test_mapping_center_previews_and_reuses_canonical_references():
     assert "showImpactArea" in template
     assert "watch-preview" in template
     assert "/api/spatial-watch-point/nearby-history" in template
-    assert "Nearby History JSON" in watchlist
-    assert "Source Filters" in watchlist
-    assert "Alert Categories" in watchlist
-    assert "Subscribers" in watchlist
+    assert "Create One-Mile Watch" in template
+    assert "Search Visible Area" in template
+    assert "View nearby alert history data" in watchlist
+    assert "Only these alert sources" in watchlist
+    assert "Only these alert categories" in watchlist
+    assert "Recipients" in watchlist
 
 
 def test_central_matcher_adds_spatial_match_without_parallel_delivery():
@@ -115,8 +128,20 @@ def test_central_matcher_adds_spatial_match_without_parallel_delivery():
         assert "queryReplacement" in loader["options"]
         assert "row.spatial_match_type" in matcher
         assert "result.match_type || row.match_mode" in matcher
+        assert "locationPlusTopic" in matcher
+        assert "municipalityLocationMatch" in matcher
+        assert "locationPlusTopic && !locationMatched" in matcher
+        assert "match_type: locationPlusTopic ? 'LOCATION_TOPIC'" in matcher
         assert "recipientMap" in matcher
         assert "matched_watch_ids.includes(row.watch_id)" in matcher
+
+
+def test_matcher_installer_verifies_location_plus_topic_as_and():
+    installer = _repository_file("deploy/n8n/install_spatial_watch_matcher.sh").read_text()
+    assert "location_plus_topic=AND" in installer
+    assert "municipality_plus_topic=AND" in installer
+    assert "Location plus topic matched outside the Location" in installer
+    assert "Location plus topic matched without the topic" in installer
 
 
 def test_application_composition_includes_spatial_watch_module():

@@ -28,16 +28,16 @@ def _remove_existing_get(path: str) -> None:
 
 def _watch_health(row: dict) -> tuple[str, str]:
     if not row.get("active"):
-        return "PAUSED", "inactive-status"
+        return "Paused", "inactive-status"
     if int(row.get("active_routes") or 0) == 0:
-        return "NO ROUTE", "inactive-status"
+        return "Needs Recipient", "warning"
     if str(row.get("last_delivery_status") or "").upper() == "FAILED":
-        return "DELIVERY ISSUE", "inactive-status"
+        return "Delivery Problem", "error"
     if str(row.get("last_delivery_status") or "").upper() == "SENT":
-        return "HEALTHY", "active"
+        return "Watching", "active"
     if row.get("last_match_at"):
-        return "MATCHED", "active"
-    return "WAITING", "active"
+        return "Matching", "waiting"
+    return "Watching", "active"
 
 
 _remove_existing_get("/alert-admin")
@@ -290,7 +290,7 @@ def alert_admin_save_recipients(
         for subscriber_id in subscriber_ids:
             cur.execute("SELECT id FROM subscribers WHERE id=%s AND active=true", (subscriber_id,))
             if not cur.fetchone():
-                raise HTTPException(400, "One or more selected subscribers are inactive or missing")
+                raise HTTPException(400, "One or more selected Recipients are paused or missing")
 
         cur.execute(
             "UPDATE watch_item_recipients SET active=false WHERE watch_item_id=%s",
@@ -335,9 +335,9 @@ def alert_admin_create_subscriber(
     subscriber_id = subscriber_id.strip() or _make_subscriber_id(name)
 
     if not name or not ntfy_topic:
-        raise HTTPException(400, "Subscriber name and ntfy topic are required")
+        raise HTTPException(400, "Recipient name and Notification channel are required")
     if query_one("SELECT id FROM subscribers WHERE subscriber_id=%s", (subscriber_id,)):
-        raise HTTPException(400, "Subscriber ID already exists")
+        raise HTTPException(400, "Internal Recipient ID already exists")
 
     execute(
         """
@@ -346,7 +346,7 @@ def alert_admin_create_subscriber(
         """,
         (subscriber_id, name, ntfy_topic, notes.strip() or None),
     )
-    return RedirectResponse("/alert-admin?msg=Subscriber+created", status_code=303)
+    return RedirectResponse("/alert-admin?msg=Recipient+created", status_code=303)
 
 
 @app.post("/alert-admin/subscriber/{subscriber_uuid}/toggle")
@@ -355,4 +355,4 @@ def alert_admin_toggle_subscriber(subscriber_uuid: uuid.UUID):
         "UPDATE subscribers SET active=NOT active,updated_at=now() WHERE id=%s",
         (subscriber_uuid,),
     )
-    return RedirectResponse("/alert-admin?msg=Subscriber+status+updated", status_code=303)
+    return RedirectResponse("/alert-admin?msg=Recipient+status+updated", status_code=303)

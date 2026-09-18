@@ -51,6 +51,27 @@
 
       <section class="map-tool-panel" data-panel-name="layers">
         <div class="map-section-title"><h3>System Layers</h3><button id="fit-town" class="map-mini-button" type="button">Fit Region</button></div>
+        <div class="map-alert-controls">
+          <strong>Alerts in this map area</strong>
+          <label>Show alerts from
+            <select id="alert-window">
+              <option value="6">Last 6 hours</option>
+              <option value="12" selected>Last 12 hours</option>
+              <option value="24">Last 24 hours</option>
+              <option value="168">Last week</option>
+            </select>
+          </label>
+          <input id="alert-map-query" autocomplete="off" placeholder="Search alerts in the visible area">
+          <div class="map-alert-filter-grid">
+            <label>Source<select id="alert-map-source"><option value="">All sources</option>{% for item in alert_sources %}<option value="{{ item.source }}">{{ item.source }}</option>{% endfor %}</select></label>
+            <label>Category<select id="alert-map-category"><option value="">All categories</option>{% for item in alert_categories %}<option value="{{ item.category }}">{{ item.category }}</option>{% endfor %}</select></label>
+          </div>
+          <label>Minimum priority<select id="alert-map-priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
+          <label class="map-check"><input id="alert-map-active" type="checkbox"> Current unresolved only</label>
+          <button id="search-visible-alerts" class="map-mini-button" type="button">Search Visible Area</button>
+          <a href="/alerts" class="map-history-link">Search the complete alert database</a>
+          <small>The time choice only controls what is displayed. Alert history is kept.</small>
+        </div>
         <div class="map-layer-list">
           {% for layer in system_layers %}
           <label class="map-layer-row">
@@ -120,7 +141,7 @@
         <button id="pick-watch-point" class="secondary-button map-full-button" type="button">Pick Watch Point</button>
         <a class="secondary-button button-link map-full-button" href="/flood">Flood Intelligence</a>
         <a class="secondary-button button-link map-full-button" href="/issues">Open Work Items</a>
-        <a class="secondary-button button-link map-full-button" href="/watchlist">Spatial Watchlists</a>
+        <a class="secondary-button button-link map-full-button" href="/watchlist">Watches</a>
         <a class="secondary-button button-link map-full-button" href="/transit">Transit Intelligence</a>
         <div class="map-help-card">Critical overlays are served from local PostGIS. Custom data stays in the existing Mapping Center layer model instead of creating separate GIS applications.</div>
       </section>
@@ -196,13 +217,19 @@ async function showImpactArea(alertId){const requested=window.prompt('Impact buf
 
 document.querySelectorAll('.system-layer-toggle').forEach(el=>{el.addEventListener('change',async()=>{if(el.checked){try{await loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,el.dataset.viewport==='1');}catch(e){status(e.message);}}else removeLayer(el.dataset.key);});});
 document.querySelectorAll('.custom-layer-toggle').forEach(el=>{const key='custom-'+el.dataset.id;el.addEventListener('change',async()=>{if(!el.checked){removeLayer(key);return;}try{if(el.dataset.type==='XYZ'){groups[key]=L.tileLayer(el.dataset.url,{maxZoom:20,attribution:el.dataset.attribution||''}).addTo(map);status('Basemap enabled');}else await loadGeo(key,'/map/layer/'+el.dataset.id+'.geojson',el.dataset.color,false);}catch(e){status(e.message);}});});
+const alertToggle=document.querySelector('.system-layer-toggle[data-key="alerts"]');
+function alertEndpoint(){const params=new URLSearchParams({hours:document.getElementById('alert-window')?.value||'12',min_priority:document.getElementById('alert-map-priority')?.value||'1'});const q=document.getElementById('alert-map-query')?.value.trim(),source=document.getElementById('alert-map-source')?.value,category=document.getElementById('alert-map-category')?.value;if(q)params.set('q',q);if(source)params.set('source',source);if(category)params.set('category',category);if(document.getElementById('alert-map-active')?.checked)params.set('active_only','true');return '/map/system/alerts.geojson?'+params;}
+async function applyAlertFilters(){if(!alertToggle)return;alertToggle.dataset.endpoint=alertEndpoint();alertToggle.checked=true;try{await loadGeo('alerts',alertToggle.dataset.endpoint,alertToggle.dataset.color||null,true);}catch(e){status(e.message);}}
+document.getElementById('search-visible-alerts')?.addEventListener('click',applyAlertFilters);
+document.getElementById('alert-map-query')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();applyAlertFilters();}});
+if(alertToggle)alertToggle.dataset.endpoint=alertEndpoint();
 async function initialLoad(){for(const el of document.querySelectorAll('.custom-layer-toggle:checked'))el.dispatchEvent(new Event('change'));for(const el of document.querySelectorAll('.system-layer-toggle:checked'))el.dispatchEvent(new Event('change'));status('Map ready');}
 initialLoad();
 let viewportTimer=null;map.on('moveend',()=>{clearTimeout(viewportTimer);viewportTimer=setTimeout(()=>{document.querySelectorAll('.system-layer-toggle:checked').forEach(el=>{if(el.dataset.viewport==='1')loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,true).catch(e=>status(e.message));});},250);});
 
 function fitRegion(){map.fitBounds(regionBounds,{padding:[20,20]});}
 document.getElementById('fit-town')?.addEventListener('click',fitRegion);document.getElementById('fit-town-tools')?.addEventListener('click',fitRegion);
-document.getElementById('pick-watch-point')?.addEventListener('click',()=>{status('Click the map to select a watch point');map.getContainer().style.cursor='crosshair';map.once('click',ev=>{map.getContainer().style.cursor='';const params=new URLSearchParams({display_name:'Map point watch',latitude:ev.latlng.lat,longitude:ev.latlng.lng});const history=new URLSearchParams({lat:ev.latlng.lat,lon:ev.latlng.lng,radius_ft:500,hours:24});removeLayer('watch-preview');groups['watch-preview']=L.circle(ev.latlng,{radius:500*0.3048,color:'#c792ea',weight:2,fillColor:'#c792ea',fillOpacity:.12}).addTo(map);const popup=document.createElement('div');popup.className='map-popup';const coords=document.createElement('strong');coords.textContent=ev.latlng.lat.toFixed(6)+', '+ev.latlng.lng.toFixed(6);const actions=document.createElement('div');actions.className='map-layer-actions';const watch=document.createElement('a');watch.className='map-mini-button';watch.textContent='Watch This Area';watch.href='/watchlist?'+params;const nearby=document.createElement('a');nearby.className='map-mini-button';nearby.textContent='Nearby History';nearby.href='/api/spatial-watch-point/nearby-history?'+history;actions.append(watch,nearby);popup.append(coords,actions);L.popup().setLatLng(ev.latlng).setContent(popup).openOn(map);status('500 ft watch preview');});});
+document.getElementById('pick-watch-point')?.addEventListener('click',()=>{status('Click the map to select a Watch Location');map.getContainer().style.cursor='crosshair';map.once('click',ev=>{map.getContainer().style.cursor='';const params=new URLSearchParams({display_name:'Map location watch',latitude:ev.latlng.lat,longitude:ev.latlng.lng,location_kind:'MAP_POINT'});const history=new URLSearchParams({lat:ev.latlng.lat,lon:ev.latlng.lng,radius_ft:5280,hours:24});removeLayer('watch-preview');groups['watch-preview']=L.circle(ev.latlng,{radius:5280*0.3048,color:'#c792ea',weight:2,fillColor:'#c792ea',fillOpacity:.12}).addTo(map);const popup=document.createElement('div');popup.className='map-popup';const coords=document.createElement('strong');coords.textContent=ev.latlng.lat.toFixed(6)+', '+ev.latlng.lng.toFixed(6);const actions=document.createElement('div');actions.className='map-layer-actions';const watch=document.createElement('a');watch.className='map-mini-button';watch.textContent='Create One-Mile Watch';watch.href='/watchlist?'+params;const nearby=document.createElement('a');nearby.className='map-mini-button';nearby.textContent='Nearby Alert History';nearby.href='/api/spatial-watch-point/nearby-history?'+history;actions.append(watch,nearby);popup.append(coords,actions);L.popup().setLatLng(ev.latlng).setContent(popup).openOn(map);status('One-mile Watch preview');});});
 
 document.querySelectorAll('.map-tab').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('.map-tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.map-tool-panel').forEach(x=>x.classList.remove('active'));button.classList.add('active');document.querySelector('[data-panel-name="'+button.dataset.panel+'"]').classList.add('active');}));
 

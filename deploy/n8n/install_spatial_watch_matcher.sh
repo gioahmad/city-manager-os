@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-REPO="/opt/city-manager-os"
+REPO="${CMOS_REPO:-/opt/city-manager-os}"
 EXPECTED_TARGET="${1:-}"
 MATCHER_ID="ESH9c2pZ8QfkMosO"
 MATCHER_FILE="$REPO/workflows/live/CORE_Watchlist_Matcher_live.json"
 BACKUP_ROOT="/var/backups/city-manager-os/spatial-watch-matcher"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-BACKUP_DIR="$BACKUP_ROOT/$STAMP"
+BACKUP_DIR="${CMOS_MATCHER_BACKUP_DIR:-$BACKUP_ROOT/$STAMP}"
 TMP_TARGET="/tmp/CORE_Watchlist_Matcher_spatial_${STAMP}.json"
 TMP_BACKUP="/tmp/CORE_Watchlist_Matcher_pre56_${STAMP}.json"
 TMP_CONTRACT="/tmp/CORE_Watchlist_Matcher_contract_${STAMP}.js"
@@ -102,7 +102,9 @@ code=(match.get('parameters') or {}).get('jsCode','')
 required_query=('gis_active_spatial_watch_matches','supplied_alert_geom','spatial_match_reason','queryReplacement')
 if not all(value in (query + json.dumps(load.get('parameters') or {})) for value in required_query):
     raise SystemExit('spatial loader contract missing')
-if 'row.spatial_match_type' not in code or 'result.match_type || row.match_mode' not in code:
+required_code=('row.spatial_match_type','result.match_type || row.match_mode',
+               'locationPlusTopic','LOCATION_TOPIC','municipalityLocationMatch')
+if not all(value in code for value in required_code):
     raise SystemExit('spatial deduplication contract missing')
 workflow['active']=False
 workflow['versionId']=str(uuid.uuid4())
@@ -110,7 +112,7 @@ json.dump(items if isinstance(payload,list) else workflow,open(target,'w'),inden
 PY
 python3 -m json.tool "$TMP_TARGET" >/dev/null
 
-log "Running isolated text-plus-spatial deduplication contract"
+log "Running isolated spatial and Location-plus-topic contracts"
 python3 - "$TMP_TARGET" "$TMP_CONTRACT" <<'PY'
 import json,sys
 payload=json.load(open(sys.argv[1]))
@@ -118,15 +120,25 @@ workflow=(payload if isinstance(payload,list) else [payload])[0]
 nodes={node.get('name'):node for node in workflow.get('nodes') or []}
 code=(nodes['Match + Resolve Recipients'].get('parameters') or {})['jsCode']
 script=f'''const run=new Function('$','$input',{json.dumps(code)});
-const alert={{alert_id:'CMOS56:CONTRACT',priority:4,source:'SYSTEM_TEST',category:'TEST',search_text:'PARK AVENUE'}};
+const alert={{alert_id:'CMOS56:CONTRACT',priority:4,source:'SYSTEM_TEST',category:'TEST',municipality:'WEEHAWKEN',search_text:'PARK AVENUE ROAD CLOSURE'}};
 const recipient={{subscriber_uuid:'56000000-0000-0000-0000-000000000099',subscriber_id:'CMOS56_TEST',name:'Contract',ntfy_topic:'contract'}};
 const row={{watch_item_uuid:'56000000-0000-0000-0000-000000000098',watch_id:'CMOS56_DEDUP',display_name:'Contract',watch_type:'CORRIDOR',search_term:'PARK AVENUE',aliases:[],match_mode:'CONTAINS',match_field:'search_text',min_priority:1,source_filter:[],alert_category_filter:[],spatial_match_type:'PROXIMITY',spatial_match_reason:'trusted geometry inside corridor buffer',spatial_distance_ft:125,recipients:[recipient,recipient]}};
-const output=run(()=>({{first:()=>({{json:alert}})}}),{{all:()=>[{{json:row}}]}})[0].json;
+const evaluate=(caseAlert,caseRow)=>run(()=>({{first:()=>({{json:caseAlert}})}}),{{all:()=>[{{json:caseRow}}]}})[0].json;
+const output=evaluate(alert,row);
 if(output.match_count!==1)throw new Error('text plus spatial produced duplicate watch matches');
 if(output.matches[0].match_mode!=='PROXIMITY')throw new Error('spatial match did not take precedence');
 if(output.recipient_count!==1||output.delivery_payloads.length!==1)throw new Error('recipient delivery was not deduplicated');
 if(output.matched_watch_ids.length!==1)throw new Error('watch ID was duplicated');
-console.log('MATCHER CONTRACT text_plus_spatial=ONE recipient_delivery=ONE');
+const locationTopic={{...row,watch_id:'CMOS_LOCATION_TOPIC',watch_type:'LOCATION_TOPIC',search_term:'ROAD CLOSURE',recipients:[recipient]}};
+const inside=evaluate(alert,locationTopic);
+if(inside.match_count!==1||inside.matches[0].match_mode!=='LOCATION_TOPIC')throw new Error('Location plus topic did not require and record both conditions');
+const outside=evaluate(alert,{{...locationTopic,spatial_match_type:null,spatial_match_reason:null}});
+if(outside.match_count!==0)throw new Error('Location plus topic matched outside the Location');
+const wrongTopic=evaluate({{...alert,search_text:'PARK AVENUE WATER MAIN'}},locationTopic);
+if(wrongTopic.match_count!==0)throw new Error('Location plus topic matched without the topic');
+const municipality=evaluate(alert,{{...locationTopic,nearby_enabled:false,municipality:'Weehawken',spatial_match_type:null,spatial_match_reason:null}});
+if(municipality.match_count!==1)throw new Error('municipality plus topic did not match both conditions');
+console.log('MATCHER CONTRACT spatial_dedup=ONE location_plus_topic=AND municipality_plus_topic=AND recipient_delivery=ONE');
 '''
 open(sys.argv[2],'w').write(script)
 PY
@@ -162,9 +174,11 @@ if 'supplied_alert_geom' not in query:
     raise SystemExit('published loader does not preserve exact Standard Alert coordinates')
 if 'queryReplacement' not in options:
     raise SystemExit('published loader does not bind the normalized alert safely')
-if 'row.spatial_match_type' not in code or 'result.match_type || row.match_mode' not in code:
-    raise SystemExit('published matcher does not prefer and deduplicate spatial matches')
-print('MATCHER active=1 published=1 postgis_spatial=YES deduplication=YES')
+required=('row.spatial_match_type','result.match_type || row.match_mode',
+          'locationPlusTopic','LOCATION_TOPIC','municipalityLocationMatch')
+if not all(value in code for value in required):
+    raise SystemExit('published matcher is missing spatial or Location-plus-topic behavior')
+print('MATCHER active=1 published=1 postgis_spatial=YES location_plus_topic=AND deduplication=YES')
 con.close()
 PY
 

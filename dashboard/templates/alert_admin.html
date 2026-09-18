@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Alert Admin · City Manager OS</title>
+  <title>Advanced Alert Audit · City Manager OS</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header class="topbar">
   <div class="brand">
-    <div class="eyebrow">ALERT MANAGEMENT</div>
-    <div class="brand-row"><h1>Alert Routing Control Center</h1><span class="private-badge">PRIVATE</span></div>
-    <div class="tagline">What we watch, who receives it, why it matched, and whether delivery is working</div>
+    <div class="eyebrow">ADVANCED ALERT ADMINISTRATION</div>
+    <div class="brand-row"><h1>Advanced Alert Audit</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Technical evidence for Matches, Recipients, and Notification delivery</div>
   </div>
 </header>
 {% include "nav.html" %}
@@ -21,9 +21,9 @@
 
   <section class="metrics">
     <div class="metric"><span>Active Watches</span><strong>{{ counts.watches or 0 }}</strong><small>Matching now</small></div>
-    <div class="metric"><span>Subscribers</span><strong>{{ counts.subscribers or 0 }}</strong><small>Active destinations</small></div>
-    <div class="metric"><span>Active Routes</span><strong>{{ counts.routes or 0 }}</strong><small>Watch → subscriber</small></div>
-    <div class="metric"><span>Unrouted</span><strong>{{ counts.unrouted_watches or 0 }}</strong><small>Active watches with nobody assigned</small></div>
+    <div class="metric"><span>Recipients</span><strong>{{ counts.subscribers or 0 }}</strong><small>Active destinations</small></div>
+    <div class="metric"><span>Connections</span><strong>{{ counts.routes or 0 }}</strong><small>Watch → Recipient</small></div>
+    <div class="metric"><span>Needs Recipient</span><strong>{{ counts.unrouted_watches or 0 }}</strong><small>Cannot notify anyone</small></div>
     <div class="metric"><span>Sent 24h</span><strong>{{ counts.sent_24h or 0 }}</strong><small>Successful deliveries</small></div>
     <div class="metric"><span>Failed 24h</span><strong>{{ counts.failed_24h or 0 }}</strong><small>Delivery failures</small></div>
   </section>
@@ -31,10 +31,10 @@
   {% if counts.unrouted_watches or counts.failed_24h %}
   <section style="margin-top:16px">
     <article class="panel">
-      <div class="panel-head"><div><div class="panel-kicker">ATTENTION</div><h2>Routing Health</h2></div></div>
+      <div class="panel-head"><div><div class="panel-kicker">ATTENTION</div><h2>Notification Health</h2></div></div>
       <div class="panel-body">
         {% if counts.unrouted_watches %}
-          <div class="empty-state small"><strong>{{ counts.unrouted_watches }} active watch{% if counts.unrouted_watches != 1 %}es{% endif %} have no active recipient</strong><span>They can match alerts but cannot notify anyone until a route is assigned.</span></div>
+          <div class="empty-state small"><strong>{{ counts.unrouted_watches }} active Watch{% if counts.unrouted_watches != 1 %}es{% endif %} need a Recipient</strong><span>They can record Matches but cannot send Notifications yet.</span></div>
         {% endif %}
         {% if counts.failed_24h %}
           <div class="empty-state small" style="margin-top:8px"><strong>{{ counts.failed_24h }} delivery failure{% if counts.failed_24h != 1 %}s{% endif %} in the last 24 hours</strong><span>Open the affected watch below to see the latest delivery result.</span></div>
@@ -44,63 +44,25 @@
   </section>
   {% endif %}
 
+  {% set active_subscribers = subscribers | selectattr('active') | list %}
   <section class="grid watch-layout" style="margin-top:16px">
     <article class="panel">
-      <div class="panel-head"><div><div class="panel-kicker">QUICK SETUP</div><h2>Add Watch + Recipients</h2></div></div>
+      <div class="panel-head"><div><div class="panel-kicker">STANDARD SETUP</div><h2>Create or edit a Watch</h2></div></div>
       <div class="panel-body form-panel">
-        <p class="muted small-copy"><strong>Use this when:</strong> “Watch for X and tell these people.” This still feeds the existing central matcher and dynamic PostgreSQL routing.</p>
-        <form method="post" action="/alert-admin/watch" class="watch-form">
-          <label>What should we call it?<input name="display_name" required placeholder="Lincoln Tunnel closure"></label>
-          <label>What should match?<input name="search_term" required placeholder="Lincoln Tunnel"></label>
-          <div class="form-grid two-col">
-            <label>Watch Type
-              <select name="watch_type">
-                {% for wt in ['PHRASE','ADDRESS','FACILITY','AREA','SOURCE','INCIDENT_TYPE','OTHER'] %}<option value="{{ wt }}">{{ wt }}</option>{% endfor %}
-              </select>
-            </label>
-            <label>Match Mode
-              <select name="match_mode">
-                <option value="CONTAINS">Contains</option>
-                <option value="WORD">Word</option>
-                <option value="EXACT">Exact</option>
-                <option value="FIELD">Specific field</option>
-              </select>
-            </label>
-          </div>
-          <div class="form-grid two-col">
-            <label>Specific Field <span class="hint">Only for FIELD mode</span><input name="match_field" placeholder="source"></label>
-            <label>Minimum Priority
-              <select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}</option>{% endfor %}</select>
-            </label>
-          </div>
-          <div class="form-grid two-col">
-            <label>Municipality<input name="municipality" placeholder="Weehawken"></label>
-            <label>Address<input name="address" placeholder="Optional"></label>
-          </div>
-          <label>Notes<textarea name="notes" rows="2" placeholder="Why this matters or what should happen"></textarea></label>
-          <div>
-            <div class="panel-kicker" style="margin-bottom:8px">WHO SHOULD GET IT?</div>
-            {% set active_subscribers = subscribers | selectattr('active') | list %}
-            {% for s in active_subscribers %}
-              <label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ s.id }}"> <strong>{{ s.name }}</strong>&nbsp;<span class="meta">{{ s.ntfy_topic }}</span></label>
-            {% else %}
-              <div class="empty-state small"><strong>No active subscribers configured</strong></div>
-            {% endfor %}
-          </div>
-          <button class="primary-button" type="submit">Create Watch + Routing</button>
-        </form>
+        <p class="muted small-copy">Use the standard five-step experience for every new Watch: choose what, Location, Recipient, test, and turn it on. Technical controls remain available under Advanced Options there.</p>
+        <a class="primary-button button-link" href="/watchlist">Open Watches</a>
       </div>
     </article>
 
     <article class="panel">
-      <div class="panel-head"><div><div class="panel-kicker">DESTINATIONS</div><h2>Subscriber Directory</h2></div><span class="count-pill">{{ subscribers|length }}</span></div>
+      <div class="panel-head"><div><div class="panel-kicker">DESTINATIONS</div><h2>Recipient Directory</h2></div><span class="count-pill">{{ subscribers|length }}</span></div>
       <div class="panel-body">
         <form method="post" action="/alert-admin/subscriber" class="watch-form">
           <label>Name<input name="name" required placeholder="Public Safety Supervisor"></label>
-          <label>ntfy Topic<input name="ntfy_topic" required placeholder="PUBLIC-SAFETY"></label>
-          <label>Subscriber ID <span class="hint">Optional; generated if blank</span><input name="subscriber_id" placeholder="S_PUBLIC_SAFETY"></label>
+          <label>Notification channel<input name="ntfy_topic" required placeholder="PUBLIC-SAFETY"></label>
+          <label>Internal Recipient ID <span class="hint">Optional; generated if blank</span><input name="subscriber_id" placeholder="S_PUBLIC_SAFETY"></label>
           <label>Notes<textarea name="notes" rows="2" placeholder="Purpose or audience"></textarea></label>
-          <button class="primary-button" type="submit">Add Subscriber</button>
+          <button class="primary-button" type="submit">Add Recipient</button>
         </form>
 
         <div class="watch-list" style="margin-top:14px">
@@ -123,14 +85,14 @@
               {% endif %}
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
                 <form method="post" action="/alert-admin/subscriber/{{ s.id }}/toggle">
-                  <button class="secondary-button compact-button" type="submit">{{ 'Pause Subscriber' if s.active else 'Reactivate Subscriber' }}</button>
+                  <button class="secondary-button compact-button" type="submit">{{ 'Pause Recipient' if s.active else 'Reactivate Recipient' }}</button>
                 </form>
                 <a class="secondary-button button-link" href="/subscribers?q={{ s.subscriber_id }}">Detailed Edit</a>
               </div>
             </div>
           </details>
           {% else %}
-            <div class="empty-state small"><strong>No subscribers configured</strong></div>
+            <div class="empty-state small"><strong>No Recipients configured</strong></div>
           {% endfor %}
         </div>
       </div>
@@ -140,7 +102,7 @@
   <section style="margin-top:16px">
     <article class="panel">
       <div class="panel-head">
-        <div><div class="panel-kicker">CONTROL</div><h2>Watch Routing + Why</h2></div>
+        <div><div class="panel-kicker">CONTROL</div><h2>Watch Delivery Connections + Why</h2></div>
         <span class="count-pill">{{ watches|length }}</span>
       </div>
       <div class="panel-body">
@@ -153,7 +115,7 @@
           </select>
           <select name="health">
             <option value="all" {% if health == 'all' %}selected{% endif %}>All health</option>
-            <option value="unrouted" {% if health == 'unrouted' %}selected{% endif %}>No active route</option>
+            <option value="unrouted" {% if health == 'unrouted' %}selected{% endif %}>No active Recipient connection</option>
             <option value="failed" {% if health == 'failed' %}selected{% endif %}>Latest delivery failed</option>
             <option value="matched" {% if health == 'matched' %}selected{% endif %}>Has matched</option>
           </select>
@@ -209,7 +171,7 @@
                     <strong>{{ s.name }}</strong>&nbsp;<span class="meta">{{ s.ntfy_topic }}</span>
                   </label>
                 {% else %}
-                  <div class="empty-state small"><strong>No active subscribers available</strong></div>
+                  <div class="empty-state small"><strong>No active Recipients available</strong></div>
                 {% endfor %}
                 <button class="primary-button" type="submit">Save Recipients</button>
               </form>
@@ -223,7 +185,7 @@
                       <div class="meta">{{ r.ntfy_topic }} · {{ r.subscriber_key }}</div>
                     </div>
                     <span class="status {% if r.route_active and r.subscriber_active %}active{% else %}inactive-status{% endif %}">
-                      {% if not r.subscriber_active %}SUBSCRIBER PAUSED{% elif r.route_active %}ROUTED{% else %}ROUTE PAUSED{% endif %}
+                      {% if not r.subscriber_active %}RECIPIENT PAUSED{% elif r.route_active %}CONNECTED{% else %}CONNECTION PAUSED{% endif %}
                     </span>
                   </div>
                 {% endfor %}
@@ -248,7 +210,7 @@
                   <button class="secondary-button compact-button" type="submit">{{ 'Pause Watch' if w.active else 'Reactivate Watch' }}</button>
                 </form>
                 <a class="secondary-button button-link" href="/watchlist?q={{ w.watch_id }}">Detailed Watch Edit</a>
-                <a class="secondary-button button-link" href="/routing">Routing Matrix</a>
+                <a class="secondary-button button-link" href="/routing">Advanced Delivery Rules</a>
               </div>
             </div>
           </details>
@@ -265,7 +227,7 @@
       <div class="panel-head"><div><div class="panel-kicker">AUDIT</div><h2>Recent Match + Delivery Activity</h2></div><span class="count-pill">{{ recent|length }}</span></div>
       <div class="panel-body table-wrap">
         <table class="ops-table">
-          <thead><tr><th>Matched</th><th>Watch</th><th>Why</th><th>Alert</th><th>Subscriber</th><th>Delivery</th></tr></thead>
+          <thead><tr><th>Matched</th><th>Watch</th><th>Why</th><th>Alert</th><th>Recipient</th><th>Delivery</th></tr></thead>
           <tbody>
             {% for r in recent %}
             <tr>
@@ -295,7 +257,7 @@
 
   <footer>
     <span>City Manager OS</span>
-    <span>Existing matcher, delivery guard and dynamic subscriber routing preserved</span>
+    <span>Existing matcher, Delivery Guard, Recipient connections, and ntfy preserved</span>
   </footer>
 </main>
 </body>
