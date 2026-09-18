@@ -17,6 +17,11 @@ CURRENT_PHASE="startup"
 FINAL_STATUS="FAIL"
 FAIL_LINE="none"
 TARGET_HEAD="unknown"
+ORIGINAL_HEAD="unknown"
+ARCHIVE_BRANCH="none"
+REPOSITORY_ACTION="not-started"
+LOCAL_ONLY_COMMITS="unknown"
+REMOTE_ONLY_COMMITS="unknown"
 DEPLOYMENT_ACTION="not-started"
 ACCEPTANCE_ACTION="not-started"
 PROBE_CLEANUP_ACTION="not-needed"
@@ -75,6 +80,31 @@ rollback_dashboard(){
   return 1
 }
 
+restore_checkout(){
+  [[ "$REPOSITORY_ACTION" == archived-and-realigned || "$REPOSITORY_ACTION" == archive-created ]] || return 0
+  [[ "$ORIGINAL_HEAD" != unknown && "$TARGET_HEAD" != unknown ]] || return 0
+  [[ -z "$(git -C "$REPO" status --porcelain)" ]] || {
+    log "WARNING: repository changed after alignment; leaving recovery branch and reviewed main intact"
+    return 1
+  }
+  local current_main
+  current_main="$(git -C "$REPO" rev-parse refs/heads/main)"
+  if [[ "$current_main" == "$ORIGINAL_HEAD" ]]; then
+    REPOSITORY_ACTION="original-main-retained"
+    return 0
+  fi
+  [[ "$current_main" == "$TARGET_HEAD" ]] || {
+    log "WARNING: main moved after alignment; refusing an automatic repository restore"
+    return 1
+  }
+  log "REPOSITORY RESTORE: returning main to the pre-release commit"
+  git -C "$REPO" switch --detach "$TARGET_HEAD" >/dev/null
+  git -C "$REPO" update-ref refs/heads/main "$ORIGINAL_HEAD" "$TARGET_HEAD"
+  git -C "$REPO" switch main >/dev/null
+  REPOSITORY_ACTION="restored-after-release-failure"
+  log "REPOSITORY RESTORE PASS: original main restored; archive retained at $ARCHIVE_BRANCH"
+}
+
 publish_report(){ (
   set +e
   local status="$1" rc="$2" parent="" worktree="" report_dir report_file
@@ -101,6 +131,11 @@ publish_report(){ (
     printf '| Phase | `%s` |\n' "$CURRENT_PHASE"
     printf '| Failed line | `%s` |\n' "$FAIL_LINE"
     printf '| Target | `%s` |\n' "$TARGET_HEAD"
+    printf '| Original VPS head | `%s` |\n' "$ORIGINAL_HEAD"
+    printf '| Repository alignment | `%s` |\n' "$REPOSITORY_ACTION"
+    printf '| Recovery branch | `%s` |\n' "$ARCHIVE_BRANCH"
+    printf '| Original-only commits | `%s` |\n' "$LOCAL_ONLY_COMMITS"
+    printf '| Release-only commits | `%s` |\n' "$REMOTE_ONLY_COMMITS"
     printf '| Dashboard deployment | `%s` |\n' "$DEPLOYMENT_ACTION"
     printf '| Create, update and routing probe | `%s` |\n' "$ACCEPTANCE_ACTION"
     printf '| Temporary probe row | `%s` |\n' "$PROBE_CLEANUP_ACTION"
@@ -135,6 +170,9 @@ on_exit(){
   cleanup_probe
   if (( rc != 0 )) && [[ "$DEPLOYMENT_ACTION" == "dashboard-only-pass" ]]; then
     rollback_dashboard || true
+  fi
+  if (( rc != 0 )); then
+    restore_checkout || true
   fi
   (( rc == 0 )) && FINAL_STATUS="PASS"
   section "WATCHLIST RELIABILITY RELEASE: $FINAL_STATUS"
@@ -174,13 +212,29 @@ ACTUAL_PATHS="$(git diff --name-only "$EXPECTED_BASE...$TARGET_HEAD" | LC_ALL=C 
   fail "release scope changed; refusing an unreviewed deployment"
 }
 
-LOCAL_HEAD="$(git rev-parse HEAD)"
-if [[ "$LOCAL_HEAD" == "$EXPECTED_BASE" ]]; then
+ORIGINAL_HEAD="$(git rev-parse HEAD)"
+LOCAL_ONLY_COMMITS="$(git rev-list --count "$TARGET_HEAD..$ORIGINAL_HEAD")"
+REMOTE_ONLY_COMMITS="$(git rev-list --count "$ORIGINAL_HEAD..$TARGET_HEAD")"
+if [[ "$ORIGINAL_HEAD" == "$TARGET_HEAD" ]]; then
+  REPOSITORY_ACTION="already-aligned"
+elif git merge-base --is-ancestor "$ORIGINAL_HEAD" "$TARGET_HEAD"; then
   git merge --ff-only origin/main
-elif [[ "$LOCAL_HEAD" != "$TARGET_HEAD" ]]; then
-  fail "local main is neither the accepted base nor this release target"
+  REPOSITORY_ACTION="fast-forwarded"
+else
+  ARCHIVE_BRANCH="production-archive/watchlist-$RUN_ID"
+  git branch "$ARCHIVE_BRANCH" "$ORIGINAL_HEAD"
+  git show-ref --verify --quiet "refs/heads/$ARCHIVE_BRANCH" \
+    || fail "could not preserve the original production commit"
+  REPOSITORY_ACTION="archive-created"
+  git switch --detach "$ORIGINAL_HEAD" >/dev/null
+  git update-ref refs/heads/main "$TARGET_HEAD" "$ORIGINAL_HEAD"
+  git switch main >/dev/null
+  git branch --set-upstream-to=origin/main main >/dev/null
+  REPOSITORY_ACTION="archived-and-realigned"
+  log "REPOSITORY ALIGNMENT: preserved $ORIGINAL_HEAD as $ARCHIVE_BRANCH"
 fi
 [[ "$(git rev-parse HEAD)" == "$TARGET_HEAD" ]] || fail "production checkout did not reach release target"
+[[ -z "$(git status --porcelain)" ]] || fail "production repository is not clean after alignment"
 
 for name in citymanager-dashboard citymanager-postgis n8n ntfy; do
   [[ "$(docker inspect "$name" --format '{{.State.Running}}' 2>/dev/null || true)" == true ]] \
