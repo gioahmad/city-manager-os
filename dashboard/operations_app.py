@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import datetime
+from urllib.parse import urlencode
 
 from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -206,34 +207,80 @@ def operations_home(request: Request):
 
 
 @app.get("/alerts", response_class=HTMLResponse)
-def alerts_page(request: Request, q: str = "", source: str = "", state: str = "active"):
+def alerts_page(
+    request: Request,
+    q: str = "",
+    source: str = "",
+    category: str = "",
+    municipality: str = "",
+    state: str = "all",
+    window: str = "7d",
+    min_priority: int = 1,
+    page: int = 1,
+):
     where = []
     params = []
+    windows = {"6h": 6, "12h": 12, "24h": 24, "7d": 168, "30d": 720, "all": None}
+    if window not in windows:
+        window = "7d"
+    window_hours = windows[window]
+    if window_hours is not None:
+        where.append("a.received_at>=now()-(%s * interval '1 hour')")
+        params.append(window_hours)
+    if state not in {"active", "resolved", "all"}:
+        state = "all"
     if state == "active":
-        where.append("status <> 'RESOLVED' AND (expires_at IS NULL OR expires_at > now())")
+        where.append("a.status <> 'RESOLVED' AND (a.expires_at IS NULL OR a.expires_at > now())")
     elif state == "resolved":
-        where.append("status = 'RESOLVED'")
+        where.append("a.status = 'RESOLVED'")
     if source.strip():
-        where.append("upper(source) = upper(%s)")
+        where.append("upper(a.source) = upper(%s)")
         params.append(source.strip())
+    if category.strip():
+        where.append("upper(a.category) = upper(%s)")
+        params.append(category.strip())
+    if municipality.strip():
+        where.append("upper(a.municipality) = upper(%s)")
+        params.append(municipality.strip())
+    min_priority = max(1, min(int(min_priority), 5))
+    if min_priority > 1:
+        where.append("a.priority >= %s")
+        params.append(min_priority)
     if q.strip():
         needle = f"%{q.strip()}%"
-        where.append("(title ILIKE %s OR message ILIKE %s OR municipality ILIKE %s OR alert_id ILIKE %s)")
-        params.extend([needle, needle, needle, needle])
+        where.append(
+            "(coalesce(a.search_text,'') ILIKE %s OR a.title ILIKE %s OR a.message ILIKE %s "
+            "OR coalesce(a.municipality,'') ILIKE %s OR coalesce(a.county,'') ILIKE %s "
+            "OR a.alert_id ILIKE %s OR a.source ILIKE %s OR a.category ILIKE %s "
+            "OR a.subtype ILIKE %s OR a.location::text ILIKE %s "
+            "OR array_to_string(a.tags,' ') ILIKE %s)"
+        )
+        params.extend([needle] * 11)
     clause = f"WHERE {' AND '.join(where)}" if where else ""
+    result_total = int(
+        query_one(f"SELECT count(*) AS total FROM alerts a {clause}", params).get("total") or 0
+    )
+    per_page = 100
+    page = max(1, int(page))
+    offset = (page - 1) * per_page
     alerts = query_all(
         f"""
-        SELECT alert_id, source, category, subtype, status, event_action,
-               title, message, priority, municipality, received_at, updated_at,
-               click_url
-        FROM alerts
+        SELECT a.alert_id,a.source,a.category,a.subtype,a.status,a.event_action,
+               a.title,a.message,a.priority,a.county,a.municipality,a.received_at,a.updated_at,
+               a.observed_at,a.click_url,
+               coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address','')) AS location_label
+        FROM alerts a
         {clause}
-        ORDER BY received_at DESC
-        LIMIT 300
+        ORDER BY a.received_at DESC,a.id
+        LIMIT %s OFFSET %s
         """,
-        params,
+        [*params, per_page, offset],
     )
-    sources = query_all("SELECT DISTINCT source FROM alerts ORDER BY source")
+    sources = query_all("SELECT source,count(*) AS total FROM alerts GROUP BY source ORDER BY source")
+    categories = query_all("SELECT category,count(*) AS total FROM alerts GROUP BY category ORDER BY category")
+    municipalities = query_all(
+        "SELECT municipality,count(*) AS total FROM alerts WHERE nullif(trim(municipality),'') IS NOT NULL GROUP BY municipality ORDER BY municipality"
+    )
     counts = query_one(
         """
         SELECT count(*) AS total,
@@ -242,10 +289,41 @@ def alerts_page(request: Request, q: str = "", source: str = "", state: str = "a
         FROM alerts
         """
     )
+    filters = {
+        "q": q,
+        "source": source,
+        "category": category,
+        "municipality": municipality,
+        "state": state,
+        "window": window,
+        "min_priority": min_priority,
+    }
+    total_pages = max(1, (result_total + per_page - 1) // per_page)
+    previous_url = f"/alerts?{urlencode({**filters, 'page': page - 1})}" if page > 1 else ""
+    next_url = f"/alerts?{urlencode({**filters, 'page': page + 1})}" if page < total_pages else ""
     return templates.TemplateResponse(
         request=request,
         name="alerts.html",
-        context={"alerts": alerts, "sources": sources, "counts": counts, "q": q, "source": source, "state": state, "page": "alerts"},
+        context={
+            "alerts": alerts,
+            "sources": sources,
+            "categories": categories,
+            "municipalities": municipalities,
+            "counts": counts,
+            "result_total": result_total,
+            "q": q,
+            "source": source,
+            "category": category,
+            "municipality": municipality,
+            "state": state,
+            "window": window,
+            "min_priority": min_priority,
+            "current_page": page,
+            "total_pages": total_pages,
+            "previous_url": previous_url,
+            "next_url": next_url,
+            "page": "alerts",
+        },
     )
 
 
@@ -367,7 +445,7 @@ def subscriber_create(name: str = Form(...), ntfy_topic: str = Form(...), notes:
     name = name.strip()
     ntfy_topic = ntfy_topic.strip()
     if not name or not ntfy_topic:
-        raise HTTPException(status_code=400, detail="Name and ntfy topic are required")
+        raise HTTPException(status_code=400, detail="Recipient name and Notification channel are required")
     sid = subscriber_id.strip().upper() or make_subscriber_id(name)
     execute(
         """
@@ -376,7 +454,7 @@ def subscriber_create(name: str = Form(...), ntfy_topic: str = Form(...), notes:
         """,
         (sid, name, ntfy_topic, notes.strip() or None),
     )
-    return RedirectResponse(url="/subscribers?msg=Subscriber+created", status_code=303)
+    return RedirectResponse(url="/subscribers?msg=Recipient+created", status_code=303)
 
 
 @app.post("/subscribers/{subscriber_uuid}/update")
@@ -389,13 +467,13 @@ def subscriber_update(subscriber_uuid: uuid.UUID, name: str = Form(...), ntfy_to
         """,
         (name.strip(), ntfy_topic.strip(), notes.strip() or None, active is not None, subscriber_uuid),
     )
-    return RedirectResponse(url="/subscribers?msg=Subscriber+updated", status_code=303)
+    return RedirectResponse(url="/subscribers?msg=Recipient+updated", status_code=303)
 
 
 @app.post("/subscribers/{subscriber_uuid}/toggle")
 def subscriber_toggle(subscriber_uuid: uuid.UUID):
     execute("UPDATE subscribers SET active = NOT active, updated_at=now() WHERE id=%s", (subscriber_uuid,))
-    return RedirectResponse(url="/subscribers?msg=Subscriber+status+changed", status_code=303)
+    return RedirectResponse(url="/subscribers?msg=Recipient+status+changed", status_code=303)
 
 
 @app.get("/routing", response_class=HTMLResponse)
@@ -436,10 +514,10 @@ def routing_create(watch_item_id: uuid.UUID = Form(...), subscriber_id: uuid.UUI
         """,
         (watch_item_id, subscriber_id),
     )
-    return RedirectResponse(url="/routing?msg=Route+activated", status_code=303)
+    return RedirectResponse(url="/routing?msg=Delivery+connection+activated", status_code=303)
 
 
 @app.post("/routing/{route_id}/toggle")
 def routing_toggle(route_id: uuid.UUID):
     execute("UPDATE watch_item_recipients SET active = NOT active WHERE id=%s", (route_id,))
-    return RedirectResponse(url="/routing?msg=Route+status+changed", status_code=303)
+    return RedirectResponse(url="/routing?msg=Delivery+connection+status+changed", status_code=303)

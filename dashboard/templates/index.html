@@ -25,8 +25,8 @@
   <main>
     <section class="metrics metrics-six" aria-label="System summary">
       <div class="metric metric-alerts"><span>Active Alerts</span><strong>{{ metrics.active_alerts or 0 }}</strong><small>Current unresolved alerts</small></div>
-      <div class="metric"><span>Watch Items</span><strong>{{ metrics.active_watch_items or 0 }}</strong><small>Active monitoring rules</small></div>
-      <div class="metric"><span>Subscribers</span><strong>{{ metrics.active_subscribers or 0 }}</strong><small>Active destinations</small></div>
+      <div class="metric"><span>Watches</span><strong>{{ metrics.active_watch_items or 0 }}</strong><small>Active monitoring rules</small></div>
+      <div class="metric"><span>Recipients</span><strong>{{ metrics.active_subscribers or 0 }}</strong><small>Available Notification destinations</small></div>
       <div class="metric"><span>Open Issues</span><strong>{{ metrics.open_issues or 0 }}</strong><small>Operational follow-up</small></div>
       <div class="metric"><span>Sent / 24h</span><strong>{{ metrics.sent_24h or 0 }}</strong><small>Notifications delivered</small></div>
       <div class="metric {% if metrics.unhealthy_sources %}metric-warning{% endif %}"><span>Source Warnings</span><strong>{{ metrics.unhealthy_sources or 0 }}</strong><small>Collectors needing attention</small></div>

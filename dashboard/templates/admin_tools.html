@@ -18,8 +18,8 @@
 <main>
   <section class="metrics">
     <div class="metric"><span>Active Watches</span><strong>{{ counts.watches or 0 }}</strong><small>Matching rules</small></div>
-    <div class="metric"><span>Subscribers</span><strong>{{ counts.subscribers or 0 }}</strong><small>Active destinations</small></div>
-    <div class="metric"><span>Routes</span><strong>{{ counts.routes or 0 }}</strong><small>Watch → recipient</small></div>
+    <div class="metric"><span>Recipients</span><strong>{{ counts.subscribers or 0 }}</strong><small>Active Notification destinations</small></div>
+    <div class="metric"><span>Connections</span><strong>{{ counts.routes or 0 }}</strong><small>Watch → Recipient</small></div>
     <div class="metric"><span>Integrations</span><strong>{{ counts.integrations or 0 }}</strong><small>Active external sources</small></div>
     <div class="metric metric-alerts"><span>Event Watch</span><strong>{{ counts.event_watch or 0 }}</strong><small>WATCH / ALERT events</small></div>
     <div class="metric"><span>Source Warnings</span><strong>{{ counts.unhealthy or 0 }}</strong><small>Needs attention</small></div>
@@ -27,11 +27,11 @@
 
   <section class="module-grid" style="margin-top:16px">
     <article class="panel module-card">
-      <div class="panel-head"><div><div class="panel-kicker">ALERTS</div><h2>Watch + Subscriber Admin</h2></div></div>
+      <div class="panel-head"><div><div class="panel-kicker">ALERTS</div><h2>Watches and Recipients</h2></div></div>
       <div class="panel-body">
-        <p class="module-description">Add something to watch and choose who should receive it in one step.</p>
-        <a class="primary-button button-link" href="/alert-admin">Open Alert Admin</a>
-        <p class="muted small-copy">Use the original Watchlists, Subscribers and Routing pages for detailed editing.</p>
+        <p class="module-description">Choose what to watch, where to watch, and who should receive a Notification.</p>
+        <a class="primary-button button-link" href="/watchlist">Open Watches</a>
+        <p class="muted small-copy">Manage destinations in Recipients. Technical evidence remains in Advanced Watch Audit.</p>
       </div>
     </article>
 
@@ -84,7 +84,7 @@
     <div class="panel-body">
       <p><strong>1. Want to try an API?</strong> Start in API Lab.</p>
       <p><strong>2. Want City Manager OS to keep checking it?</strong> Add it in Integrations Center and test it before activating.</p>
-      <p><strong>3. Want a notification?</strong> Let the source normalize into the existing Watchlist and Subscriber routing system. Do not hard-code recipients.</p>
+      <p><strong>3. Want a Notification?</strong> Create a Watch and select a Recipient. Keep using the existing delivery connection path.</p>
     </div>
   </section>
 

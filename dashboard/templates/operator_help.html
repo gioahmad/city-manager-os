@@ -47,50 +47,52 @@
 
   {% if operator_help_key == "watchlist" %}
 
-    <p><strong>What this does:</strong> Tells City Manager OS which names, addresses, routes, agencies, places and terms matter enough to watch.</p>
+    <p><strong>What this does:</strong> A Watch saves what City Manager OS should look for and who should receive a Notification when it finds a Match.</p>
 
-    <p><strong>Use it for:</strong></p>
-    <ul>
-      <li>Addresses such as 4100 Park Ave.</li>
-      <li>Places or corridors such as Port Imperial or Lincoln Tunnel.</li>
-      <li>Agencies, projects, people or operational keywords you want surfaced.</li>
-    </ul>
+    <p><strong>Set up a Watch in five steps:</strong></p>
+    <ol>
+      <li>Choose what to watch for.</li>
+      <li>Choose a Location and Distance when needed.</li>
+      <li>Choose the Recipient.</li>
+      <li>Send an isolated Test Notification.</li>
+      <li>Turn the Watch on.</li>
+    </ol>
 
-    <p><strong>Match modes:</strong> CONTAINS is the normal broad match. WORD is useful for a specific word. EXACT is strict. FIELD limits matching to a specific alert field.</p>
+    <p><strong>Examples:</strong> Watch within one mile of Town Hall, watch for “water main,” or watch for “road closure” within one mile of a selected street.</p>
 
-    <p class="operator-help-safe"><strong>Safe change:</strong> Pausing a watch stops future matching for that watch. It does not delete existing alerts, issues or history.</p>
+    <p class="operator-help-safe"><strong>Safe change:</strong> Pausing stops future Matches. It does not delete stored alerts or Notification history.</p>
 
 
   {% elif operator_help_key == "subscribers" %}
 
-    <p><strong>What this does:</strong> Manages people or delivery destinations that may receive City Manager OS notifications.</p>
+    <p><strong>What this does:</strong> Manages Recipients: the people or notification channels that may receive City Manager OS Notifications.</p>
 
     <p><strong>Use it for:</strong></p>
     <ul>
-      <li>Adding an authorized recipient.</li>
-      <li>Changing an existing delivery destination.</li>
-      <li>Temporarily pausing a subscriber without deleting the record.</li>
+      <li>Adding an authorized Recipient.</li>
+      <li>Changing an existing Notification channel.</li>
+      <li>Temporarily pausing a Recipient without deleting the record.</li>
     </ul>
 
-    <p><strong>Important:</strong> A subscriber receives only what the routing and watch configuration sends to that subscriber.</p>
+    <p><strong>Important:</strong> A Recipient receives only the Notifications produced by Watches connected to it.</p>
 
-    <p class="operator-help-safe"><strong>Safe change:</strong> Deactivating a subscriber affects future deliveries only. It does not remove alert or delivery history.</p>
+    <p class="operator-help-safe"><strong>Safe change:</strong> Pausing a Recipient affects future Notifications only. It does not remove alert or Notification history.</p>
 
 
   {% elif operator_help_key == "routing" %}
 
-    <p><strong>What this does:</strong> Controls where matched City Manager OS alerts are delivered.</p>
+    <p><strong>What this does:</strong> Provides advanced control over which Recipient is connected to each Watch.</p>
 
-    <p><strong>Think of it as:</strong> Source / watch condition → subscriber → delivery.</p>
+    <p><strong>Think of it as:</strong> Watch → Recipient → Notification.</p>
 
     <p><strong>Use it for:</strong></p>
     <ul>
-      <li>Sending a category or source to the correct recipient.</li>
-      <li>Adding another authorized recipient to an existing route.</li>
-      <li>Pausing a route that should temporarily stop delivering.</li>
+      <li>Connecting a Watch to the correct Recipient.</li>
+      <li>Adding another authorized Recipient to an existing Watch.</li>
+      <li>Pausing a connection that should temporarily stop Notifications.</li>
     </ul>
 
-    <p class="operator-help-safe"><strong>Safe change:</strong> Routing changes affect future delivery. They do not change the original alert or Command Center issue.</p>
+    <p class="operator-help-safe"><strong>Safe change:</strong> Connection changes affect future Notifications. They do not change the original alert or Command Center issue.</p>
 
 
   {% elif operator_help_key == "rules" %}
@@ -172,16 +174,16 @@
 
   {% elif operator_help_key == "deliveries" %}
 
-    <p><strong>What this does:</strong> Shows the audit trail of notification delivery attempts.</p>
+    <p><strong>What this does:</strong> Shows the audit trail of Notification attempts.</p>
 
     <p><strong>Use it to answer:</strong></p>
     <ul>
       <li>Was an alert actually sent?</li>
-      <li>Who or what destination received it?</li>
-      <li>Did delivery fail or get suppressed?</li>
+      <li>Which Recipient received it?</li>
+      <li>Was it held as a repeat, or did delivery have a problem?</li>
     </ul>
 
-    <p><strong>Important:</strong> This page is delivery history, not the place to change routing. Use Routing or Subscribers for future delivery changes.</p>
+    <p><strong>Important:</strong> This page is Notification history. Use Watches or Recipients to change what happens next.</p>
 
     <p class="operator-help-safe"><strong>Safe page:</strong> Reviewing delivery records does not resend or modify alerts.</p>
 

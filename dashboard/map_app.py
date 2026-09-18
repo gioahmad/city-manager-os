@@ -21,7 +21,7 @@ SYSTEM_LAYERS = [
     {"key": "addresses", "name": "NG911 Addresses", "endpoint": "/map/system/addresses.geojson", "default_visible": False, "point": True, "viewport": True},
     {"key": "watchlist", "name": "Watch Locations", "endpoint": "/map/system/watchlist.geojson", "default_visible": True, "point": True},
     {"key": "spatial-references", "name": "Regional References", "endpoint": "/map/system/spatial-references.geojson", "default_visible": True, "style": {"color": "#9b7ede"}, "viewport": True},
-    {"key": "alerts", "name": "Alerts", "endpoint": "/map/system/alerts.geojson", "default_visible": True, "point": True, "viewport": True},
+    {"key": "alerts", "name": "Alerts", "endpoint": "/map/system/alerts.geojson?hours=12", "default_visible": True, "point": True, "viewport": True},
     {"key": "operations", "name": "Operations / Work Items", "endpoint": "/map/system/issues.geojson", "default_visible": True, "point": True},
     {"key": "event-intelligence", "name": "Event Intelligence", "endpoint": "/map/system/events.geojson", "default_visible": False, "point": True},
     {"key": "managed-events", "name": "Managed Events", "endpoint": "/map/system/managed-events.geojson", "default_visible": False, "point": True},
@@ -149,6 +149,12 @@ def mapping_center(request: Request, msg: str = ""):
         """
     )
     editable_layers = [x for x in custom_layers if x["layer_type"] == "CUSTOM_GEOJSON" and x["active"]]
+    alert_sources = query_all(
+        "SELECT source,count(*) AS total FROM alerts WHERE nullif(trim(source),'') IS NOT NULL GROUP BY source ORDER BY source"
+    )
+    alert_categories = query_all(
+        "SELECT category,count(*) AS total FROM alerts WHERE nullif(trim(category),'') IS NOT NULL GROUP BY category ORDER BY category"
+    )
     return templates.TemplateResponse(
         request=request,
         name="map.html",
@@ -159,6 +165,8 @@ def mapping_center(request: Request, msg: str = ""):
             "system_layers": SYSTEM_LAYERS,
             "custom_layers": custom_layers,
             "editable_layers": editable_layers,
+            "alert_sources": alert_sources,
+            "alert_categories": alert_categories,
             "max_upload_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
         },
     )
@@ -356,19 +364,42 @@ def map_watchlist_geojson():
 @app.get("/map/system/alerts.geojson")
 def map_alerts_geojson(
     bbox: str | None = None,
-    days: int = 30,
+    hours: int | None = 12,
+    days: int | None = None,
     min_priority: int = 1,
     active_only: bool = False,
+    q: str = "",
+    source: str = "",
+    category: str = "",
 ):
-    days = max(1, min(days, 365))
+    # `days` remains accepted for older bookmarked/API URLs. The normal map experience
+    # uses the bounded 6-hour to 1-week `hours` contract.
+    if days is not None:
+        window_hours = max(24, min(int(days), 365) * 24)
+    else:
+        window_hours = max(1, min(int(hours or 12), 168))
     min_priority = max(1, min(min_priority, 5))
     box = _bbox(bbox)
-    params: list[Any] = [days, min_priority]
+    params: list[Any] = [window_hours, min_priority]
     where = [
-        "a.received_at >= now()-(%s * interval '1 day')",
+        "a.received_at >= now()-(%s * interval '1 hour')",
         "a.priority >= %s",
         "coalesce(a.geom,r.geom) IS NOT NULL",
     ]
+    if source.strip():
+        where.append("upper(a.source)=upper(%s)")
+        params.append(source.strip())
+    if category.strip():
+        where.append("upper(a.category)=upper(%s)")
+        params.append(category.strip())
+    if q.strip():
+        needle = f"%{q.strip()}%"
+        where.append(
+            "(coalesce(a.search_text,'') ILIKE %s OR a.title ILIKE %s OR a.message ILIKE %s "
+            "OR coalesce(a.municipality,'') ILIKE %s OR a.alert_id ILIKE %s "
+            "OR a.location::text ILIKE %s OR array_to_string(a.tags,' ') ILIKE %s)"
+        )
+        params.extend([needle] * 7)
     if active_only:
         where.append("a.status <> 'RESOLVED' AND (a.expires_at IS NULL OR a.expires_at > now())")
     if box:
