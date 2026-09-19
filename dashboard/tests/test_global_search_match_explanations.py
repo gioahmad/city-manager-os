@@ -21,6 +21,10 @@ def test_global_search_is_bounded_grouped_and_uses_existing_records():
     assert "LIMIT 140" in source
     assert "SET LOCAL statement_timeout = '12s'" in source
     assert "with db_conn() as conn" in source
+    assert "lower(p.prop_loc)>=lower(%s)" in source
+    assert "p.pams_pin>=%s AND p.pams_pin<%s" in source
+    assert "lower(p.mun_name)=lower(%s)" in source
+    assert "coalesce(p.pclblock,'')=%s" not in source
     for table in (
         "alerts",
         "issues",
@@ -62,6 +66,9 @@ def test_map_startup_avoids_full_extent_and_eager_flood_load():
     assert "SELECT DISTINCT source FROM alerts" in source
     assert "SELECT DISTINCT category FROM alerts" in source
     assert "lower(fulladdr)>=lower(%s) AND lower(fulladdr)<lower(%s)" in source
+    assert "parcel_identifier_sql" in source
+    assert "if block_lot:" in source
+    assert "elif simple_parcel_number:" in source
     assert 'new URLSearchParams(window.location.search).get(\'q\')' in template
 
 

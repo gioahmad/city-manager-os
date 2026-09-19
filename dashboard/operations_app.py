@@ -520,7 +520,7 @@ def _global_search_rows(q: str, scope: str):
         FROM gis_addresses a
         WHERE a.geom IS NOT NULL
           AND ((lower(a.fulladdr)>=lower(%s) AND lower(a.fulladdr)<lower(%s))
-               OR lower(coalesce(a.post_comm,''))=lower(%s))
+               OR lower(a.post_comm)=lower(%s))
         ORDER BY CASE WHEN a.status='A' THEN 0 ELSE 1 END,a.fulladdr
         LIMIT 10
         """,
@@ -535,15 +535,14 @@ def _global_search_rows(q: str, scope: str):
                'Parcel'::text AS context, p.objectid::text AS result_id, NULL::timestamptz AS happened_at
         FROM gis_parcels p
         WHERE p.geom IS NOT NULL AND (
-          (lower(coalesce(p.prop_loc,''))>=lower(%s) AND lower(coalesce(p.prop_loc,''))<lower(%s))
-          OR (coalesce(p.pams_pin,'')>=%s AND coalesce(p.pams_pin,'')<%s)
-          OR coalesce(p.pclblock,'')=%s OR coalesce(p.pcllot,'')=%s
-          OR lower(coalesce(p.mun_name,''))=lower(%s)
+          (lower(p.prop_loc)>=lower(%s) AND lower(p.prop_loc)<lower(%s))
+          OR (p.pams_pin>=%s AND p.pams_pin<%s)
+          OR lower(p.mun_name)=lower(%s)
         )
         ORDER BY p.prop_loc NULLS LAST,p.objectid
         LIMIT 10
         """,
-        [q, prefix_end, q, prefix_end, q, q, q],
+        [q, prefix_end, q, prefix_end, q],
     )
     add(
         "locations",

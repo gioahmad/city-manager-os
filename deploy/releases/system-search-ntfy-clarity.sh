@@ -293,6 +293,22 @@ else
   DASHBOARD_ACTION="verified-one-build"
 fi
 
+CURRENT_PHASE="search-database-contract"
+if [[ "$DASHBOARD_ACTION" == verified-one-build ]]; then
+  docker compose -f "$REPO/dashboard/docker-compose.yml" run --rm --no-deps -T \
+    --entrypoint python citymanager-dashboard - <<'PY'
+import time
+from operations_app import _global_search_rows
+
+started=time.monotonic()
+rows=_global_search_rows('CMOS-RELEASE-CONTRACT-NO-MATCH','all')
+elapsed_ms=round((time.monotonic()-started)*1000)
+if rows: raise RuntimeError('synthetic no-match query unexpectedly returned records')
+if elapsed_ms>12000: raise RuntimeError('system-wide search exceeded its protected ceiling')
+print(f'SEARCH_DATABASE_CONTRACT=PASS elapsed_ms={elapsed_ms} result_count=0')
+PY
+fi
+
 CURRENT_PHASE="ntfy-sender-publish"
 if sender_release_is_live; then
   SENDER_ACTION="already-current-no-restart"
@@ -366,6 +382,8 @@ if search_home_ms>15000 or search_results_ms>15000 or mapping_ms>15000 or map_se
     raise RuntimeError('a search or map page exceeded the focused 15-second ceiling')
 for marker in ('Search Everything','does not create another database','alerts, work, Watches, Notifications'):
     if marker not in search_home: raise RuntimeError('system search instructions are incomplete')
+if 'Search is temporarily unavailable' in search_results:
+    raise RuntimeError('system-wide search reached its protected timeout')
 if contract_query not in search_results or 'No records matched' not in search_results:
     raise RuntimeError('bounded system-wide no-match search failed')
 if 'Why you received this' not in notifications:
