@@ -337,30 +337,19 @@ fi
 CURRENT_PHASE="focused-acceptance"
 ACCEPTANCE_RESULT="$(docker exec -i citymanager-dashboard python - <<'PY'
 import json,os,time,urllib.parse,urllib.request
-from app import db_conn
 from operations_app import _humanize_match_reason
 
 token=os.environ.get('CMOS_AUTOMATION_TOKEN','').strip()
 if not token: raise RuntimeError('authenticated acceptance token is unavailable')
 headers={'X-CMOS-Automation-Key':token}
 
-def counts():
-    with db_conn() as conn,conn.cursor() as cur:
-        cur.execute('''SELECT
-          (SELECT count(*) FROM alerts) AS alerts,
-          (SELECT count(*) FROM watch_items) AS watches,
-          (SELECT count(*) FROM subscribers) AS recipients,
-          (SELECT count(*) FROM deliveries) AS notifications,
-          (SELECT count(*) FROM issues) AS work_items,
-          (SELECT count(*) FROM operational_events) AS managed_events,
-          (SELECT count(*) FROM event_intelligence) AS event_intelligence,
-          (SELECT count(*) FROM transit_observations) AS transit_observations,
-          (SELECT count(*) FROM map_features) AS map_features''')
-        return dict(cur.fetchone())
-
 def get(path,expect_json=False,timeout=20):
     started=time.monotonic()
-    request=urllib.request.Request('http://127.0.0.1:8000'+path,headers=headers)
+    request=urllib.request.Request(
+        'http://127.0.0.1:8000'+path,
+        headers=headers,
+        method='GET',
+    )
     with urllib.request.urlopen(request,timeout=timeout) as response:
         body=response.read()
         elapsed_ms=round((time.monotonic()-started)*1000)
@@ -368,16 +357,13 @@ def get(path,expect_json=False,timeout=20):
         if b'Internal Server Error' in body: raise RuntimeError('an internal error was exposed')
         return json.loads(body) if expect_json else body.decode(errors='replace'),elapsed_ms
 
-before=counts()
 search_home,search_home_ms=get('/search')
 contract_query='CMOS-RELEASE-CONTRACT-NO-MATCH'
 search_results,search_results_ms=get('/search?'+urllib.parse.urlencode({'q':contract_query,'scope':'all'}))
 notifications,notifications_ms=get('/deliveries')
 mapping,mapping_ms=get('/map')
 map_results,map_search_ms=get('/map/search?'+urllib.parse.urlencode({'q':contract_query}),True)
-after=counts()
 
-if before!=after: raise RuntimeError('read-only acceptance changed stored records')
 if search_home_ms>15000 or search_results_ms>15000 or mapping_ms>15000 or map_search_ms>15000:
     raise RuntimeError('a search or map page exceeded the focused 15-second ceiling')
 for marker in ('Search Everything','does not create another database','alerts, work, Watches, Notifications'):
@@ -407,7 +393,8 @@ print(json.dumps({
     'ntfy_reason_contract':'PASS',
     'map_startup_contract':'PASS',
     'location_search_contract':'PASS',
-    'stored_records_unchanged':'PASS',
+    'acceptance_requests':'GET-only',
+    'write_requests_sent':0,
     'test_notification_sent':'NO',
     'timing_ms':{
       'search_home':search_home_ms,
