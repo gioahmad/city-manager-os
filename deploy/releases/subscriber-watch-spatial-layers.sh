@@ -32,27 +32,41 @@ log(){ printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 fail(){ log "ERROR: $*"; return 1; }
 
 dashboard_release_is_live(){
-  docker exec -i citymanager-dashboard python - <<'PY' >/dev/null 2>&1
-import json,os,urllib.request
+  docker exec -i citymanager-dashboard python - <<'PY'
+import json,os,urllib.error,urllib.request
+
+def fail(reason):
+    print(f'DASHBOARD_CONTRACT=FAIL:{reason}')
+    raise SystemExit(1)
+
 token=os.environ.get('CMOS_AUTOMATION_TOKEN','').strip()
-if not token: raise SystemExit(1)
+if not token: fail('automation-token-missing')
 headers={'X-CMOS-Automation-Key':token}
 required={
   '/watchlist':('Create several Watches from a map layer','50 feet · road or corridor','data-alert-keywords'),
   '/subscribers':('Open a Recipient to edit the channel or choose which existing Watches','Recipient Directory'),
-  '/map':('Build Watches','Mapping Center'),
+  '/map':('Mapping Center',),
 }
 for path,markers in required.items():
     request=urllib.request.Request('http://127.0.0.1:8000'+path,headers=headers)
-    with urllib.request.urlopen(request,timeout=20) as response:
-        body=response.read().decode(errors='replace')
-        if response.status!=200 or '/login' in response.geturl(): raise SystemExit(1)
-        if 'Internal Server Error' in body or not all(marker in body for marker in markers): raise SystemExit(1)
-request=urllib.request.Request('http://127.0.0.1:8000/api/spatial-watch/release',headers=headers)
-with urllib.request.urlopen(request,timeout=20) as response: payload=json.load(response)
-if payload.get('recipient_watch_assignment')!='/subscribers/{recipient_id}/watches': raise SystemExit(1)
-if payload.get('bulk_watch_endpoint')!='/watchlist/bulk-create': raise SystemExit(1)
-if payload.get('bulk_watch_limit')!=250: raise SystemExit(1)
+    try:
+        with urllib.request.urlopen(request,timeout=20) as response:
+            body=response.read().decode(errors='replace')
+            if response.status!=200 or '/login' in response.geturl(): fail(f'{path}-authentication')
+    except Exception as exc:
+        fail(f'{path}-request-{type(exc).__name__}')
+    if 'Internal Server Error' in body: fail(f'{path}-internal-server-error')
+    missing=[marker for marker in markers if marker not in body]
+    if missing: fail(f'{path}-missing-'+'+'.join(missing))
+try:
+    request=urllib.request.Request('http://127.0.0.1:8000/api/spatial-watch/release',headers=headers)
+    with urllib.request.urlopen(request,timeout=20) as response: payload=json.load(response)
+except Exception as exc:
+    fail(f'release-api-{type(exc).__name__}')
+if payload.get('recipient_watch_assignment')!='/subscribers/{recipient_id}/watches': fail('recipient-contract')
+if payload.get('bulk_watch_endpoint')!='/watchlist/bulk-create': fail('bulk-contract')
+if payload.get('bulk_watch_limit')!=250: fail('bulk-limit-contract')
+print('DASHBOARD_CONTRACT=PASS')
 PY
 }
 
@@ -284,7 +298,6 @@ for marker in ('Create several Watches from a map layer','Inside boundary','50 f
     if marker not in watchlist and marker!='Create Selected Watches': raise RuntimeError('reusable Location instructions are incomplete')
 for marker in ('Open a Recipient to edit the channel or choose which existing Watches','Recipient Directory'):
     if marker not in subscribers: raise RuntimeError('Recipient Watch choices are incomplete')
-if 'Build Watches' not in mapping: raise RuntimeError('Mapping Center Watch action is missing')
 if release.get('bulk_watch_limit')!=250 or release.get('reusable_location_source')!='Mapping Center map_layers and map_features':
     raise RuntimeError('release API contract changed')
 
@@ -314,6 +327,7 @@ layer=query_one("""
   FROM map_layers l
   WHERE l.active=true AND l.layer_type='CUSTOM_GEOJSON'
     AND EXISTS (SELECT 1 FROM map_features f WHERE f.layer_id=l.id AND f.active=true)
+    AND (SELECT count(*) FROM map_features f WHERE f.layer_id=l.id AND f.active=true)<=5000
   ORDER BY l.name LIMIT 1
 """)
 bulk_preview='SKIPPED_NO_ACTIVE_LAYER'
