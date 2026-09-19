@@ -338,7 +338,7 @@ existing=con.execute('SELECT id FROM workflow_entity WHERE name=? ORDER BY updat
 if len(existing)>1: raise SystemExit('duplicate resolved-alert rematch workflows exist')
 workflow=json.load(open(source_path))
 if existing: workflow['id']=existing[0]['id']
-else: workflow.pop('id',None)
+elif not workflow.get('id'): raise SystemExit('new workflow is missing its stable n8n ID')
 workflow['active']=False
 workflow['versionId']=str(uuid.uuid4())
 replaced=0
@@ -363,7 +363,7 @@ PY
   docker exec -u root n8n chown node:node "$TMP_WORKFLOW"
   docker exec -u root n8n chmod 600 "$TMP_WORKFLOW"
   N8N_CHANGED=1
-  docker exec -u node n8n n8n import:workflow --input="$TMP_WORKFLOW" >/dev/null
+  docker exec -u node n8n n8n import:workflow --input="$TMP_WORKFLOW"
   REMATCH_ID="$(python3 - "$N8N_DB" "$WORKFLOW_NAME" <<'PY'
 import sqlite3,sys
 con=sqlite3.connect(sys.argv[1]); rows=con.execute('SELECT id FROM workflow_entity WHERE name=?',(sys.argv[2],)).fetchall()
