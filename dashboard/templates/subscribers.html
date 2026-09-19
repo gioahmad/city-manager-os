@@ -66,6 +66,7 @@
                 <span class="hint">Select every existing Watch that should notify this Recipient. Clearing a choice does not delete or pause the Watch.</span>
                 <div class="recipient-watch-options">
                 {% for watch in watch_options %}
+                  <input type="hidden" name="visible_watch_item_ids" value="{{ watch.id }}">
                   <label class="checkbox-row">
                     <input type="checkbox" name="watch_item_ids" value="{{ watch.id }}" {% if watch.id in s.active_watch_ids %}checked{% endif %}>
                     <span><strong>{{ watch.display_name }}</strong><small>{{ 'On' if watch.active else 'Paused' }}{% if watch.expires_at %} · has an end time{% endif %}</small></span>

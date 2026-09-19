@@ -53,9 +53,10 @@ def test_recipient_page_assigns_existing_watches_without_new_routing_model():
     source = (DASHBOARD_ROOT / "operations_app.py").read_text()
     template = (DASHBOARD_ROOT / "templates/subscribers.html").read_text()
     assert '@app.post("/subscribers/{subscriber_uuid}/watches")' in source
-    assert "UPDATE watch_item_recipients SET active=false WHERE subscriber_id=%s" in source
+    assert "WHERE subscriber_id=%s AND watch_item_id=ANY(%s::uuid[])" in source
     assert "ON CONFLICT(watch_item_id,subscriber_id) DO UPDATE SET active=true" in source
     assert 'name="watch_item_ids"' in template
+    assert 'name="visible_watch_item_ids"' in template
     assert "Save Watch Choices" in template
     assert "CREATE TABLE" not in source
 

@@ -981,9 +981,14 @@ def subscriber_toggle(subscriber_uuid: uuid.UUID):
 def subscriber_watches_update(
     subscriber_uuid: uuid.UUID,
     watch_item_ids: list[uuid.UUID] = Form([]),
+    visible_watch_item_ids: list[uuid.UUID] = Form([]),
 ):
+    active_total = 0
     try:
         selected = list(dict.fromkeys(watch_item_ids))
+        visible = list(dict.fromkeys(visible_watch_item_ids))
+        if not set(selected).issubset(visible):
+            raise HTTPException(400, "Review the visible Watch choices and try again")
         with db_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT id FROM subscribers WHERE id=%s FOR UPDATE", (subscriber_uuid,))
@@ -993,10 +998,14 @@ def subscriber_watches_update(
                     cur.execute("SELECT id FROM watch_items WHERE id=%s", (watch_item_id,))
                     if not cur.fetchone():
                         raise HTTPException(400, "One or more selected Watches no longer exist")
-                cur.execute(
-                    "UPDATE watch_item_recipients SET active=false WHERE subscriber_id=%s",
-                    (subscriber_uuid,),
-                )
+                if visible:
+                    cur.execute(
+                        """
+                        UPDATE watch_item_recipients SET active=false
+                        WHERE subscriber_id=%s AND watch_item_id=ANY(%s::uuid[])
+                        """,
+                        (subscriber_uuid, visible),
+                    )
                 if selected:
                     cur.executemany(
                         """
@@ -1006,6 +1015,11 @@ def subscriber_watches_update(
                         """,
                         [(watch_item_id, subscriber_uuid) for watch_item_id in selected],
                     )
+                cur.execute(
+                    "SELECT count(*) AS total FROM watch_item_recipients WHERE subscriber_id=%s AND active=true",
+                    (subscriber_uuid,),
+                )
+                active_total = int(cur.fetchone()["total"])
             conn.commit()
     except HTTPException as exc:
         return RedirectResponse(
@@ -1020,7 +1034,7 @@ def subscriber_watches_update(
             status_code=303,
         )
     return RedirectResponse(
-        url=f"/subscribers?{urlencode({'msg': f'Recipient now follows {len(selected)} Watches'})}",
+        url=f"/subscribers?{urlencode({'msg': f'Recipient now follows {active_total} Watches'})}",
         status_code=303,
     )
 
