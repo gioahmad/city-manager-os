@@ -564,6 +564,88 @@ def _watch_health() -> dict:
     return health
 
 
+def _watch_prefill_from_alert(alert_reference: str) -> dict:
+    """Build an editable Watch draft from one existing alert without writing data."""
+    alert_reference = alert_reference.strip()[:160]
+    if not alert_reference:
+        return {}
+    alert = query_one(
+        """
+        SELECT a.alert_id,a.title,a.source,a.category,a.subtype,a.municipality,
+               coalesce(
+                 nullif(a.location->>'label',''),
+                 nullif(a.location->>'address',''),
+                 nullif(r.resolved_label,''),
+                 nullif(a.municipality,'')
+               ) AS location_label,
+               CASE WHEN coalesce(a.geom,r.geom) IS NOT NULL
+                    THEN ST_Y(ST_PointOnSurface(coalesce(a.geom,r.geom))) END AS latitude,
+               CASE WHEN coalesce(a.geom,r.geom) IS NOT NULL
+                    THEN ST_X(ST_PointOnSurface(coalesce(a.geom,r.geom))) END AS longitude
+        FROM alerts a
+        LEFT JOIN geo_entity_resolutions r
+          ON r.entity_type='ALERT' AND r.entity_id=a.id::text
+        WHERE a.alert_id=%s
+        ORDER BY a.received_at DESC,a.id DESC
+        LIMIT 1
+        """,
+        (alert_reference,),
+    )
+    if not alert:
+        return {}
+
+    topic = str(
+        alert.get("title")
+        or alert.get("subtype")
+        or alert.get("category")
+        or "Alert"
+    ).strip()
+    location_label = str(alert.get("location_label") or "").strip()
+    municipality = str(alert.get("municipality") or "").strip()
+    latitude = alert.get("latitude")
+    longitude = alert.get("longitude")
+    has_coordinates = latitude is not None and longitude is not None
+    has_location = bool(location_label or has_coordinates)
+    setup_mode = (
+        "LOCATION_TOPIC"
+        if has_location and topic
+        else "LOCATION"
+        if has_location
+        else "TOPIC"
+    )
+
+    if has_coordinates:
+        location_kind = "MAP_POINT"
+        location_id = ""
+        location_label = location_label or "Alert location"
+    elif municipality and location_label.casefold() == municipality.casefold():
+        location_kind = "MUNICIPALITY"
+        location_id = municipality
+    else:
+        location_kind = "TYPED_ADDRESS"
+        location_id = ""
+
+    watch_name = f"{topic[:110].rstrip()} Watch"
+    return {
+        "from_alert": str(alert.get("alert_id") or alert_reference),
+        "source_alert_title": topic,
+        "suggested_source": str(alert.get("source") or "").strip(),
+        "suggested_category": str(alert.get("category") or "").strip(),
+        "suggested_subtype": str(alert.get("subtype") or "").strip(),
+        "display_name": watch_name,
+        "setup_mode": setup_mode,
+        "search_term": topic,
+        "location_query": location_label,
+        "latitude": latitude if has_coordinates else "",
+        "longitude": longitude if has_coordinates else "",
+        "location_kind": location_kind,
+        "location_id": location_id,
+        "source_filter": "",
+        "alert_category_filter": "",
+        "notes": f"Started from alert {alert.get('alert_id') or alert_reference}",
+    }
+
+
 def _json_safe(value):
     if isinstance(value, dict):
         return {key: _json_safe(item) for key, item in value.items()}
@@ -786,6 +868,9 @@ def spatial_watchlist(
     longitude: str = "",
     location_kind: str = "",
     location_id: str = "",
+    from_alert: str = "",
+    setup_mode: str = "",
+    search_term: str = "",
 ):
     where = []
     params = []
@@ -926,6 +1011,30 @@ def spatial_watchlist(
     )
     health = _watch_health()
     needs_recipient_watches = [row for row in all_items if row["state_label"] == "Needs Recipient"]
+    prefill = {
+        "from_alert": "",
+        "source_alert_title": "",
+        "suggested_source": "",
+        "suggested_category": "",
+        "suggested_subtype": "",
+        "display_name": display_name,
+        "setup_mode": _setup_mode(setup_mode) if setup_mode.strip() else "LOCATION",
+        "search_term": search_term,
+        "location_query": location_query,
+        "latitude": latitude,
+        "longitude": longitude,
+        "location_kind": location_kind or ("MAP_POINT" if latitude and longitude else "TYPED_ADDRESS"),
+        "location_id": location_id,
+        "source_filter": "",
+        "alert_category_filter": "",
+        "notes": "",
+    }
+    if from_alert.strip():
+        alert_prefill = _watch_prefill_from_alert(from_alert)
+        if alert_prefill:
+            prefill.update(alert_prefill)
+        elif not error:
+            error = "That alert could not be found. No Watch was created."
     return templates.TemplateResponse(
         request=request,
         name="watchlist.html",
@@ -944,14 +1053,7 @@ def spatial_watchlist(
             "alert_sources": alert_sources,
             "alert_categories": alert_categories,
             "needs_recipient_watches": needs_recipient_watches,
-            "prefill": {
-                "display_name": display_name,
-                "location_query": location_query,
-                "latitude": latitude,
-                "longitude": longitude,
-                "location_kind": location_kind or ("MAP_POINT" if latitude and longitude else "TYPED_ADDRESS"),
-                "location_id": location_id,
-            },
+            "prefill": prefill,
         },
     )
 

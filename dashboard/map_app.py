@@ -427,6 +427,7 @@ def map_alerts_geojson(
         f"""
         SELECT a.id,a.alert_id,a.source,a.category,a.subtype,a.status,a.event_action,
                a.title,left(a.message,2000) AS message,a.priority,a.county,a.municipality,
+               coalesce(wm.matched_watches,'No Watch matched') AS matched_watches,
                coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address',''),r.resolved_label) AS mapped_address,
                a.observed_at,a.received_at,a.click_url,
                r.status AS resolution_status,r.match_type,r.confidence,
@@ -435,6 +436,23 @@ def map_alerts_geojson(
         FROM alerts a
         LEFT JOIN geo_entity_resolutions r
           ON r.entity_type='ALERT' AND r.entity_id=a.id::text
+        LEFT JOIN LATERAL (
+          SELECT string_agg(m.display_name,', ' ORDER BY m.display_name) AS matched_watches
+          FROM (
+            SELECT w.display_name
+            FROM alert_watch_matches awm
+            JOIN watch_items w ON w.id=awm.watch_item_id
+            WHERE awm.alert_id=a.id
+            UNION
+            SELECT w.display_name
+            FROM deliveries d
+            CROSS JOIN LATERAL jsonb_array_elements_text(
+              coalesce(d.matched_watch_ids,'[]'::jsonb)
+            ) ids(watch_id)
+            JOIN watch_items w ON w.watch_id=ids.watch_id
+            WHERE d.alert_id=a.id
+          ) m
+        ) wm ON true
         WHERE {' AND '.join(where)}
         ORDER BY a.priority DESC,a.received_at DESC
         LIMIT 5000
