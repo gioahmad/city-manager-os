@@ -42,7 +42,7 @@ if not token: raise SystemExit(1)
 headers={'X-CMOS-Automation-Key':token}
 required={
   '/search':('Search Everything','does not create another database'),
-  '/alerts?window=6h':('Alert history','Matched Watches'),
+  '/alerts?window=6h':('Alert history','Each incident shows its matched Watches.'),
   '/deliveries':('Why you received this','Notification History'),
   '/watchlist':('Five simple steps','Turn On Watch'),
   '/map':('initialMapQuery','FEMA Flood Zones','Incident details','Matched Watches','Open Full Alert','Create Watch From Alert'),
@@ -382,10 +382,10 @@ if 'Search is temporarily unavailable' in search_results:
     raise RuntimeError('system-wide search reached its protected timeout')
 if contract_query not in search_results or 'No records matched' not in search_results:
     raise RuntimeError('bounded system-wide no-match search failed')
-if 'Alert history' not in alert_history or 'Matched Watches' not in alert_history:
-    raise RuntimeError('Alert history incident details are incomplete')
-if 'Create Watch From Alert' not in alert_detail:
-    raise RuntimeError('Alert history is missing the Watch draft action')
+if 'Alert history' not in alert_history or 'Each incident shows its matched Watches.' not in alert_history:
+    raise RuntimeError('Alert history instructions are incomplete')
+if 'Create Watch From Alert' not in alert_detail or 'Matched Watches' not in alert_detail:
+    raise RuntimeError('Stored Alert details are missing the Watch name or draft action')
 for marker in ('STARTED FROM ALERT','What about this alert matters?','Nothing is saved until you choose Turn On Watch.'):
     if marker not in watch_draft: raise RuntimeError('Alert-based Watch draft is incomplete')
 if 'Why you received this' not in notifications:
