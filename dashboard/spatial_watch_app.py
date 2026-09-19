@@ -6,6 +6,7 @@ import html
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -58,6 +59,10 @@ SPATIAL_WATCH_TYPES = [
     "PARCEL",
     "CORRIDOR",
 ]
+BULK_WATCH_LIMIT = 250
+BULK_NO_PROPERTY = "__none__"
+BULK_EACH_FEATURE = "__feature__"
+BULK_STORED_NAME = "__stored_name__"
 SETUP_MODES = {"LOCATION", "TOPIC", "LOCATION_TOPIC"}
 SETUP_MODE_ALIASES = {
     "NEARBY": "LOCATION",
@@ -73,6 +78,41 @@ LOCATION_KINDS = {
     "RESOLVED_ADDRESS",
     "TYPED_ADDRESS",
     "EXISTING",
+}
+
+ALERT_KEYWORD_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "been",
+    "by",
+    "for",
+    "from",
+    "has",
+    "have",
+    "in",
+    "incident",
+    "is",
+    "it",
+    "new",
+    "of",
+    "on",
+    "or",
+    "received",
+    "reported",
+    "that",
+    "the",
+    "this",
+    "to",
+    "transmitted",
+    "update",
+    "was",
+    "were",
+    "with",
 }
 
 
@@ -218,6 +258,24 @@ def _location_kind(value: str) -> str:
     if kind not in LOCATION_KINDS:
         raise HTTPException(400, "Choose the location again")
     return kind
+
+
+def _watch_type_for_geometry(geometry_type: str | None) -> str:
+    value = str(geometry_type or "").upper()
+    if "LINESTRING" in value:
+        return "CORRIDOR"
+    if "POLYGON" in value:
+        return "AREA"
+    return "POINT" if "POINT" in value else "AREA"
+
+
+def _property_value(properties: dict | None, *names: str) -> str:
+    lowered = {str(key).casefold(): value for key, value in (properties or {}).items()}
+    for name in names:
+        value = lowered.get(name.casefold())
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
 
 
 def _selected_location(
@@ -370,10 +428,8 @@ def _selected_location(
             cur.execute(
                 """
                 SELECT coalesce(nullif(f.name,''),l.name) AS label,
-                       nullif(f.properties->>'address','') AS address,
-                       nullif(f.properties->>'municipality','') AS municipality,
-                       nullif(f.properties->>'county','') AS county,
-                       coalesce(nullif(f.properties->>'state',''),'NJ') AS state,
+                       f.name AS feature_name,l.name AS layer_name,
+                       f.properties,ST_GeometryType(f.geom) AS geometry_type,
                        ST_AsEWKT(f.geom) AS target_wkt
                 FROM map_features f
                 JOIN map_layers l ON l.id=f.layer_id
@@ -382,7 +438,7 @@ def _selected_location(
                 (feature_id,),
             )
             row = cur.fetchone()
-            watch_type = "AREA"
+            watch_type = _watch_type_for_geometry(row.get("geometry_type") if row else "")
         else:
             candidate = source_id or location_query or municipality
             if not candidate:
@@ -414,6 +470,23 @@ def _selected_location(
     if not row:
         raise HTTPException(400, "That location is no longer available. Search and choose it again.")
     result = dict(row)
+    if kind == "CUSTOM_FEATURE":
+        properties = result.pop("properties", {}) or {}
+        result["label"] = str(result.pop("feature_name", "") or "").strip() or _property_value(
+            properties,
+            "name", "title", "label", "municipality", "mun_name", "munname",
+            "city", "town", "county", "route_name", "route", "road_name", "road",
+        ) or result.get("label") or result.pop("layer_name", "Map Location")
+        result.pop("layer_name", None)
+        result["address"] = _property_value(properties, "address", "fulladdr") or None
+        result["municipality"] = _property_value(
+            properties, "municipality", "mun_name", "munname", "city", "town"
+        ) or None
+        result["county"] = _property_value(
+            properties, "county", "county_name", "countyname", "cnty_name", "cntyname"
+        ) or None
+        result["state"] = _property_value(properties, "state", "state_name", "st") or "NJ"
+        result["gis_lookup"] = f"map_feature:{source_id}"
     result.update(
         {
             "kind": kind,
@@ -564,6 +637,47 @@ def _watch_health() -> dict:
     return health
 
 
+def _alert_keyword_choices(alert: dict, limit: int = 12) -> list[str]:
+    """Suggest phrases found in this alert; never use a fixed incident dictionary."""
+    choices: list[str] = []
+    seen: set[str] = set()
+
+    def add(value) -> None:
+        text = re.sub(r"\s+", " ", str(value or "").replace("_", " ")).strip(" ,.;:|-/")
+        normalized = re.sub(r"[^A-Z0-9]+", " ", text.upper()).strip()
+        words = normalized.split()
+        if (
+            not normalized
+            or normalized in seen
+            or len(normalized) > 80
+            or all(word.casefold() in ALERT_KEYWORD_STOPWORDS for word in words)
+        ):
+            return
+        seen.add(normalized)
+        choices.append(text)
+
+    # Message wording is usually more reusable than an incident-specific title or address.
+    for value in (alert.get("message"), alert.get("title")):
+        tokens = re.findall(r"[A-Za-z0-9]+(?:['/-][A-Za-z0-9]+)*", str(value or ""))
+        useful = [
+            (index, token)
+            for index, token in enumerate(tokens)
+            if len(token) >= 3
+            and not token.isdigit()
+            and token.casefold() not in ALERT_KEYWORD_STOPWORDS
+        ]
+        for (left_index, left), (right_index, right) in zip(useful, useful[1:]):
+            if right_index == left_index + 1:
+                add(f"{left} {right}")
+        for _, token in useful:
+            add(token)
+
+    for value in (alert.get("subtype"), alert.get("category"), *(alert.get("tags") or [])):
+        add(value)
+
+    return choices[: max(1, min(limit, 20))]
+
+
 def _watch_prefill_from_alert(alert_reference: str) -> dict:
     """Build an editable Watch draft from one existing alert without writing data."""
     alert_reference = alert_reference.strip()[:160]
@@ -571,7 +685,7 @@ def _watch_prefill_from_alert(alert_reference: str) -> dict:
         return {}
     alert = query_one(
         """
-        SELECT a.alert_id,a.title,a.source,a.category,a.subtype,a.municipality,
+        SELECT a.alert_id,a.title,a.message,a.source,a.category,a.subtype,a.tags,a.municipality,
                coalesce(
                  nullif(a.location->>'label',''),
                  nullif(a.location->>'address',''),
@@ -614,6 +728,9 @@ def _watch_prefill_from_alert(alert_reference: str) -> dict:
         else "TOPIC"
     )
 
+    keyword_choices = _alert_keyword_choices(alert)
+    suggested_keyword = keyword_choices[0] if keyword_choices else topic
+
     if has_coordinates:
         location_kind = "MAP_POINT"
         location_id = ""
@@ -634,7 +751,9 @@ def _watch_prefill_from_alert(alert_reference: str) -> dict:
         "suggested_subtype": str(alert.get("subtype") or "").strip(),
         "display_name": watch_name,
         "setup_mode": setup_mode,
-        "search_term": topic,
+        "search_term": suggested_keyword,
+        "aliases": "",
+        "keyword_choices": keyword_choices,
         "location_query": location_label,
         "latitude": latitude if has_coordinates else "",
         "longitude": longitude if has_coordinates else "",
@@ -726,6 +845,11 @@ def spatial_watch_release():
         "test_notification_isolated": True,
         "test_notification_endpoint": "/api/watchlist/test-notification",
         "global_alert_search": "/alerts?window=all",
+        "recipient_watch_assignment": "/subscribers/{recipient_id}/watches",
+        "alert_keyword_choices": "derived from the selected stored alert",
+        "bulk_watch_endpoint": "/watchlist/bulk-create",
+        "bulk_watch_limit": BULK_WATCH_LIMIT,
+        "reusable_location_source": "Mapping Center map_layers and map_features",
     }
 
 
@@ -794,10 +918,25 @@ def watch_location_search(q: str = ""):
         query_all(
             """
             SELECT 'CUSTOM_FEATURE' AS kind,f.id::text AS source_id,
-                   coalesce(nullif(f.name,''),l.name) AS label,l.name AS detail,
-                   'Drawn or imported area' AS kind_label
+                   coalesce(nullif(f.name,''),nullif(inferred.label,''),l.name) AS label,l.name AS detail,
+                   'Drawn or imported Location' AS kind_label
             FROM map_features f
             JOIN map_layers l ON l.id=f.layer_id
+            LEFT JOIN LATERAL (
+              SELECT value AS label
+              FROM jsonb_each_text(f.properties)
+              WHERE lower(key) IN (
+                'name','title','label','municipality','mun_name','munname','city','town',
+                'county','county_name','route_name','route','highway','road_name','road'
+              ) AND nullif(trim(value),'') IS NOT NULL
+              ORDER BY CASE lower(key)
+                WHEN 'name' THEN 1 WHEN 'title' THEN 2 WHEN 'label' THEN 3
+                WHEN 'municipality' THEN 4 WHEN 'mun_name' THEN 5 WHEN 'munname' THEN 6
+                WHEN 'city' THEN 7 WHEN 'town' THEN 8 WHEN 'county' THEN 9
+                WHEN 'county_name' THEN 10 WHEN 'route_name' THEN 11 WHEN 'route' THEN 12
+                WHEN 'highway' THEN 13 WHEN 'road_name' THEN 14 ELSE 15 END
+              LIMIT 1
+            ) inferred ON true
             WHERE f.active=true AND l.active=true AND f.geom IS NOT NULL
               AND (f.name ILIKE %s OR f.properties::text ILIKE %s)
             ORDER BY l.name,f.name NULLS LAST
@@ -871,6 +1010,10 @@ def spatial_watchlist(
     from_alert: str = "",
     setup_mode: str = "",
     search_term: str = "",
+    bulk_layer: str = "",
+    bulk_parent_by: str = "",
+    bulk_group_by: str = "",
+    bulk_name_by: str = "",
 ):
     where = []
     params = []
@@ -878,14 +1021,14 @@ def spatial_watchlist(
         needle = f"%{q.strip()}%"
         where.append(
             "(display_name ILIKE %s OR search_term ILIKE %s OR watch_id ILIKE %s "
-            "OR municipality ILIKE %s OR address ILIKE %s)"
+            "OR municipality ILIKE %s OR address ILIKE %s OR parent_group ILIKE %s)"
         )
-        params.extend([needle] * 5)
+        params.extend([needle] * 6)
     clause = f"WHERE {' AND '.join(where)}" if where else ""
     all_items = query_all(
         f"""
         SELECT w.id,w.watch_id,w.active,w.watch_type,w.display_name,w.search_term,w.aliases,
-               w.match_mode,w.match_field,w.category,w.subcategory,w.tags,w.min_priority,
+               w.match_mode,w.match_field,w.category,w.subcategory,w.parent_group,w.tags,w.min_priority,
                w.address,w.municipality,w.county,w.state,w.block,w.lot,w.notes,
                w.source_filter,w.alert_category_filter,w.starts_at,w.expires_at,w.nearby_enabled,
                w.radius_ft,w.latitude,w.longitude,w.spatial_scope,w.spatial_reference_entity_id,
@@ -928,7 +1071,7 @@ def spatial_watchlist(
                  ORDER BY COALESCE(d.sent_at,d.attempted_at,d.created_at) DESC LIMIT 1) AS last_delivery_error
         FROM watch_items w
         {clause}
-        ORDER BY w.active DESC,w.display_name
+        ORDER BY w.active DESC,w.parent_group NULLS FIRST,w.display_name
         LIMIT 500
         """,
         params,
@@ -1003,6 +1146,28 @@ def spatial_watchlist(
     subscribers = query_all(
         "SELECT id::text AS id,name FROM subscribers WHERE active=true ORDER BY name"
     )
+    watch_location_layers = query_all(
+        """
+        SELECT l.id::text AS id,l.name,
+               (SELECT count(*) FROM map_features f WHERE f.layer_id=l.id AND f.active=true) AS feature_count
+        FROM map_layers l
+        WHERE l.active=true AND l.layer_type='CUSTOM_GEOJSON'
+          AND EXISTS (SELECT 1 FROM map_features f WHERE f.layer_id=l.id AND f.active=true)
+        ORDER BY l.name
+        """
+    )
+    bulk_context = None
+    if bulk_layer.strip():
+        try:
+            bulk_layer_id = uuid.UUID(bulk_layer.strip())
+        except ValueError as exc:
+            raise HTTPException(400, "Choose an imported or drawn map layer again") from exc
+        bulk_context = _bulk_location_context(
+            bulk_layer_id,
+            parent_by=bulk_parent_by,
+            group_by=bulk_group_by,
+            name_by=bulk_name_by,
+        )
     alert_sources = query_all(
         "SELECT source,count(*) AS total FROM alerts WHERE nullif(trim(source),'') IS NOT NULL GROUP BY source ORDER BY source"
     )
@@ -1017,9 +1182,11 @@ def spatial_watchlist(
         "suggested_source": "",
         "suggested_category": "",
         "suggested_subtype": "",
+        "keyword_choices": [],
         "display_name": display_name,
         "setup_mode": _setup_mode(setup_mode) if setup_mode.strip() else "LOCATION",
         "search_term": search_term,
+        "aliases": "",
         "location_query": location_query,
         "latitude": latitude,
         "longitude": longitude,
@@ -1053,6 +1220,9 @@ def spatial_watchlist(
             "alert_sources": alert_sources,
             "alert_categories": alert_categories,
             "needs_recipient_watches": needs_recipient_watches,
+            "watch_location_layers": watch_location_layers,
+            "bulk_context": bulk_context,
+            "bulk_watch_limit": BULK_WATCH_LIMIT,
             "prefill": prefill,
         },
     )
@@ -1070,6 +1240,335 @@ def _save_recipients(cur, watch_item_id: uuid.UUID, subscriber_ids: list[uuid.UU
                ON CONFLICT(watch_item_id,subscriber_id) DO UPDATE SET active=true""",
             (watch_item_id, subscriber_id),
         )
+
+
+def _insert_watch_item(cur, item: dict) -> None:
+    """Write one Watch through the existing watch_items and PostGIS trigger contract."""
+    target_wkt = item.get("target_wkt")
+    cur.execute(
+        """
+        INSERT INTO watch_items(
+          id,watch_id,active,watch_type,display_name,search_term,aliases,match_mode,match_field,
+          category,parent_group,tags,min_priority,address,municipality,county,state,block,lot,parcel_id,
+          notes,source_notes,source_filter,alert_category_filter,
+          starts_at,expires_at,gis_enabled,gis_lookup,nearby_enabled,radius_ft,spatial_scope,
+          spatial_reference_entity_id,spatial_target_geom
+        ) VALUES(
+          %s,%s,%s,%s,%s,%s,%s,%s,%s,
+          %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+          %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+          CASE WHEN %s::text IS NULL THEN NULL ELSE ST_GeomFromEWKT(%s::text) END
+        )
+        """,
+        (
+            item["id"],
+            item["watch_id"],
+            item.get("active", True),
+            item["watch_type"],
+            item["display_name"],
+            item["search_term"],
+            item.get("aliases", []),
+            item.get("match_mode", "CONTAINS"),
+            item.get("match_field"),
+            item.get("category"),
+            item.get("parent_group"),
+            item.get("tags", []),
+            item.get("min_priority", 1),
+            item.get("address"),
+            item.get("municipality"),
+            item.get("county"),
+            item.get("state"),
+            item.get("block"),
+            item.get("lot"),
+            item.get("parcel_id"),
+            item.get("notes"),
+            item.get("source_notes"),
+            item.get("source_filter", []),
+            item.get("alert_category_filter", []),
+            item.get("starts_at"),
+            item.get("expires_at"),
+            item.get("gis_enabled", False),
+            item.get("gis_lookup"),
+            item.get("nearby_enabled", False),
+            item.get("radius_ft"),
+            item.get("spatial_scope", "RADIUS"),
+            item.get("spatial_reference_entity_id"),
+            target_wkt,
+            target_wkt,
+        ),
+    )
+
+
+def _normalized_property_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.casefold())
+
+
+def _infer_property_key(keys: list[str], preferences: tuple[str, ...], excluded: set[str] | None = None) -> str:
+    excluded = excluded or set()
+    by_normalized = {
+        _normalized_property_key(key): key
+        for key in keys
+        if key not in excluded
+    }
+    for preference in preferences:
+        match = by_normalized.get(_normalized_property_key(preference))
+        if match:
+            return match
+    return ""
+
+
+def _bulk_location_context(
+    layer_id: uuid.UUID,
+    *,
+    parent_by: str = "",
+    group_by: str = "",
+    name_by: str = "",
+) -> dict:
+    """Organize one existing Mapping Center layer without copying its GIS data."""
+    layer = query_one(
+        """
+        SELECT id::text AS id,name
+        FROM map_layers
+        WHERE id=%s AND active=true AND layer_type='CUSTOM_GEOJSON'
+        """,
+        (layer_id,),
+    )
+    if not layer:
+        raise HTTPException(404, "That reusable Watch Location layer is no longer available")
+
+    key_rows = query_all(
+        """
+        SELECT property_key,count(*) AS feature_count
+        FROM map_features f
+        CROSS JOIN LATERAL jsonb_object_keys(f.properties) AS keys(property_key)
+        WHERE f.layer_id=%s AND f.active=true AND keys.property_key !~ '^_'
+        GROUP BY property_key
+        ORDER BY property_key
+        """,
+        (layer_id,),
+    )
+    keys = [str(row["property_key"]) for row in key_rows]
+    valid_parent = {"", BULK_NO_PROPERTY, *keys}
+    valid_group = {"", BULK_NO_PROPERTY, BULK_EACH_FEATURE, *keys}
+    valid_name = {"", BULK_STORED_NAME, *keys}
+    if parent_by not in valid_parent or group_by not in valid_group or name_by not in valid_name:
+        raise HTTPException(400, "That layer field is no longer available. Choose how to organize the layer again.")
+
+    name_by = name_by or _infer_property_key(
+        keys,
+        (
+            "name", "title", "label", "municipality", "mun_name", "munname",
+            "city", "town", "county", "county_name", "route_name", "route",
+            "highway", "road_name", "road", "fulladdr", "address",
+        ),
+    ) or BULK_STORED_NAME
+    parent_by = parent_by or _infer_property_key(
+        keys,
+        ("state", "state_name", "region"),
+        {name_by},
+    ) or BULK_NO_PROPERTY
+    group_by = group_by or _infer_property_key(
+        keys,
+        ("county", "county_name", "countyname", "cnty_name", "cntyname", "route", "route_name", "highway"),
+        {name_by, parent_by},
+    ) or BULK_EACH_FEATURE
+
+    rows = query_all(
+        """
+        SELECT f.id::text AS id,f.name,f.properties,
+               ST_GeometryType(f.geom) AS geometry_type,ST_AsEWKT(f.geom) AS target_wkt
+        FROM map_features f
+        WHERE f.layer_id=%s AND f.active=true AND f.geom IS NOT NULL
+        ORDER BY f.name NULLS LAST,f.id
+        LIMIT 5001
+        """,
+        (layer_id,),
+    )
+    if len(rows) > 5000:
+        raise HTTPException(400, "This layer has more than 5,000 active locations. Split it into smaller Mapping Center layers before bulk creation.")
+
+    groups: dict[str, dict] = {}
+    features_by_id: dict[str, dict] = {}
+    for row in rows:
+        properties = row.get("properties") or {}
+        label = (
+            str(row.get("name") or "").strip()
+            if name_by == BULK_STORED_NAME
+            else str(properties.get(name_by) or "").strip()
+        )
+        label = label or str(row.get("name") or "").strip() or _property_value(
+            properties,
+            "name", "title", "label", "municipality", "mun_name", "munname",
+            "city", "town", "county", "route_name", "route", "road_name", "road",
+        )
+        label = label or f"{layer['name']} location {str(row['id'])[:8]}"
+        parent = "" if parent_by == BULK_NO_PROPERTY else str(properties.get(parent_by) or "Other").strip()
+        if group_by == BULK_NO_PROPERTY:
+            group = "All locations"
+            feature_token = ""
+        elif group_by == BULK_EACH_FEATURE:
+            group = label
+            feature_token = str(row["id"])
+        else:
+            group = str(properties.get(group_by) or "Other").strip()
+            feature_token = ""
+        token = json.dumps([parent, group, feature_token], separators=(",", ":"))
+        path = " › ".join(value for value in (parent, group) if value)
+        item = {
+            **dict(row),
+            "label": label,
+            "parent_group": path or layer["name"],
+            "municipality": _property_value(properties, "municipality", "mun_name", "munname", "city", "town"),
+            "county": _property_value(properties, "county", "county_name", "countyname", "cnty_name", "cntyname"),
+            "state": _property_value(properties, "state", "state_name", "st"),
+        }
+        features_by_id[str(row["id"])] = item
+        bucket = groups.setdefault(
+            token,
+            {"token": token, "parent": parent, "label": group, "path": path, "feature_ids": [], "samples": []},
+        )
+        bucket["feature_ids"].append(str(row["id"]))
+        if len(bucket["samples"]) < 5:
+            bucket["samples"].append(label)
+
+    group_list = sorted(groups.values(), key=lambda item: (item["parent"].casefold(), item["label"].casefold()))
+    for group in group_list:
+        group["count"] = len(group["feature_ids"])
+    return {
+        "layer": layer,
+        "property_keys": key_rows,
+        "parent_by": parent_by,
+        "group_by": group_by,
+        "name_by": name_by,
+        "groups": group_list,
+        "features_by_id": features_by_id,
+        "feature_count": len(rows),
+    }
+
+
+@app.post("/watchlist/bulk-create")
+@_friendly_watch_errors
+def spatial_watch_bulk_create(
+    layer_id: uuid.UUID = Form(...),
+    parent_by: str = Form(BULK_NO_PROPERTY),
+    group_by: str = Form(BULK_EACH_FEATURE),
+    name_by: str = Form(BULK_STORED_NAME),
+    group_tokens: list[str] = Form([]),
+    topic: str = Form(""),
+    aliases: str = Form(""),
+    radius_ft: float = Form(50.0),
+    min_priority: int = Form(1),
+    duration: str = Form("PERMANENT"),
+    starts_at: str = Form(""),
+    expires_at: str = Form(""),
+    activate: str | None = Form(None),
+    subscriber_ids: list[uuid.UUID] = Form([]),
+):
+    context = _bulk_location_context(
+        layer_id,
+        parent_by=parent_by,
+        group_by=group_by,
+        name_by=name_by,
+    )
+    selected_tokens = set(group_tokens)
+    if not selected_tokens:
+        raise HTTPException(400, "Choose at least one Location group")
+    known_groups = {group["token"]: group for group in context["groups"]}
+    if not selected_tokens.issubset(known_groups):
+        raise HTTPException(400, "One or more Location groups changed. Review the layer and try again.")
+
+    feature_ids: list[str] = []
+    for token in selected_tokens:
+        feature_ids.extend(known_groups[token]["feature_ids"])
+    feature_ids = list(dict.fromkeys(feature_ids))
+    if len(feature_ids) > BULK_WATCH_LIMIT:
+        raise HTTPException(
+            400,
+            f"This selection contains {len(feature_ids):,} Locations. Choose {BULK_WATCH_LIMIT} or fewer at a time.",
+        )
+
+    topic = topic.strip()
+    radius_ft = max(1.0, min(float(radius_ft), 26400.0))
+    validate_watch("CONTAINS", "", min_priority)
+    start, end = _schedule(duration, starts_at, expires_at)
+    turn_on = activate is not None
+    if turn_on and not subscriber_ids:
+        raise HTTPException(400, "Choose at least one Recipient before turning bulk Watches on")
+
+    created_ids: list[uuid.UUID] = []
+    skipped = 0
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            unique_subscribers = list(dict.fromkeys(subscriber_ids))
+            for subscriber_id in unique_subscribers:
+                cur.execute("SELECT id FROM subscribers WHERE id=%s AND active=true", (subscriber_id,))
+                if not cur.fetchone():
+                    raise HTTPException(400, "One or more selected Recipients are paused or no longer available")
+
+            for feature_id in feature_ids:
+                feature = context["features_by_id"][feature_id]
+                search_term = topic or feature["label"]
+                gis_lookup = f"map_feature:{feature_id}"
+                cur.execute(
+                    """
+                    SELECT id FROM watch_items
+                    WHERE gis_lookup=%s AND lower(search_term)=lower(%s)
+                    LIMIT 1
+                    """,
+                    (gis_lookup, search_term),
+                )
+                if cur.fetchone():
+                    skipped += 1
+                    continue
+                display_name = feature["label"] if not topic else f"{feature['label']} · {topic}"
+                watch_uuid = uuid.uuid4()
+                _insert_watch_item(
+                    cur,
+                    {
+                        "id": watch_uuid,
+                        "watch_id": make_watch_id(display_name),
+                        "active": turn_on,
+                        "watch_type": "LOCATION_TOPIC" if topic else _watch_type_for_geometry(feature.get("geometry_type")),
+                        "display_name": display_name,
+                        "search_term": search_term,
+                        "aliases": csv_array(aliases),
+                        "match_mode": "CONTAINS",
+                        "parent_group": feature["parent_group"],
+                        "min_priority": min_priority,
+                        "address": feature["label"],
+                        "municipality": feature.get("municipality") or None,
+                        "county": feature.get("county") or None,
+                        "state": feature.get("state") or None,
+                        "notes": f"Created from Mapping Center layer {context['layer']['name']}",
+                        "source_notes": "watch_setup:BULK_CUSTOM_FEATURE",
+                        "starts_at": start,
+                        "expires_at": end,
+                        "gis_enabled": True,
+                        "gis_lookup": gis_lookup,
+                        "nearby_enabled": True,
+                        "radius_ft": radius_ft,
+                        "target_wkt": feature["target_wkt"],
+                    },
+                )
+                created_ids.append(watch_uuid)
+
+            if created_ids and unique_subscribers:
+                cur.executemany(
+                    """
+                    INSERT INTO watch_item_recipients(watch_item_id,subscriber_id,active)
+                    VALUES(%s,%s,true)
+                    ON CONFLICT(watch_item_id,subscriber_id) DO UPDATE SET active=true
+                    """,
+                    [(watch_id, subscriber_id) for watch_id in created_ids for subscriber_id in unique_subscribers],
+                )
+        conn.commit()
+
+    state_message = "on" if turn_on else "paused for review"
+    message = f"Created {len(created_ids)} Watches, {state_message}"
+    if skipped:
+        message += f". Skipped {skipped} existing Watch{'es' if skipped != 1 else ''}"
+    params = urlencode({"bulk_layer": str(layer_id), "msg": message})
+    return RedirectResponse(f"/watchlist?{params}#bulk-watch-builder", status_code=303)
 
 
 @app.post("/watchlist/create")
@@ -1100,6 +1599,7 @@ def spatial_watch_create(
     duration: str = Form("PERMANENT"),
     starts_at: str = Form(""),
     expires_at: str = Form(""),
+    alert_keywords: list[str] = Form([]),
     subscriber_ids: list[uuid.UUID] = Form([]),
 ):
     display_name = display_name.strip()
@@ -1109,6 +1609,21 @@ def spatial_watch_create(
     location_required = setup_mode in {"LOCATION", "LOCATION_TOPIC"} or spatial_enabled is not None
     topic_required = setup_mode in {"TOPIC", "LOCATION_TOPIC"}
     topic = search_term.strip()
+    alias_values = csv_array(aliases)
+    selected_keywords: list[str] = []
+    for value in alert_keywords:
+        value = re.sub(r"\s+", " ", value).strip()[:80]
+        if value and value.casefold() not in {item.casefold() for item in selected_keywords}:
+            selected_keywords.append(value)
+    if topic_required and selected_keywords:
+        topic = selected_keywords[0]
+        combined_aliases = [*selected_keywords[1:], *alias_values]
+        alias_values = []
+        seen_aliases = {topic.casefold()}
+        for value in combined_aliases:
+            if value.casefold() not in seen_aliases:
+                seen_aliases.add(value.casefold())
+                alias_values.append(value)
     if topic_required and not topic:
         raise HTTPException(400, "Enter the topic, phrase, organization, or incident wording to watch for")
     match_mode = match_mode.upper().strip() or "CONTAINS"
@@ -1156,52 +1671,40 @@ def spatial_watch_create(
         target_wkt = (target or {}).get("target_wkt")
         reference_id = (target or {}).get("spatial_reference_entity_id")
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO watch_items(
-                  id,watch_id,active,watch_type,display_name,search_term,aliases,match_mode,match_field,
-                  category,tags,min_priority,address,municipality,county,state,block,lot,parcel_id,
-                  notes,source_notes,source_filter,alert_category_filter,
-                  starts_at,expires_at,gis_enabled,nearby_enabled,radius_ft,spatial_scope,
-                  spatial_reference_entity_id,spatial_target_geom
-                ) VALUES(
-                  %s,%s,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                  %s,%s,%s,%s,%s,%s,%s,%s,%s,'RADIUS',%s,
-                  CASE WHEN %s::text IS NULL THEN NULL ELSE ST_GeomFromEWKT(%s::text) END
-                )
-                """,
-                (
-                    watch_uuid,
-                    make_watch_id(display_name),
-                    saved_watch_type,
-                    display_name,
-                    saved_search_term,
-                    csv_array(aliases),
-                    saved_match_mode,
-                    saved_match_field,
-                    category.strip() or None,
-                    csv_array(tags),
-                    min_priority,
-                    saved_address,
-                    saved_municipality,
-                    (target or {}).get("county"),
-                    (target or {}).get("state") or ("NJ" if target else None),
-                    (target or {}).get("block"),
-                    (target or {}).get("lot"),
-                    (target or {}).get("parcel_id"),
-                    notes.strip() or None,
-                    f"watch_setup:{(target or {}).get('kind', 'TOPIC')}",
-                    csv_array(source_filter),
-                    csv_array(alert_category_filter),
-                    start,
-                    end,
-                    spatial_requested,
-                    spatial_requested,
-                    radius_ft,
-                    reference_id,
-                    target_wkt,
-                    target_wkt,
-                ),
+            _insert_watch_item(
+                cur,
+                {
+                    "id": watch_uuid,
+                    "watch_id": make_watch_id(display_name),
+                    "watch_type": saved_watch_type,
+                    "display_name": display_name,
+                    "search_term": saved_search_term,
+                    "aliases": alias_values,
+                    "match_mode": saved_match_mode,
+                    "match_field": saved_match_field,
+                    "category": category.strip() or None,
+                    "tags": csv_array(tags),
+                    "min_priority": min_priority,
+                    "address": saved_address,
+                    "municipality": saved_municipality,
+                    "county": (target or {}).get("county"),
+                    "state": (target or {}).get("state") or ("NJ" if target else None),
+                    "block": (target or {}).get("block"),
+                    "lot": (target or {}).get("lot"),
+                    "parcel_id": (target or {}).get("parcel_id"),
+                    "notes": notes.strip() or None,
+                    "source_notes": f"watch_setup:{(target or {}).get('kind', 'TOPIC')}",
+                    "source_filter": csv_array(source_filter),
+                    "alert_category_filter": csv_array(alert_category_filter),
+                    "starts_at": start,
+                    "expires_at": end,
+                    "gis_enabled": spatial_requested,
+                    "gis_lookup": (target or {}).get("gis_lookup"),
+                    "nearby_enabled": spatial_requested,
+                    "radius_ft": radius_ft,
+                    "spatial_reference_entity_id": reference_id,
+                    "target_wkt": target_wkt,
+                },
             )
             _save_recipients(cur, watch_uuid, subscriber_ids)
         conn.commit()
@@ -1255,7 +1758,7 @@ def spatial_watch_update(
                 """
                 SELECT id,active,watch_type,display_name,search_term,match_mode,match_field,
                        address,municipality,county,state,block,lot,parcel_id,
-                       nearby_enabled,radius_ft,spatial_reference_entity_id,
+                       nearby_enabled,radius_ft,gis_lookup,spatial_reference_entity_id,
                        ST_AsEWKT(spatial_target_geom) AS target_wkt
                 FROM watch_items WHERE id=%s FOR UPDATE
                 """,
@@ -1334,6 +1837,11 @@ def spatial_watch_update(
             if replace_target
             else current.get("spatial_reference_entity_id")
         )
+        gis_lookup = (
+            (target or {}).get("gis_lookup")
+            if replace_target
+            else current.get("gis_lookup")
+        )
         active_value = current.get("active") if keep_state else active is not None
         with conn.cursor() as cur:
             cur.execute(
@@ -1345,6 +1853,7 @@ def spatial_watch_update(
                   notes=%s,source_notes=%s,source_filter=%s,alert_category_filter=%s,
                   starts_at=%s,expires_at=%s,gis_enabled=%s,nearby_enabled=%s,radius_ft=%s,
                   spatial_scope='RADIUS',
+                  gis_lookup=CASE WHEN %s THEN %s ELSE gis_lookup END,
                   spatial_reference_entity_id=CASE WHEN %s THEN %s ELSE spatial_reference_entity_id END,
                   spatial_target_geom=CASE
                     WHEN NOT %s THEN spatial_target_geom
@@ -1366,6 +1875,7 @@ def spatial_watch_update(
                     f"watch_setup:{(target or {}).get('kind', saved_setup_mode)}",
                     csv_array(source_filter), csv_array(alert_category_filter), start, end,
                     spatial_requested, spatial_requested, radius_ft,
+                    replace_target, gis_lookup,
                     replace_target, reference_id, replace_target, target_wkt, target_wkt,
                     item_id,
                 ),

@@ -78,7 +78,11 @@ def _feature_name(properties: dict) -> str | None:
     if not isinstance(properties, dict):
         return None
     lowered = {str(key).lower(): value for key, value in properties.items()}
-    for key in ("name", "title", "label", "address", "fulladdr"):
+    for key in (
+        "name", "title", "label", "municipality", "mun_name", "munname", "city", "town",
+        "county", "county_name", "route_name", "route", "highway", "road_name", "road",
+        "address", "fulladdr",
+    ):
         value = lowered.get(key)
         if value is not None and str(value).strip():
             return str(value).strip()

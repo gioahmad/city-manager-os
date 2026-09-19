@@ -11,6 +11,7 @@
 {% set operator_help_key = "subscribers" %}
 {% include "operator_help.html" %}
 {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+{% if error %}<div class="flash flash-error"><strong>Could not save Watch choices:</strong> {{ error }}</div>{% endif %}
 
 <section class="metrics watch-metrics">
   <div class="metric"><span>Total</span><strong>{{ counts.total or 0 }}</strong><small>All Recipients</small></div>
@@ -38,6 +39,7 @@
   <article class="panel">
     <div class="panel-head"><div><div class="panel-kicker">MANAGE</div><h2>Recipient Directory</h2></div><span class="count-pill">{{ rows|length }}</span></div>
     <div class="panel-body">
+      <p class="watch-library-intro">Open a Recipient to edit the channel or choose which existing Watches should notify them.</p>
       <form class="watch-filters" method="get" action="/subscribers">
         <input name="q" value="{{ q }}" placeholder="Search Recipient name or channel">
         <select name="state"><option value="all" {% if state == 'all' %}selected{% endif %}>All</option><option value="active" {% if state == 'active' %}selected{% endif %}>Ready</option><option value="inactive" {% if state == 'inactive' %}selected{% endif %}>Paused</option></select>
@@ -57,6 +59,23 @@
               <label class="checkbox-row"><input type="checkbox" name="active" value="1" {% if s.active %}checked{% endif %}> Ready to receive Notifications</label>
               <details class="advanced-options"><summary>Advanced Details</summary><div class="advanced-options-body"><div class="advanced-reference">Internal Recipient ID: {{ s.subscriber_id }}</div></div></details>
               <button class="primary-button" type="submit">Save Recipient</button>
+            </form>
+            <form method="post" action="/subscribers/{{ s.id }}/watches" class="watch-form compact recipient-watch-form">
+              <fieldset class="recipient-picker">
+                <legend>Watches for this Recipient</legend>
+                <span class="hint">Select every existing Watch that should notify this Recipient. Clearing a choice does not delete or pause the Watch.</span>
+                <div class="recipient-watch-options">
+                {% for watch in watch_options %}
+                  <label class="checkbox-row">
+                    <input type="checkbox" name="watch_item_ids" value="{{ watch.id }}" {% if watch.id in s.active_watch_ids %}checked{% endif %}>
+                    <span><strong>{{ watch.display_name }}</strong><small>{{ 'On' if watch.active else 'Paused' }}{% if watch.expires_at %} · has an end time{% endif %}</small></span>
+                  </label>
+                {% else %}
+                  <span>No Watches exist yet. <a href="/watchlist">Create a Watch</a>.</span>
+                {% endfor %}
+                </div>
+              </fieldset>
+              <button class="secondary-button" type="submit">Save Watch Choices</button>
             </form>
             <form method="post" action="/subscribers/{{ s.id }}/toggle" class="toggle-form"><button class="secondary-button" type="submit">{{ 'Pause Recipient' if s.active else 'Reactivate Recipient' }}</button></form>
           </div>

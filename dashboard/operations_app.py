@@ -875,7 +875,7 @@ def deliveries_page(request: Request, status: str = "", q: str = ""):
 
 
 @app.get("/subscribers", response_class=HTMLResponse)
-def subscribers_page(request: Request, q: str = "", state: str = "all", msg: str = ""):
+def subscribers_page(request: Request, q: str = "", state: str = "all", msg: str = "", error: str = ""):
     where = []
     params = []
     if state == "active":
@@ -891,15 +891,31 @@ def subscribers_page(request: Request, q: str = "", state: str = "all", msg: str
         f"""
         SELECT s.id, s.subscriber_id, s.name, s.active, s.ntfy_topic, s.notes,
                s.created_at, s.updated_at,
-               count(wir.id) FILTER (WHERE wir.active) AS active_routes
+               count(wir.id) FILTER (WHERE wir.active AND w.active) AS active_routes,
+               coalesce(
+                 array_agg(wir.watch_item_id::text ORDER BY wir.watch_item_id)
+                   FILTER (WHERE wir.active),
+                 ARRAY[]::text[]
+               ) AS active_watch_ids
         FROM subscribers s
         LEFT JOIN watch_item_recipients wir ON wir.subscriber_id = s.id
+        LEFT JOIN watch_items w ON w.id = wir.watch_item_id
         {clause}
         GROUP BY s.id
         ORDER BY s.active DESC, s.name
         LIMIT 250
         """,
         params,
+    )
+    for row in rows:
+        row["active_watch_ids"] = set(row.get("active_watch_ids") or [])
+    watch_options = query_all(
+        """
+        SELECT id::text AS id,display_name,active,expires_at
+        FROM watch_items
+        ORDER BY active DESC,display_name
+        LIMIT 500
+        """
     )
     counts = query_one(
         """
@@ -909,7 +925,20 @@ def subscribers_page(request: Request, q: str = "", state: str = "all", msg: str
         FROM subscribers
         """
     )
-    return templates.TemplateResponse(request=request, name="subscribers.html", context={"rows": rows, "counts": counts, "q": q, "state": state, "msg": msg, "page": "subscribers"})
+    return templates.TemplateResponse(
+        request=request,
+        name="subscribers.html",
+        context={
+            "rows": rows,
+            "counts": counts,
+            "watch_options": watch_options,
+            "q": q,
+            "state": state,
+            "msg": msg,
+            "error": error,
+            "page": "subscribers",
+        },
+    )
 
 
 @app.post("/subscribers/create")
@@ -946,6 +975,54 @@ def subscriber_update(subscriber_uuid: uuid.UUID, name: str = Form(...), ntfy_to
 def subscriber_toggle(subscriber_uuid: uuid.UUID):
     execute("UPDATE subscribers SET active = NOT active, updated_at=now() WHERE id=%s", (subscriber_uuid,))
     return RedirectResponse(url="/subscribers?msg=Recipient+status+changed", status_code=303)
+
+
+@app.post("/subscribers/{subscriber_uuid}/watches")
+def subscriber_watches_update(
+    subscriber_uuid: uuid.UUID,
+    watch_item_ids: list[uuid.UUID] = Form([]),
+):
+    try:
+        selected = list(dict.fromkeys(watch_item_ids))
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM subscribers WHERE id=%s FOR UPDATE", (subscriber_uuid,))
+                if not cur.fetchone():
+                    raise HTTPException(404, "That Recipient no longer exists")
+                for watch_item_id in selected:
+                    cur.execute("SELECT id FROM watch_items WHERE id=%s", (watch_item_id,))
+                    if not cur.fetchone():
+                        raise HTTPException(400, "One or more selected Watches no longer exist")
+                cur.execute(
+                    "UPDATE watch_item_recipients SET active=false WHERE subscriber_id=%s",
+                    (subscriber_uuid,),
+                )
+                if selected:
+                    cur.executemany(
+                        """
+                        INSERT INTO watch_item_recipients(watch_item_id,subscriber_id,active)
+                        VALUES(%s,%s,true)
+                        ON CONFLICT(watch_item_id,subscriber_id) DO UPDATE SET active=true
+                        """,
+                        [(watch_item_id, subscriber_uuid) for watch_item_id in selected],
+                    )
+            conn.commit()
+    except HTTPException as exc:
+        return RedirectResponse(
+            url=f"/subscribers?{urlencode({'error': str(exc.detail)})}",
+            status_code=303,
+        )
+    except Exception:
+        incident_id = uuid.uuid4().hex[:10].upper()
+        LOGGER.exception("Recipient Watch assignment failed incident=%s", incident_id)
+        return RedirectResponse(
+            url=f"/subscribers?{urlencode({'error': f'Watch assignments were not changed. Reference {incident_id}.'})}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        url=f"/subscribers?{urlencode({'msg': f'Recipient now follows {len(selected)} Watches'})}",
+        status_code=303,
+    )
 
 
 @app.get("/routing", response_class=HTMLResponse)

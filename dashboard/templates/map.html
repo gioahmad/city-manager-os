@@ -100,7 +100,7 @@
             {% if layer.last_feature_at %}<small class="map-layer-date">Data updated {{ layer.last_feature_at.strftime('%m/%d/%y %I:%M %p') }}</small>{% endif %}
           </div>
           <div class="map-layer-actions">
-            {% if layer.active and layer.layer_type == 'CUSTOM_GEOJSON' %}<button class="map-mini-button zoom-custom-layer" type="button" data-id="{{ layer.id }}" data-name="{{ layer.name }}" data-color="{{ (layer.style or {}).get('color','#4aa3df') }}">Zoom</button>{% endif %}
+            {% if layer.active and layer.layer_type == 'CUSTOM_GEOJSON' %}<button class="map-mini-button zoom-custom-layer" type="button" data-id="{{ layer.id }}" data-name="{{ layer.name }}" data-color="{{ (layer.style or {}).get('color','#4aa3df') }}">Zoom</button><a class="map-mini-button" href="/watchlist?bulk_layer={{ layer.id }}#bulk-watch-builder">Build Watches</a>{% endif %}
             <form method="post" action="/map/layer/{{ layer.id }}/default"><button class="map-mini-button" type="submit">{{ 'Default On' if layer.default_visible else 'Default Off' }}</button></form>
             <form method="post" action="/map/layer/{{ layer.id }}/toggle"><button class="map-mini-button" type="submit">{{ 'Disable' if layer.active else 'Enable' }}</button></form>
             {% if layer.active %}<form method="post" action="/map/layer/{{ layer.id }}/archive" onsubmit="return confirm('Archive this layer? Existing features will remain in the database but the layer will be disabled.')"><button class="map-mini-button danger-lite" type="submit">Archive</button></form>{% endif %}

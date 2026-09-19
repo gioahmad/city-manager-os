@@ -48,9 +48,12 @@
 </div>
 <label class="distance-field" {% if kind == 'MUNICIPALITY' %}hidden{% endif %}>Distance
   <select name="radius_ft">
-    {% if distance and distance not in [500, 1000, 2640, 5280, 10560, 26400] %}
+    {% if distance and distance not in [1, 50, 100, 500, 1000, 2640, 5280, 10560, 26400] %}
     <option value="{{ distance }}" selected>Current · {{ distance|round|int }} feet</option>
     {% endif %}
+    <option value="1" {% if distance == 1 %}selected{% endif %}>Inside boundary · 1 foot edge allowance</option>
+    <option value="50" {% if distance == 50 %}selected{% endif %}>50 feet · road or corridor</option>
+    <option value="100" {% if distance == 100 %}selected{% endif %}>100 feet · road or property edge</option>
     <option value="500" {% if distance == 500 %}selected{% endif %}>500 feet · building or block</option>
     <option value="1000" {% if distance == 1000 %}selected{% endif %}>1,000 feet · nearby blocks</option>
     <option value="2640" {% if distance == 2640 %}selected{% endif %}>Half mile</option>
@@ -129,6 +132,113 @@
   </div>
 </article>
 
+<article class="panel watch-location-library" id="bulk-watch-builder">
+  <div class="panel-head">
+    <div><div class="panel-kicker">REUSABLE WATCH LOCATIONS</div><h2>Create several Watches from a map layer</h2></div>
+    {% if bulk_context %}<span class="count-pill">{{ bulk_context.feature_count }} Locations</span>{% endif %}
+  </div>
+  <div class="panel-body bulk-watch-body">
+    <p class="watch-library-intro">Imported Shapefiles, GeoJSON, KML, and drawn map features stay in the Mapping Center. Choose a layer here to create Watches for its cities, counties, roads, corridors, or other Locations.</p>
+    <div class="watch-layer-links">
+      {% for layer in watch_location_layers %}
+      <a class="watch-layer-link {% if bulk_context and bulk_context.layer.id == layer.id %}selected{% endif %}" href="/watchlist?bulk_layer={{ layer.id }}#bulk-watch-builder">
+        <strong>{{ layer.name }}</strong><span>{{ layer.feature_count }} reusable Location{{ '' if layer.feature_count == 1 else 's' }}</span>
+      </a>
+      {% else %}
+      <span>No reusable layers have active features yet.</span>
+      {% endfor %}
+      <a class="secondary-button" href="/map">Import or draw Locations</a>
+    </div>
+
+    {% if bulk_context %}
+    <div class="bulk-watch-builder">
+      <div class="bulk-watch-heading">
+        <div><strong>{{ bulk_context.layer.name }}</strong><span>Organized automatically from this layer's own fields</span></div>
+        <span class="bulk-selection-count" data-bulk-count>0 selected</span>
+      </div>
+      <details class="advanced-options bulk-organize-options">
+        <summary>Change how this layer is grouped or named</summary>
+        <form method="get" action="/watchlist" class="watch-form compact advanced-options-body">
+          <input type="hidden" name="bulk_layer" value="{{ bulk_context.layer.id }}">
+          <div class="form-grid three-col">
+            <label>Group first by
+              <select name="bulk_parent_by">
+                <option value="__none__" {% if bulk_context.parent_by == '__none__' %}selected{% endif %}>No top group</option>
+                {% for key in bulk_context.property_keys %}<option value="{{ key.property_key }}" {% if bulk_context.parent_by == key.property_key %}selected{% endif %}>{{ key.property_key }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Then organize by
+              <select name="bulk_group_by">
+                <option value="__feature__" {% if bulk_context.group_by == '__feature__' %}selected{% endif %}>Each Location</option>
+                <option value="__none__" {% if bulk_context.group_by == '__none__' %}selected{% endif %}>All Locations together</option>
+                {% for key in bulk_context.property_keys %}<option value="{{ key.property_key }}" {% if bulk_context.group_by == key.property_key %}selected{% endif %}>{{ key.property_key }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Name each Watch with
+              <select name="bulk_name_by">
+                <option value="__stored_name__" {% if bulk_context.name_by == '__stored_name__' %}selected{% endif %}>Saved feature name</option>
+                {% for key in bulk_context.property_keys %}<option value="{{ key.property_key }}" {% if bulk_context.name_by == key.property_key %}selected{% endif %}>{{ key.property_key }}</option>{% endfor %}
+              </select>
+            </label>
+          </div>
+          <button class="secondary-button" type="submit">Reorganize Locations</button>
+        </form>
+      </details>
+
+      <form method="post" action="/watchlist/bulk-create" class="watch-form bulk-watch-form" data-bulk-watch-form>
+        <input type="hidden" name="layer_id" value="{{ bulk_context.layer.id }}">
+        <input type="hidden" name="parent_by" value="{{ bulk_context.parent_by }}">
+        <input type="hidden" name="group_by" value="{{ bulk_context.group_by }}">
+        <input type="hidden" name="name_by" value="{{ bulk_context.name_by }}">
+
+        <fieldset class="bulk-location-groups">
+          <legend>Choose Location groups</legend>
+          <label class="checkbox-row bulk-select-all"><input type="checkbox" data-bulk-select-all> Select all groups shown</label>
+          <div class="bulk-group-grid">
+          {% for group in bulk_context.groups %}
+            <label class="bulk-group-choice">
+              <input type="checkbox" name="group_tokens" value="{{ group.token }}" data-bulk-group data-feature-count="{{ group.count }}">
+              <span><strong>{{ group.path or group.label }}</strong><small>{{ group.count }} Location{{ '' if group.count == 1 else 's' }}{% if group.samples %} · {{ group.samples|join(', ') }}{% if group.count > group.samples|length %}, and more{% endif %}{% endif %}</small></span>
+            </label>
+          {% else %}<span>This layer has no active map features.</span>{% endfor %}
+          </div>
+          <span class="hint">Create up to {{ bulk_watch_limit }} Watches at a time. A city or county polygon watches inside its boundary. A road or corridor uses the Distance below.</span>
+        </fieldset>
+
+        <div class="form-grid two-col">
+          <label>Topic or phrase (optional)
+            <input name="topic" placeholder="Leave blank for any alert in each Location">
+            <span class="hint">Example: road closure, flooding, or working fire.</span>
+          </label>
+          <label>Also match these alternatives (optional)
+            <input name="aliases" placeholder="Separate phrases with commas">
+          </label>
+        </div>
+        <div class="form-grid two-col">
+          <label>Distance
+            <select name="radius_ft">
+              <option value="1">Inside boundary · 1 foot edge allowance</option>
+              <option value="50" selected>50 feet · road or corridor</option>
+              <option value="100">100 feet</option>
+              <option value="500">500 feet</option>
+              <option value="5280">1 mile</option>
+            </select>
+          </label>
+          <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
+        </div>
+        <fieldset class="recipient-picker"><legend>Recipients</legend>
+          {% for sub in subscribers %}<label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}"> {{ sub.name }}</label>{% else %}<span>No active Recipients. <a href="/subscribers">Add one first</a>.</span>{% endfor %}
+        </fieldset>
+        {{ duration_picker('PERMANENT') }}
+        <label class="checkbox-row bulk-activate"><input type="checkbox" name="activate" value="1"> Turn these Watches on now</label>
+        <span class="hint">Leave this clear to create them Paused for review. Turning them on requires at least one Recipient.</span>
+        <button class="primary-button" type="submit">Create Selected Watches</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</article>
+
 <section class="grid watch-layout" style="margin-top:16px">
 <article class="panel">
   <div class="panel-head"><div><div class="panel-kicker">NEW WATCH</div><h2>Five simple steps</h2></div></div>
@@ -139,6 +249,17 @@
         <div class="panel-kicker">STARTED FROM ALERT</div>
         <strong>{{ prefill.source_alert_title }}</strong>
         <p>Choose whether the topic, the Location, or both were important. You can edit every suggestion below. This Watch will look for future alerts and will not change the original alert.</p>
+        {% if prefill.keyword_choices %}
+        <div class="alert-keyword-picker" data-alert-keywords>
+          <span>Choose keywords from this alert</span>
+          <div class="alert-keyword-choices">
+          {% for keyword in prefill.keyword_choices %}
+            <label><input type="checkbox" name="alert_keywords" value="{{ keyword }}" data-alert-keyword {% if keyword == prefill.search_term %}checked{% endif %}> {{ keyword }}</label>
+          {% endfor %}
+          </div>
+          <small>Future alerts may Match any selected keyword or phrase. These choices come from this alert, not a fixed list.</small>
+        </div>
+        {% endif %}
         {% if prefill.suggested_source or prefill.suggested_category %}
         <div class="watch-alert-filters">
           <span>Optional: narrow future Matches</span>
@@ -163,9 +284,13 @@
           </label>
           {{ mode_choices(prefill.setup_mode, 'What about this alert matters?' if prefill.from_alert else 'Choose one') }}
           <div data-needs-topic {% if prefill.setup_mode == 'LOCATION' %}hidden{% endif %}>
-            <label>Topic or phrase
-              <input name="search_term" value="{{ prefill.search_term }}" placeholder="Example: water main, PSEG, road closure, or Park Avenue">
-              <span class="hint">Use words that are likely to appear in the alert.</span>
+            <label>{{ 'Primary keyword or phrase' if prefill.from_alert else 'Topic or phrase' }}
+              <input name="search_term" value="{{ prefill.search_term }}" data-primary-keyword placeholder="Example: water main, PSEG, road closure, or Park Avenue">
+              <span class="hint">Use wording that is likely to appear in a future alert.</span>
+            </label>
+            <label>Also match these alternatives (optional)
+              <input name="aliases" value="{{ prefill.aliases or '' }}" data-other-keywords placeholder="Example: main break, water leak">
+              <span class="hint">Separate phrases with commas. Any one of them may create a Match.</span>
             </label>
           </div>
         </div>
@@ -237,7 +362,6 @@
             <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == 'CONTAINS' %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
           </div>
           <label>Match field<input name="match_field" placeholder="Required only for FIELD"></label>
-          <label>Other spellings<input name="aliases" placeholder="Comma-separated aliases"></label>
           <div class="form-grid two-col"><label>Internal category label<input name="category"></label><label>Tags<input name="tags" placeholder="Comma-separated"></label></div>
           <label>Notes<textarea name="notes" rows="2" placeholder="Optional private note">{{ prefill.notes }}</textarea></label>
         </div>
@@ -268,7 +392,7 @@
             <div>
               <strong>{{ w.display_name }}</strong>
               <div class="meta">
-                {% if w.setup_mode == 'LOCATION' %}Near {{ w.location_label }}{% elif w.setup_mode == 'LOCATION_TOPIC' %}“{{ w.search_term }}” near {{ w.location_label }}{% else %}About “{{ w.search_term }}”{% endif %}
+                {% if w.setup_mode == 'LOCATION' %}Near {{ w.location_label }}{% elif w.setup_mode == 'LOCATION_TOPIC' %}Keywords: “{{ w.search_term }}”{% for alias in w.aliases or [] %}, “{{ alias }}”{% endfor %} near {{ w.location_label }}{% else %}Keywords: “{{ w.search_term }}”{% for alias in w.aliases or [] %}, “{{ alias }}”{% endfor %}{% endif %}
                 {% if w.setup_mode != 'TOPIC' and w.distance_label %} · {{ w.distance_label }}{% endif %}
               </div>
             </div>
@@ -281,6 +405,7 @@
           <div><strong>{{ w.active_recipient_count or 0 }}</strong><span>Recipient{{ '' if w.active_recipient_count == 1 else 's' }}</span></div>
         </div>
         <div class="watch-last-evidence">
+          {% if w.parent_group %}<span><strong>Group:</strong> {{ w.parent_group }}</span>{% endif %}
           {% if w.last_match_at %}<span><strong>Latest Match:</strong> {{ w.last_match_at.strftime('%m/%d/%Y %I:%M %p') }}{% if w.last_match_title %} · {{ w.last_match_title }}{% endif %}</span>{% else %}<span><strong>Latest Match:</strong> none yet</span>{% endif %}
           {% if w.last_delivery_at %}<span><strong>Latest Notification:</strong> {{ w.last_delivery_status|title }} · {{ w.last_delivery_at.strftime('%m/%d/%Y %I:%M %p') }}</span>{% else %}<span><strong>Latest Notification:</strong> none yet</span>{% endif %}
           <span><strong>Recipients:</strong> {{ (w.recipient_names or [])|join(', ') if w.recipient_names else 'None selected' }}</span>
@@ -297,6 +422,10 @@
             </div>
             <div data-needs-topic {% if w.setup_mode == 'LOCATION' %}hidden{% endif %}>
               <label>Topic or phrase<input name="search_term" value="{{ w.search_term if w.setup_mode != 'LOCATION' else '' }}" placeholder="Example: water main or road closure"></label>
+              <label>Also match these alternatives (optional)
+                <input name="aliases" value="{{ (w.aliases or [])|join(', ') }}" placeholder="Separate phrases with commas">
+                <span class="hint">Any one of these phrases may create a Match.</span>
+              </label>
             </div>
             <div class="watch-mode-section" data-needs-location {% if w.setup_mode == 'TOPIC' %}hidden{% endif %}>
               <div class="field-label">Location and Distance</div>
@@ -321,7 +450,6 @@
                   <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == w.match_mode %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
                 </div>
                 <label>Match field<input name="match_field" value="{{ w.match_field or '' }}"></label>
-                <label>Other spellings<input name="aliases" value="{{ (w.aliases or [])|join(', ') }}"></label>
                 <div class="form-grid two-col"><label>Internal category label<input name="category" value="{{ w.category or '' }}"></label><label>Tags<input name="tags" value="{{ (w.tags or [])|join(', ') }}"></label></div>
                 <label>Notes<textarea name="notes" rows="2">{{ w.notes or '' }}</textarea></label>
                 <div class="advanced-reference">Internal reference: {{ w.watch_id }}</div>
@@ -401,6 +529,57 @@
         : values.filter((value) => !sameValue(value));
       target.value = next.join(', ');
     });
+  });
+
+  document.querySelectorAll('[data-alert-keywords]').forEach((picker) => {
+    const form = picker.closest('form');
+    const primary = form?.querySelector('[data-primary-keyword]');
+    const alternatives = form?.querySelector('[data-other-keywords]');
+    const choices = [...picker.querySelectorAll('[data-alert-keyword]')];
+    const sync = () => {
+      const selected = choices.filter((choice) => choice.checked).map((choice) => choice.value.trim()).filter(Boolean);
+      if (primary) primary.value = selected[0] || '';
+      if (alternatives) alternatives.value = selected.slice(1).join(', ');
+    };
+    choices.forEach((choice) => choice.addEventListener('change', sync));
+    sync();
+  });
+
+  document.querySelectorAll('[data-bulk-watch-form]').forEach((form) => {
+    const groups = [...form.querySelectorAll('[data-bulk-group]')];
+    const selectAll = form.querySelector('[data-bulk-select-all]');
+    const count = document.querySelector('[data-bulk-count]');
+    const limit = {{ bulk_watch_limit }};
+    const sync = () => {
+      const checked = groups.filter((group) => group.checked);
+      const features = checked.reduce((total, group) => total + Number(group.dataset.featureCount || 0), 0);
+      if (count) {
+        count.textContent = `${features} Watch${features === 1 ? '' : 'es'} selected`;
+        count.classList.toggle('error-text', features > limit);
+      }
+      if (selectAll) selectAll.checked = groups.length > 0 && checked.length === groups.length;
+      return features;
+    };
+    groups.forEach((group) => group.addEventListener('change', sync));
+    selectAll?.addEventListener('change', () => {
+      groups.forEach((group) => { group.checked = selectAll.checked; });
+      sync();
+    });
+    form.addEventListener('submit', (event) => {
+      const features = sync();
+      const turningOn = form.querySelector('[name="activate"]')?.checked;
+      const hasRecipient = [...form.querySelectorAll('[name="subscriber_ids"]')].some((choice) => choice.checked);
+      if (!features || features > limit || (turningOn && !hasRecipient)) {
+        event.preventDefault();
+        if (count) count.textContent = !features
+          ? 'Choose at least one Location group'
+          : features > limit
+            ? `Choose ${limit} or fewer Watches at a time`
+            : 'Choose a Recipient before turning these Watches on';
+        count?.classList.add('error-text');
+      }
+    });
+    sync();
   });
 
   document.querySelectorAll('[data-duration-select]').forEach((select) => {
