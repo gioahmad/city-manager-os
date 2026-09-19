@@ -48,6 +48,16 @@ def test_global_search_is_bounded_grouped_and_uses_existing_records():
     assert "CREATE TABLE" not in source
 
 
+def test_release_acceptance_uses_gets_without_racing_live_feed_counts():
+    runner = (REPOSITORY_ROOT / "deploy/releases/system-search-ntfy-clarity.sh").read_text()
+    assert "method='GET'" in runner
+    assert "'acceptance_requests':'GET-only'" in runner
+    assert "'write_requests_sent':0" in runner
+    assert "before=counts()" not in runner
+    assert "after=counts()" not in runner
+    assert "read-only acceptance changed stored records" not in runner
+
+
 def test_search_template_compiles_and_has_friendly_failure_state():
     environment = Environment(loader=FileSystemLoader(DASHBOARD_ROOT / "templates"))
     environment.get_template("search.html")
