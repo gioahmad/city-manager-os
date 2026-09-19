@@ -13,6 +13,7 @@ REPOSITORY_ROOT = DASHBOARD_ROOT.parent
 
 def test_global_search_is_bounded_grouped_and_uses_existing_records():
     source = (DASHBOARD_ROOT / "operations_app.py").read_text()
+    alerts_template = (DASHBOARD_ROOT / "templates/alerts.html").read_text()
     template = (DASHBOARD_ROOT / "templates/search.html").read_text()
     nav = (DASHBOARD_ROOT / "templates/nav.html").read_text()
 
@@ -46,6 +47,9 @@ def test_global_search_is_bounded_grouped_and_uses_existing_records():
     assert "does not create another database" in template
     assert 'href="/search"' in nav
     assert "CREATE TABLE" not in source
+    assert "coalesce(wm.matched_watches,'No Watch matched') AS matched_watches" in source
+    assert "Matched Watches:" in alerts_template
+    assert "Each incident shows its matched Watches." in alerts_template
 
 
 def test_search_template_compiles_and_has_friendly_failure_state():
@@ -69,6 +73,11 @@ def test_map_startup_avoids_full_extent_and_eager_flood_load():
     assert "parcel_identifier_sql" in source
     assert "if block_lot:" in source
     assert "elif simple_parcel_number:" in source
+    assert "alert_watch_matches awm" in source
+    assert "coalesce(wm.matched_watches,'No Watch matched') AS matched_watches" in source
+    assert "['title','message','matched_watches'" in template
+    assert "Open Full Alert" in template
+    assert "Incident details" in template
     assert 'new URLSearchParams(window.location.search).get(\'q\')' in template
 
 

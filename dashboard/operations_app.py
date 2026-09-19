@@ -294,14 +294,39 @@ def alerts_page(
         SELECT a.alert_id,a.source,a.category,a.subtype,a.status,a.event_action,
                a.title,a.message,a.priority,a.county,a.municipality,a.received_at,a.updated_at,
                a.observed_at,a.click_url,
-               coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address','')) AS location_label
+               coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address','')) AS location_label,
+               coalesce(wm.matched_watches,'No Watch matched') AS matched_watches
         FROM alerts a
+        LEFT JOIN LATERAL (
+          SELECT string_agg(m.display_name,', ' ORDER BY m.display_name) AS matched_watches
+          FROM (
+            SELECT w.display_name
+            FROM alert_watch_matches awm
+            JOIN watch_items w ON w.id=awm.watch_item_id
+            WHERE awm.alert_id=a.id
+            UNION
+            SELECT w.display_name
+            FROM deliveries d
+            CROSS JOIN LATERAL jsonb_array_elements_text(
+              coalesce(d.matched_watch_ids,'[]'::jsonb)
+            ) ids(watch_id)
+            JOIN watch_items w ON w.watch_id=ids.watch_id
+            WHERE d.alert_id=a.id
+          ) m
+        ) wm ON true
         {clause}
         ORDER BY a.received_at DESC,a.id
         LIMIT %s OFFSET %s
         """,
         [*params, per_page, offset],
     )
+    for alert in alerts:
+        alert_reference = str(alert.get("alert_id") or "").strip()
+        alert["watch_from_alert_url"] = (
+            f"/watchlist?{urlencode({'from_alert': alert_reference})}"
+            if alert_reference
+            else ""
+        )
     sources = query_all("SELECT source,count(*) AS total FROM alerts GROUP BY source ORDER BY source")
     categories = query_all("SELECT category,count(*) AS total FROM alerts GROUP BY category ORDER BY category")
     municipalities = query_all(

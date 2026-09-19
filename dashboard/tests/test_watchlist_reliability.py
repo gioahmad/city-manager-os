@@ -110,6 +110,33 @@ def test_alert_map_shelf_life_and_global_search_are_bounded_and_non_destructive(
     assert "DELETE FROM alerts" not in map_source + alerts_source
 
 
+def test_alert_can_start_an_editable_watch_draft_without_writing_data():
+    source = (DASHBOARD_ROOT / "spatial_watch_app.py").read_text()
+    operations_source = (DASHBOARD_ROOT / "operations_app.py").read_text()
+    watch_template = (DASHBOARD_ROOT / "templates/watchlist.html").read_text()
+    alert_template = (DASHBOARD_ROOT / "templates/alerts.html").read_text()
+    map_template = (DASHBOARD_ROOT / "templates/map.html").read_text()
+
+    helper = source.split("def _watch_prefill_from_alert", 1)[1].split("def _json_safe", 1)[0]
+    assert "FROM alerts a" in helper
+    assert "geo_entity_resolutions" in helper
+    assert "ST_PointOnSurface" in helper
+    assert "INSERT" not in helper
+    assert "UPDATE" not in helper
+    assert 'from_alert: str = ""' in source
+    assert 'action="/watchlist/create"' in watch_template
+    assert "Create a Watch from this alert" not in watch_template
+    assert "STARTED FROM ALERT" in watch_template
+    assert "What about this alert matters?" in watch_template
+    assert "topic, the Location, or both" in watch_template
+    assert "Nothing is saved until you choose Turn On Watch." in watch_template
+    assert 'data-alert-filter="source_filter"' in watch_template
+    assert 'data-alert-filter="alert_category_filter"' in watch_template
+    assert "watch_from_alert_url" in operations_source
+    assert "Create Watch From Alert" in alert_template
+    assert "Create Watch From Alert" in map_template
+
+
 def test_private_watch_runner_splits_full_address_for_local_resolver():
     runner_path = REPOSITORY_ROOT / "deploy/ops/configure-isolated-radius-watch.sh"
     if not runner_path.is_file():

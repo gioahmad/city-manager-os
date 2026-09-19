@@ -7,9 +7,9 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-{% macro mode_choices(selected='LOCATION') %}
+{% macro mode_choices(selected='LOCATION', legend='Choose one') %}
 <fieldset class="watch-mode-choices">
-  <legend>Choose one</legend>
+  <legend>{{ legend }}</legend>
   <label class="watch-mode-card">
     <input type="radio" name="setup_mode" value="LOCATION" {% if selected == 'LOCATION' %}checked{% endif %}>
     <span><strong>Near a location</strong><small>Any alert inside the Distance you choose</small></span>
@@ -134,6 +134,25 @@
   <div class="panel-head"><div><div class="panel-kicker">NEW WATCH</div><h2>Five simple steps</h2></div></div>
   <div class="panel-body form-panel">
     <form method="post" action="/watchlist/create" class="watch-form watch-editor" data-mode-form>
+      {% if prefill.from_alert %}
+      <aside class="watch-from-alert" data-alert-watch-draft>
+        <div class="panel-kicker">STARTED FROM ALERT</div>
+        <strong>{{ prefill.source_alert_title }}</strong>
+        <p>Choose whether the topic, the Location, or both were important. You can edit every suggestion below. This Watch will look for future alerts and will not change the original alert.</p>
+        {% if prefill.suggested_source or prefill.suggested_category %}
+        <div class="watch-alert-filters">
+          <span>Optional: narrow future Matches</span>
+          {% if prefill.suggested_source %}
+          <label><input type="checkbox" data-alert-filter="source_filter" value="{{ prefill.suggested_source }}"> Only from {{ prefill.suggested_source }}</label>
+          {% endif %}
+          {% if prefill.suggested_category %}
+          <label><input type="checkbox" data-alert-filter="alert_category_filter" value="{{ prefill.suggested_category }}"> Only category {{ prefill.suggested_category }}</label>
+          {% endif %}
+        </div>
+        {% endif %}
+        <small>Nothing is saved until you choose Turn On Watch.</small>
+      </aside>
+      {% endif %}
       <section class="watch-step">
         <div class="watch-step-number">1</div>
         <div class="watch-step-content">
@@ -142,17 +161,17 @@
             <input name="display_name" value="{{ prefill.display_name }}" required placeholder="Example: Town Hall area or Water main breaks">
             <span class="hint">Use a short private name you will recognize later.</span>
           </label>
-          {{ mode_choices('LOCATION') }}
-          <div data-needs-topic hidden>
+          {{ mode_choices(prefill.setup_mode, 'What about this alert matters?' if prefill.from_alert else 'Choose one') }}
+          <div data-needs-topic {% if prefill.setup_mode == 'LOCATION' %}hidden{% endif %}>
             <label>Topic or phrase
-              <input name="search_term" placeholder="Example: water main, PSEG, road closure, or Park Avenue">
+              <input name="search_term" value="{{ prefill.search_term }}" placeholder="Example: water main, PSEG, road closure, or Park Avenue">
               <span class="hint">Use words that are likely to appear in the alert.</span>
             </label>
           </div>
         </div>
       </section>
 
-      <section class="watch-step" data-needs-location>
+      <section class="watch-step" data-needs-location {% if prefill.setup_mode == 'TOPIC' %}hidden{% endif %}>
         <div class="watch-step-number">2</div>
         <div class="watch-step-content">
           <h3>Where should we watch?</h3>
@@ -209,10 +228,10 @@
             <label>Municipality context<input name="municipality" placeholder="Optional"></label>
           </div>
           <label>Only these alert sources
-            <input name="source_filter" list="alert-source-values" placeholder="Leave blank for every source; separate several with commas">
+            <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Leave blank for every source; separate several with commas">
             <span class="hint">Use the exact source names shown in the current alert database.</span>
           </label>
-          <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" placeholder="Leave blank for every category; separate several with commas"></label>
+          <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ prefill.alert_category_filter }}" placeholder="Leave blank for every category; separate several with commas"></label>
           <div class="form-grid two-col">
             <label>Technical watch type<select name="watch_type"><option value="">Automatic</option>{% for wt in watch_types %}<option value="{{ wt }}">{{ wt }}</option>{% endfor %}</select></label>
             <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == 'CONTAINS' %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
@@ -220,7 +239,7 @@
           <label>Match field<input name="match_field" placeholder="Required only for FIELD"></label>
           <label>Other spellings<input name="aliases" placeholder="Comma-separated aliases"></label>
           <div class="form-grid two-col"><label>Internal category label<input name="category"></label><label>Tags<input name="tags" placeholder="Comma-separated"></label></div>
-          <label>Notes<textarea name="notes" rows="2" placeholder="Optional private note"></textarea></label>
+          <label>Notes<textarea name="notes" rows="2" placeholder="Optional private note">{{ prefill.notes }}</textarea></label>
         </div>
       </details>
     </form>
@@ -367,6 +386,21 @@
       input.addEventListener('change', () => syncMode(form));
     });
     syncMode(form);
+  });
+
+  document.querySelectorAll('[data-alert-filter]').forEach((choice) => {
+    choice.addEventListener('change', () => {
+      const form = choice.closest('form');
+      const target = form?.querySelector(`[name="${choice.dataset.alertFilter}"]`);
+      if (!target) return;
+      const suggestion = choice.value.trim();
+      const values = target.value.split(',').map((value) => value.trim()).filter(Boolean);
+      const sameValue = (value) => value.localeCompare(suggestion, undefined, {sensitivity: 'accent'}) === 0;
+      const next = choice.checked
+        ? (values.some(sameValue) ? values : [...values, suggestion])
+        : values.filter((value) => !sameValue(value));
+      target.value = next.join(', ');
+    });
   });
 
   document.querySelectorAll('[data-duration-select]').forEach((select) => {

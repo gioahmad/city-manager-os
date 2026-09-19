@@ -28,7 +28,7 @@ SENDER_CHANGED=0
 DASHBOARD_ROLLBACK_TAG=""
 ACCEPTANCE_RESULT='{}'
 
-EXPECTED_PATHS=$'dashboard/map_app.py\ndashboard/operations_app.py\ndashboard/static/style.css\ndashboard/templates/deliveries.html\ndashboard/templates/map.html\ndashboard/templates/nav.html\ndashboard/templates/search.html\ndashboard/tests/test_global_search_match_explanations.py\ndeploy/n8n/install_ntfy_match_explanations.sh\ndeploy/releases/system-search-ntfy-clarity.sh\nworkflows/core/CORE_ntfy_Sender_v1.json'
+EXPECTED_PATHS=$'dashboard/map_app.py\ndashboard/operations_app.py\ndashboard/spatial_watch_app.py\ndashboard/static/style.css\ndashboard/templates/alerts.html\ndashboard/templates/deliveries.html\ndashboard/templates/map.html\ndashboard/templates/nav.html\ndashboard/templates/search.html\ndashboard/templates/watchlist.html\ndashboard/tests/test_global_search_match_explanations.py\ndashboard/tests/test_watchlist_reliability.py\ndeploy/n8n/install_ntfy_match_explanations.sh\ndeploy/releases/system-search-ntfy-clarity.sh\nworkflows/core/CORE_ntfy_Sender_v1.json'
 
 section(){ printf '\n============================================================\n%s\n============================================================\n' "$1"; }
 log(){ printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
@@ -42,8 +42,10 @@ if not token: raise SystemExit(1)
 headers={'X-CMOS-Automation-Key':token}
 required={
   '/search':('Search Everything','does not create another database'),
+  '/alerts?window=6h':('Alert history','Matched Watches'),
   '/deliveries':('Why you received this','Notification History'),
-  '/map':('initialMapQuery','FEMA Flood Zones'),
+  '/watchlist':('Five simple steps','Turn On Watch'),
+  '/map':('initialMapQuery','FEMA Flood Zones','Incident details','Matched Watches','Open Full Alert','Create Watch From Alert'),
 }
 for path,markers in required.items():
     request=urllib.request.Request('http://127.0.0.1:8000'+path,headers=headers)
@@ -268,10 +270,10 @@ done
 
 PLAN="$(python3 deploy/cmos-deploy plan --base "$EXPECTED_BASE" --target "$TARGET_HEAD" </dev/null)"
 printf '%s\n' "$PLAN"
-grep -q '^changed_count=11$' <<<"$PLAN"
+grep -q '^changed_count=15$' <<<"$PLAN"
 grep -q '^build=yes$' <<<"$PLAN"
 grep -q '^services=citymanager-dashboard$' <<<"$PLAN"
-grep -q '^tests=tests/test_attention_engine.py,tests/test_gis_import.py,tests/test_global_search_match_explanations.py$' <<<"$PLAN"
+grep -q '^tests=tests/test_attention_engine.py,tests/test_gis_import.py,tests/test_global_search_match_explanations.py,tests/test_watchlist_reliability.py$' <<<"$PLAN"
 grep -q '^backup_required=no$' <<<"$PLAN"
 grep -q '^external=n8n-workflow-publish$' <<<"$PLAN"
 grep -q '^full_e2e=yes$' <<<"$PLAN"
@@ -337,6 +339,7 @@ fi
 CURRENT_PHASE="focused-acceptance"
 ACCEPTANCE_RESULT="$(docker exec -i citymanager-dashboard python - <<'PY'
 import json,os,time,urllib.parse,urllib.request
+from app import query_one
 from operations_app import _humanize_match_reason
 
 token=os.environ.get('CMOS_AUTOMATION_TOKEN','').strip()
@@ -360,11 +363,18 @@ def get(path,expect_json=False,timeout=20):
 search_home,search_home_ms=get('/search')
 contract_query='CMOS-RELEASE-CONTRACT-NO-MATCH'
 search_results,search_results_ms=get('/search?'+urllib.parse.urlencode({'q':contract_query,'scope':'all'}))
+alert_history,alert_history_ms=get('/alerts?'+urllib.parse.urlencode({'q':contract_query,'window':'6h','state':'all'}))
 notifications,notifications_ms=get('/deliveries')
 mapping,mapping_ms=get('/map')
 map_results,map_search_ms=get('/map/search?'+urllib.parse.urlencode({'q':contract_query}),True)
+alert_map_results,alert_map_ms=get('/map/system/alerts.geojson?'+urllib.parse.urlencode({'q':contract_query,'hours':1}),True)
+seed_alert=query_one("SELECT alert_id FROM alerts WHERE nullif(trim(alert_id),'') IS NOT NULL ORDER BY received_at DESC,id DESC LIMIT 1")
+if not seed_alert: raise RuntimeError('no stored alert is available for the Watch draft contract')
+seed_reference=seed_alert['alert_id']
+alert_detail,alert_detail_ms=get('/alerts?'+urllib.parse.urlencode({'q':seed_reference,'window':'all','state':'all'}))
+watch_draft,watch_draft_ms=get('/watchlist?'+urllib.parse.urlencode({'from_alert':seed_reference}))
 
-if search_home_ms>15000 or search_results_ms>15000 or mapping_ms>15000 or map_search_ms>15000:
+if search_home_ms>15000 or search_results_ms>15000 or alert_history_ms>15000 or mapping_ms>15000 or map_search_ms>15000 or alert_map_ms>15000 or alert_detail_ms>15000 or watch_draft_ms>15000:
     raise RuntimeError('a search or map page exceeded the focused 15-second ceiling')
 for marker in ('Search Everything','does not create another database','alerts, work, Watches, Notifications'):
     if marker not in search_home: raise RuntimeError('system search instructions are incomplete')
@@ -372,12 +382,20 @@ if 'Search is temporarily unavailable' in search_results:
     raise RuntimeError('system-wide search reached its protected timeout')
 if contract_query not in search_results or 'No records matched' not in search_results:
     raise RuntimeError('bounded system-wide no-match search failed')
+if 'Alert history' not in alert_history or 'Matched Watches' not in alert_history:
+    raise RuntimeError('Alert history incident details are incomplete')
+if 'Create Watch From Alert' not in alert_detail:
+    raise RuntimeError('Alert history is missing the Watch draft action')
+for marker in ('STARTED FROM ALERT','What about this alert matters?','Nothing is saved until you choose Turn On Watch.'):
+    if marker not in watch_draft: raise RuntimeError('Alert-based Watch draft is incomplete')
 if 'Why you received this' not in notifications:
     raise RuntimeError('Notification History explanation is missing')
-if 'initialMapQuery' not in mapping or 'FEMA Flood Zones' not in mapping:
+if any(marker not in mapping for marker in ('initialMapQuery','FEMA Flood Zones','Incident details','Matched Watches','Open Full Alert','Create Watch From Alert')):
     raise RuntimeError('Mapping Center performance contract is missing')
 if map_results.get('type')!='FeatureCollection' or not isinstance(map_results.get('features'),list):
     raise RuntimeError('indexed Location search response changed')
+if alert_map_results.get('type')!='FeatureCollection' or not isinstance(alert_map_results.get('features'),list):
+    raise RuntimeError('clickable Alert details response changed')
 
 keyword=_humanize_match_reason('CONTAINS search_text matched search_term "CONTRACT KEYWORD"')
 location=_humanize_match_reason('PROXIMITY alert geometry is 125.0 ft from target, inside 5280.0 ft buffer')
@@ -393,15 +411,22 @@ print(json.dumps({
     'ntfy_reason_contract':'PASS',
     'map_startup_contract':'PASS',
     'location_search_contract':'PASS',
+    'alert_popup_details':'PASS',
+    'alert_history_watch_names':'PASS',
+    'alert_to_watch_draft':'PASS',
     'acceptance_requests':'GET-only',
     'write_requests_sent':0,
     'test_notification_sent':'NO',
     'timing_ms':{
       'search_home':search_home_ms,
       'search_all_no_match':search_results_ms,
+      'alert_history_no_match':alert_history_ms,
       'notification_history':notifications_ms,
       'mapping_center':mapping_ms,
       'location_search_no_match':map_search_ms,
+      'alert_details_no_match':alert_map_ms,
+      'alert_detail_page':alert_detail_ms,
+      'alert_watch_draft':watch_draft_ms,
     },
 },sort_keys=True))
 PY
