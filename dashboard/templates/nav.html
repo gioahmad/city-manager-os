@@ -5,6 +5,7 @@
 <nav class="main-nav desktop-nav" aria-label="Primary navigation">
   <div class="nav-inner">
     <a href="/my-day" class="{% if request.url.path.startswith('/my-day') %}active{% endif %}">My Day</a>
+    <a href="/search" class="{% if request.url.path.startswith('/search') %}active{% endif %}">Search</a>
     <a href="/issues" class="{% if request.url.path.startswith('/issues') %}active{% endif %}">Command</a>
     <a href="/inbox" class="{% if request.url.path.startswith('/inbox') %}active{% endif %}">Inbox</a>
     <a href="/staff-admin" class="{% if request.url.path.startswith('/staff-admin') or request.url.path.startswith('/operations-routines') %}active{% endif %}">Operations</a>
@@ -44,9 +45,10 @@
 
 <nav class="mobile-nav" aria-label="Mobile navigation">
   <a href="/my-day" class="{% if request.url.path.startswith('/my-day') %}active{% endif %}">My Day</a>
+  <a href="/search" class="{% if request.url.path.startswith('/search') %}active{% endif %}">Search</a>
   <a href="/issues" class="{% if request.url.path.startswith('/issues') %}active{% endif %}">Command</a>
   <a href="/staff-admin" class="{% if request.url.path.startswith('/staff-admin') or request.url.path.startswith('/operations-routines') %}active{% endif %}">Ops</a>
-  <details class="mobile-more {% if not request.url.path.startswith('/my-day') and not request.url.path.startswith('/issues') and not request.url.path.startswith('/staff-admin') %}active{% endif %}">
+  <details class="mobile-more {% if not request.url.path.startswith('/my-day') and not request.url.path.startswith('/search') and not request.url.path.startswith('/issues') and not request.url.path.startswith('/staff-admin') %}active{% endif %}">
     <summary>More</summary>
     <div class="mobile-menu">
       <a href="/schedule">Events</a>

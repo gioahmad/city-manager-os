@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 from datetime import datetime
@@ -7,7 +8,9 @@ from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from issues_app import app
-from app import execute, query_all, query_one, templates
+from app import db_conn, execute, query_all, query_one, templates
+
+LOGGER = logging.getLogger(__name__)
 
 MODULES = [
     {"key": "PSEG", "name": "Utilities", "description": "Electric utility outages and restorations"},
@@ -17,6 +20,29 @@ MODULES = [
     {"key": "TRANSIT", "name": "Transit", "description": "NJ Transit, PATH and regional transit disruptions"},
     {"key": "EVENTS", "name": "Events", "description": "Regional events and operational impacts"},
 ]
+
+SEARCH_SCOPES = {
+    "all": "Everything",
+    "alerts": "Alerts",
+    "work": "Work Items",
+    "watches": "Watches",
+    "notifications": "Notifications",
+    "events": "Events",
+    "transit": "Transit",
+    "locations": "Locations",
+    "sources": "Sources",
+}
+
+SEARCH_SECTION_ORDER = (
+    "Alerts",
+    "Work Items",
+    "Watches",
+    "Notifications",
+    "Events",
+    "Transit",
+    "Locations",
+    "Sources",
+)
 
 
 def make_subscriber_id(name: str):
@@ -327,6 +353,327 @@ def alerts_page(
     )
 
 
+def _global_search_rows(q: str, scope: str):
+    needle = f"%{q}%"
+    prefix_end = f"{q}\U0010ffff"
+    statements = []
+    params = []
+
+    def include(section):
+        return scope == "all" or scope == section
+
+    def add(section, sql, values):
+        if include(section):
+            statements.append(f"({sql.strip()})")
+            params.extend(values)
+
+    add(
+        "alerts",
+        """
+        SELECT 'Alerts'::text AS section, 'ALERT'::text AS result_type,
+               a.title, left(a.message,240) AS summary,
+               concat_ws(' · ',a.source,a.category,nullif(a.municipality,'')) AS context,
+               a.alert_id AS result_id, a.received_at AS happened_at
+        FROM alerts a
+        WHERE coalesce(a.search_text,'') ILIKE %s OR a.title ILIKE %s
+           OR a.message ILIKE %s OR a.source ILIKE %s OR a.category ILIKE %s
+           OR coalesce(a.municipality,'') ILIKE %s OR a.alert_id ILIKE %s
+        ORDER BY a.received_at DESC
+        LIMIT 12
+        """,
+        [needle] * 7,
+    )
+    add(
+        "work",
+        """
+        SELECT 'Work Items'::text AS section, 'WORK_ITEM'::text AS result_type,
+               i.title, left(coalesce(nullif(i.description,''),nullif(i.next_action,''),'No description'),240) AS summary,
+               concat_ws(' · ',i.item_type,i.status,nullif(i.category,''),nullif(i.assigned_to,'')) AS context,
+               i.id::text AS result_id, i.updated_at AS happened_at
+        FROM issues i
+        WHERE i.title ILIKE %s OR coalesce(i.description,'') ILIKE %s
+           OR coalesce(i.category,'') ILIKE %s OR coalesce(i.next_action,'') ILIKE %s
+           OR coalesce(i.waiting_on,'') ILIKE %s OR coalesce(i.assigned_to,'') ILIKE %s
+           OR coalesce(i.address,'') ILIKE %s OR coalesce(i.municipality,'') ILIKE %s
+        ORDER BY i.updated_at DESC
+        LIMIT 12
+        """,
+        [needle] * 8,
+    )
+    add(
+        "watches",
+        """
+        SELECT 'Watches'::text AS section, 'WATCH'::text AS result_type,
+               w.display_name AS title,
+               CASE WHEN nullif(w.search_term,'') IS NOT NULL
+                    THEN 'Watches for ' || w.search_term
+                    ELSE 'Location Watch' END AS summary,
+               concat_ws(' · ',CASE WHEN w.active THEN 'Watching' ELSE 'Paused' END,
+                         nullif(w.municipality,''),nullif(w.address,'')) AS context,
+               w.watch_id AS result_id, w.updated_at AS happened_at
+        FROM watch_items w
+        WHERE w.display_name ILIKE %s OR w.search_term ILIKE %s
+           OR array_to_string(w.aliases,' ') ILIKE %s OR array_to_string(w.tags,' ') ILIKE %s
+           OR coalesce(w.municipality,'') ILIKE %s OR coalesce(w.address,'') ILIKE %s
+           OR w.watch_id ILIKE %s
+        ORDER BY w.updated_at DESC
+        LIMIT 12
+        """,
+        [needle] * 7,
+    )
+    add(
+        "notifications",
+        """
+        SELECT 'Notifications'::text AS section, 'NOTIFICATION'::text AS result_type,
+               a.title,
+               CASE WHEN d.status='SENT' THEN 'Delivered to ' || s.name
+                    WHEN d.status='FAILED' THEN 'Delivery problem for ' || s.name
+                    ELSE initcap(lower(d.status)) || ' for ' || s.name END AS summary,
+               concat_ws(' · ',a.source,d.status) AS context,
+               d.id::text AS result_id, coalesce(d.sent_at,d.attempted_at,d.created_at) AS happened_at
+        FROM deliveries d
+        JOIN alerts a ON a.id=d.alert_id
+        JOIN subscribers s ON s.id=d.subscriber_id
+        WHERE a.title ILIKE %s OR a.message ILIKE %s OR a.source ILIKE %s
+           OR s.name ILIKE %s OR d.ntfy_topic ILIKE %s
+           OR d.match_reasons::text ILIKE %s OR d.matched_watch_ids::text ILIKE %s
+        ORDER BY coalesce(d.sent_at,d.attempted_at,d.created_at) DESC
+        LIMIT 12
+        """,
+        [needle] * 7,
+    )
+    add(
+        "events",
+        """
+        SELECT 'Events'::text AS section, 'MANAGED_EVENT'::text AS result_type,
+               e.title, left(coalesce(nullif(e.notes,''),nullif(e.impact_notes,''),'Managed event'),240) AS summary,
+               concat_ws(' · ','Managed',nullif(e.category,''),nullif(e.municipality,''),e.event_status) AS context,
+               e.id::text AS result_id, coalesce(e.starts_at,e.updated_at) AS happened_at
+        FROM operational_events e
+        WHERE e.title ILIKE %s OR coalesce(e.notes,'') ILIKE %s
+           OR coalesce(e.impact_notes,'') ILIKE %s OR coalesce(e.category,'') ILIKE %s
+           OR coalesce(e.location_name,'') ILIKE %s OR coalesce(e.address,'') ILIKE %s
+           OR coalesce(e.municipality,'') ILIKE %s OR coalesce(e.owner,'') ILIKE %s
+        ORDER BY coalesce(e.starts_at,e.updated_at) DESC
+        LIMIT 8
+        """,
+        [needle] * 8,
+    )
+    add(
+        "events",
+        """
+        SELECT 'Events'::text AS section, 'EVENT_INTELLIGENCE'::text AS result_type,
+               e.title, left(coalesce(nullif(e.description,''),nullif(e.impact_summary,''),'Event intelligence'),240) AS summary,
+               concat_ws(' · ','Intelligence',nullif(e.event_type,''),nullif(e.venue,''),nullif(e.municipality,''),e.impact_level) AS context,
+               e.id::text AS result_id, coalesce(e.starts_at,e.last_changed_at) AS happened_at
+        FROM event_intelligence e
+        WHERE e.title ILIKE %s OR coalesce(e.description,'') ILIKE %s
+           OR coalesce(e.event_type,'') ILIKE %s OR coalesce(e.venue,'') ILIKE %s
+           OR coalesce(e.address,'') ILIKE %s OR coalesce(e.municipality,'') ILIKE %s
+           OR coalesce(e.source_name,'') ILIKE %s OR coalesce(e.impact_summary,'') ILIKE %s
+        ORDER BY coalesce(e.starts_at,e.last_changed_at) DESC
+        LIMIT 8
+        """,
+        [needle] * 8,
+    )
+    add(
+        "transit",
+        """
+        SELECT 'Transit'::text AS section, 'TRANSIT_OBSERVATION'::text AS result_type,
+               o.title, left(coalesce(nullif(o.description,''),'Transit observation'),240) AS summary,
+               concat_ws(' · ',p.name,nullif(o.route_name,''),nullif(o.asset_name,''),o.impact_level) AS context,
+               o.id::text AS result_id, o.last_changed_at AS happened_at
+        FROM transit_observations o
+        JOIN transit_providers p ON p.id=o.provider_id
+        WHERE o.title ILIKE %s OR coalesce(o.description,'') ILIKE %s
+           OR coalesce(o.route_name,'') ILIKE %s OR coalesce(o.asset_name,'') ILIKE %s
+           OR coalesce(o.municipality,'') ILIKE %s OR p.name ILIKE %s
+           OR coalesce(o.external_key,'') ILIKE %s
+        ORDER BY o.last_changed_at DESC
+        LIMIT 10
+        """,
+        [needle] * 7,
+    )
+    add(
+        "transit",
+        """
+        SELECT 'Transit'::text AS section, 'TRANSIT_ASSET'::text AS result_type,
+               a.name AS title, concat_ws(' · ',a.asset_type,nullif(a.mode,''),nullif(a.short_name,'')) AS summary,
+               concat_ws(' · ',p.name,nullif(a.municipality,'')) AS context,
+               a.id::text AS result_id, a.updated_at AS happened_at
+        FROM transit_assets a
+        JOIN transit_providers p ON p.id=a.provider_id
+        WHERE a.name ILIKE %s OR coalesce(a.short_name,'') ILIKE %s
+           OR a.asset_key ILIKE %s OR a.asset_type ILIKE %s OR coalesce(a.mode,'') ILIKE %s
+           OR coalesce(a.municipality,'') ILIKE %s OR p.name ILIKE %s
+        ORDER BY a.updated_at DESC
+        LIMIT 10
+        """,
+        [needle] * 7,
+    )
+    add(
+        "locations",
+        """
+        SELECT 'Locations'::text AS section, 'ADDRESS'::text AS result_type,
+               a.fulladdr AS title, concat_ws(' · ',a.post_comm,a.post_code) AS summary,
+               'Address'::text AS context, a.objectid::text AS result_id, NULL::timestamptz AS happened_at
+        FROM gis_addresses a
+        WHERE a.geom IS NOT NULL
+          AND ((lower(a.fulladdr)>=lower(%s) AND lower(a.fulladdr)<lower(%s))
+               OR lower(coalesce(a.post_comm,''))=lower(%s))
+        ORDER BY CASE WHEN a.status='A' THEN 0 ELSE 1 END,a.fulladdr
+        LIMIT 10
+        """,
+        [q, prefix_end, q],
+    )
+    add(
+        "locations",
+        """
+        SELECT 'Locations'::text AS section, 'PARCEL'::text AS result_type,
+               coalesce(nullif(p.prop_loc,''),'Block ' || coalesce(p.pclblock,'?') || ' Lot ' || coalesce(p.pcllot,'?')) AS title,
+               concat_ws(' · ',p.mun_name,'Block ' || coalesce(p.pclblock,'?'),'Lot ' || coalesce(p.pcllot,'?')) AS summary,
+               'Parcel'::text AS context, p.objectid::text AS result_id, NULL::timestamptz AS happened_at
+        FROM gis_parcels p
+        WHERE p.geom IS NOT NULL AND (
+          (lower(coalesce(p.prop_loc,''))>=lower(%s) AND lower(coalesce(p.prop_loc,''))<lower(%s))
+          OR (coalesce(p.pams_pin,'')>=%s AND coalesce(p.pams_pin,'')<%s)
+          OR coalesce(p.pclblock,'')=%s OR coalesce(p.pcllot,'')=%s
+          OR lower(coalesce(p.mun_name,''))=lower(%s)
+        )
+        ORDER BY p.prop_loc NULLS LAST,p.objectid
+        LIMIT 10
+        """,
+        [q, prefix_end, q, prefix_end, q, q, q],
+    )
+    add(
+        "locations",
+        """
+        SELECT 'Locations'::text AS section, 'REFERENCE'::text AS result_type,
+               r.canonical_name AS title,
+               concat_ws(' · ',r.entity_type,nullif(r.entity_subtype,''),nullif(r.municipality,'')) AS summary,
+               'Saved map reference'::text AS context, r.entity_id::text AS result_id, r.updated_at AS happened_at
+        FROM spatial_reference_entities r
+        WHERE r.active=true AND (
+          r.canonical_name ILIKE %s OR coalesce(r.normalized_address,'') ILIKE %s
+          OR EXISTS (SELECT 1 FROM unnest(r.aliases) alias WHERE alias ILIKE %s)
+        )
+        ORDER BY r.importance_tier,r.canonical_name
+        LIMIT 10
+        """,
+        [needle] * 3,
+    )
+    add(
+        "locations",
+        """
+        SELECT 'Locations'::text AS section, 'MAP_FEATURE'::text AS result_type,
+               coalesce(nullif(f.name,''),l.name) AS title, l.name AS summary,
+               'Mapping Center layer'::text AS context, f.id::text AS result_id, f.updated_at AS happened_at
+        FROM map_features f JOIN map_layers l ON l.id=f.layer_id
+        WHERE f.active=true AND l.active=true AND coalesce(f.name,'') ILIKE %s
+        ORDER BY f.updated_at DESC
+        LIMIT 10
+        """,
+        [needle],
+    )
+    add(
+        "sources",
+        """
+        SELECT 'Sources'::text AS section, 'INTEGRATION'::text AS result_type,
+               i.name AS title, left(coalesce(nullif(i.notes,''),i.category),240) AS summary,
+               concat_ws(' · ',i.category,CASE WHEN i.active THEN 'Active' ELSE 'Inactive' END) AS context,
+               i.integration_key AS result_id, i.updated_at AS happened_at
+        FROM integrations i
+        WHERE i.name ILIKE %s OR i.integration_key ILIKE %s OR i.category ILIKE %s
+           OR coalesce(i.notes,'') ILIKE %s
+        ORDER BY i.updated_at DESC
+        LIMIT 10
+        """,
+        [needle] * 4,
+    )
+    add(
+        "sources",
+        """
+        SELECT 'Sources'::text AS section, 'SOURCE_HEALTH'::text AS result_type,
+               h.source_id AS title, coalesce(nullif(h.last_error,''),'No current error') AS summary,
+               'Source health · ' || h.status AS context, h.source_id AS result_id, h.updated_at AS happened_at
+        FROM source_health h
+        WHERE h.source_id ILIKE %s OR h.status ILIKE %s OR coalesce(h.last_error,'') ILIKE %s
+        ORDER BY h.updated_at DESC
+        LIMIT 10
+        """,
+        [needle] * 3,
+    )
+
+    if not statements:
+        return []
+    sql = "SELECT * FROM (" + "\nUNION ALL\n".join(statements) + ") results " \
+          "ORDER BY happened_at DESC NULLS LAST,title LIMIT 140"
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL statement_timeout = '12s'")
+            cur.execute(sql, params)
+            return cur.fetchall()
+
+
+def _global_result_url(row, q):
+    query = urlencode({"q": q})
+    result_type = row.get("result_type")
+    if result_type == "ALERT":
+        return f"/alerts?{urlencode({'q': q, 'window': 'all'})}"
+    if result_type == "WORK_ITEM":
+        return f"/issues?{urlencode({'q': q, 'state': 'all'})}"
+    if result_type == "WATCH":
+        return f"/watchlist?{query}"
+    if result_type == "NOTIFICATION":
+        return f"/deliveries?{query}"
+    if result_type == "MANAGED_EVENT":
+        return f"/schedule?{urlencode({'q': q, 'state': 'all'})}"
+    if result_type == "EVENT_INTELLIGENCE":
+        return f"/event-intelligence?{urlencode({'q': q, 'horizon': 'all'})}"
+    if result_type in {"TRANSIT_OBSERVATION", "TRANSIT_ASSET"}:
+        return f"/transit?{query}"
+    if result_type in {"ADDRESS", "PARCEL", "REFERENCE", "MAP_FEATURE"}:
+        return f"/map?{query}"
+    if result_type == "INTEGRATION":
+        return "/integrations"
+    return "/source-health"
+
+
+@app.get("/search", response_class=HTMLResponse)
+def global_search_page(request: Request, q: str = "", scope: str = "all"):
+    q = q.strip()[:160]
+    if scope not in SEARCH_SCOPES:
+        scope = "all"
+    rows = []
+    error = ""
+    if q and len(q) < 2:
+        error = "Enter at least two characters to search."
+    elif q:
+        try:
+            rows = _global_search_rows(q, scope)
+        except Exception:
+            LOGGER.exception("Global search failed")
+            error = "Search is temporarily unavailable. Please try again."
+    grouped = {section: [] for section in SEARCH_SECTION_ORDER}
+    for row in rows:
+        row["url"] = _global_result_url(row, q)
+        grouped.setdefault(row["section"], []).append(row)
+    grouped = {section: grouped[section] for section in SEARCH_SECTION_ORDER if grouped.get(section)}
+    return templates.TemplateResponse(
+        request=request,
+        name="search.html",
+        context={
+            "q": q,
+            "scope": scope,
+            "scopes": SEARCH_SCOPES,
+            "groups": grouped,
+            "result_total": len(rows),
+            "error": error,
+            "page": "search",
+        },
+    )
+
+
 @app.get("/modules", response_class=HTMLResponse)
 def modules_page(request: Request):
     health_rows = query_all("SELECT * FROM source_health ORDER BY source_id")
@@ -372,6 +719,80 @@ def source_health_page(request: Request):
     return templates.TemplateResponse(request=request, name="source_health.html", context={"rows": rows, "page": "source-health"})
 
 
+def _humanize_match_reason(reason):
+    text = str(reason or "").strip()
+    if not text:
+        return "This Watch matched, but an explanation was not recorded."
+
+    parts = []
+    for raw_part in re.split(r";\s*", text):
+        part = raw_part.strip()
+        keyword = re.search(
+            r"(?:FIELD|CONTAINS|WORD|EXACT)\s+\S+\s+matched\s+"
+            r"(search_term|alias)\s+[\"']([^\"']+)[\"']",
+            part,
+            flags=re.IGNORECASE,
+        )
+        if keyword:
+            label = "Alternate keyword" if keyword.group(1).lower() == "alias" else "Keyword"
+            parts.append(f"{label} “{keyword.group(2)}” matched this alert")
+            continue
+        distance = re.search(
+            r"PROXIMITY alert geometry is ([0-9.]+) ft from target, inside ([0-9.]+) ft buffer",
+            part,
+            flags=re.IGNORECASE,
+        )
+        if distance:
+            measured = f"{float(distance.group(1)):,.0f}"
+            allowed = f"{float(distance.group(2)):,.0f}"
+            parts.append(
+                f"Alert Location was {measured} feet from the Watch center, within the {allowed}-foot Distance"
+            )
+            continue
+        if "selected parcel or adjoining-parcel" in part.lower():
+            parts.append("Alert Location matched the selected parcel or a neighboring parcel")
+            continue
+        if "intersected the selected reference" in part.lower():
+            parts.append("Alert Location matched the selected map area")
+            continue
+        municipality = re.search(r"municipality matched [\"']([^\"']+)[\"']", part, re.IGNORECASE)
+        if municipality:
+            parts.append(f"Alert municipality matched “{municipality.group(1)}”")
+            continue
+        if part.lower() == "manual ntfy sender test":
+            parts.append("Manual Notification test")
+            continue
+        friendly = re.sub(r"\bPROXIMITY\b", "Location", part, flags=re.IGNORECASE)
+        friendly = re.sub(r"\balert geometry\b", "Alert Location", friendly, flags=re.IGNORECASE)
+        friendly = re.sub(r"\bsearch_text\b", "alert text", friendly, flags=re.IGNORECASE)
+        friendly = re.sub(r"\bsearch_term\b", "keyword", friendly, flags=re.IGNORECASE)
+        friendly = re.sub(r"\btarget\b", "Watch center", friendly, flags=re.IGNORECASE)
+        friendly = re.sub(r"\bbuffer\b", "Distance", friendly, flags=re.IGNORECASE)
+        parts.append(friendly[:240])
+    return "; ".join(part for part in parts if part)
+
+
+def _delivery_evidence(row):
+    watches = row.get("matched_watches") or []
+    reasons = row.get("match_reasons") or []
+    if not isinstance(watches, list):
+        watches = []
+    if not isinstance(reasons, list):
+        reasons = []
+    evidence = []
+    count = max(len(watches), len(reasons))
+    for index in range(count):
+        watch = watches[index] if index < len(watches) and isinstance(watches[index], dict) else {}
+        reason = watch.get("match_reason") or (reasons[index] if index < len(reasons) else "")
+        evidence.append(
+            {
+                "watch_name": watch.get("display_name") or "Saved Watch",
+                "reason": _humanize_match_reason(reason),
+            }
+        )
+    return evidence
+
+
 @app.get("/deliveries", response_class=HTMLResponse)
 def deliveries_page(request: Request, status: str = "", q: str = ""):
     where = []
@@ -381,24 +802,51 @@ def deliveries_page(request: Request, status: str = "", q: str = ""):
         params.append(status.strip())
     if q.strip():
         needle = f"%{q.strip()}%"
-        where.append("(a.title ILIKE %s OR s.name ILIKE %s OR d.ntfy_topic ILIKE %s OR a.source ILIKE %s)")
-        params.extend([needle, needle, needle, needle])
+        where.append(
+            "(a.title ILIKE %s OR a.message ILIKE %s OR s.name ILIKE %s "
+            "OR d.ntfy_topic ILIKE %s OR a.source ILIKE %s "
+            "OR d.match_reasons::text ILIKE %s OR coalesce(mw.watch_search,'') ILIKE %s)"
+        )
+        params.extend([needle] * 7)
     clause = f"WHERE {' AND '.join(where)}" if where else ""
     rows = query_all(
         f"""
         SELECT d.id, d.status, d.ntfy_topic, d.attempted_at, d.sent_at,
-               d.error_message, d.matched_watch_ids,
+               d.error_message, d.matched_watch_ids, d.match_reasons,
+               coalesce(mw.matched_watches,'[]'::jsonb) AS matched_watches,
                s.name AS subscriber_name, s.subscriber_id,
                a.title AS alert_title, a.source, a.alert_id
         FROM deliveries d
         JOIN subscribers s ON s.id = d.subscriber_id
         JOIN alerts a ON a.id = d.alert_id
+        LEFT JOIN LATERAL (
+          SELECT jsonb_agg(
+                   jsonb_build_object(
+                     'watch_id', ids.watch_id,
+                     'display_name', coalesce(w.display_name,'Saved Watch'),
+                     'match_reason', coalesce(awm.match_reason,d.match_reasons->>((ids.position-1)::int))
+                   ) ORDER BY ids.position
+                 ) AS matched_watches,
+                 string_agg(coalesce(w.display_name,ids.watch_id),' ') AS watch_search
+          FROM jsonb_array_elements_text(coalesce(d.matched_watch_ids,'[]'::jsonb))
+               WITH ORDINALITY AS ids(watch_id,position)
+          LEFT JOIN watch_items w ON w.watch_id=ids.watch_id
+          LEFT JOIN LATERAL (
+            SELECT m.match_reason
+            FROM alert_watch_matches m
+            WHERE m.alert_id=d.alert_id AND m.watch_item_id=w.id
+            ORDER BY m.matched_at DESC
+            LIMIT 1
+          ) awm ON true
+        ) mw ON true
         {clause}
         ORDER BY d.created_at DESC
         LIMIT 300
         """,
         params,
     )
+    for row in rows:
+        row["evidence"] = _delivery_evidence(row)
     return templates.TemplateResponse(request=request, name="deliveries.html", context={"rows": rows, "status": status, "q": q, "page": "deliveries"})
 
 
