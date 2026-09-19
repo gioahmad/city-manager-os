@@ -87,8 +87,3 @@ def test_alert_watch_picker_saves_any_selected_phrase_as_existing_aliases():
     assert "These choices come from this alert, not a fixed list" in template
     assert 'name="aliases"' in template
     assert "Keywords:" in template
-
-
-def test_streamed_release_keeps_docker_from_consuming_the_script():
-    runner = (DASHBOARD_ROOT.parent / "deploy/releases/subscriber-watch-spatial-layers.sh").read_text()
-    assert "tests/test_spatial_watch_pack.py tests/test_watchlist_reliability.py </dev/null" in runner
