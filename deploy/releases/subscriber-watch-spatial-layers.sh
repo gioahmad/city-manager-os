@@ -237,7 +237,7 @@ else
   docker compose -f "$REPO/dashboard/docker-compose.yml" run --rm --no-deps -T \
     -v "$REPO/dashboard:/src:ro" -w /src -e PYTHONPATH=/src:/app \
     --entrypoint pytest citymanager-dashboard -p no:cacheprovider -q \
-    tests/test_spatial_watch_pack.py tests/test_watchlist_reliability.py
+    tests/test_spatial_watch_pack.py tests/test_watchlist_reliability.py </dev/null
   DASHBOARD_ACTION="verified-one-build"
 fi
 
