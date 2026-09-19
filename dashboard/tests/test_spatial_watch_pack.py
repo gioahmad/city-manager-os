@@ -106,7 +106,8 @@ def test_mapping_center_previews_and_reuses_canonical_references():
     assert "watch-preview" in template
     assert "watchCenterMarker" in template
     assert "Watch center" in template
-    assert "pane:'markerPane'" in template
+    assert "pane:'overlayPane'" in template
+    assert "interactive:false,bubblingMouseEvents:false" in template
     assert "L.featureGroup([previewArea,previewCenter])" in template
     assert "if(key==='watchlist')addWatchCenter(feature,layer)" in template
     assert "if(key==='watchlist')removeLayer('watch-centers')" in template

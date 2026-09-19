@@ -28,7 +28,7 @@ SENDER_CHANGED=0
 DASHBOARD_ROLLBACK_TAG=""
 ACCEPTANCE_RESULT='{}'
 
-EXPECTED_PATHS=$'dashboard/map_app.py\ndashboard/operations_app.py\ndashboard/spatial_watch_app.py\ndashboard/static/style.css\ndashboard/templates/alerts.html\ndashboard/templates/deliveries.html\ndashboard/templates/map.html\ndashboard/templates/nav.html\ndashboard/templates/search.html\ndashboard/templates/watchlist.html\ndashboard/tests/test_global_search_match_explanations.py\ndashboard/tests/test_watchlist_reliability.py\ndeploy/n8n/install_ntfy_match_explanations.sh\ndeploy/releases/system-search-ntfy-clarity.sh\nworkflows/core/CORE_ntfy_Sender_v1.json'
+EXPECTED_PATHS=$'dashboard/map_app.py\ndashboard/operations_app.py\ndashboard/spatial_watch_app.py\ndashboard/static/map.css\ndashboard/static/style.css\ndashboard/templates/alerts.html\ndashboard/templates/deliveries.html\ndashboard/templates/map.html\ndashboard/templates/nav.html\ndashboard/templates/search.html\ndashboard/templates/watchlist.html\ndashboard/tests/test_global_search_match_explanations.py\ndashboard/tests/test_spatial_watch_pack.py\ndashboard/tests/test_watchlist_reliability.py\ndeploy/n8n/install_ntfy_match_explanations.sh\ndeploy/releases/system-search-ntfy-clarity.sh\nworkflows/core/CORE_ntfy_Sender_v1.json'
 
 section(){ printf '\n============================================================\n%s\n============================================================\n' "$1"; }
 log(){ printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
@@ -45,7 +45,7 @@ required={
   '/alerts?window=6h':('Alert history','Each incident shows its matched Watches.'),
   '/deliveries':('Why you received this','Notification History'),
   '/watchlist':('Five simple steps','Turn On Watch'),
-  '/map':('initialMapQuery','FEMA Flood Zones','Incident details','Matched Watches','Open Full Alert','Create Watch From Alert'),
+  '/map':('initialMapQuery','FEMA Flood Zones','Incident details','Matched Watches','Open Full Alert','Create Watch From Alert','Click any map feature','all-geojson-and-map-locations-v1'),
 }
 for path,markers in required.items():
     request=urllib.request.Request('http://127.0.0.1:8000'+path,headers=headers)
@@ -270,10 +270,10 @@ done
 
 PLAN="$(python3 deploy/cmos-deploy plan --base "$EXPECTED_BASE" --target "$TARGET_HEAD" </dev/null)"
 printf '%s\n' "$PLAN"
-grep -q '^changed_count=15$' <<<"$PLAN"
+grep -q '^changed_count=17$' <<<"$PLAN"
 grep -q '^build=yes$' <<<"$PLAN"
 grep -q '^services=citymanager-dashboard$' <<<"$PLAN"
-grep -q '^tests=tests/test_attention_engine.py,tests/test_gis_import.py,tests/test_global_search_match_explanations.py,tests/test_watchlist_reliability.py$' <<<"$PLAN"
+grep -q '^tests=tests/test_attention_engine.py,tests/test_gis_import.py,tests/test_global_search_match_explanations.py,tests/test_spatial_watch_pack.py,tests/test_watchlist_reliability.py$' <<<"$PLAN"
 grep -q '^backup_required=no$' <<<"$PLAN"
 grep -q '^external=n8n-workflow-publish$' <<<"$PLAN"
 grep -q '^full_e2e=yes$' <<<"$PLAN"
@@ -390,7 +390,7 @@ for marker in ('STARTED FROM ALERT','What about this alert matters?','Nothing is
     if marker not in watch_draft: raise RuntimeError('Alert-based Watch draft is incomplete')
 if 'Why you received this' not in notifications:
     raise RuntimeError('Notification History explanation is missing')
-if any(marker not in mapping for marker in ('initialMapQuery','FEMA Flood Zones','Incident details','Matched Watches','Open Full Alert','Create Watch From Alert')):
+if any(marker not in mapping for marker in ('initialMapQuery','FEMA Flood Zones','Incident details','Matched Watches','Open Full Alert','Create Watch From Alert','Click any map feature','all-geojson-and-map-locations-v1')):
     raise RuntimeError('Mapping Center performance contract is missing')
 if map_results.get('type')!='FeatureCollection' or not isinstance(map_results.get('features'),list):
     raise RuntimeError('indexed Location search response changed')
@@ -412,6 +412,7 @@ print(json.dumps({
     'map_startup_contract':'PASS',
     'location_search_contract':'PASS',
     'alert_popup_details':'PASS',
+    'map_feature_click_contract':'PASS',
     'alert_history_watch_names':'PASS',
     'alert_to_watch_draft':'PASS',
     'acceptance_requests':'GET-only',
@@ -433,7 +434,7 @@ PY
 )"
 printf '%s\n' "$ACCEPTANCE_RESULT" | python3 -m json.tool
 sender_release_is_live || fail "ntfy sender failed final publication check"
-ACCEPTANCE_ACTION="pass-search-eight-sections-reasons-map-performance-no-data-change"
+ACCEPTANCE_ACTION="pass-search-reasons-map-feature-clicks-no-data-change"
 
 CURRENT_PHASE="final-health"
 docker exec citymanager-dashboard python -c "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=10).status==200"

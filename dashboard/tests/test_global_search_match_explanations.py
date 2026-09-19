@@ -81,6 +81,24 @@ def test_map_startup_avoids_full_extent_and_eager_flood_load():
     assert 'new URLSearchParams(window.location.search).get(\'q\')' in template
 
 
+def test_every_map_feature_has_a_stable_click_and_details_contract():
+    template = (DASHBOARD_ROOT / "templates/map.html").read_text()
+    stylesheet = (DASHBOARD_ROOT / "static/map.css").read_text()
+
+    assert "FEATURE_CLICK_CONTRACT='all-geojson-and-map-locations-v1'" in template
+    assert "Click any map feature" in template
+    assert "function showSelectedFeature" in template
+    assert "function refreshFeatureOrder" in template
+    assert "layer.on('click',event=>" in template
+    assert "bubblingMouseEvents:false" in template
+    assert "interactive:false,bubblingMouseEvents:false" in template
+    assert "if(map._popup)return" in template
+    assert "map.on('click',ev=>" in template
+    assert "Create One-Mile Watch" in template
+    assert ".map-selected-feature" in stylesheet
+    assert ".leaflet-interactive{cursor:pointer}" in stylesheet
+
+
 def test_notification_history_explains_the_watch_and_reason_without_jargon():
     source = (DASHBOARD_ROOT / "operations_app.py").read_text()
     template = (DASHBOARD_ROOT / "templates/deliveries.html").read_text()
