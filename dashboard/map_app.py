@@ -16,7 +16,7 @@ from geo_resolver import resolve_payload
 
 
 SYSTEM_LAYERS = [
-    {"key": "flood", "name": "FEMA Flood Zones", "endpoint": "/map/system/flood.geojson", "default_visible": True, "style": {"color": "#e26d6d"}},
+    {"key": "flood", "name": "FEMA Flood Zones", "endpoint": "/map/system/flood.geojson", "default_visible": False, "style": {"color": "#e26d6d"}},
     {"key": "parcels", "name": "Parcels", "endpoint": "/map/system/parcels.geojson", "default_visible": False, "style": {"color": "#7fb3d5"}, "viewport": True},
     {"key": "addresses", "name": "NG911 Addresses", "endpoint": "/map/system/addresses.geojson", "default_visible": False, "point": True, "viewport": True},
     {"key": "watchlist", "name": "Watch Locations", "endpoint": "/map/system/watchlist.geojson", "default_visible": True, "point": True},
@@ -128,9 +128,10 @@ def mapping_center(request: Request, msg: str = ""):
     bounds = query_one(
         """
         WITH e AS (
-          SELECT ST_Extent(geom) AS b
-          FROM gis_parcels
-          WHERE geom IS NOT NULL
+          SELECT coalesce(
+            ST_EstimatedExtent('public','gis_parcels','geom'),
+            (SELECT ST_Extent(geom) FROM gis_parcels WHERE geom IS NOT NULL)
+          ) AS b
         )
         SELECT ST_XMin(b) AS minx,ST_YMin(b) AS miny,ST_XMax(b) AS maxx,ST_YMax(b) AS maxy
         FROM e WHERE b IS NOT NULL
@@ -150,10 +151,10 @@ def mapping_center(request: Request, msg: str = ""):
     )
     editable_layers = [x for x in custom_layers if x["layer_type"] == "CUSTOM_GEOJSON" and x["active"]]
     alert_sources = query_all(
-        "SELECT source,count(*) AS total FROM alerts WHERE nullif(trim(source),'') IS NOT NULL GROUP BY source ORDER BY source"
+        "SELECT DISTINCT source FROM alerts WHERE nullif(trim(source),'') IS NOT NULL ORDER BY source"
     )
     alert_categories = query_all(
-        "SELECT category,count(*) AS total FROM alerts WHERE nullif(trim(category),'') IS NOT NULL GROUP BY category ORDER BY category"
+        "SELECT DISTINCT category FROM alerts WHERE nullif(trim(category),'') IS NOT NULL ORDER BY category"
     )
     return templates.TemplateResponse(
         request=request,
@@ -178,6 +179,7 @@ def map_search(q: str = ""):
     if len(needle) < 2:
         return JSONResponse({"type": "FeatureCollection", "features": []})
     like = f"%{needle}%"
+    prefix_end = f"{needle}\U0010ffff"
     rows = []
     rows.extend(query_all(
         """
@@ -185,9 +187,9 @@ def map_search(q: str = ""):
                concat_ws(' · ',post_comm,post_code) AS detail,
                objectid::text AS source_id,ST_AsGeoJSON(geom)::json AS geometry
         FROM gis_addresses
-        WHERE fulladdr ILIKE %s AND geom IS NOT NULL
+        WHERE lower(fulladdr)>=lower(%s) AND lower(fulladdr)<lower(%s) AND geom IS NOT NULL
         ORDER BY CASE WHEN status='A' THEN 0 ELSE 1 END,fulladdr LIMIT 8
-        """, (like,)
+        """, (needle, prefix_end)
     ))
     rows.extend(query_all(
         """
@@ -196,10 +198,12 @@ def map_search(q: str = ""):
                concat_ws(' · ',mun_name,'Block ' || coalesce(pclblock,'?'),'Lot ' || coalesce(pcllot,'?'),nullif(pams_pin,'')) AS detail,
                objectid::text AS source_id,ST_AsGeoJSON(geom)::json AS geometry
         FROM gis_parcels
-        WHERE (prop_loc ILIKE %s OR pams_pin ILIKE %s OR pclblock ILIKE %s OR pcllot ILIKE %s)
+        WHERE ((lower(coalesce(prop_loc,''))>=lower(%s) AND lower(coalesce(prop_loc,''))<lower(%s))
+               OR (coalesce(pams_pin,'')>=%s AND coalesce(pams_pin,'')<%s)
+               OR coalesce(pclblock,'')=%s OR coalesce(pcllot,'')=%s)
           AND geom IS NOT NULL
         ORDER BY prop_loc NULLS LAST,objectid LIMIT 8
-        """, (like, like, like, like)
+        """, (needle, prefix_end, needle, prefix_end, needle, needle)
     ))
     rows.extend(query_all(
         """

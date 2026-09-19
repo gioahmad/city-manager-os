@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Search Everything · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">ONE SEARCH · EXISTING SYSTEM</div>
+    <div class="brand-row"><h1>Search Everything</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Find alerts, work, Watches, Notifications, events, transit, sources, addresses, and parcels</div>
+  </div>
+</header>
+{% include "nav.html" %}
+<main>
+  <article class="panel system-search-panel">
+    <div class="panel-body">
+      <form class="system-search-form" method="get" action="/search">
+        <label class="system-search-query">What are you looking for?
+          <input name="q" value="{{ q }}" minlength="2" maxlength="160" autofocus placeholder="Try a keyword, alert, address, parcel, event, person, route, or source">
+        </label>
+        <label>Search in
+          <select name="scope">
+            {% for value, label in scopes.items() %}<option value="{{ value }}" {% if scope == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        <button class="primary-button" type="submit">Search</button>
+      </form>
+      <p class="system-search-help">This searches the existing City Manager OS records. It does not create another database or copy your data.</p>
+      {% if error %}<div class="flash flash-error" role="alert">{{ error }}</div>{% endif %}
+    </div>
+  </article>
+
+  {% if q and not error %}
+  <div class="system-search-summary"><strong>{{ result_total }}</strong> result{{ '' if result_total == 1 else 's' }} for “{{ q }}”</div>
+  {% if groups %}
+  {% for section, rows in groups.items() %}
+  <article class="panel system-search-group">
+    <div class="panel-head"><div><div class="panel-kicker">SEARCH RESULTS</div><h2>{{ section }}</h2></div><span class="count-pill">{{ rows|length }}</span></div>
+    <div class="panel-body system-search-results">
+      {% for row in rows %}
+      <a class="system-search-result" href="{{ row.url }}">
+        <div class="system-search-result-main">
+          <strong>{{ row.title }}</strong>
+          <p>{{ row.summary }}</p>
+          <span>{{ row.context }}</span>
+        </div>
+        <div class="system-search-result-side">
+          {% if row.happened_at %}<time>{{ row.happened_at.strftime('%m/%d/%Y %I:%M %p') }}</time>{% endif %}
+          <span>Open →</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </article>
+  {% endfor %}
+  {% else %}
+  <div class="empty-state"><strong>No records matched “{{ q }}”</strong><span>Try a shorter phrase or choose Everything.</span></div>
+  {% endif %}
+  {% elif not q %}
+  <article class="panel system-search-start">
+    <div class="panel-body empty-state">
+      <strong>Start with any name, phrase, place, or reference</strong>
+      <span>Results are grouped so you can tell an Alert from a Watch, Notification, work item, event, transit record, or Location.</span>
+    </div>
+  </article>
+  {% endif %}
+</main>
+</body>
+</html>
