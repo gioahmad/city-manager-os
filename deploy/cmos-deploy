@@ -212,6 +212,13 @@ def classify(files: list[str]) -> Plan:
             plan.reasons.add("database migration requires guarded feature installer")
             continue
 
+        if path == "workflows/core/CORE_Resolved_Spatial_Rematch_v1.json":
+            plan.external.add("n8n-workflow-publish")
+            plan.backup_required = True
+            plan.reasons.add("guarded resolved-alert rematch workflow")
+            add_test(plan, "test_spatial_rematch_layers.py")
+            continue
+
         if path.startswith("workflows/"):
             plan.external.add("n8n-workflow-publish")
             plan.full_e2e = True
@@ -236,6 +243,13 @@ def classify(files: list[str]) -> Plan:
             plan.backup_required = True
             plan.full_e2e = True
             plan.reasons.add("security procedure requires specialized deployment")
+            continue
+
+        if path == "deploy/gis/sync_nj_watch_layers.py":
+            plan.external.add("postgis-reference-layer-sync")
+            plan.backup_required = True
+            plan.reasons.add("guarded official Watch Location layer sync")
+            add_test(plan, "test_spatial_rematch_layers.py")
             continue
 
         if path in {

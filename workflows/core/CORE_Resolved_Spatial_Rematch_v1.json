@@ -1,0 +1,124 @@
+{
+  "name": "CORE - Resolved Alert Spatial Rematch v1",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "name": "Resolved Alert Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "id": "cmos-resolved-rematch-schedule"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT coalesce(a.raw_payload,'{}'::jsonb) || jsonb_build_object(\n  'schema_version',a.schema_version,\n  'alert_id',a.alert_id,\n  'source',a.source,\n  'source_event_id',a.source_event_id,\n  'category',a.category,\n  'subtype',a.subtype,\n  'status',a.status,\n  'event_action',a.event_action,\n  'title',a.title,\n  'message',a.message,\n  'priority',a.priority,\n  'county',coalesce(nullif(a.county,''),nullif(a.location->>'county',''),nullif(r.county,'')),\n  'municipality',coalesce(nullif(a.municipality,''),nullif(a.location->>'municipality',''),nullif(r.municipality,'')),\n  'location',coalesce(a.location,'{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(\n    'label',coalesce(nullif(a.location->>'label',''),r.resolved_label),\n    'address',coalesce(nullif(a.location->>'address',''),r.resolved_label),\n    'municipality',coalesce(nullif(a.location->>'municipality',''),nullif(r.municipality,'')),\n    'county',coalesce(nullif(a.location->>'county',''),nullif(r.county,'')),\n    'state',coalesce(nullif(a.location->>'state',''),nullif(r.state,''),'NJ'),\n    'longitude',ST_X(a.geom),\n    'latitude',ST_Y(a.geom)\n  )),\n  'tags',a.tags,\n  'click_url',a.click_url,\n  'source_url',a.source_url,\n  'observed_at',a.observed_at,\n  'source_updated_at',a.source_updated_at,\n  'received_at',a.received_at,\n  'expires_at',a.expires_at,\n  'metadata',coalesce(a.metadata,'{}'::jsonb),\n  'search_text',trim(concat_ws(' ',nullif(a.search_text,''),nullif(r.municipality,''),nullif(r.county,'')))\n) AS alert\nFROM alerts a\nJOIN geo_entity_resolutions r ON r.entity_type='ALERT' AND r.entity_id=a.id::text\nWHERE a.geom IS NOT NULL\n  AND a.received_at>=now()-interval '6 hours'\n  AND a.status<>'RESOLVED'\n  AND (a.expires_at IS NULL OR a.expires_at>now())\n  AND r.status='RESOLVED'\n  AND r.confidence>=0.85\n  AND r.spatial_precision='ADDRESS_POINT'\n  AND r.updated_at>=TIMESTAMPTZ '__CMOS_ACTIVATED_AT__'\n  AND coalesce(a.metadata#>>'{_cmos,spatial_rematch_version}','')<>'geo-v1'\n  AND EXISTS (\n    SELECT 1 FROM watch_items w\n    WHERE w.active=true\n      AND (w.starts_at IS NULL OR w.starts_at<=now())\n      AND (w.expires_at IS NULL OR w.expires_at>now())\n      AND (w.nearby_enabled=true OR nullif(w.municipality,'') IS NOT NULL)\n  )\nORDER BY r.updated_at,a.id\nLIMIT 50;",
+        "options": {}
+      },
+      "name": "Load Newly Resolved Alerts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [240, 0],
+      "id": "cmos-resolved-rematch-load",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => {\n  const alert = item.json && item.json.alert;\n  if (!alert || typeof alert !== 'object' || !alert.alert_id) {\n    throw new Error('Resolved Alert row did not contain a Standard Alert');\n  }\n  const location = alert.location && typeof alert.location === 'object' ? alert.location : {};\n  if (!Number.isFinite(Number(location.latitude)) || !Number.isFinite(Number(location.longitude))) {\n    throw new Error('Resolved Alert did not contain precise coordinates');\n  }\n  return { json: { ...alert, location } };\n});"
+      },
+      "name": "Restore Resolved Standard Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "id": "cmos-resolved-rematch-restore"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ESH9c2pZ8QfkMosO",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ESH9c2pZ8QfkMosO",
+          "cachedResultName": "CORE - Watchlist Matcher v1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "name": "Send Resolved Alert to Central Watchlist Matcher",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [720, 0],
+      "id": "cmos-resolved-rematch-match",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH d AS (SELECT $1::jsonb AS p)\nUPDATE alerts a\nSET metadata=coalesce(a.metadata,'{}'::jsonb) || jsonb_build_object(\n      '_cmos',coalesce(a.metadata->'_cmos','{}'::jsonb) || jsonb_build_object(\n        'spatial_rematch_version','geo-v1',\n        'spatial_rematched_at',now()\n      )\n    )\nFROM d\nWHERE a.alert_id=d.p->>'alert_id'\nRETURNING a.alert_id;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($('Restore Resolved Standard Alert').item.json) }}"
+        }
+      },
+      "name": "Mark Resolved Alert Rematched",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [960, 0],
+      "id": "cmos-resolved-rematch-mark",
+      "credentials": {
+        "postgres": {
+          "id": "ypC5byxSvG6uOccJ",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Resolved Alert Schedule": {
+      "main": [[{"node": "Load Newly Resolved Alerts", "type": "main", "index": 0}]]
+    },
+    "Load Newly Resolved Alerts": {
+      "main": [[{"node": "Restore Resolved Standard Alert", "type": "main", "index": 0}]]
+    },
+    "Restore Resolved Standard Alert": {
+      "main": [[{"node": "Send Resolved Alert to Central Watchlist Matcher", "type": "main", "index": 0}]]
+    },
+    "Send Resolved Alert to Central Watchlist Matcher": {
+      "main": [[{"node": "Mark Resolved Alert Rematched", "type": "main", "index": 0}]]
+    },
+    "Mark Resolved Alert Rematched": {
+      "main": [[]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "release": "resolved-spatial-rematch-v1"
+  }
+}
