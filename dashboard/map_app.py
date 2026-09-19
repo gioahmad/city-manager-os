@@ -180,6 +180,20 @@ def map_search(q: str = ""):
         return JSONResponse({"type": "FeatureCollection", "features": []})
     like = f"%{needle}%"
     prefix_end = f"{needle}\U0010ffff"
+    block_lot = re.fullmatch(
+        r"block\s+([A-Za-z0-9.-]+)\s+lot\s+([A-Za-z0-9.-]+)",
+        needle,
+        flags=re.IGNORECASE,
+    )
+    simple_parcel_number = bool(re.fullmatch(r"[0-9]+(?:\.[0-9]+)?[A-Za-z]?", needle))
+    parcel_identifier_sql = ""
+    parcel_identifier_params = []
+    if block_lot:
+        parcel_identifier_sql = " OR (pclblock=%s AND pcllot=%s)"
+        parcel_identifier_params = [block_lot.group(1), block_lot.group(2)]
+    elif simple_parcel_number:
+        parcel_identifier_sql = " OR pclblock=%s OR pcllot=%s"
+        parcel_identifier_params = [needle, needle]
     rows = []
     rows.extend(query_all(
         """
@@ -192,18 +206,18 @@ def map_search(q: str = ""):
         """, (needle, prefix_end)
     ))
     rows.extend(query_all(
-        """
+        f"""
         SELECT 'PARCEL' AS result_type,
                coalesce(nullif(prop_loc,''),'Block ' || coalesce(pclblock,'?') || ' Lot ' || coalesce(pcllot,'?')) AS label,
                concat_ws(' · ',mun_name,'Block ' || coalesce(pclblock,'?'),'Lot ' || coalesce(pcllot,'?'),nullif(pams_pin,'')) AS detail,
                objectid::text AS source_id,ST_AsGeoJSON(geom)::json AS geometry
         FROM gis_parcels
-        WHERE ((lower(coalesce(prop_loc,''))>=lower(%s) AND lower(coalesce(prop_loc,''))<lower(%s))
-               OR (coalesce(pams_pin,'')>=%s AND coalesce(pams_pin,'')<%s)
-               OR coalesce(pclblock,'')=%s OR coalesce(pcllot,'')=%s)
+        WHERE ((lower(prop_loc)>=lower(%s) AND lower(prop_loc)<lower(%s))
+               OR (pams_pin>=%s AND pams_pin<%s)
+               {parcel_identifier_sql})
           AND geom IS NOT NULL
         ORDER BY prop_loc NULLS LAST,objectid LIMIT 8
-        """, (needle, prefix_end, needle, prefix_end, needle, needle)
+        """, (needle, prefix_end, needle, prefix_end, *parcel_identifier_params)
     ))
     rows.extend(query_all(
         """
