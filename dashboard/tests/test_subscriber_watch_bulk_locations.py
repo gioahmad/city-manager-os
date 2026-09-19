@@ -58,6 +58,8 @@ def test_recipient_page_assigns_existing_watches_without_new_routing_model():
     assert 'name="watch_item_ids"' in template
     assert 'name="visible_watch_item_ids"' in template
     assert "Save Watch Choices" in template
+    assert "Choose Existing Watches" in template
+    assert 'row["manage_watches"]' in source
     assert "CREATE TABLE" not in source
 
 

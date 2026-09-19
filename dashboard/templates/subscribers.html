@@ -47,7 +47,7 @@
       </form>
       <div class="watch-list">
       {% for s in rows %}
-        <details class="watch-card {% if not s.active %}inactive{% endif %}">
+        <details id="recipient-{{ s.id }}" class="watch-card {% if not s.active %}inactive{% endif %}" {% if s.manage_watches %}open{% endif %}>
           <summary>
             <div class="watch-summary-main"><span class="status {% if s.active %}active{% else %}inactive-status{% endif %}">{{ 'READY' if s.active else 'PAUSED' }}</span><div><strong>{{ s.name }}</strong><div class="meta">Used by {{ s.active_routes or 0 }} active Watch{{ '' if s.active_routes == 1 else 'es' }}</div></div></div>
           </summary>
@@ -60,6 +60,7 @@
               <details class="advanced-options"><summary>Advanced Details</summary><div class="advanced-options-body"><div class="advanced-reference">Internal Recipient ID: {{ s.subscriber_id }}</div></div></details>
               <button class="primary-button" type="submit">Save Recipient</button>
             </form>
+            {% if s.manage_watches %}
             <form method="post" action="/subscribers/{{ s.id }}/watches" class="watch-form compact recipient-watch-form">
               <fieldset class="recipient-picker">
                 <legend>Watches for this Recipient</legend>
@@ -69,7 +70,7 @@
                   <input type="hidden" name="visible_watch_item_ids" value="{{ watch.id }}">
                   <label class="checkbox-row">
                     <input type="checkbox" name="watch_item_ids" value="{{ watch.id }}" {% if watch.id in s.active_watch_ids %}checked{% endif %}>
-                    <span><strong>{{ watch.display_name }}</strong><small>{{ 'On' if watch.active else 'Paused' }}{% if watch.expires_at %} · has an end time{% endif %}</small></span>
+                    <span><strong>{{ watch.display_name }}</strong><small>{{ watch.state_label }}</small></span>
                   </label>
                 {% else %}
                   <span>No Watches exist yet. <a href="/watchlist">Create a Watch</a>.</span>
@@ -77,7 +78,13 @@
                 </div>
               </fieldset>
               <button class="secondary-button" type="submit">Save Watch Choices</button>
+              <a href="/subscribers#recipient-{{ s.id }}">Close Watch choices</a>
             </form>
+            {% else %}
+            <div class="recipient-watch-form">
+              <a class="secondary-button" href="/subscribers?manage={{ s.id }}#recipient-{{ s.id }}">Choose Existing Watches · {{ s.active_watch_ids|length }} selected</a>
+            </div>
+            {% endif %}
             <form method="post" action="/subscribers/{{ s.id }}/toggle" class="toggle-form"><button class="secondary-button" type="submit">{{ 'Pause Recipient' if s.active else 'Reactivate Recipient' }}</button></form>
           </div>
         </details>

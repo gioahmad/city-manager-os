@@ -875,7 +875,14 @@ def deliveries_page(request: Request, status: str = "", q: str = ""):
 
 
 @app.get("/subscribers", response_class=HTMLResponse)
-def subscribers_page(request: Request, q: str = "", state: str = "all", msg: str = "", error: str = ""):
+def subscribers_page(
+    request: Request,
+    q: str = "",
+    state: str = "all",
+    msg: str = "",
+    error: str = "",
+    manage: str = "",
+):
     where = []
     params = []
     if state == "active":
@@ -907,16 +914,25 @@ def subscribers_page(request: Request, q: str = "", state: str = "all", msg: str
         """,
         params,
     )
+    managed_subscriber = manage.strip()
     for row in rows:
         row["active_watch_ids"] = set(row.get("active_watch_ids") or [])
-    watch_options = query_all(
-        """
-        SELECT id::text AS id,display_name,active,expires_at
-        FROM watch_items
-        ORDER BY active DESC,display_name
-        LIMIT 500
-        """
-    )
+        row["manage_watches"] = str(row["id"]) == managed_subscriber
+    watch_options = []
+    if any(row["manage_watches"] for row in rows):
+        watch_options = query_all(
+            """
+            SELECT id::text AS id,display_name,
+                   CASE
+                     WHEN expires_at IS NOT NULL AND expires_at<=now() THEN 'Expired'
+                     WHEN active THEN 'On'
+                     ELSE 'Paused'
+                   END AS state_label
+            FROM watch_items
+            ORDER BY active DESC,display_name
+            LIMIT 500
+            """
+        )
     counts = query_one(
         """
         SELECT count(*) AS total,
@@ -1023,18 +1039,27 @@ def subscriber_watches_update(
             conn.commit()
     except HTTPException as exc:
         return RedirectResponse(
-            url=f"/subscribers?{urlencode({'error': str(exc.detail)})}",
+            url=(
+                f"/subscribers?{urlencode({'manage': str(subscriber_uuid), 'error': str(exc.detail)})}"
+                f"#recipient-{subscriber_uuid}"
+            ),
             status_code=303,
         )
     except Exception:
         incident_id = uuid.uuid4().hex[:10].upper()
         LOGGER.exception("Recipient Watch assignment failed incident=%s", incident_id)
         return RedirectResponse(
-            url=f"/subscribers?{urlencode({'error': f'Watch assignments were not changed. Reference {incident_id}.'})}",
+            url=(
+                f"/subscribers?{urlencode({'manage': str(subscriber_uuid), 'error': f'Watch assignments were not changed. Reference {incident_id}.'})}"
+                f"#recipient-{subscriber_uuid}"
+            ),
             status_code=303,
         )
     return RedirectResponse(
-        url=f"/subscribers?{urlencode({'msg': f'Recipient now follows {active_total} Watches'})}",
+        url=(
+            f"/subscribers?{urlencode({'manage': str(subscriber_uuid), 'msg': f'Recipient now follows {active_total} Watches'})}"
+            f"#recipient-{subscriber_uuid}"
+        ),
         status_code=303,
     )
 

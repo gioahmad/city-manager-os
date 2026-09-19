@@ -1376,7 +1376,7 @@ def _bulk_location_context(
     rows = query_all(
         """
         SELECT f.id::text AS id,f.name,f.properties,
-               ST_GeometryType(f.geom) AS geometry_type,ST_AsEWKT(f.geom) AS target_wkt
+               ST_GeometryType(f.geom) AS geometry_type
         FROM map_features f
         WHERE f.layer_id=%s AND f.active=true AND f.geom IS NOT NULL
         ORDER BY f.name NULLS LAST,f.id
@@ -1505,6 +1505,19 @@ def spatial_watch_bulk_create(
                 if not cur.fetchone():
                     raise HTTPException(400, "One or more selected Recipients are paused or no longer available")
 
+            cur.execute(
+                """
+                SELECT id::text AS id,ST_AsEWKT(geom) AS target_wkt
+                FROM map_features
+                WHERE layer_id=%s AND active=true AND geom IS NOT NULL
+                  AND id=ANY(%s::uuid[])
+                """,
+                (layer_id, [uuid.UUID(feature_id) for feature_id in feature_ids]),
+            )
+            targets = {row["id"]: row["target_wkt"] for row in cur.fetchall()}
+            if len(targets) != len(feature_ids):
+                raise HTTPException(400, "One or more selected Locations changed. Review the layer and try again.")
+
             for feature_id in feature_ids:
                 feature = context["features_by_id"][feature_id]
                 search_term = topic or feature["label"]
@@ -1547,7 +1560,7 @@ def spatial_watch_bulk_create(
                         "gis_lookup": gis_lookup,
                         "nearby_enabled": True,
                         "radius_ft": radius_ft,
-                        "target_wkt": feature["target_wkt"],
+                        "target_wkt": targets[feature_id],
                     },
                 )
                 created_ids.append(watch_uuid)
@@ -1616,8 +1629,7 @@ def spatial_watch_create(
         if value and value.casefold() not in {item.casefold() for item in selected_keywords}:
             selected_keywords.append(value)
     if topic_required and selected_keywords:
-        topic = selected_keywords[0]
-        combined_aliases = [*selected_keywords[1:], *alias_values]
+        combined_aliases = [*selected_keywords, *alias_values]
         alias_values = []
         seen_aliases = {topic.casefold()}
         for value in combined_aliases:

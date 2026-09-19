@@ -282,7 +282,7 @@ mapping,timing['mapping']=get('/map')
 release,timing['release_api']=get('/api/spatial-watch/release',True)
 for marker in ('Create several Watches from a map layer','Inside boundary','50 feet · road or corridor','Create Selected Watches'):
     if marker not in watchlist and marker!='Create Selected Watches': raise RuntimeError('reusable Location instructions are incomplete')
-for marker in ('Open a Recipient to edit the channel or choose which existing Watches','Save Watch Choices'):
+for marker in ('Open a Recipient to edit the channel or choose which existing Watches','Recipient Directory'):
     if marker not in subscribers: raise RuntimeError('Recipient Watch choices are incomplete')
 if 'Build Watches' not in mapping: raise RuntimeError('Mapping Center Watch action is missing')
 if release.get('bulk_watch_limit')!=250 or release.get('reusable_location_source')!='Mapping Center map_layers and map_features':
@@ -294,6 +294,14 @@ choices=_alert_keyword_choices({
 })
 normalized={value.casefold() for value in choices}
 if not {'working fire','road closure'}.issubset(normalized): raise RuntimeError('dynamic Alert keyword contract failed')
+
+recipient=query_one("SELECT id::text AS id FROM subscribers ORDER BY created_at,id LIMIT 1")
+recipient_preview='SKIPPED_NO_RECIPIENT'
+if recipient:
+    managed,timing['recipient_watch_choices']=get('/subscribers?'+urllib.parse.urlencode({'manage':recipient['id']}))
+    for marker in ('Watches for this Recipient','Save Watch Choices','name="watch_item_ids"'):
+        if marker not in managed: raise RuntimeError('Recipient Watch checklist is incomplete')
+    recipient_preview='PASS'
 
 seed=query_one("SELECT alert_id FROM alerts WHERE nullif(trim(alert_id),'') IS NOT NULL ORDER BY received_at DESC,id DESC LIMIT 1")
 if seed:
@@ -326,6 +334,7 @@ if any(value>20000 for value in timing.values()): raise RuntimeError('a focused 
 
 print(json.dumps({
   'recipient_watch_assignment':'PASS',
+  'recipient_watch_preview':recipient_preview,
   'dynamic_alert_keywords':'PASS',
   'mapping_center_reuse':'PASS',
   'bulk_watch_preview':bulk_preview,
