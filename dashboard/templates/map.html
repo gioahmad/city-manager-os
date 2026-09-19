@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
-  <link rel="stylesheet" href="/static/map.css?v=20260908-1">
+  <link rel="stylesheet" href="/static/map.css?v=20260919-1">
   <link rel="stylesheet" href="/static/map_status.css?v=20260909-1">
 </head>
 <body>
@@ -35,6 +35,13 @@
         <button class="map-tab" type="button" data-panel="draw">Draw</button>
         <button class="map-tab" type="button" data-panel="tools">Tools</button>
       </div>
+
+      <section class="map-selected-feature" id="map-selected-feature" aria-live="polite">
+        <div class="panel-kicker">SELECTED MAP FEATURE</div>
+        <strong id="map-selected-title">Click any map feature</strong>
+        <small id="map-selected-layer">Alerts, Watches, work items, parcels, addresses, events, references, transit points, and your own layers are clickable.</small>
+        <div id="map-selected-details" class="map-selected-details"></div>
+      </section>
 
       <section class="map-tool-panel active" data-panel-name="search">
         <div class="map-section-title"><div><div class="panel-kicker">FIND</div><h3>Address / Parcel Search</h3></div></div>
@@ -75,7 +82,7 @@
         <div class="map-layer-list">
           {% for layer in system_layers %}
           <label class="map-layer-row">
-            <input class="system-layer-toggle" type="checkbox" data-key="{{ layer.key }}" data-endpoint="{{ layer.endpoint }}" data-viewport="{{ '1' if layer.viewport else '0' }}" data-color="{{ (layer.style or {}).get('color','') }}" {{ 'checked' if layer.default_visible else '' }}>
+            <input class="system-layer-toggle" type="checkbox" data-key="{{ layer.key }}" data-name="{{ layer.name }}" data-endpoint="{{ layer.endpoint }}" data-viewport="{{ '1' if layer.viewport else '0' }}" data-color="{{ (layer.style or {}).get('color','') }}" {{ 'checked' if layer.default_visible else '' }}>
             <span><strong>{{ layer.name }}</strong><small>City Manager OS</small></span>
           </label>
           {% endfor %}
@@ -87,13 +94,13 @@
         <article class="map-custom-row {{ '' if layer.active else 'inactive' }}">
           <div class="map-custom-main">
             <label>
-              {% if layer.active %}<input class="custom-layer-toggle" type="checkbox" data-id="{{ layer.id }}" data-type="{{ layer.layer_type }}" data-url="{{ layer.source_url or '' }}" data-attribution="{{ layer.attribution or '' }}" data-color="{{ (layer.style or {}).get('color','#4aa3df') }}" {{ 'checked' if layer.default_visible else '' }}>{% endif %}
+              {% if layer.active %}<input class="custom-layer-toggle" type="checkbox" data-id="{{ layer.id }}" data-name="{{ layer.name }}" data-type="{{ layer.layer_type }}" data-url="{{ layer.source_url or '' }}" data-attribution="{{ layer.attribution or '' }}" data-color="{{ (layer.style or {}).get('color','#4aa3df') }}" {{ 'checked' if layer.default_visible else '' }}>{% endif %}
               <span><strong>{{ layer.name }}</strong><small>{{ layer.layer_type|replace('_',' ') }}{% if layer.layer_type == 'CUSTOM_GEOJSON' %} · {{ layer.feature_count or 0 }} features{% endif %}</small></span>
             </label>
             {% if layer.last_feature_at %}<small class="map-layer-date">Data updated {{ layer.last_feature_at.strftime('%m/%d/%y %I:%M %p') }}</small>{% endif %}
           </div>
           <div class="map-layer-actions">
-            {% if layer.active and layer.layer_type == 'CUSTOM_GEOJSON' %}<button class="map-mini-button zoom-custom-layer" type="button" data-id="{{ layer.id }}" data-color="{{ (layer.style or {}).get('color','#4aa3df') }}">Zoom</button>{% endif %}
+            {% if layer.active and layer.layer_type == 'CUSTOM_GEOJSON' %}<button class="map-mini-button zoom-custom-layer" type="button" data-id="{{ layer.id }}" data-name="{{ layer.name }}" data-color="{{ (layer.style or {}).get('color','#4aa3df') }}">Zoom</button>{% endif %}
             <form method="post" action="/map/layer/{{ layer.id }}/default"><button class="map-mini-button" type="submit">{{ 'Default On' if layer.default_visible else 'Default Off' }}</button></form>
             <form method="post" action="/map/layer/{{ layer.id }}/toggle"><button class="map-mini-button" type="submit">{{ 'Disable' if layer.active else 'Enable' }}</button></form>
             {% if layer.active %}<form method="post" action="/map/layer/{{ layer.id }}/archive" onsubmit="return confirm('Archive this layer? Existing features will remain in the database but the layer will be disabled.')"><button class="map-mini-button danger-lite" type="submit">Archive</button></form>{% endif %}
@@ -167,8 +174,15 @@ const map=L.map('city-map',{preferCanvas:true,zoomControl:true});
 map.fitBounds(regionBounds,{padding:[20,20]});
 const statusEl=document.getElementById('map-status');
 const groups={};
+const loadVersions={};
+const FEATURE_CLICK_CONTRACT='all-geojson-and-map-locations-v1';
+const selectedTitle=document.getElementById('map-selected-title');
+const selectedLayer=document.getElementById('map-selected-layer');
+const selectedDetails=document.getElementById('map-selected-details');
+let locationPickerActive=false;
+let drawingActive=false;
 function status(msg){statusEl.textContent=msg;}
-function safeText(v){return v===null||v===undefined||v===''?'—':String(v);}
+function safeText(v){if(v===null||v===undefined||v==='')return'—';if(Array.isArray(v))return v.map(safeText).join(', ');if(typeof v==='object'){try{return JSON.stringify(v);}catch(error){return'Additional details';}}return String(v);}
 const gisStatusEl=document.getElementById('gis-refresh-status');
 function compactNumber(value){return Number(value||0).toLocaleString();}
 async function loadGisStatus(){
@@ -188,37 +202,71 @@ async function loadGisStatus(){
 }
 loadGisStatus();setInterval(loadGisStatus,30000);
 
-const labels={item_type:'Type',priority:'Priority',status:'Status',assigned_to:'Owner',waiting_on:'Waiting on',next_action:'Next action',mapped_address:'Address',due_at:'Due',follow_up_at:'Follow up',prop_loc:'Property',pams_pin:'PAMS PIN',block:'Block',lot:'Lot',fulladdr:'Address',impact_level:'Impact',impact_score:'Score',impact_summary:'Impact summary',starts_at:'Starts',venue:'Venue',result_type:'Result',label:'Name',detail:'Details',message:'Incident details',matched_watches:'Matched Watches',alert_id:'Alert reference',observed_at:'Observed',received_at:'Received',resolution_status:'Location status',match_type:'Location match',confidence:'Confidence',spatial_precision:'Precision',approximate:'Approximate'};
+const labels={item_type:'Type',priority:'Priority',status:'Status',assigned_to:'Owner',waiting_on:'Waiting on',next_action:'Next action',mapped_address:'Address',due_at:'Due',follow_up_at:'Follow up',prop_loc:'Property',pams_pin:'PAMS PIN',block:'Block',lot:'Lot',fulladdr:'Address',impact_level:'Impact',impact_score:'Score',impact_summary:'Impact summary',starts_at:'Starts',ends_at:'Ends',venue:'Venue',result_type:'Result',label:'Name',detail:'Details',message:'Incident details',matched_watches:'Matched Watches',alert_id:'Alert reference',observed_at:'Observed',received_at:'Received',resolution_status:'Location status',match_type:'Location match',confidence:'Confidence',spatial_precision:'Precision',approximate:'Approximate',display_name:'Watch',watch_state:'Watch status',intended_recipients:'Recipients',radius_ft:'Distance in feet',source:'Source',category:'Category',subtype:'Subtype'};
+function mergedProperties(feature){const props=feature?.properties||{};const nested=(props&&typeof props.properties==='object'&&!Array.isArray(props.properties)&&props.properties)||{};const merged={...nested,...props};delete merged.properties;return merged;}
+function featureTitle(feature,key,layerName){
+  const props=mergedProperties(feature);
+  if(key==='parcels'&&!props.prop_loc&&(props.block||props.lot))return'Block '+safeText(props.block)+' Lot '+safeText(props.lot);
+  return safeText(props.title||props.display_name||props.name||props.label||props.canonical_name||props.fulladdr||props.prop_loc||props.location_name||props.mapped_address||props.address||props.alert_id||(layerName+' feature'));
+}
 function popupFor(props,key=''){
   const wrap=document.createElement('div');wrap.className='map-popup';
-  const nested=(props&&typeof props.properties==='object'&&props.properties)||{};
+  const nested=(props&&typeof props.properties==='object'&&!Array.isArray(props.properties)&&props.properties)||{};
   const merged={...nested,...props};delete merged.properties;
-  const preferred=key==='operations'?['title','item_type','priority','status','assigned_to','waiting_on','next_action','mapped_address','due_at','follow_up_at']:key==='alerts'?['title','message','matched_watches','source','category','subtype','priority','status','mapped_address','observed_at','received_at','alert_id','resolution_status']:key==='parcels'?['prop_loc','block','lot','pams_pin']:key==='addresses'?['fulladdr','post_comm','post_code']:key==='search'?['result_type','label','detail']:[];
-  const keys=[...preferred,...Object.keys(merged)].filter((v,i,a)=>a.indexOf(v)===i&&merged[v]!==null&&merged[v]!==''&&v!=='source_id'&&v!=='id').slice(0,key==='alerts'?13:12);
+  const preferred=key==='operations'?['title','item_type','priority','status','assigned_to','waiting_on','next_action','mapped_address','due_at','follow_up_at']:key==='alerts'?['title','message','matched_watches','source','category','subtype','priority','status','mapped_address','observed_at','received_at','alert_id','resolution_status']:key==='watchlist'?['display_name','watch_state','intended_recipients','address','watch_type','radius_ft','min_priority','starts_at','expires_at']:key==='parcels'?['prop_loc','block','lot','pams_pin']:key==='addresses'?['fulladdr','post_comm','post_code','status']:key==='search'?['result_type','label','detail']:[];
+  const keys=[...preferred,...Object.keys(merged)].filter((v,i,a)=>a.indexOf(v)===i&&merged[v]!==null&&merged[v]!==''&&v!=='source_id'&&v!=='id'&&!String(v).startsWith('_')).slice(0,18);
   keys.forEach(k=>{const row=document.createElement('div');const strong=document.createElement('strong');strong.textContent=(labels[k]||k.replaceAll('_',' '))+': ';const span=document.createElement('span');span.textContent=safeText(merged[k]);row.append(strong,span);wrap.appendChild(row);});
+  if(!keys.length){const empty=document.createElement('span');empty.textContent='No additional details are stored for this feature.';wrap.appendChild(empty);}
   return wrap;
 }
 function pointStyle(key,props={}){let color=key==='operations'?'#f2994a':key==='watchlist'?'#c792ea':key==='event-intelligence'?'#e26d6d':key==='search'?'#57b8ff':'#66c2a5';if(key==='alerts')color=Number(props.priority||0)>=5?'#d64545':Number(props.priority||0)>=4?'#f2994a':'#f2c94c';const approximate=key==='alerts'&&Boolean(props.approximate);return{radius:key==='operations'||key==='search'||key==='alerts'?7:5,color:approximate?'#222':'#fff',weight:approximate?2:1,dashArray:approximate?'3 3':null,fillColor:color,fillOpacity:approximate ? .48 : .92};}
-function watchCenterMarker(latlng){return L.circleMarker(latlng,{radius:6,color:'#fff',weight:2,fillColor:'#7b3fb2',fillOpacity:1,pane:'markerPane',className:'watch-center-marker'}).bindTooltip('Watch center',{direction:'top',offset:[0,-6]});}
-function addWatchCenter(feature,layer){if(feature.geometry?.type==='Point'||!layer.getBounds)return;const bounds=layer.getBounds();if(!bounds.isValid())return;if(!groups['watch-centers'])groups['watch-centers']=L.layerGroup().addTo(map);groups['watch-centers'].addLayer(watchCenterMarker(bounds.getCenter()));}
+function watchCenterMarker(latlng){return L.circleMarker(latlng,{radius:6,color:'#fff',weight:2,fillColor:'#7b3fb2',fillOpacity:1,pane:'overlayPane',className:'watch-center-marker',interactive:false,bubblingMouseEvents:false}).bindTooltip('Watch center',{direction:'top',offset:[0,-6]});}
+function addWatchCenter(feature,layer){if(feature.geometry?.type==='Point'||!layer.getBounds)return;const bounds=layer.getBounds();if(!bounds.isValid())return;if(!groups['watch-centers'])groups['watch-centers']=L.featureGroup().addTo(map);const marker=watchCenterMarker(bounds.getCenter());groups['watch-centers'].addLayer(marker);layer.on('mouseover',()=>marker.openTooltip());layer.on('mouseout',()=>marker.closeTooltip());}
+function actionLink(label,href){const link=document.createElement('a');link.className='map-mini-button';link.textContent=label;link.href=href;return link;}
 function spatialActions(feature,layer,key){
-  const props=feature.properties||{},nested=(props&&typeof props.properties==='object'&&props.properties)||{},merged={...nested,...props};
+  const merged=mergedProperties(feature);
   let center=null;
   if(feature.geometry?.type==='Point')center={lng:feature.geometry.coordinates[0],lat:feature.geometry.coordinates[1]};
   else if(layer.getBounds){const bounds=layer.getBounds();if(bounds.isValid())center=bounds.getCenter();}
   const wrap=document.createElement('div');wrap.className='map-layer-actions';
-  if(key==='spatial-references'&&merged.entity_id){const reference=document.createElement('a');reference.className='map-mini-button';reference.textContent=String(merged.entity_type||'').toUpperCase()==='CORRIDOR'?'Watch This Corridor':'Watch This Reference';reference.href='/spatial-reference/'+encodeURIComponent(merged.entity_id);wrap.appendChild(reference);}
-  else if(center&&key!=='alerts'){const link=document.createElement('a');link.className='map-mini-button';link.textContent='Watch This Area';const label=merged.title||merged.label||merged.canonical_name||merged.fulladdr||merged.prop_loc||'Map selection';link.href='/watchlist?'+new URLSearchParams({display_name:label,location_query:label,latitude:center.lat,longitude:center.lng});wrap.appendChild(link);}
-  if(key==='alerts'&&merged.alert_id){const watch=document.createElement('a');watch.className='map-mini-button';watch.textContent='Create Watch From Alert';watch.href='/watchlist?'+new URLSearchParams({from_alert:merged.alert_id});wrap.appendChild(watch);const open=document.createElement('a');open.className='map-mini-button';open.textContent='Open Full Alert';open.href='/alerts?'+new URLSearchParams({q:merged.alert_id,window:'all',state:'all'});wrap.appendChild(open);const impact=document.createElement('button');impact.type='button';impact.className='map-mini-button';impact.textContent='Show Impact Area';impact.addEventListener('click',()=>showImpactArea(merged.alert_id));wrap.appendChild(impact);}
+  const label=merged.title||merged.display_name||merged.name||merged.label||merged.canonical_name||merged.fulladdr||merged.prop_loc||merged.mapped_address||'Map selection';
+  if(key==='alerts'&&merged.alert_id){wrap.appendChild(actionLink('Create Watch From Alert','/watchlist?'+new URLSearchParams({from_alert:merged.alert_id})));wrap.appendChild(actionLink('Open Full Alert','/alerts?'+new URLSearchParams({q:merged.alert_id,window:'all',state:'all'})));const impact=document.createElement('button');impact.type='button';impact.className='map-mini-button';impact.textContent='Show Impact Area';impact.addEventListener('click',()=>showImpactArea(merged.alert_id));wrap.appendChild(impact);}
+  else if(key==='watchlist'&&merged.watch_id){wrap.appendChild(actionLink('Open Watch','/watchlist?'+new URLSearchParams({q:merged.watch_id})));}
+  else{
+    let locationKind='',locationId='';
+    if(key==='parcels'&&merged.objectid){locationKind='PARCEL';locationId=merged.objectid;}
+    else if(key==='addresses'&&merged.objectid){locationKind='ADDRESS';locationId=merged.objectid;}
+    else if(key==='spatial-references'&&(merged.entity_id||merged.source_id)){locationKind='REFERENCE';locationId=merged.entity_id||merged.source_id;}
+    else if(key==='search'&&merged.source_id){const resultKind=String(merged.result_type||'').toUpperCase();locationKind=resultKind==='ADDRESS'?'ADDRESS':resultKind==='PARCEL'?'PARCEL':resultKind==='REFERENCE'?'REFERENCE':resultKind==='CUSTOM'?'CUSTOM_FEATURE':'';locationId=merged.source_id;}
+    else if(key.startsWith('custom-')&&merged.id){locationKind='CUSTOM_FEATURE';locationId=merged.id;}
+    const params={display_name:label,location_query:label,setup_mode:'LOCATION'};
+    if(locationKind&&locationId){params.location_kind=locationKind;params.location_id=locationId;}
+    else if(center){params.location_kind='MAP_POINT';params.latitude=center.lat;params.longitude=center.lng;}
+    if((locationKind&&locationId)||center)wrap.appendChild(actionLink('Create One-Mile Watch','/watchlist?'+new URLSearchParams(params)));
+    if(key==='spatial-references'&&merged.entity_id){const referenceLabel=String(merged.entity_type||'').toUpperCase()==='CORRIDOR'?'Watch This Corridor':'Watch This Reference';wrap.appendChild(actionLink(referenceLabel,'/spatial-reference/'+encodeURIComponent(merged.entity_id)));}
+  }
   return wrap.childNodes.length?wrap:null;
 }
-function geoOptions(key,color){return{style:feature=>{if(key==='flood'){const sfha=String(feature.properties?.sfha_tf||'').toUpperCase()==='T';return{color:sfha?'#d9534f':'#d7a441',weight:1,fillColor:sfha?'#d9534f':'#d7a441',fillOpacity:sfha ? .30 : .18};}return{color:color||'#4aa3df',weight:key==='parcels'?1:2,fillColor:color||'#4aa3df',fillOpacity:key==='parcels' ? .03 : .16};},pointToLayer:(feature,latlng)=>L.circleMarker(latlng,pointStyle(key,feature.properties||{})),onEachFeature:(feature,layer)=>{if(key==='watchlist')addWatchCenter(feature,layer);const popup=popupFor(feature.properties||{},key),actions=spatialActions(feature,layer,key);if(actions)popup.appendChild(actions);layer.bindPopup(popup);}};}
+function featureContent(feature,layer,key){const popup=popupFor(feature.properties||{},key),actions=spatialActions(feature,layer,key);if(actions)popup.appendChild(actions);return popup;}
+function showSelectedFeature(feature,layer,key,layerName){selectedTitle.textContent=featureTitle(feature,key,layerName);selectedLayer.textContent=layerName;selectedDetails.replaceChildren(featureContent(feature,layer,key));status(layerName+' selected');}
+function locationContent(latlng){const popup=document.createElement('div');popup.className='map-popup';const row=document.createElement('div');const strong=document.createElement('strong');strong.textContent='Coordinates: ';const span=document.createElement('span');span.textContent=latlng.lat.toFixed(6)+', '+latlng.lng.toFixed(6);row.append(strong,span);const actions=document.createElement('div');actions.className='map-layer-actions';actions.appendChild(actionLink('Create One-Mile Watch','/watchlist?'+new URLSearchParams({display_name:'Map location watch',latitude:latlng.lat,longitude:latlng.lng,location_kind:'MAP_POINT',setup_mode:'LOCATION'})));popup.append(row,actions);return popup;}
+function showSelectedLocation(latlng){selectedTitle.textContent='Map location';selectedLayer.textContent='Selected coordinates';selectedDetails.replaceChildren(locationContent(latlng));status('Map location selected');}
+function refreshFeatureOrder(){
+  const customKeys=Object.keys(groups).filter(key=>key.startsWith('custom-')&&groups[key] instanceof L.GeoJSON);
+  const ordered=['flood','parcels',...customKeys,'spatial-references','watchlist','watch-centers','addresses','event-intelligence','managed-events','transit-intelligence','operations','impact-preview','alerts','search'];
+  ordered.forEach(key=>{const group=groups[key];if(group&&typeof group.bringToFront==='function')group.bringToFront();});
+}
+function geoOptions(key,color,layerName){return{
+  style:feature=>{const common={interactive:true,bubblingMouseEvents:false};if(key==='flood'){const sfha=String(feature.properties?.sfha_tf||'').toUpperCase()==='T';return{...common,color:sfha?'#d9534f':'#d7a441',weight:1,fillColor:sfha?'#d9534f':'#d7a441',fillOpacity:sfha ? .30 : .18};}return{...common,color:color||'#4aa3df',weight:key==='parcels'?1:2,fillColor:color||'#4aa3df',fillOpacity:key==='parcels' ? .03 : .16};},
+  pointToLayer:(feature,latlng)=>L.circleMarker(latlng,{...pointStyle(key,feature.properties||{}),interactive:true,bubblingMouseEvents:false}),
+  onEachFeature:(feature,layer)=>{if(key==='watchlist')addWatchCenter(feature,layer);layer.options.bubblingMouseEvents=false;layer.bindPopup(featureContent(feature,layer,key),{maxWidth:420,autoPan:true});layer.on('click',event=>{if(event.originalEvent)L.DomEvent.stopPropagation(event.originalEvent);showSelectedFeature(feature,layer,key,layerName);layer.openPopup(event.latlng);});}
+};}
 function boundsParam(){const b=map.getBounds();return[b.getWest(),b.getSouth(),b.getEast(),b.getNorth()].join(',');}
-async function loadGeo(key,endpoint,color,viewport=false){status('Loading '+key+'...');let url=endpoint;if(viewport)url+=(url.includes('?')?'&':'?')+'bbox='+encodeURIComponent(boundsParam());const res=await fetch(url,{headers:{Accept:'application/geo+json'}});if(!res.ok)throw new Error(key+' layer failed: '+res.status);const data=await res.json();if(key==='watchlist')removeLayer('watch-centers');if(groups[key])groups[key].clearLayers();else groups[key]=L.geoJSON(null,geoOptions(key,color)).addTo(map);groups[key].addData(data);status(key+' · '+(data.features?.length||0)+' features');return groups[key];}
-function removeLayer(key){if(groups[key]){map.removeLayer(groups[key]);groups[key]=null;}if(key==='watchlist'&&groups['watch-centers']){map.removeLayer(groups['watch-centers']);groups['watch-centers']=null;}}
-async function showImpactArea(alertId){const requested=window.prompt('Impact buffer in feet','500');if(requested===null)return;const radius=Math.max(1,Math.min(Number(requested)||500,26400));status('Loading impact area...');const res=await fetch('/api/alerts/'+encodeURIComponent(alertId)+'/impact-buffer.geojson?radius_ft='+radius,{headers:{Accept:'application/geo+json'}});if(!res.ok){status('Impact area unavailable');return;}const data=await res.json();removeLayer('impact-preview');groups['impact-preview']=L.geoJSON(data,{style:{color:'#d64545',weight:3,fillColor:'#d64545',fillOpacity:.16}}).addTo(map);const bounds=groups['impact-preview'].getBounds();if(bounds.isValid())map.fitBounds(bounds,{padding:[30,30],maxZoom:18});status('Impact area · '+radius.toLocaleString()+' ft');}
+async function loadGeo(key,endpoint,color,viewport=false,layerName=key){const version=(loadVersions[key]||0)+1;loadVersions[key]=version;status('Loading '+layerName+'...');let url=endpoint;if(viewport)url+=(url.includes('?')?'&':'?')+'bbox='+encodeURIComponent(boundsParam());const res=await fetch(url,{headers:{Accept:'application/geo+json'}});if(!res.ok)throw new Error(layerName+' layer failed: '+res.status);let data=await res.json();if(loadVersions[key]!==version)return groups[key]||null;if(key==='alerts'&&Array.isArray(data.features))data={...data,features:[...data.features].reverse()};if(key==='watchlist')removeLayer('watch-centers');if(groups[key])groups[key].clearLayers();else groups[key]=L.geoJSON(null,geoOptions(key,color,layerName)).addTo(map);groups[key].addData(data);refreshFeatureOrder();status(layerName+' · '+(data.features?.length||0)+' features');return groups[key];}
+function removeLayer(key){loadVersions[key]=(loadVersions[key]||0)+1;if(groups[key]){map.removeLayer(groups[key]);groups[key]=null;}if(key==='watchlist'&&groups['watch-centers']){map.removeLayer(groups['watch-centers']);groups['watch-centers']=null;}}
+async function showImpactArea(alertId){const requested=window.prompt('Impact buffer in feet','500');if(requested===null)return;const radius=Math.max(1,Math.min(Number(requested)||500,26400));status('Loading impact area...');const res=await fetch('/api/alerts/'+encodeURIComponent(alertId)+'/impact-buffer.geojson?radius_ft='+radius,{headers:{Accept:'application/geo+json'}});if(!res.ok){status('Impact area unavailable');return;}const data=await res.json();removeLayer('impact-preview');groups['impact-preview']=L.geoJSON(data,{style:{color:'#d64545',weight:3,fillColor:'#d64545',fillOpacity:.16,interactive:false}}).addTo(map);refreshFeatureOrder();const bounds=groups['impact-preview'].getBounds();if(bounds.isValid())map.fitBounds(bounds,{padding:[30,30],maxZoom:18});status('Impact area · '+radius.toLocaleString()+' ft');}
 
-document.querySelectorAll('.system-layer-toggle').forEach(el=>{el.addEventListener('change',async()=>{if(el.checked){try{await loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,el.dataset.viewport==='1');}catch(e){status(e.message);}}else removeLayer(el.dataset.key);});});
+document.querySelectorAll('.system-layer-toggle').forEach(el=>{el.addEventListener('change',async()=>{if(el.checked){try{await loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,el.dataset.viewport==='1',el.dataset.name||el.dataset.key);}catch(e){status(e.message);}}else removeLayer(el.dataset.key);});});
 const OSM_TILE_HOST='tile.openstreetmap.org';
 const OSM_REFERRER_POLICY='strict-origin-when-cross-origin';
 const OSM_ATTRIBUTION='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
@@ -245,20 +293,21 @@ function addBasemap(el,key){
   groups[key]=layer.addTo(map);
   status('Basemap enabled');
 }
-document.querySelectorAll('.custom-layer-toggle').forEach(el=>{const key='custom-'+el.dataset.id;el.addEventListener('change',async()=>{if(!el.checked){removeLayer(key);return;}try{if(el.dataset.type==='XYZ')addBasemap(el,key);else await loadGeo(key,'/map/layer/'+el.dataset.id+'.geojson',el.dataset.color,false);}catch(e){status(e.message);}});});
+document.querySelectorAll('.custom-layer-toggle').forEach(el=>{const key='custom-'+el.dataset.id;el.addEventListener('change',async()=>{if(!el.checked){removeLayer(key);return;}try{if(el.dataset.type==='XYZ')addBasemap(el,key);else await loadGeo(key,'/map/layer/'+el.dataset.id+'.geojson',el.dataset.color,false,el.dataset.name||'Custom layer');}catch(e){status(e.message);}});});
 const alertToggle=document.querySelector('.system-layer-toggle[data-key="alerts"]');
 function alertEndpoint(){const params=new URLSearchParams({hours:document.getElementById('alert-window')?.value||'12',min_priority:document.getElementById('alert-map-priority')?.value||'1'});const q=document.getElementById('alert-map-query')?.value.trim(),source=document.getElementById('alert-map-source')?.value,category=document.getElementById('alert-map-category')?.value;if(q)params.set('q',q);if(source)params.set('source',source);if(category)params.set('category',category);if(document.getElementById('alert-map-active')?.checked)params.set('active_only','true');return '/map/system/alerts.geojson?'+params;}
-async function applyAlertFilters(){if(!alertToggle)return;alertToggle.dataset.endpoint=alertEndpoint();alertToggle.checked=true;try{await loadGeo('alerts',alertToggle.dataset.endpoint,alertToggle.dataset.color||null,true);}catch(e){status(e.message);}}
+async function applyAlertFilters(){if(!alertToggle)return;alertToggle.dataset.endpoint=alertEndpoint();alertToggle.checked=true;try{await loadGeo('alerts',alertToggle.dataset.endpoint,alertToggle.dataset.color||null,true,alertToggle.dataset.name||'Alerts');}catch(e){status(e.message);}}
 document.getElementById('search-visible-alerts')?.addEventListener('click',applyAlertFilters);
 document.getElementById('alert-map-query')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();applyAlertFilters();}});
 if(alertToggle)alertToggle.dataset.endpoint=alertEndpoint();
 async function initialLoad(){for(const el of document.querySelectorAll('.custom-layer-toggle:checked'))el.dispatchEvent(new Event('change'));for(const el of document.querySelectorAll('.system-layer-toggle:checked'))el.dispatchEvent(new Event('change'));status('Map ready');}
 initialLoad();
-let viewportTimer=null;map.on('moveend',()=>{clearTimeout(viewportTimer);viewportTimer=setTimeout(()=>{document.querySelectorAll('.system-layer-toggle:checked').forEach(el=>{if(el.dataset.viewport==='1')loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,true).catch(e=>status(e.message));});},250);});
+let viewportTimer=null;map.on('moveend',()=>{clearTimeout(viewportTimer);if(map._popup)return;viewportTimer=setTimeout(()=>{if(map._popup)return;document.querySelectorAll('.system-layer-toggle:checked').forEach(el=>{if(el.dataset.viewport==='1')loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,true,el.dataset.name||el.dataset.key).catch(e=>status(e.message));});},250);});
+map.on('click',ev=>{if(locationPickerActive||drawingActive)return;showSelectedLocation(ev.latlng);L.popup({maxWidth:420}).setLatLng(ev.latlng).setContent(locationContent(ev.latlng)).openOn(map);});
 
 function fitRegion(){map.fitBounds(regionBounds,{padding:[20,20]});}
 document.getElementById('fit-town')?.addEventListener('click',fitRegion);document.getElementById('fit-town-tools')?.addEventListener('click',fitRegion);
-document.getElementById('pick-watch-point')?.addEventListener('click',()=>{status('Click the map to select a Watch Location');map.getContainer().style.cursor='crosshair';map.once('click',ev=>{map.getContainer().style.cursor='';const params=new URLSearchParams({display_name:'Map location watch',latitude:ev.latlng.lat,longitude:ev.latlng.lng,location_kind:'MAP_POINT'});const history=new URLSearchParams({lat:ev.latlng.lat,lon:ev.latlng.lng,radius_ft:5280,hours:24});removeLayer('watch-preview');const previewArea=L.circle(ev.latlng,{radius:5280*0.3048,color:'#c792ea',weight:2,fillColor:'#c792ea',fillOpacity:.12});const previewCenter=watchCenterMarker(ev.latlng);groups['watch-preview']=L.featureGroup([previewArea,previewCenter]).addTo(map);const popup=document.createElement('div');popup.className='map-popup';const coords=document.createElement('strong');coords.textContent=ev.latlng.lat.toFixed(6)+', '+ev.latlng.lng.toFixed(6);const actions=document.createElement('div');actions.className='map-layer-actions';const watch=document.createElement('a');watch.className='map-mini-button';watch.textContent='Create One-Mile Watch';watch.href='/watchlist?'+params;const nearby=document.createElement('a');nearby.className='map-mini-button';nearby.textContent='Nearby Alert History';nearby.href='/api/spatial-watch-point/nearby-history?'+history;actions.append(watch,nearby);popup.append(coords,actions);L.popup().setLatLng(ev.latlng).setContent(popup).openOn(map);status('One-mile Watch preview · center marked');});});
+document.getElementById('pick-watch-point')?.addEventListener('click',()=>{locationPickerActive=true;status('Click the map to select a Watch Location');map.getContainer().style.cursor='crosshair';map.once('click',ev=>{locationPickerActive=false;map.getContainer().style.cursor='';const params=new URLSearchParams({display_name:'Map location watch',latitude:ev.latlng.lat,longitude:ev.latlng.lng,location_kind:'MAP_POINT',setup_mode:'LOCATION'});const history=new URLSearchParams({lat:ev.latlng.lat,lon:ev.latlng.lng,radius_ft:5280,hours:24});removeLayer('watch-preview');const previewArea=L.circle(ev.latlng,{radius:5280*0.3048,color:'#c792ea',weight:2,fillColor:'#c792ea',fillOpacity:.12,interactive:false});const previewCenter=watchCenterMarker(ev.latlng);groups['watch-preview']=L.featureGroup([previewArea,previewCenter]).addTo(map);const popup=document.createElement('div');popup.className='map-popup';const coords=document.createElement('strong');coords.textContent=ev.latlng.lat.toFixed(6)+', '+ev.latlng.lng.toFixed(6);const actions=document.createElement('div');actions.className='map-layer-actions';const watch=document.createElement('a');watch.className='map-mini-button';watch.textContent='Create One-Mile Watch';watch.href='/watchlist?'+params;const nearby=document.createElement('a');nearby.className='map-mini-button';nearby.textContent='Nearby Alert History';nearby.href='/api/spatial-watch-point/nearby-history?'+history;actions.append(watch,nearby);popup.append(coords,actions);showSelectedLocation(ev.latlng);L.popup().setLatLng(ev.latlng).setContent(popup).openOn(map);status('One-mile Watch preview · center marked');});});
 
 document.querySelectorAll('.map-tab').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('.map-tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.map-tool-panel').forEach(x=>x.classList.remove('active'));button.classList.add('active');document.querySelector('[data-panel-name="'+button.dataset.panel+'"]').classList.add('active');}));
 
@@ -272,21 +321,22 @@ async function runMapSearch(q){
   if(!res.ok){status('Search failed');return;}
   const data=await res.json();searchResults.innerHTML='';
   if(!data.features?.length){searchResults.innerHTML='<div class="map-help-card">No matching address, parcel or custom feature found.</div>';status('No search results');return;}
-  if(groups.search){groups.search.clearLayers();}else groups.search=L.geoJSON(null,geoOptions('search','#57b8ff')).addTo(map);
+  if(groups.search){groups.search.clearLayers();}else groups.search=L.geoJSON(null,geoOptions('search','#57b8ff','Search result')).addTo(map);
   groups.search.addData(data);
-  data.features.forEach((feature,index)=>{const p=feature.properties||{};const button=document.createElement('button');button.type='button';button.className='map-search-result';button.innerHTML='<strong></strong><small></small>';button.querySelector('strong').textContent=p.label||'Map result';button.querySelector('small').textContent=(p.result_type||'')+(p.detail?' · '+p.detail:'');button.addEventListener('click',()=>{const temp=L.geoJSON(feature);const b=temp.getBounds();if(b.isValid())map.fitBounds(b,{padding:[35,35],maxZoom:19});else if(feature.geometry?.type==='Point')map.setView([feature.geometry.coordinates[1],feature.geometry.coordinates[0]],19);const layers=groups.search.getLayers();if(layers[index])layers[index].openPopup();});searchResults.appendChild(button);});
+  refreshFeatureOrder();
+  data.features.forEach((feature,index)=>{const p=feature.properties||{};const button=document.createElement('button');button.type='button';button.className='map-search-result';button.innerHTML='<strong></strong><small></small>';button.querySelector('strong').textContent=p.label||'Map result';button.querySelector('small').textContent=(p.result_type||'')+(p.detail?' · '+p.detail:'');button.addEventListener('click',()=>{const temp=L.geoJSON(feature);const b=temp.getBounds();if(b.isValid())map.fitBounds(b,{padding:[35,35],maxZoom:19});else if(feature.geometry?.type==='Point')map.setView([feature.geometry.coordinates[1],feature.geometry.coordinates[0]],19);const layers=groups.search.getLayers();if(layers[index]){showSelectedFeature(feature,layers[index],'search','Search result');layers[index].openPopup();}});searchResults.appendChild(button);});
   const b=groups.search.getBounds();if(b.isValid())map.fitBounds(b,{padding:[35,35],maxZoom:18});status(data.features.length+' search result'+(data.features.length===1?'':'s'));
 }
 searchForm.addEventListener('submit',ev=>{ev.preventDefault();runMapSearch(searchInput.value.trim());});
 const initialMapQuery=new URLSearchParams(window.location.search).get('q')?.trim()||'';
 if(initialMapQuery.length>=2){searchInput.value=initialMapQuery;runMapSearch(initialMapQuery);}
 
-document.querySelectorAll('.zoom-custom-layer').forEach(button=>button.addEventListener('click',async()=>{const id=button.dataset.id,key='custom-'+id;try{let group=groups[key];if(!group)group=await loadGeo(key,'/map/layer/'+id+'.geojson',button.dataset.color,false);const b=group.getBounds();if(b.isValid())map.fitBounds(b,{padding:[30,30]});}catch(e){status(e.message);}}));
+document.querySelectorAll('.zoom-custom-layer').forEach(button=>button.addEventListener('click',async()=>{const id=button.dataset.id,key='custom-'+id;try{let group=groups[key];if(!group)group=await loadGeo(key,'/map/layer/'+id+'.geojson',button.dataset.color,false,button.dataset.name||'Custom layer');if(!group)return;const b=group.getBounds();if(b.isValid())map.fitBounds(b,{padding:[30,30]});}catch(e){status(e.message);}}));
 
 const importSelect=document.getElementById('import-layer-select'),importForm=document.getElementById('map-import-form');function syncImportAction(){if(importSelect&&importForm)importForm.action='/map/layer/'+importSelect.value+'/upload';}importSelect?.addEventListener('change',syncImportAction);syncImportAction();
 const typeSelect=document.getElementById('new-layer-type'),xyzField=document.getElementById('xyz-url-field');function syncLayerForm(){if(xyzField&&typeSelect)xyzField.hidden=typeSelect.value!=='XYZ';}typeSelect?.addEventListener('change',syncLayerForm);syncLayerForm();
 
-const drawLayerSelect=document.getElementById('draw-layer-select');if(drawLayerSelect&&window.L.Control.Draw){const drawControl=new L.Control.Draw({position:'topleft',edit:false,draw:{circle:false,circlemarker:false,rectangle:true,marker:true,polyline:true,polygon:true}});map.addControl(drawControl);map.on(L.Draw.Event.CREATED,async ev=>{const layerId=drawLayerSelect.value;if(!layerId){status('Choose a custom layer first');return;}const feature=ev.layer.toGeoJSON();status('Saving drawing...');const res=await fetch('/map/layer/'+layerId+'/feature',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geometry:feature.geometry,properties:{source:'web-draw'}})});if(!res.ok){status('Could not save drawing');return;}const toggle=document.querySelector('.custom-layer-toggle[data-id="'+layerId+'"]');if(toggle){toggle.checked=true;await loadGeo('custom-'+layerId,'/map/layer/'+layerId+'.geojson',toggle.dataset.color,false);}status('Drawing saved');});}
+const drawLayerSelect=document.getElementById('draw-layer-select');if(drawLayerSelect&&window.L.Control.Draw){const drawControl=new L.Control.Draw({position:'topleft',edit:false,draw:{circle:false,circlemarker:false,rectangle:true,marker:true,polyline:true,polygon:true}});map.addControl(drawControl);map.on(L.Draw.Event.DRAWSTART,()=>{drawingActive=true;});map.on(L.Draw.Event.DRAWSTOP,()=>{drawingActive=false;});map.on(L.Draw.Event.CREATED,async ev=>{drawingActive=false;const layerId=drawLayerSelect.value;if(!layerId){status('Choose a custom layer first');return;}const feature=ev.layer.toGeoJSON();status('Saving drawing...');const res=await fetch('/map/layer/'+layerId+'/feature',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geometry:feature.geometry,properties:{source:'web-draw'}})});if(!res.ok){status('Could not save drawing');return;}const toggle=document.querySelector('.custom-layer-toggle[data-id="'+layerId+'"]');if(toggle){toggle.checked=true;await loadGeo('custom-'+layerId,'/map/layer/'+layerId+'.geojson',toggle.dataset.color,false,toggle.dataset.name||'Custom layer');}status('Drawing saved');});}
 </script>
 </body>
 </html>
