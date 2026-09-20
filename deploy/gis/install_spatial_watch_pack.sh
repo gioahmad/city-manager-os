@@ -79,21 +79,34 @@ INSERT INTO geo_entity_resolutions(
   'Resolver test point',ST_SetSRID(ST_MakePoint(-74.0200,40.7605),4326),'APPROXIMATE_COUNTY'
 );
 
-SELECT count(*)=1 FROM gis_active_spatial_watch_matches('CMOS56:IN');
-SELECT count(*)=0 FROM gis_active_spatial_watch_matches('CMOS56:OUT');
-SELECT count(*)=0 FROM gis_active_spatial_watch_matches('CMOS56:UNRESOLVED');
+SELECT count(*)=1 FROM gis_active_spatial_watch_matches('CMOS56:IN')
+WHERE watch_item_id BETWEEN
+  '56000000-0000-0000-0000-000000000001'::uuid AND '56000000-0000-0000-0000-000000000004'::uuid;
+SELECT count(*)=0 FROM gis_active_spatial_watch_matches('CMOS56:OUT')
+WHERE watch_item_id BETWEEN
+  '56000000-0000-0000-0000-000000000001'::uuid AND '56000000-0000-0000-0000-000000000004'::uuid;
+SELECT count(*)=0 FROM gis_active_spatial_watch_matches('CMOS56:UNRESOLVED')
+WHERE watch_item_id BETWEEN
+  '56000000-0000-0000-0000-000000000001'::uuid AND '56000000-0000-0000-0000-000000000004'::uuid;
 SELECT count(*)=1 FROM gis_active_spatial_watch_matches(
   'CMOS56:UNRESOLVED',ST_SetSRID(ST_MakePoint(-74.0200,40.7605),4326)
-);
-SELECT count(*)=1 FROM gis_active_spatial_watch_matches('CMOS56:RESOLVER_IN');
+) WHERE watch_item_id BETWEEN
+  '56000000-0000-0000-0000-000000000001'::uuid AND '56000000-0000-0000-0000-000000000004'::uuid;
+SELECT count(*)=1 FROM gis_active_spatial_watch_matches('CMOS56:RESOLVER_IN')
+WHERE watch_item_id BETWEEN
+  '56000000-0000-0000-0000-000000000001'::uuid AND '56000000-0000-0000-0000-000000000004'::uuid;
 SELECT match_reason LIKE '%resolver point (APPROXIMATE_COUNTY)%'
-FROM gis_active_spatial_watch_matches('CMOS56:RESOLVER_IN');
+FROM gis_active_spatial_watch_matches('CMOS56:RESOLVER_IN')
+WHERE watch_item_id='56000000-0000-0000-0000-000000000001'::uuid;
 SELECT match_type='PROXIMITY' AND distance_ft>0 AND distance_ft<500
-FROM gis_active_spatial_watch_matches('CMOS56:IN');
+FROM gis_active_spatial_watch_matches('CMOS56:IN')
+WHERE watch_item_id='56000000-0000-0000-0000-000000000001'::uuid;
 SELECT spatial_target_geom IS NOT NULL AND spatial_geom IS NOT NULL
 FROM watch_items WHERE watch_id='CMOS56_IN';
-SELECT count(*)=1 FROM gis_active_spatial_watch_matches('CMOS56:CORRIDOR_IN');
-SELECT count(*)=0 FROM gis_active_spatial_watch_matches('CMOS56:CORRIDOR_OUT');
+SELECT count(*)=1 FROM gis_active_spatial_watch_matches('CMOS56:CORRIDOR_IN')
+WHERE watch_item_id='56000000-0000-0000-0000-000000000005'::uuid;
+SELECT count(*)=0 FROM gis_active_spatial_watch_matches('CMOS56:CORRIDOR_OUT')
+WHERE watch_item_id='56000000-0000-0000-0000-000000000005'::uuid;
 SELECT ST_GeometryType(spatial_target_geom)='ST_LineString' AND spatial_geom IS NOT NULL
 FROM watch_items WHERE watch_id='CMOS56_CORRIDOR';
 ROLLBACK;

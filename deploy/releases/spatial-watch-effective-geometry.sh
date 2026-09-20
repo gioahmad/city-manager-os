@@ -237,7 +237,7 @@ docker compose -f "$REPO/dashboard/docker-compose.yml" run --rm --no-deps -T \
   -v "$REPO:/repo:ro" -w /repo/dashboard -e PYTHONPATH=/repo/dashboard:/app \
   --entrypoint pytest citymanager-dashboard -p no:cacheprovider -q \
   tests/test_attention_engine.py tests/test_gis_import.py tests/test_spatial_watch_pack.py \
-  tests/test_spatial_rematch_layers.py tests/test_watchlist_reliability.py
+  tests/test_spatial_rematch_layers.py tests/test_watchlist_reliability.py </dev/null
 docker compose -f "$REPO/dashboard/docker-compose.yml" run --rm --no-deps -T \
   -v "$REPO/dashboard:/src:ro" --entrypoint python citymanager-dashboard - <<'PY'
 from jinja2 import Environment,FileSystemLoader
