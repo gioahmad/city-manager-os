@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -11,12 +12,13 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app import db_conn, query_all, query_one, templates
 from map_app import app
+from operations_app import require_watch_recipients
 
 
 ENTITY_TYPES = ("FACILITY", "VENUE", "CORRIDOR", "LANDMARK", "PARCEL_REFERENCE", "SERVICE_AREA", "OTHER")
 SOURCE_KINDS = ("ADDRESS", "PARCEL", "LANDMARK", "TRANSIT_ASSET", "CUSTOM_FEATURE")
 SPATIAL_SCOPES = ("ENTITY", "ADJOINING", "RADIUS")
-LOCAL_ZONE = ZoneInfo("America/New_York")
+LOCAL_ZONE = ZoneInfo(os.getenv("APP_TIMEZONE") or os.getenv("TZ") or "America/New_York")
 RELEASE_ID = "issue-58-regional-spatial-reference-v1"
 
 
@@ -599,6 +601,7 @@ def spatial_reference_watch(
                    VALUES(%s,%s,true) ON CONFLICT(watch_item_id,subscriber_id) DO UPDATE SET active=true""",
                 (watch_item_id, subscriber_id),
             )
+        require_watch_recipients(cur, [watch_item_id])
         conn.commit()
     return RedirectResponse(
         f"/spatial-reference/{entity_id}?" + urlencode({"msg": "Watch geography, schedule, filters, and routing saved"}),

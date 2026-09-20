@@ -28,11 +28,11 @@
       <label>Radius / Buffer (feet)<input type="number" name="radius_ft" min="1" max="26400" value="{{ entity.watch_radius_ft or entity.default_buffer_ft or 500 }}"></label>
       <label>Minimum Priority<input type="number" name="min_priority" min="1" max="5" value="{{ entity.watch_min_priority or 1 }}"></label>
       <label>Duration<select name="duration"><option value="ALWAYS" {% if watch_duration == 'ALWAYS' %}selected{% endif %}>No expiration</option><option value="24_HOURS">24 hours</option><option value="7_DAYS">7 days</option><option value="CUSTOM" {% if watch_duration == 'CUSTOM' %}selected{% endif %}>Custom window</option></select></label>
-      <label>Starts (Eastern)<input type="datetime-local" name="starts_at" value="{{ watch_starts_local }}"></label>
-      <label>Ends (Eastern)<input type="datetime-local" name="expires_at" value="{{ watch_expires_local }}"></label>
+      <label>Starts (local time)<input type="datetime-local" name="starts_at" value="{{ watch_starts_local }}"></label>
+      <label>Ends (local time)<input type="datetime-local" name="expires_at" value="{{ watch_expires_local }}"></label>
       <label>Source Filters<input name="source_filter" value="{{ entity.watch_source_filter|join(', ') if entity.watch_source_filter else '' }}" placeholder="Comma-separated, blank for all"></label>
       <label>Alert Categories<input name="alert_category_filter" value="{{ entity.watch_category_filter|join(', ') if entity.watch_category_filter else '' }}" placeholder="Comma-separated, blank for all"></label>
-      <fieldset><legend>Recipients</legend>{% for subscriber in subscribers %}<label><input type="checkbox" name="subscriber_ids" value="{{ subscriber.id }}" {% if subscriber.id|string in selected_subscribers %}checked{% endif %}> {{ subscriber.name }}</label>{% else %}<span>No active Recipients.</span>{% endfor %}</fieldset>
+      <fieldset><legend>Recipients</legend>{% for subscriber in subscribers %}<label><input type="checkbox" name="subscriber_ids" value="{{ subscriber.id }}" {% if subscriber.id|string in selected_subscribers %}checked{% endif %}> {{ subscriber.name }}</label>{% else %}<span>No active Recipients.</span>{% endfor %}<span class="hint">Choose at least one Recipient before turning this Watch on.</span></fieldset>
       <div><button type="submit">{{ 'Update Watch' if entity.watch_item_id else 'Watch This' }}</button></div>
     </form>
   </div></section>

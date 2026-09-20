@@ -79,8 +79,8 @@
   </select>
 </label>
 <div class="form-grid two-col custom-schedule" {% if current != 'CUSTOM' %}hidden{% endif %}>
-  <label>Starts (Eastern)<input type="datetime-local" name="starts_at" value="{{ starts or '' }}"></label>
-  <label>Ends (Eastern)<input type="datetime-local" name="expires_at" value="{{ expires or '' }}"></label>
+  <label>Starts (local time)<input type="datetime-local" name="starts_at" value="{{ starts or '' }}"></label>
+  <label>Ends (local time)<input type="datetime-local" name="expires_at" value="{{ expires or '' }}"></label>
 </div>
 {% endmacro %}
 
@@ -122,7 +122,16 @@
   <div class="watch-health-warning">
     <strong>{{ needs_recipient_watches|length }} active Watch{{ '' if needs_recipient_watches|length == 1 else 'es' }} need a Recipient:</strong>
     {% for w in needs_recipient_watches %}{{ w.display_name }}{% if not loop.last %}, {% endif %}{% endfor %}.
-    Open each Watch below and choose who should be notified.
+    <form method="post" action="/watchlist/repair-unrouted" class="watch-form compact">
+      <label>Notify one Recipient for all of these Watches
+        <select name="subscriber_id" required>
+          <option value="">Choose Recipient</option>
+          {% for sub in subscribers %}<option value="{{ sub.id }}">{{ sub.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <button class="secondary-button" type="submit">Connect and Repair</button>
+      <span class="hint">This adds only the missing delivery connections. It does not change Watch matching or send a test message.</span>
+    </form>
   </div>
   {% elif health.failed_24h %}
   <div class="watch-health-warning">A recent Notification had a delivery problem. Review the affected Watch and Notification history.</div>
@@ -327,7 +336,7 @@
             {% else %}
             <span>No active Recipients. <a href="/subscribers">Add one first</a>.</span>
             {% endfor %}
-            <div class="hint">You may save without a Recipient, but the Watch cannot send Notifications.</div>
+            <div class="hint">Turning a Watch on requires a Recipient. You can save it Paused without one.</div>
           </fieldset>
         </div>
       </section>
@@ -353,7 +362,10 @@
         <div class="watch-step-content">
           <h3>Turn it on</h3>
           {{ duration_picker('PERMANENT') }}
-          <button class="primary-button watch-submit" type="submit">Turn On Watch</button>
+          <div class="watch-card-actions">
+            <button class="primary-button watch-submit" type="submit" name="activation" value="on">Turn On Watch</button>
+            <button class="secondary-button" type="submit" name="activation" value="paused">Save Paused</button>
+          </div>
           <span class="hint">You can edit, pause, reactivate, or delete it later.</span>
         </div>
       </section>

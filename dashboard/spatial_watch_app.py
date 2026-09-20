@@ -20,7 +20,12 @@ from fastapi import Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from schedule_app import app
-from operations_app import ALERT_FILTERED_BULK_LIMIT, SEARCH_SCOPES, alert_keyword_choices
+from operations_app import (
+    ALERT_FILTERED_BULK_LIMIT,
+    SEARCH_SCOPES,
+    alert_keyword_choices,
+    require_watch_recipients,
+)
 from app import (
     MATCH_MODES,
     WATCH_TYPES,
@@ -37,7 +42,7 @@ from geo_resolver import MIN_PRECISE_CONFIDENCE, resolve_payload
 
 RELEASE_ID = "alerting-spatial-watch-simplification-v1"
 COMPLETION_RELEASE_ID = "alert-watch-completion-performance-v1"
-LOCAL_ZONE = ZoneInfo("America/New_York")
+LOCAL_ZONE = ZoneInfo(os.getenv("APP_TIMEZONE") or os.getenv("TZ") or "America/New_York")
 LOGGER = logging.getLogger(__name__)
 NTFY_PUBLISH_BASE = os.getenv("CMOS_NTFY_PUBLISH_BASE", "http://100.94.203.47:8080").rstrip("/")
 SPATIAL_DURATIONS = {
@@ -708,12 +713,12 @@ def _watch_state(row: dict) -> tuple[str, str, str]:
         return "Expired", "inactive-status", "This Watch reached its end time. Reactivate it to keep watching until paused, then edit the duration if needed."
     if not row.get("active"):
         return "Paused", "inactive-status", "This watch is paused and cannot create new matches or notifications."
-    if row.get("starts_at") and row["starts_at"] > now:
-        return "Watching", "waiting", "Saved and ready. Matching begins at the scheduled start time."
     if row.get("nearby_enabled") and not row.get("spatial_target_type"):
         return "Delivery Problem", "error", "The saved Location is missing. Edit this watch and choose the Location again."
     if _safe_int(row.get("active_recipient_count")) == 0:
         return "Needs Recipient", "warning", "This watch can record Matches, but no Recipient is selected for Notifications."
+    if row.get("starts_at") and row["starts_at"] > now:
+        return "Watching", "waiting", "Saved and ready. Matching begins at the scheduled start time."
     if str(row.get("last_delivery_status") or "").upper() == "FAILED":
         return "Delivery Problem", "error", "The latest Notification could not be delivered. Test the Recipient and review delivery history."
     if str(row.get("last_delivery_status") or "").upper() == "SUPPRESSED":
@@ -774,6 +779,8 @@ def spatial_watch_release():
         "test_notification_endpoint": "/api/watchlist/test-notification",
         "global_alert_search": "/alerts?window=all",
         "recipient_watch_assignment": "/subscribers/{recipient_id}/watches",
+        "unrouted_watch_repair": "/watchlist/repair-unrouted",
+        "activation_requires_recipient": True,
         "alert_keyword_choices": "derived from the selected stored alert",
         "alert_watch_prefill_query": ["from_alert", "setup_mode", "selected_keywords"],
         "bulk_watch_endpoint": "/watchlist/bulk-create",
@@ -1110,7 +1117,7 @@ def spatial_watchlist(
         "delivery_problem": sum(row["state_label"] == "Delivery Problem" for row in all_items),
     }
     subscribers = query_all(
-        "SELECT id::text AS id,name FROM subscribers WHERE active=true ORDER BY name"
+        "SELECT id::text AS id,subscriber_id,name FROM subscribers WHERE active=true ORDER BY name"
     )
     watch_location_layers = query_all(
         """
@@ -1250,6 +1257,50 @@ def _save_recipients(cur, watch_item_id: uuid.UUID, subscriber_ids: list[uuid.UU
                ON CONFLICT(watch_item_id,subscriber_id) DO UPDATE SET active=true""",
             (watch_item_id, subscriber_id),
         )
+
+
+@app.post("/watchlist/repair-unrouted")
+@_friendly_watch_errors
+def spatial_watch_repair_unrouted(subscriber_id: uuid.UUID = Form(...)):
+    """Connect every effective unrouted Watch to one explicitly chosen Recipient."""
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT name FROM subscribers WHERE id=%s AND active=true FOR SHARE",
+                (subscriber_id,),
+            )
+            recipient = cur.fetchone()
+            if not recipient:
+                raise HTTPException(400, "Choose an active Recipient")
+            cur.execute(
+                """
+                INSERT INTO watch_item_recipients(watch_item_id,subscriber_id,active)
+                SELECT w.id,%s,true
+                FROM watch_items w
+                WHERE w.active=true
+                  AND (w.expires_at IS NULL OR w.expires_at>now())
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM watch_item_recipients wir
+                    JOIN subscribers s ON s.id=wir.subscriber_id
+                    WHERE wir.watch_item_id=w.id AND wir.active=true AND s.active=true
+                  )
+                ON CONFLICT(watch_item_id,subscriber_id) DO UPDATE SET active=true
+                RETURNING watch_item_id
+                """,
+                (subscriber_id,),
+            )
+            repaired = len(cur.fetchall())
+        conn.commit()
+    if not repaired:
+        return _watch_redirect(message="Every active Watch already has a Recipient.")
+    noun = "Watch" if repaired == 1 else "Watches"
+    return _watch_redirect(
+        message=(
+            f"Connected {repaired} {noun} to {recipient['name']}. "
+            "Future Matches can now send Notifications."
+        )
+    )
 
 
 def _insert_watch_item(cur, item: dict) -> None:
@@ -1685,6 +1736,7 @@ def spatial_watch_bulk_action(
                     """,
                     (selected,),
                 )
+                require_watch_recipients(cur, selected)
         conn.commit()
 
     label = "deleted" if action == "delete" else "paused" if action == "pause" else "reactivated"
@@ -1722,6 +1774,7 @@ def spatial_watch_create(
     expires_at: str = Form(""),
     alert_keywords: list[str] = Form([]),
     subscriber_ids: list[uuid.UUID] = Form([]),
+    activation: str = Form("on"),
 ):
     display_name = display_name.strip()
     if not display_name:
@@ -1750,6 +1803,10 @@ def spatial_watch_create(
     validate_watch(match_mode, match_field, min_priority)
     radius_ft = max(1.0, min(float(radius_ft), 26400.0))
     start, end = _schedule(duration, starts_at, expires_at)
+    activation = activation.strip().lower()
+    if activation not in {"on", "paused"}:
+        raise HTTPException(400, "Choose Turn On Watch or Save Paused")
+    turn_on = activation == "on"
     watch_uuid = uuid.uuid4()
     with db_conn() as conn:
         target = None
@@ -1796,6 +1853,7 @@ def spatial_watch_create(
                 {
                     "id": watch_uuid,
                     "watch_id": make_watch_id(display_name),
+                    "active": turn_on,
                     "watch_type": saved_watch_type,
                     "display_name": display_name,
                     "search_term": saved_search_term,
@@ -1827,10 +1885,9 @@ def spatial_watch_create(
                 },
             )
             _save_recipients(cur, watch_uuid, subscriber_ids)
+            require_watch_recipients(cur, [watch_uuid])
         conn.commit()
-    message = "Watch is on"
-    if not subscriber_ids:
-        message = "Watch is on, but it needs a Recipient before it can send Notifications."
+    message = "Watch is on and ready to notify" if turn_on else "Watch saved Paused for review"
     return _watch_redirect(message=message)
 
 
@@ -1879,7 +1936,13 @@ def spatial_watch_update(
                 SELECT id,active,watch_type,display_name,search_term,match_mode,match_field,
                        address,municipality,county,state,block,lot,parcel_id,
                        nearby_enabled,radius_ft,gis_lookup,spatial_reference_entity_id,
-                       ST_AsEWKT(spatial_target_geom) AS target_wkt
+                       ST_AsEWKT(spatial_target_geom) AS target_wkt,
+                       EXISTS (
+                         SELECT 1
+                         FROM watch_item_recipients wir
+                         JOIN subscribers s ON s.id=wir.subscriber_id
+                         WHERE wir.watch_item_id=watch_items.id AND wir.active AND s.active
+                       ) AS had_active_recipient
                 FROM watch_items WHERE id=%s FOR UPDATE
                 """,
                 (item_id,),
@@ -2001,10 +2064,19 @@ def spatial_watch_update(
                 ),
             )
             _save_recipients(cur, item_id, subscriber_ids)
+            preserving_match_only = bool(
+                current.get("active")
+                and keep_state
+                and not current.get("had_active_recipient")
+                and active_value
+                and not subscriber_ids
+            )
+            if not preserving_match_only:
+                require_watch_recipients(cur, [item_id])
         conn.commit()
     message = "Watch updated"
-    if not subscriber_ids:
-        message = "Watch updated. It needs a Recipient before it can send Notifications."
+    if preserving_match_only:
+        message = "Watch updated. It is still Match-only until a Recipient is selected."
     return _watch_redirect(message=message)
 
 
@@ -2045,6 +2117,8 @@ def spatial_watch_toggle(item_id: uuid.UUID, action: str = Form("")):
                 """,
                 (next_active, clear_expired, clear_expired, item_id),
             )
+            if next_active:
+                require_watch_recipients(cur, [item_id])
         conn.commit()
     return _watch_redirect(message="Watch is on" if next_active else "Watch paused")
 
