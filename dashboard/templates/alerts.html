@@ -153,6 +153,7 @@
           <div class="data-side">
             <span class="status {{ (a.status or 'unknown')|lower }}">{{ a.status }}</span>
             <time>{{ a.received_at.strftime('%m/%d/%Y %I:%M %p') if a.received_at else '' }}</time>
+            {% if a.track_alert_url %}<a class="text-link" href="{{ a.track_alert_url }}">Track This Alert</a>{% endif %}
             {% if a.click_url %}<a class="text-link" href="{{ a.click_url }}" target="_blank" rel="noopener">Open source</a>{% endif %}
           </div>
         </article>
