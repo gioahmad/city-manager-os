@@ -456,6 +456,11 @@ def alerts_page(
             if alert_reference
             else ""
         )
+        alert["track_alert_url"] = (
+            f"/issues?{urlencode({'from_alert': alert_reference})}"
+            if alert_reference
+            else ""
+        )
     sources = query_all("SELECT source,count(*) AS total FROM alerts GROUP BY source ORDER BY source")
     categories = query_all("SELECT category,count(*) AS total FROM alerts GROUP BY category ORDER BY category")
     municipalities = query_all(
@@ -1281,6 +1286,7 @@ def deliveries_page(request: Request, status: str = "", q: str = ""):
     )
     for row in rows:
         row["evidence"] = _delivery_evidence(row)
+        row["track_alert_url"] = f"/issues?{urlencode({'from_alert': row['alert_id']})}"
     return templates.TemplateResponse(request=request, name="deliveries.html", context={"rows": rows, "status": status, "q": q, "page": "deliveries"})
 
 
