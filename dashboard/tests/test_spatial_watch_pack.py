@@ -28,6 +28,10 @@ def test_spatial_watch_migration_reuses_canonical_systems():
     assert "gis_active_spatial_watch_matches" in sql
     assert "p_supplied_alert_geom geometry" in sql
     assert "ST_GeometryType(p_supplied_alert_geom)='ST_Point'" in sql
+    assert "LEFT JOIN geo_entity_resolutions r" in sql
+    assert "r.status='RESOLVED'" in sql
+    assert "resolver point" in sql
+    assert "coalesce(a.geom,r.geom)" in sql
     assert "gis_spatial_history" in sql
     assert "ST_DWithin(" in sql
     assert "ST_Intersects(alert_geom,spatial_geom)" in sql
@@ -37,6 +41,7 @@ def test_spatial_watch_migration_reuses_canonical_systems():
     assert "w.source_filter" in sql
     assert "w.alert_category_filter" in sql
     assert "a.priority>=w.min_priority" in sql
+    assert "upper(coalesce(w.watch_type,''))<>'LOCATION_TOPIC'" in sql
     assert "gis_spatial_impact_context" in sql
     assert "CREATE TABLE" not in sql
     assert "INSERT INTO deliveries" not in sql
@@ -50,6 +55,8 @@ def test_guarded_database_installer_covers_point_corridor_and_no_writes():
     assert "CMOS56:IN" in installer
     assert "CMOS56:OUT" in installer
     assert "CMOS56:UNRESOLVED" in installer
+    assert "CMOS56:RESOLVER_IN" in installer
+    assert "APPROXIMATE_COUNTY" in installer
     assert "CMOS56:CORRIDOR_IN" in installer
     assert "CMOS56:CORRIDOR_OUT" in installer
     assert "ST_LineString" in installer
@@ -60,6 +67,22 @@ def test_guarded_database_installer_covers_point_corridor_and_no_writes():
     assert "chown node:node" in matcher_installer
     assert 'prepare_node_file "$TMP_CONTRACT"' in matcher_installer
     assert 'prepare_node_file "$TMP_TARGET"' in matcher_installer
+
+
+def test_effective_geometry_release_is_bounded_and_recoverable():
+    release = _repository_file("deploy/releases/spatial-watch-effective-geometry.sh").read_text()
+    assert "rollback_dashboard" in release
+    assert "rollback_n8n" in release
+    assert "rollback_database" in release
+    assert release.index('CURRENT_PHASE="backups"') < release.index(
+        'CURRENT_PHASE="database-install"'
+    )
+    assert "gis_active_spatial_watch_matches(a.alert_id)" in release
+    assert "INSERT INTO alert_watch_matches" in release
+    assert "interval '24 hours'" in release
+    assert "RETROSPECTIVE_NOTIFICATION_SENT=NO" in release
+    assert "INSERT INTO deliveries" not in release
+    assert "cmos-e2e" not in release
 
 
 def test_browser_uses_existing_watchlist_resolver_subscribers_and_routing():

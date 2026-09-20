@@ -92,6 +92,45 @@ SET spatial_target_geom=coalesce(spatial_target_geom,geom),
 WHERE nearby_enabled
   AND (spatial_reference_entity_id IS NOT NULL OR spatial_target_geom IS NOT NULL OR geom IS NOT NULL);
 
+-- Repair legacy Location Watches whose private labels were accidentally saved as
+-- source/category filters. Keep any real filters that match canonical alert values.
+UPDATE watch_items w
+SET source_filter=ARRAY(
+      SELECT filter_value
+      FROM unnest(w.source_filter) filter_value
+      WHERE EXISTS (
+        SELECT 1 FROM alerts a
+        WHERE upper(btrim(a.source))=upper(btrim(filter_value))
+      )
+    ),
+    alert_category_filter=ARRAY(
+      SELECT filter_value
+      FROM unnest(w.alert_category_filter) filter_value
+      WHERE EXISTS (
+        SELECT 1 FROM alerts a
+        WHERE upper(btrim(a.category))=upper(btrim(filter_value))
+      )
+    ),
+    updated_at=now()
+WHERE w.nearby_enabled
+  AND upper(coalesce(w.watch_type,''))<>'LOCATION_TOPIC'
+  AND (
+    EXISTS (
+      SELECT 1 FROM unnest(w.source_filter) filter_value
+      WHERE NOT EXISTS (
+        SELECT 1 FROM alerts a
+        WHERE upper(btrim(a.source))=upper(btrim(filter_value))
+      )
+    )
+    OR EXISTS (
+      SELECT 1 FROM unnest(w.alert_category_filter) filter_value
+      WHERE NOT EXISTS (
+        SELECT 1 FROM alerts a
+        WHERE upper(btrim(a.category))=upper(btrim(filter_value))
+      )
+    )
+  );
+
 CREATE OR REPLACE FUNCTION gis_active_spatial_watch_matches(
   p_alert_id text,
   p_supplied_alert_geom geometry
@@ -118,9 +157,34 @@ WITH target_alert AS (
              AND NOT ST_IsEmpty(p_supplied_alert_geom)
              AND ST_IsValid(p_supplied_alert_geom)
              THEN p_supplied_alert_geom::geometry(Point,4326)
+           WHEN r.status='RESOLVED'
+             AND r.geom IS NOT NULL
+             AND ST_SRID(r.geom)=4326
+             AND ST_GeometryType(r.geom)='ST_Point'
+             AND NOT ST_IsEmpty(r.geom)
+             AND ST_IsValid(r.geom)
+             THEN r.geom
            ELSE NULL
-         END AS geom
+         END AS geom,
+         CASE
+           WHEN a.geom IS NOT NULL THEN 'stored alert point'
+           WHEN p_supplied_alert_geom IS NOT NULL
+             AND ST_SRID(p_supplied_alert_geom)=4326
+             AND ST_GeometryType(p_supplied_alert_geom)='ST_Point'
+             AND NOT ST_IsEmpty(p_supplied_alert_geom)
+             AND ST_IsValid(p_supplied_alert_geom)
+             THEN 'supplied alert point'
+           WHEN r.status='RESOLVED' AND r.geom IS NOT NULL
+             THEN concat(
+               'resolver point',
+               CASE WHEN nullif(r.spatial_precision,'') IS NULL
+                 THEN '' ELSE ' (' || r.spatial_precision || ')' END
+             )
+           ELSE NULL
+         END AS geom_source
   FROM alerts a
+  LEFT JOIN geo_entity_resolutions r
+    ON r.entity_type='ALERT' AND r.entity_id=a.id::text
   WHERE a.alert_id=p_alert_id
   LIMIT 1
 ), candidates AS (
@@ -130,7 +194,8 @@ WITH target_alert AS (
     w.spatial_scope,
     w.spatial_geom,
     coalesce(w.spatial_target_geom,w.geom) AS target_geom,
-    a.geom AS alert_geom
+    a.geom AS alert_geom,
+    a.geom_source
   FROM target_alert a
   JOIN watch_items w
     ON a.geom IS NOT NULL
@@ -170,16 +235,16 @@ SELECT
   'PROXIMITY'::text,
   CASE upper(coalesce(spatial_scope,'RADIUS'))
     WHEN 'ADJOINING' THEN format(
-      'PROXIMITY alert geometry matched the selected parcel or adjoining-parcel topology; %s ft from target',
-      round(measured_distance_ft::numeric,1)
+      'PROXIMITY %s matched the selected parcel or adjoining-parcel topology; %s ft from target',
+      geom_source,round(measured_distance_ft::numeric,1)
     )
     WHEN 'ENTITY' THEN format(
-      'PROXIMITY alert geometry intersected the selected reference; %s ft from target',
-      round(measured_distance_ft::numeric,1)
+      'PROXIMITY %s intersected the selected reference; %s ft from target',
+      geom_source,round(measured_distance_ft::numeric,1)
     )
     ELSE format(
-      'PROXIMITY alert geometry is %s ft from target, inside %s ft buffer',
-      round(measured_distance_ft::numeric,1),round(radius_ft::numeric,1)
+      'PROXIMITY %s is %s ft from target, inside %s ft buffer',
+      geom_source,round(measured_distance_ft::numeric,1),round(radius_ft::numeric,1)
     )
   END,
   measured_distance_ft,
@@ -231,12 +296,16 @@ SELECT gis_spatial_impact_context(
     SELECT jsonb_agg(jsonb_build_object(
       'alert_id',a.alert_id,'source',a.source,'category',a.category,'subtype',a.subtype,
       'title',a.title,'priority',a.priority,'status',a.status,'received_at',a.received_at,
-      'distance_ft',ST_Distance(a.geom::geography,p_geom::geography)/0.3048,
-      'geometry',ST_AsGeoJSON(a.geom)::jsonb
+      'distance_ft',ST_Distance(coalesce(a.geom,r.geom)::geography,p_geom::geography)/0.3048,
+      'geometry',ST_AsGeoJSON(coalesce(a.geom,r.geom))::jsonb,
+      'geometry_source',CASE WHEN a.geom IS NOT NULL THEN 'ALERT' ELSE 'RESOLVER' END,
+      'spatial_precision',CASE WHEN a.geom IS NULL THEN r.spatial_precision END
     ) ORDER BY a.received_at DESC,a.priority DESC)
     FROM alerts a
+    LEFT JOIN geo_entity_resolutions r
+      ON r.entity_type='ALERT' AND r.entity_id=a.id::text AND r.status='RESOLVED'
     WHERE p_geom IS NOT NULL
-      AND a.geom IS NOT NULL
+      AND coalesce(a.geom,r.geom) IS NOT NULL
       AND a.received_at>=now()-greatest(
         interval '1 minute',least(coalesce(p_since,interval '24 hours'),interval '365 days')
       )
@@ -244,7 +313,7 @@ SELECT gis_spatial_impact_context(
       AND (nullif(btrim(p_source),'') IS NULL OR upper(a.source)=upper(btrim(p_source)))
       AND (nullif(btrim(p_category),'') IS NULL OR upper(a.category)=upper(btrim(p_category)))
       AND ST_DWithin(
-        a.geom::geography,p_geom::geography,
+        coalesce(a.geom,r.geom)::geography,p_geom::geography,
         greatest(1.0,least(coalesce(p_radius_ft,500.0),26400.0))*0.3048
       )
   ),'[]'::jsonb)
@@ -258,9 +327,9 @@ GRANT EXECUTE ON FUNCTION gis_spatial_history(geometry,double precision,interval
   TO citymanager_app;
 
 COMMENT ON FUNCTION gis_active_spatial_watch_matches(text) IS
-  'Returns one PostGIS-authoritative match per active, in-window regular Watchlist item for a precisely mapped alert.';
+  'Returns one PostGIS-authoritative match per active, in-window spatial Watch using the alert point shown by the application.';
 COMMENT ON FUNCTION gis_active_spatial_watch_matches(text,geometry) IS
-  'Matches stored precise alert geometry or exact coordinates supplied by the shared Standard Alert payload.';
+  'Matches stored, supplied, or resolved alert points through one shared geometry precedence contract.';
 COMMENT ON FUNCTION gis_spatial_history(geometry,double precision,interval,text,text,integer) IS
   'Queries existing spatially resolved history and operational context without creating a parallel history store.';
 

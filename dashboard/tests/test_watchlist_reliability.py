@@ -91,6 +91,31 @@ def test_normal_watch_setup_hides_technical_nomenclature_until_advanced():
     assert "match mode" in advanced.lower()
 
 
+def test_watch_name_cannot_be_saved_as_an_unknown_alert_filter():
+    source = (DASHBOARD_ROOT / "spatial_watch_app.py").read_text()
+    template = (DASHBOARD_ROOT / "templates/watchlist.html").read_text()
+    assert "def _validate_alert_filters" in source
+    assert source.count("_validate_alert_filters(cur, saved_source_filter, saved_category_filter)") == 2
+    assert "Unknown alert {label}" in source
+    assert "The Watch name never" in template
+    assert template.count('autocomplete="off"') >= 4
+
+
+def test_alert_spatial_endpoints_use_the_mapping_center_point():
+    source = (DASHBOARD_ROOT / "spatial_watch_app.py").read_text()
+    map_source = (DASHBOARD_ROOT / "map_app.py").read_text()
+    assert 'GEOMETRY_RELEASE_ID = "spatial-watch-effective-geometry-v1"' in source
+    assert '"geometry_release_id": GEOMETRY_RELEASE_ID' in source
+    impact = source.split("def alert_spatial_impact", 1)[1].split(
+        '@app.get("/api/alerts/{alert_id}/impact-buffer.geojson")', 1
+    )[0]
+    buffer = source.split("def alert_impact_buffer", 1)[1]
+    for endpoint in (impact, buffer):
+        assert "geo_entity_resolutions" in endpoint
+        assert "coalesce(a.geom,r.geom)" in endpoint
+    assert map_source.count("r.entity_id=a.id::text AND r.status='RESOLVED'") >= 1
+
+
 def test_alert_map_shelf_life_and_global_search_are_bounded_and_non_destructive():
     map_source = (DASHBOARD_ROOT / "map_app.py").read_text()
     map_template = (DASHBOARD_ROOT / "templates/map.html").read_text()

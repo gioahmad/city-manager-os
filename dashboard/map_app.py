@@ -456,7 +456,7 @@ def map_alerts_geojson(
                ST_AsGeoJSON(coalesce(a.geom,r.geom))::json AS geometry
         FROM alerts a
         LEFT JOIN geo_entity_resolutions r
-          ON r.entity_type='ALERT' AND r.entity_id=a.id::text
+          ON r.entity_type='ALERT' AND r.entity_id=a.id::text AND r.status='RESOLVED'
         LEFT JOIN LATERAL (
           SELECT string_agg(m.display_name,', ' ORDER BY m.display_name) AS matched_watches
           FROM (

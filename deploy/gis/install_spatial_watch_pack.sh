@@ -37,7 +37,7 @@ docker exec -i citymanager-postgis sh -lc \
   'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < deploy/postgis/init/032_unified_spatial_watch_pack.sql
 
-log "Testing in-range, out-of-range, scheduled, expired, filtered, and unresolved behavior"
+log "Testing stored, supplied, resolver-backed, filtered, and unresolved spatial behavior"
 TEST_STATE="$(docker exec -i citymanager-postgis sh -lc \
   'psql -X -Atq -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
 BEGIN;
@@ -69,7 +69,15 @@ INSERT INTO alerts(
   ('56000000-0000-0000-0000-000000000014','CMOS56:CORRIDOR_IN','CORRIDOR_TEST','TEST','SPATIAL','ACTIVE','NEW','Corridor in','test',2,'{}',
    ST_SetSRID(ST_MakePoint(-74.0200,40.7605),4326)),
   ('56000000-0000-0000-0000-000000000015','CMOS56:CORRIDOR_OUT','CORRIDOR_TEST','TEST','SPATIAL','ACTIVE','NEW','Corridor out','test',2,'{}',
-   ST_SetSRID(ST_MakePoint(-74.0200,40.7700),4326));
+   ST_SetSRID(ST_MakePoint(-74.0200,40.7700),4326)),
+  ('56000000-0000-0000-0000-000000000016','CMOS56:RESOLVER_IN','SYSTEM_TEST','TEST','SPATIAL','ACTIVE','NEW','Resolver point in','test',2,'{}',NULL);
+
+INSERT INTO geo_entity_resolutions(
+  entity_type,entity_id,status,match_type,confidence,resolved_label,geom,spatial_precision
+) VALUES(
+  'ALERT','56000000-0000-0000-0000-000000000016','RESOLVED','LOCAL_COUNTY_CENTROID',0.2,
+  'Resolver test point',ST_SetSRID(ST_MakePoint(-74.0200,40.7605),4326),'APPROXIMATE_COUNTY'
+);
 
 SELECT count(*)=1 FROM gis_active_spatial_watch_matches('CMOS56:IN');
 SELECT count(*)=0 FROM gis_active_spatial_watch_matches('CMOS56:OUT');
@@ -77,6 +85,9 @@ SELECT count(*)=0 FROM gis_active_spatial_watch_matches('CMOS56:UNRESOLVED');
 SELECT count(*)=1 FROM gis_active_spatial_watch_matches(
   'CMOS56:UNRESOLVED',ST_SetSRID(ST_MakePoint(-74.0200,40.7605),4326)
 );
+SELECT count(*)=1 FROM gis_active_spatial_watch_matches('CMOS56:RESOLVER_IN');
+SELECT match_reason LIKE '%resolver point (APPROXIMATE_COUNTY)%'
+FROM gis_active_spatial_watch_matches('CMOS56:RESOLVER_IN');
 SELECT match_type='PROXIMITY' AND distance_ft>0 AND distance_ft<500
 FROM gis_active_spatial_watch_matches('CMOS56:IN');
 SELECT spatial_target_geom IS NOT NULL AND spatial_geom IS NOT NULL
@@ -88,7 +99,7 @@ FROM watch_items WHERE watch_id='CMOS56_CORRIDOR';
 ROLLBACK;
 SQL
 )"
-[[ "$TEST_STATE" == $'t\nt\nt\nt\nt\nt\nt\nt\nt' ]] || fail "spatial behavior test failed: ${TEST_STATE}"
+[[ "$TEST_STATE" == $'t\nt\nt\nt\nt\nt\nt\nt\nt\nt\nt' ]] || fail "spatial behavior test failed: ${TEST_STATE}"
 
 log "Verifying functions, trigger, grants, and existing spatial watches"
 STATE="$(docker exec -i citymanager-postgis sh -lc \

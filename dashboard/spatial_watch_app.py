@@ -42,6 +42,7 @@ from geo_resolver import MIN_PRECISE_CONFIDENCE, resolve_payload
 
 RELEASE_ID = "alerting-spatial-watch-simplification-v1"
 COMPLETION_RELEASE_ID = "alert-watch-completion-performance-v1"
+GEOMETRY_RELEASE_ID = "spatial-watch-effective-geometry-v1"
 LOCAL_ZONE = ZoneInfo(os.getenv("APP_TIMEZONE") or os.getenv("TZ") or "America/New_York")
 LOGGER = logging.getLogger(__name__)
 NTFY_PUBLISH_BASE = os.getenv("CMOS_NTFY_PUBLISH_BASE", "http://100.94.203.47:8080").rstrip("/")
@@ -629,7 +630,7 @@ def _watch_prefill_from_alert(alert_reference: str) -> dict:
                     THEN ST_X(ST_PointOnSurface(coalesce(a.geom,r.geom))) END AS longitude
         FROM alerts a
         LEFT JOIN geo_entity_resolutions r
-          ON r.entity_type='ALERT' AND r.entity_id=a.id::text
+          ON r.entity_type='ALERT' AND r.entity_id=a.id::text AND r.status='RESOLVED'
         WHERE a.alert_id=%s
         ORDER BY a.received_at DESC,a.id DESC
         LIMIT 1
@@ -749,6 +750,7 @@ def spatial_watch_release():
     return {
         "release_id": RELEASE_ID,
         "completion_release_id": COMPLETION_RELEASE_ID,
+        "geometry_release_id": GEOMETRY_RELEASE_ID,
         "architecture": "SEE IT -> TRACK IT -> TELL ME",
         "watch_source_of_truth": "watch_items",
         "delivery_path": ["Subscribers", "Routing", "Delivery Guard", "ntfy"],
@@ -1257,6 +1259,31 @@ def _save_recipients(cur, watch_item_id: uuid.UUID, subscriber_ids: list[uuid.UU
                ON CONFLICT(watch_item_id,subscriber_id) DO UPDATE SET active=true""",
             (watch_item_id, subscriber_id),
         )
+
+
+def _validate_alert_filters(cur, source_values: list[str], category_values: list[str]) -> None:
+    """Keep private Watch labels out of exact source/category filters."""
+    for column, label, values in (
+        ("source", "source", source_values),
+        ("category", "category", category_values),
+    ):
+        if not values:
+            continue
+        cur.execute(
+            f"""SELECT filter_value
+                FROM unnest(%s::text[]) filter_value
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM alerts a
+                  WHERE upper(btrim(a.{column}))=upper(btrim(filter_value))
+                )""",
+            (values,),
+        )
+        unknown = [str(row["filter_value"]) for row in cur.fetchall()]
+        if unknown:
+            raise HTTPException(
+                400,
+                f"Unknown alert {label}: {', '.join(unknown)}. Choose a current value or leave it blank.",
+            )
 
 
 @app.post("/watchlist/repair-unrouted")
@@ -1843,11 +1870,15 @@ def spatial_watch_create(
             saved_match_mode = match_mode
             saved_match_field = match_field.strip() or None
 
+        saved_source_filter = csv_array(source_filter)
+        saved_category_filter = csv_array(alert_category_filter)
+
         saved_address = (target or {}).get("address") or (location_query or address).strip() or None
         saved_municipality = (target or {}).get("municipality") or municipality.strip() or None
         target_wkt = (target or {}).get("target_wkt")
         reference_id = (target or {}).get("spatial_reference_entity_id")
         with conn.cursor() as cur:
+            _validate_alert_filters(cur, saved_source_filter, saved_category_filter)
             _insert_watch_item(
                 cur,
                 {
@@ -1872,8 +1903,8 @@ def spatial_watch_create(
                     "parcel_id": (target or {}).get("parcel_id"),
                     "notes": notes.strip() or None,
                     "source_notes": f"watch_setup:{(target or {}).get('kind', 'TOPIC')}",
-                    "source_filter": csv_array(source_filter),
-                    "alert_category_filter": csv_array(alert_category_filter),
+                    "source_filter": saved_source_filter,
+                    "alert_category_filter": saved_category_filter,
                     "starts_at": start,
                     "expires_at": end,
                     "gis_enabled": spatial_requested,
@@ -2002,6 +2033,8 @@ def spatial_watch_update(
             saved_match_mode = match_mode
             saved_match_field = match_field.strip() or None
         validate_watch(saved_match_mode, saved_match_field, min_priority)
+        saved_source_filter = csv_array(source_filter)
+        saved_category_filter = csv_array(alert_category_filter)
 
         saved_address = (
             (target or {}).get("address")
@@ -2027,6 +2060,7 @@ def spatial_watch_update(
         )
         active_value = current.get("active") if keep_state else active is not None
         with conn.cursor() as cur:
+            _validate_alert_filters(cur, saved_source_filter, saved_category_filter)
             cur.execute(
                 """
                 UPDATE watch_items SET
@@ -2056,7 +2090,7 @@ def spatial_watch_update(
                     (target or {}).get("parcel_id") or current.get("parcel_id"),
                     notes.strip() or None,
                     f"watch_setup:{(target or {}).get('kind', saved_setup_mode)}",
-                    csv_array(source_filter), csv_array(alert_category_filter), start, end,
+                    saved_source_filter, saved_category_filter, start, end,
                     spatial_requested, spatial_requested, radius_ft,
                     replace_target, gis_lookup,
                     replace_target, reference_id, replace_target, target_wkt, target_wkt,
@@ -2227,12 +2261,17 @@ def point_spatial_history(
 @app.get("/api/alerts/{alert_id}/spatial-impact")
 def alert_spatial_impact(alert_id: str, radius_ft: float = 500.0, hours: int = 24):
     row = query_one(
-        """SELECT gis_spatial_history(a.geom,%s,make_interval(hours=>%s),NULL,NULL,1) AS context
-           FROM alerts a WHERE a.alert_id=%s AND a.geom IS NOT NULL""",
+        """SELECT gis_spatial_history(
+                    coalesce(a.geom,r.geom),%s,make_interval(hours=>%s),NULL,NULL,1
+                  ) AS context
+           FROM alerts a
+           LEFT JOIN geo_entity_resolutions r
+             ON r.entity_type='ALERT' AND r.entity_id=a.id::text AND r.status='RESOLVED'
+           WHERE a.alert_id=%s AND coalesce(a.geom,r.geom) IS NOT NULL""",
         (max(1.0, min(radius_ft, 26400.0)), max(1, min(hours, 8760)), alert_id),
     )
     if not row:
-        raise HTTPException(404, "Alert has no trustworthy spatial geometry")
+        raise HTTPException(404, "Alert has no resolved spatial point")
     return JSONResponse(_json_safe(row["context"]))
 
 
@@ -2240,12 +2279,17 @@ def alert_spatial_impact(alert_id: str, radius_ft: float = 500.0, hours: int = 2
 def alert_impact_buffer(alert_id: str, radius_ft: float = 500.0):
     radius_ft = max(1.0, min(float(radius_ft), 26400.0))
     row = query_one(
-        """SELECT title,ST_AsGeoJSON(ST_Buffer(geom::geography,%s*0.3048)::geometry)::json AS geometry
-           FROM alerts WHERE alert_id=%s AND geom IS NOT NULL""",
+        """SELECT a.title,ST_AsGeoJSON(
+                    ST_Buffer(coalesce(a.geom,r.geom)::geography,%s*0.3048)::geometry
+                  )::json AS geometry
+           FROM alerts a
+           LEFT JOIN geo_entity_resolutions r
+             ON r.entity_type='ALERT' AND r.entity_id=a.id::text AND r.status='RESOLVED'
+           WHERE a.alert_id=%s AND coalesce(a.geom,r.geom) IS NOT NULL""",
         (radius_ft, alert_id),
     )
     if not row:
-        raise HTTPException(404, "Alert has no trustworthy spatial geometry")
+        raise HTTPException(404, "Alert has no resolved spatial point")
     return JSONResponse(
         {
             "type": "FeatureCollection",
