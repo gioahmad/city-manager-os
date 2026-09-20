@@ -135,14 +135,14 @@
 <article class="panel watch-location-library" id="bulk-watch-builder">
   <div class="panel-head">
     <div><div class="panel-kicker">REUSABLE WATCH LOCATIONS</div><h2>Create several Watches from a map layer</h2></div>
-    {% if bulk_context %}<span class="count-pill">{{ bulk_context.feature_count }} Locations</span>{% endif %}
+    {% if bulk_context %}<span class="count-pill">{{ bulk_context.visible_feature_count }} shown</span>{% endif %}
   </div>
   <div class="panel-body bulk-watch-body">
     <p class="watch-library-intro">Imported Shapefiles, GeoJSON, KML, and drawn map features stay in the Mapping Center. Choose a layer here to create Watches for its cities, counties, roads, corridors, or other Locations.</p>
     <div class="watch-layer-links">
       {% for layer in watch_location_layers %}
       <a class="watch-layer-link {% if bulk_context and bulk_context.layer.id == layer.id %}selected{% endif %}" href="/watchlist?bulk_layer={{ layer.id }}#bulk-watch-builder">
-        <strong>{{ layer.name }}</strong><span>{{ layer.feature_count }} reusable Location{{ '' if layer.feature_count == 1 else 's' }}</span>
+        <strong>{{ layer.name }}</strong><span>{{ layer.description }} · {{ layer.feature_count }} Location{{ '' if layer.feature_count == 1 else 's' }}</span>
       </a>
       {% else %}
       <span>No reusable layers have active features yet.</span>
@@ -156,10 +156,17 @@
         <div><strong>{{ bulk_context.layer.name }}</strong><span>Organized automatically from this layer's own fields</span></div>
         <span class="bulk-selection-count" data-bulk-count>0 selected</span>
       </div>
+      {% if bulk_context.group_filter %}
+      <div class="watch-health-links">
+        <strong>{{ bulk_context.group_filter }} County towns</strong>
+        <a href="/watchlist?bulk_layer={{ bulk_context.layer.id }}#bulk-watch-builder">Show every county</a>
+      </div>
+      {% endif %}
       <details class="advanced-options bulk-organize-options">
         <summary>Change how this layer is grouped or named</summary>
         <form method="get" action="/watchlist" class="watch-form compact advanced-options-body">
           <input type="hidden" name="bulk_layer" value="{{ bulk_context.layer.id }}">
+          {% if bulk_context.group_filter %}<input type="hidden" name="bulk_group_filter" value="{{ bulk_context.group_filter }}">{% endif %}
           <div class="form-grid three-col">
             <label>Group first by
               <select name="bulk_parent_by">
@@ -199,6 +206,7 @@
             <details class="bulk-group-choice" data-bulk-location-group>
               <summary><span><strong>{{ group.path or group.label }}</strong><small>{{ group.count }} Location{{ '' if group.count == 1 else 's' }} · open to choose towns or features</small></span></summary>
               <div class="bulk-feature-options">
+                {% if group.town_picker_url %}<a class="secondary-button" href="{{ group.town_picker_url }}">Choose individual towns in {{ group.label }} County</a>{% endif %}
                 <label class="checkbox-row bulk-group-toggle"><input type="checkbox" data-bulk-group> Select all {{ group.label }}</label>
                 {% for feature in group.features %}
                 <label class="checkbox-row"><input type="checkbox" name="feature_ids" value="{{ feature.id }}" data-bulk-feature> {{ feature.label }}</label>
@@ -259,7 +267,7 @@
           <span>Choose keywords from this alert</span>
           <div class="alert-keyword-choices">
           {% for keyword in prefill.keyword_choices %}
-            <label><input type="checkbox" name="alert_keywords" value="{{ keyword }}" data-alert-keyword {% if keyword == prefill.search_term %}checked{% endif %}> {{ keyword }}</label>
+            <label><input type="checkbox" name="alert_keywords" value="{{ keyword }}" data-alert-keyword {% if keyword in prefill.selected_keywords %}checked{% endif %}> {{ keyword }}</label>
           {% endfor %}
           </div>
           <small>Future alerts may Match any selected keyword or phrase. These choices come from this alert, not a fixed list.</small>

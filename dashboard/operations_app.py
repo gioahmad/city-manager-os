@@ -12,6 +12,52 @@ from app import db_conn, execute, query_all, query_one, templates
 
 LOGGER = logging.getLogger(__name__)
 
+ALERT_KEYWORD_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "been", "by", "for", "from",
+    "has", "have", "in", "incident", "is", "it", "new", "of", "on", "or",
+    "received", "reported", "that", "the", "this", "to", "transmitted", "update",
+    "was", "were", "with",
+}
+
+
+def alert_keyword_choices(alert: dict, limit: int = 12) -> list[str]:
+    """Suggest reusable phrases found in one Alert, never a fixed incident dictionary."""
+    choices: list[str] = []
+    seen: set[str] = set()
+
+    def add(value) -> None:
+        text = re.sub(r"\s+", " ", str(value or "").replace("_", " ")).strip(" ,.;:|-/")
+        normalized = re.sub(r"[^A-Z0-9]+", " ", text.upper()).strip()
+        words = normalized.split()
+        if (
+            not normalized
+            or normalized in seen
+            or len(normalized) > 80
+            or all(word.casefold() in ALERT_KEYWORD_STOPWORDS for word in words)
+        ):
+            return
+        seen.add(normalized)
+        choices.append(text)
+
+    for value in (alert.get("message"), alert.get("title")):
+        tokens = re.findall(r"[A-Za-z0-9]+(?:['/-][A-Za-z0-9]+)*", str(value or ""))
+        useful = [
+            (index, token)
+            for index, token in enumerate(tokens)
+            if len(token) >= 3
+            and not token.isdigit()
+            and token.casefold() not in ALERT_KEYWORD_STOPWORDS
+        ]
+        for (left_index, left), (right_index, right) in zip(useful, useful[1:]):
+            if right_index == left_index + 1:
+                add(f"{left} {right}")
+        for _, token in useful:
+            add(token)
+
+    for value in (alert.get("subtype"), alert.get("category"), *(alert.get("tags") or [])):
+        add(value)
+    return choices[: max(1, min(limit, 20))]
+
 MODULES = [
     {"key": "PSEG", "name": "Utilities", "description": "Electric utility outages and restorations"},
     {"key": "FIRE", "name": "Fire Intelligence", "description": "Fire and public-safety incident intelligence"},
@@ -31,6 +77,10 @@ SEARCH_SCOPES = {
     "transit": "Transit",
     "locations": "Locations",
     "sources": "Sources",
+    "people": "Recipients & Staff",
+    "operations": "Routines & Managed Locations",
+    "configuration": "Rules & Map Layers",
+    "conditions": "Flood & Utility State",
 }
 
 SEARCH_SECTION_ORDER = (
@@ -42,8 +92,76 @@ SEARCH_SECTION_ORDER = (
     "Transit",
     "Locations",
     "Sources",
+    "Recipients",
+    "Staff",
+    "Routines",
+    "Managed Locations",
+    "Rules",
+    "Map Layers",
+    "Flood",
+    "Utility State",
 )
 ALERT_BULK_LIMIT = 100
+ALERT_FILTERED_BULK_LIMIT = 5000
+
+
+def _alert_filter(
+    *,
+    q: str = "",
+    source: str = "",
+    category: str = "",
+    municipality: str = "",
+    state: str = "all",
+    window: str = "7d",
+    min_priority: int = 1,
+) -> tuple[str, list, dict]:
+    """Build the one Alert search contract used by the page and bulk actions."""
+    where = []
+    params = []
+    windows = {"6h": 6, "12h": 12, "24h": 24, "7d": 168, "30d": 720, "all": None}
+    window = window if window in windows else "7d"
+    window_hours = windows[window]
+    if window_hours is not None:
+        where.append("a.received_at>=now()-(%s * interval '1 hour')")
+        params.append(window_hours)
+    state = state if state in {"active", "resolved", "all"} else "all"
+    if state == "active":
+        where.append("a.status <> 'RESOLVED' AND (a.expires_at IS NULL OR a.expires_at > now())")
+    elif state == "resolved":
+        where.append("a.status = 'RESOLVED'")
+    for value, column in (
+        (source, "a.source"),
+        (category, "a.category"),
+        (municipality, "a.municipality"),
+    ):
+        if value.strip():
+            where.append(f"upper({column}) = upper(%s)")
+            params.append(value.strip())
+    min_priority = max(1, min(int(min_priority), 5))
+    if min_priority > 1:
+        where.append("a.priority >= %s")
+        params.append(min_priority)
+    q = q.strip()[:160]
+    if q:
+        needle = f"%{q}%"
+        where.append(
+            "(coalesce(a.search_text,'') ILIKE %s OR a.title ILIKE %s OR a.message ILIKE %s "
+            "OR coalesce(a.municipality,'') ILIKE %s OR coalesce(a.county,'') ILIKE %s "
+            "OR a.alert_id ILIKE %s OR a.source ILIKE %s OR a.category ILIKE %s "
+            "OR a.subtype ILIKE %s OR a.location::text ILIKE %s "
+            "OR array_to_string(a.tags,' ') ILIKE %s)"
+        )
+        params.extend([needle] * 11)
+    filters = {
+        "q": q,
+        "source": source.strip(),
+        "category": category.strip(),
+        "municipality": municipality.strip(),
+        "state": state,
+        "window": window,
+        "min_priority": min_priority,
+    }
+    return (f"WHERE {' AND '.join(where)}" if where else ""), params, filters
 
 
 def make_subscriber_id(name: str):
@@ -247,45 +365,22 @@ def alerts_page(
     msg: str = "",
     error: str = "",
 ):
-    where = []
-    params = []
-    windows = {"6h": 6, "12h": 12, "24h": 24, "7d": 168, "30d": 720, "all": None}
-    if window not in windows:
-        window = "7d"
-    window_hours = windows[window]
-    if window_hours is not None:
-        where.append("a.received_at>=now()-(%s * interval '1 hour')")
-        params.append(window_hours)
-    if state not in {"active", "resolved", "all"}:
-        state = "all"
-    if state == "active":
-        where.append("a.status <> 'RESOLVED' AND (a.expires_at IS NULL OR a.expires_at > now())")
-    elif state == "resolved":
-        where.append("a.status = 'RESOLVED'")
-    if source.strip():
-        where.append("upper(a.source) = upper(%s)")
-        params.append(source.strip())
-    if category.strip():
-        where.append("upper(a.category) = upper(%s)")
-        params.append(category.strip())
-    if municipality.strip():
-        where.append("upper(a.municipality) = upper(%s)")
-        params.append(municipality.strip())
-    min_priority = max(1, min(int(min_priority), 5))
-    if min_priority > 1:
-        where.append("a.priority >= %s")
-        params.append(min_priority)
-    if q.strip():
-        needle = f"%{q.strip()}%"
-        where.append(
-            "(coalesce(a.search_text,'') ILIKE %s OR a.title ILIKE %s OR a.message ILIKE %s "
-            "OR coalesce(a.municipality,'') ILIKE %s OR coalesce(a.county,'') ILIKE %s "
-            "OR a.alert_id ILIKE %s OR a.source ILIKE %s OR a.category ILIKE %s "
-            "OR a.subtype ILIKE %s OR a.location::text ILIKE %s "
-            "OR array_to_string(a.tags,' ') ILIKE %s)"
-        )
-        params.extend([needle] * 11)
-    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    clause, params, filters = _alert_filter(
+        q=q,
+        source=source,
+        category=category,
+        municipality=municipality,
+        state=state,
+        window=window,
+        min_priority=min_priority,
+    )
+    q = filters["q"]
+    source = filters["source"]
+    category = filters["category"]
+    municipality = filters["municipality"]
+    state = filters["state"]
+    window = filters["window"]
+    min_priority = filters["min_priority"]
     result_total = int(
         query_one(f"SELECT count(*) AS total FROM alerts a {clause}", params).get("total") or 0
     )
@@ -296,7 +391,7 @@ def alerts_page(
         f"""
         SELECT a.id AS alert_uuid,a.alert_id,a.source,a.category,a.subtype,a.status,a.event_action,
                a.title,a.message,a.priority,a.county,a.municipality,a.received_at,a.updated_at,
-               a.observed_at,a.click_url,
+               a.observed_at,a.click_url,a.tags,
                coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address','')) AS location_label,
                coalesce(wm.matched_watches,'No Watch matched') AS matched_watches,
                coalesce(wm.watch_evidence,'[]'::jsonb) AS watch_evidence
@@ -350,6 +445,12 @@ def alerts_page(
             if isinstance(item, dict)
         ]
         alert_reference = str(alert.get("alert_id") or "").strip()
+        alert["keyword_choices"] = alert_keyword_choices(alert)
+        alert["suggested_setup_mode"] = (
+            "LOCATION_TOPIC"
+            if alert.get("location_label") or alert.get("municipality")
+            else "TOPIC"
+        )
         alert["watch_from_alert_url"] = (
             f"/watchlist?{urlencode({'from_alert': alert_reference})}"
             if alert_reference
@@ -368,15 +469,6 @@ def alerts_page(
         FROM alerts
         """
     )
-    filters = {
-        "q": q,
-        "source": source,
-        "category": category,
-        "municipality": municipality,
-        "state": state,
-        "window": window,
-        "min_priority": min_priority,
-    }
     total_pages = max(1, (result_total + per_page - 1) // per_page)
     previous_url = f"/alerts?{urlencode({**filters, 'page': page - 1})}" if page > 1 else ""
     next_url = f"/alerts?{urlencode({**filters, 'page': page + 1})}" if page < total_pages else ""
@@ -429,33 +521,93 @@ def alerts_bulk_action(
     request: Request,
     alert_ids: list[uuid.UUID] = Form([]),
     action: str = Form(...),
+    selection_scope: str = Form("selected"),
     confirm_delete: str = Form(""),
     return_to: str = Form("/alerts"),
+    q: str = Form(""),
+    source: str = Form(""),
+    category: str = Form(""),
+    municipality: str = Form(""),
+    state: str = Form("all"),
+    window: str = Form("7d"),
+    min_priority: int = Form(1),
 ):
     try:
-        selected = list(dict.fromkeys(alert_ids))
-        if not selected:
-            raise HTTPException(400, "Choose at least one alert")
-        if len(selected) > ALERT_BULK_LIMIT:
-            raise HTTPException(400, f"Choose {ALERT_BULK_LIMIT} or fewer alerts at a time")
         action = action.strip().lower()
         if action not in {"resolve", "delete"}:
             raise HTTPException(400, "Choose Mark Resolved or Delete Permanently")
+        selection_scope = selection_scope.strip().lower()
+        if selection_scope not in {"selected", "matching"}:
+            raise HTTPException(400, "Choose selected alerts or all matching search results")
         role = str(getattr(request.state, "cmos_role", "") or "").upper()
         if action == "delete" and role and role != "EXECUTIVE":
             raise HTTPException(403, "Only an Executive user can permanently delete alerts")
-        if action == "delete" and confirm_delete.strip().upper() != "DELETE":
-            raise HTTPException(400, "Type DELETE to permanently delete the selected alerts")
+
+        selected = list(dict.fromkeys(alert_ids))
+        clause = ""
+        filter_params: list = []
+        if selection_scope == "selected":
+            if not selected:
+                raise HTTPException(400, "Choose at least one alert")
+            if len(selected) > ALERT_BULK_LIMIT:
+                raise HTTPException(400, f"Choose {ALERT_BULK_LIMIT} or fewer alerts at a time")
+            expected_confirmation = "DELETE" if action == "delete" else ""
+        else:
+            clause, filter_params, filters = _alert_filter(
+                q=q,
+                source=source,
+                category=category,
+                municipality=municipality,
+                state=state,
+                window=window,
+                min_priority=min_priority,
+            )
+            narrowed = any(
+                (
+                    filters["q"],
+                    filters["source"],
+                    filters["category"],
+                    filters["municipality"],
+                    filters["state"] != "all",
+                    filters["window"] != "all",
+                    filters["min_priority"] > 1,
+                )
+            )
+            if not narrowed:
+                raise HTTPException(400, "Narrow the search before changing all matching alerts")
+            expected_confirmation = "DELETE ALL" if action == "delete" else "APPLY ALL"
+        if expected_confirmation and confirm_delete.strip().upper() != expected_confirmation:
+            detail = (
+                "Type DELETE to permanently delete the selected alerts"
+                if expected_confirmation == "DELETE"
+                else f"Type {expected_confirmation} to confirm this change"
+            )
+            raise HTTPException(400, detail)
 
         with db_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT id FROM alerts WHERE id=ANY(%s::uuid[]) FOR UPDATE",
-                    (selected,),
-                )
+                if selection_scope == "matching":
+                    cur.execute(
+                        f"""
+                        SELECT a.id FROM alerts a {clause}
+                        ORDER BY a.received_at DESC,a.id
+                        LIMIT %s FOR UPDATE
+                        """,
+                        [*filter_params, ALERT_FILTERED_BULK_LIMIT + 1],
+                    )
+                else:
+                    cur.execute(
+                        "SELECT id FROM alerts WHERE id=ANY(%s::uuid[]) FOR UPDATE",
+                        (selected,),
+                    )
                 found = [row["id"] for row in cur.fetchall()]
                 if not found:
-                    raise HTTPException(404, "The selected alerts no longer exist")
+                    raise HTTPException(404, "No alerts in this selection still exist")
+                if len(found) > ALERT_FILTERED_BULK_LIMIT:
+                    raise HTTPException(
+                        400,
+                        f"This search has more than {ALERT_FILTERED_BULK_LIMIT:,} alerts. Narrow it before making a bulk change.",
+                    )
                 if action == "delete":
                     cur.execute(
                         "SELECT count(*) AS total FROM deliveries WHERE alert_id=ANY(%s::uuid[])",
@@ -748,11 +900,134 @@ def _global_search_rows(q: str, scope: str):
         """,
         [needle] * 3,
     )
+    add(
+        "people",
+        """
+        SELECT 'Recipients'::text AS section, 'RECIPIENT'::text AS result_type,
+               s.name AS title, left(coalesce(nullif(s.notes,''),'Notification Recipient'),240) AS summary,
+               CASE WHEN s.active THEN 'Active Recipient' ELSE 'Paused Recipient' END AS context,
+               s.id::text AS result_id, s.updated_at AS happened_at
+        FROM subscribers s
+        WHERE s.name ILIKE %s OR s.subscriber_id ILIKE %s
+           OR coalesce(s.notes,'') ILIKE %s OR s.ntfy_topic ILIKE %s
+        ORDER BY s.updated_at DESC
+        LIMIT 12
+        """,
+        [needle] * 4,
+    )
+    add(
+        "people",
+        """
+        SELECT 'Staff'::text AS section, 'STAFF_MEMBER'::text AS result_type,
+               e.full_name AS title, concat_ws(' · ',e.department,e.role) AS summary,
+               CASE WHEN e.active THEN 'Active staff member' ELSE 'Inactive staff member' END AS context,
+               e.id::text AS result_id, e.updated_at AS happened_at
+        FROM staff_employees e
+        WHERE e.full_name ILIKE %s OR e.employee_id ILIKE %s
+           OR e.department ILIKE %s OR e.role ILIKE %s
+        ORDER BY e.updated_at DESC
+        LIMIT 12
+        """,
+        [needle] * 4,
+    )
+    add(
+        "operations",
+        """
+        SELECT 'Routines'::text AS section, 'ROUTINE'::text AS result_type,
+               r.name AS title, left(coalesce(nullif(r.description,''),nullif(r.notes,''),'Operations routine'),240) AS summary,
+               concat_ws(' · ',r.routine_kind,nullif(r.department,''),nullif(r.location_label,'')) AS context,
+               r.id::text AS result_id, r.updated_at AS happened_at
+        FROM operations_routines r
+        WHERE r.name ILIKE %s OR coalesce(r.description,'') ILIKE %s
+           OR coalesce(r.notes,'') ILIKE %s OR coalesce(r.department,'') ILIKE %s
+           OR coalesce(r.location_label,'') ILIKE %s
+        ORDER BY r.updated_at DESC
+        LIMIT 12
+        """,
+        [needle] * 5,
+    )
+    add(
+        "operations",
+        """
+        SELECT 'Managed Locations'::text AS section, 'MANAGED_LOCATION'::text AS result_type,
+               l.name AS title, coalesce(nullif(l.department,''),'Shared municipal Location') AS summary,
+               CASE WHEN l.active THEN 'Active Location' ELSE 'Inactive Location' END AS context,
+               l.id::text AS result_id, l.updated_at AS happened_at
+        FROM staff_locations l
+        WHERE l.name ILIKE %s OR coalesce(l.department,'') ILIKE %s
+        ORDER BY l.updated_at DESC
+        LIMIT 12
+        """,
+        [needle] * 2,
+    )
+    add(
+        "configuration",
+        """
+        SELECT 'Rules'::text AS section, 'RULE_GROUP'::text AS result_type,
+               concat_ws(' / ',s.name,ss.name) AS title, 'Watch organization'::text AS summary,
+               CASE WHEN s.active AND ss.active THEN 'Active rule group' ELSE 'Inactive rule group' END AS context,
+               ss.id::text AS result_id, greatest(s.updated_at,ss.updated_at) AS happened_at
+        FROM rule_subsections ss
+        JOIN rule_sections s ON s.id=ss.section_id
+        WHERE s.name ILIKE %s OR s.slug ILIKE %s OR ss.name ILIKE %s OR ss.slug ILIKE %s
+        ORDER BY greatest(s.updated_at,ss.updated_at) DESC
+        LIMIT 12
+        """,
+        [needle] * 4,
+    )
+    add(
+        "configuration",
+        """
+        SELECT 'Map Layers'::text AS section, 'MAP_LAYER'::text AS result_type,
+               l.name AS title, concat_ws(' · ',replace(l.layer_type,'_',' '),nullif(l.attribution,'')) AS summary,
+               CASE WHEN l.active THEN 'Active map layer' ELSE 'Inactive map layer' END AS context,
+               l.id::text AS result_id, l.updated_at AS happened_at
+        FROM map_layers l
+        WHERE l.name ILIKE %s OR l.layer_key ILIKE %s OR l.layer_type ILIKE %s
+           OR coalesce(l.attribution,'') ILIKE %s OR coalesce(l.source_url,'') ILIKE %s
+        ORDER BY l.updated_at DESC
+        LIMIT 12
+        """,
+        [needle] * 5,
+    )
+    add(
+        "conditions",
+        """
+        SELECT 'Flood'::text AS section, 'FLOOD_OBSERVATION'::text AS result_type,
+               coalesce(nullif(f.title,''),'Flood observation') AS title,
+               concat_ws(' · ',f.source,nullif(f.station_id,''),nullif(f.flood_category,'')) AS summary,
+               'Observed flood condition'::text AS context,
+               f.id::text AS result_id, f.observed_at AS happened_at
+        FROM flood_observations f
+        WHERE coalesce(f.title,'') ILIKE %s OR f.source ILIKE %s
+           OR coalesce(f.station_id,'') ILIKE %s OR coalesce(f.flood_category,'') ILIKE %s
+        ORDER BY f.observed_at DESC
+        LIMIT 12
+        """,
+        [needle] * 4,
+    )
+    add(
+        "conditions",
+        """
+        SELECT 'Utility State'::text AS section, 'UTILITY_STATE'::text AS result_type,
+               CASE WHEN nullif(p.municipality,'') IS NOT NULL THEN p.municipality ELSE 'New Jersey Statewide' END AS title,
+               concat_ws(' · ',p.customers_out::text || ' customers out',nullif(p.etr,'')) AS summary,
+               concat_ws(' · ','PSEG',nullif(p.county,''),p.scope) AS context,
+               concat_ws(':',p.scope,p.county,p.municipality) AS result_id,
+               p.updated_at AS happened_at
+        FROM pseg_outage_state p
+        WHERE p.municipality ILIKE %s OR p.county ILIKE %s OR p.scope ILIKE %s
+           OR coalesce(p.etr,'') ILIKE %s OR coalesce(p.last_alert_reason,'') ILIKE %s
+        ORDER BY p.updated_at DESC
+        LIMIT 12
+        """,
+        [needle] * 5,
+    )
 
     if not statements:
         return []
     sql = "SELECT * FROM (" + "\nUNION ALL\n".join(statements) + ") results " \
-          "ORDER BY happened_at DESC NULLS LAST,title LIMIT 140"
+          "ORDER BY happened_at DESC NULLS LAST,title LIMIT 220"
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SET LOCAL statement_timeout = '12s'")
@@ -781,6 +1056,20 @@ def _global_result_url(row, q):
         return f"/map?{query}"
     if result_type == "INTEGRATION":
         return "/integrations"
+    if result_type == "RECIPIENT":
+        return f"/subscribers?{query}"
+    if result_type in {"STAFF_MEMBER", "MANAGED_LOCATION"}:
+        return "/staff-admin"
+    if result_type == "ROUTINE":
+        return "/operations-routines"
+    if result_type == "RULE_GROUP":
+        return f"/rules?{query}"
+    if result_type == "MAP_LAYER":
+        return f"/map?{query}"
+    if result_type == "FLOOD_OBSERVATION":
+        return "/flood"
+    if result_type == "UTILITY_STATE":
+        return "/integrations/pseg"
     return "/source-health"
 
 

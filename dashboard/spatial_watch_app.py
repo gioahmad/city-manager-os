@@ -16,10 +16,11 @@ from urllib import request as urllib_request
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
-from fastapi import Form, HTTPException, Request
+from fastapi import Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from schedule_app import app
+from operations_app import ALERT_FILTERED_BULK_LIMIT, SEARCH_SCOPES, alert_keyword_choices
 from app import (
     MATCH_MODES,
     WATCH_TYPES,
@@ -35,6 +36,7 @@ from geo_resolver import MIN_PRECISE_CONFIDENCE, resolve_payload
 
 
 RELEASE_ID = "alerting-spatial-watch-simplification-v1"
+COMPLETION_RELEASE_ID = "alert-watch-completion-performance-v1"
 LOCAL_ZONE = ZoneInfo("America/New_York")
 LOGGER = logging.getLogger(__name__)
 NTFY_PUBLISH_BASE = os.getenv("CMOS_NTFY_PUBLISH_BASE", "http://100.94.203.47:8080").rstrip("/")
@@ -80,42 +82,6 @@ LOCATION_KINDS = {
     "TYPED_ADDRESS",
     "EXISTING",
 }
-
-ALERT_KEYWORD_STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "at",
-    "be",
-    "been",
-    "by",
-    "for",
-    "from",
-    "has",
-    "have",
-    "in",
-    "incident",
-    "is",
-    "it",
-    "new",
-    "of",
-    "on",
-    "or",
-    "received",
-    "reported",
-    "that",
-    "the",
-    "this",
-    "to",
-    "transmitted",
-    "update",
-    "was",
-    "were",
-    "with",
-}
-
 
 def _setup_mode(value: str) -> str:
     mode = SETUP_MODE_ALIASES.get(value.strip().upper(), value.strip().upper())
@@ -638,47 +604,6 @@ def _watch_health() -> dict:
     return health
 
 
-def _alert_keyword_choices(alert: dict, limit: int = 12) -> list[str]:
-    """Suggest phrases found in this alert; never use a fixed incident dictionary."""
-    choices: list[str] = []
-    seen: set[str] = set()
-
-    def add(value) -> None:
-        text = re.sub(r"\s+", " ", str(value or "").replace("_", " ")).strip(" ,.;:|-/")
-        normalized = re.sub(r"[^A-Z0-9]+", " ", text.upper()).strip()
-        words = normalized.split()
-        if (
-            not normalized
-            or normalized in seen
-            or len(normalized) > 80
-            or all(word.casefold() in ALERT_KEYWORD_STOPWORDS for word in words)
-        ):
-            return
-        seen.add(normalized)
-        choices.append(text)
-
-    # Message wording is usually more reusable than an incident-specific title or address.
-    for value in (alert.get("message"), alert.get("title")):
-        tokens = re.findall(r"[A-Za-z0-9]+(?:['/-][A-Za-z0-9]+)*", str(value or ""))
-        useful = [
-            (index, token)
-            for index, token in enumerate(tokens)
-            if len(token) >= 3
-            and not token.isdigit()
-            and token.casefold() not in ALERT_KEYWORD_STOPWORDS
-        ]
-        for (left_index, left), (right_index, right) in zip(useful, useful[1:]):
-            if right_index == left_index + 1:
-                add(f"{left} {right}")
-        for _, token in useful:
-            add(token)
-
-    for value in (alert.get("subtype"), alert.get("category"), *(alert.get("tags") or [])):
-        add(value)
-
-    return choices[: max(1, min(limit, 20))]
-
-
 def _watch_prefill_from_alert(alert_reference: str) -> dict:
     """Build an editable Watch draft from one existing alert without writing data."""
     alert_reference = alert_reference.strip()[:160]
@@ -729,7 +654,7 @@ def _watch_prefill_from_alert(alert_reference: str) -> dict:
         else "TOPIC"
     )
 
-    keyword_choices = _alert_keyword_choices(alert)
+    keyword_choices = alert_keyword_choices(alert)
     suggested_keyword = keyword_choices[0] if keyword_choices else topic
 
     if has_coordinates:
@@ -755,6 +680,7 @@ def _watch_prefill_from_alert(alert_reference: str) -> dict:
         "search_term": suggested_keyword,
         "aliases": "",
         "keyword_choices": keyword_choices,
+        "selected_keywords": [suggested_keyword] if suggested_keyword else [],
         "location_query": location_label,
         "latitude": latitude if has_coordinates else "",
         "longitude": longitude if has_coordinates else "",
@@ -817,6 +743,7 @@ for route_path, route_method in (
 def spatial_watch_release():
     return {
         "release_id": RELEASE_ID,
+        "completion_release_id": COMPLETION_RELEASE_ID,
         "architecture": "SEE IT -> TRACK IT -> TELL ME",
         "watch_source_of_truth": "watch_items",
         "delivery_path": ["Subscribers", "Routing", "Delivery Guard", "ntfy"],
@@ -848,6 +775,7 @@ def spatial_watch_release():
         "global_alert_search": "/alerts?window=all",
         "recipient_watch_assignment": "/subscribers/{recipient_id}/watches",
         "alert_keyword_choices": "derived from the selected stored alert",
+        "alert_watch_prefill_query": ["from_alert", "setup_mode", "selected_keywords"],
         "bulk_watch_endpoint": "/watchlist/bulk-create",
         "bulk_watch_limit": BULK_WATCH_LIMIT,
         "bulk_watch_actions": ["pause", "activate", "delete"],
@@ -855,6 +783,15 @@ def spatial_watch_release():
         "saved_keyword_switches": True,
         "alert_match_explanations": True,
         "bulk_alert_actions": ["resolve", "delete"],
+        "filtered_bulk_alert_limit": ALERT_FILTERED_BULK_LIMIT,
+        "county_to_town_selection": True,
+        "visible_area_search": {
+            "alerts": "/map/system/alerts.geojson",
+            "events": "/map/system/events.geojson",
+            "work_items": "/map/system/issues.geojson",
+            "watches": "/map/system/watchlist.geojson",
+        },
+        "global_search_scopes": list(SEARCH_SCOPES),
         "reusable_location_source": "Mapping Center map_layers and map_features",
     }
 
@@ -1016,66 +953,82 @@ def spatial_watchlist(
     from_alert: str = "",
     setup_mode: str = "",
     search_term: str = "",
+    selected_keywords: list[str] = Query(default=[]),
     bulk_layer: str = "",
     bulk_parent_by: str = "",
     bulk_group_by: str = "",
     bulk_name_by: str = "",
+    bulk_group_filter: str = "",
 ):
     where = []
     params = []
     if q.strip():
         needle = f"%{q.strip()}%"
         where.append(
-            "(display_name ILIKE %s OR search_term ILIKE %s OR watch_id ILIKE %s "
-            "OR municipality ILIKE %s OR address ILIKE %s OR parent_group ILIKE %s)"
+            "(w.display_name ILIKE %s OR w.search_term ILIKE %s OR w.watch_id ILIKE %s "
+            "OR w.municipality ILIKE %s OR w.address ILIKE %s OR w.parent_group ILIKE %s)"
         )
         params.extend([needle] * 6)
     clause = f"WHERE {' AND '.join(where)}" if where else ""
     all_items = query_all(
         f"""
+        WITH recipient_rollup AS (
+          SELECT wir.watch_item_id,
+                 count(*) FILTER (WHERE wir.active AND s.active) AS active_recipient_count,
+                 array_agg(wir.subscriber_id::text ORDER BY wir.subscriber_id)
+                   FILTER (WHERE wir.active AND s.active) AS recipient_ids,
+                 array_agg(s.name ORDER BY s.name)
+                   FILTER (WHERE wir.active AND s.active) AS recipient_names
+          FROM watch_item_recipients wir
+          JOIN subscribers s ON s.id=wir.subscriber_id
+          GROUP BY wir.watch_item_id
+        ), match_rollup AS (
+          SELECT awm.watch_item_id,
+                 count(*) FILTER (WHERE awm.matched_at>=now()-interval '7 days') AS matches_7d,
+                 count(*) AS matches_total,
+                 max(awm.matched_at) AS last_match_at,
+                 (array_agg(a.title ORDER BY awm.matched_at DESC))[1] AS last_match_title
+          FROM alert_watch_matches awm
+          JOIN alerts a ON a.id=awm.alert_id
+          GROUP BY awm.watch_item_id
+        ), delivery_rows AS (
+          SELECT ids.watch_id,d.status,d.error_message,d.created_at,
+                 coalesce(d.sent_at,d.attempted_at,d.created_at) AS happened_at
+          FROM deliveries d
+          CROSS JOIN LATERAL jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(d.matched_watch_ids)='array'
+                 THEN d.matched_watch_ids ELSE '[]'::jsonb END
+          ) ids(watch_id)
+        ), delivery_rollup AS (
+          SELECT watch_id,
+                 count(*) FILTER (
+                   WHERE status='SENT' AND created_at>=now()-interval '7 days'
+                 ) AS sent_7d,
+                 (array_agg(status ORDER BY happened_at DESC))[1] AS last_delivery_status,
+                 max(happened_at) AS last_delivery_at,
+                 (array_agg(left(error_message,240) ORDER BY happened_at DESC))[1]
+                   AS last_delivery_error
+          FROM delivery_rows
+          GROUP BY watch_id
+        )
         SELECT w.id,w.watch_id,w.active,w.watch_type,w.display_name,w.search_term,w.aliases,
                w.match_mode,w.match_field,w.category,w.subcategory,w.parent_group,w.tags,w.min_priority,
                w.address,w.municipality,w.county,w.state,w.block,w.lot,w.notes,
                w.source_filter,w.alert_category_filter,w.starts_at,w.expires_at,w.nearby_enabled,
                w.radius_ft,w.latitude,w.longitude,w.spatial_scope,w.spatial_reference_entity_id,
                ST_GeometryType(w.spatial_target_geom) AS spatial_target_type,
-               COALESCE((SELECT count(*)
-                           FROM watch_item_recipients wir
-                           JOIN subscribers s ON s.id=wir.subscriber_id
-                          WHERE wir.watch_item_id=w.id AND wir.active AND s.active),0) AS active_recipient_count,
-               COALESCE((SELECT array_agg(wir.subscriber_id::text ORDER BY wir.subscriber_id)
-                           FROM watch_item_recipients wir
-                           JOIN subscribers s ON s.id=wir.subscriber_id
-                          WHERE wir.watch_item_id=w.id AND wir.active AND s.active),ARRAY[]::text[]) AS recipient_ids,
-               COALESCE((SELECT array_agg(s.name ORDER BY s.name)
-                           FROM watch_item_recipients wir
-                           JOIN subscribers s ON s.id=wir.subscriber_id
-                          WHERE wir.watch_item_id=w.id AND wir.active AND s.active),ARRAY[]::text[]) AS recipient_names,
-               (SELECT count(*) FROM alert_watch_matches awm
-                 WHERE awm.watch_item_id=w.id
-                   AND awm.matched_at>=now()-interval '7 days') AS matches_7d,
-               (SELECT count(*) FROM alert_watch_matches awm
-                 WHERE awm.watch_item_id=w.id) AS matches_total,
-               (SELECT max(awm.matched_at) FROM alert_watch_matches awm
-                 WHERE awm.watch_item_id=w.id) AS last_match_at,
-               (SELECT a.title FROM alert_watch_matches awm
-                  JOIN alerts a ON a.id=awm.alert_id
-                 WHERE awm.watch_item_id=w.id
-                 ORDER BY awm.matched_at DESC LIMIT 1) AS last_match_title,
-               (SELECT count(*) FROM deliveries d
-                 WHERE d.status='SENT'
-                   AND d.created_at>=now()-interval '7 days'
-                   AND d.matched_watch_ids ? w.watch_id) AS sent_7d,
-               (SELECT d.status FROM deliveries d
-                 WHERE d.matched_watch_ids ? w.watch_id
-                 ORDER BY COALESCE(d.sent_at,d.attempted_at,d.created_at) DESC LIMIT 1) AS last_delivery_status,
-               (SELECT COALESCE(d.sent_at,d.attempted_at,d.created_at) FROM deliveries d
-                 WHERE d.matched_watch_ids ? w.watch_id
-                 ORDER BY COALESCE(d.sent_at,d.attempted_at,d.created_at) DESC LIMIT 1) AS last_delivery_at,
-               (SELECT left(d.error_message,240) FROM deliveries d
-                 WHERE d.matched_watch_ids ? w.watch_id
-                 ORDER BY COALESCE(d.sent_at,d.attempted_at,d.created_at) DESC LIMIT 1) AS last_delivery_error
+               coalesce(rr.active_recipient_count,0) AS active_recipient_count,
+               coalesce(rr.recipient_ids,ARRAY[]::text[]) AS recipient_ids,
+               coalesce(rr.recipient_names,ARRAY[]::text[]) AS recipient_names,
+               coalesce(mr.matches_7d,0) AS matches_7d,
+               coalesce(mr.matches_total,0) AS matches_total,
+               mr.last_match_at,mr.last_match_title,
+               coalesce(dr.sent_7d,0) AS sent_7d,
+               dr.last_delivery_status,dr.last_delivery_at,dr.last_delivery_error
         FROM watch_items w
+        LEFT JOIN recipient_rollup rr ON rr.watch_item_id=w.id
+        LEFT JOIN match_rollup mr ON mr.watch_item_id=w.id
+        LEFT JOIN delivery_rollup dr ON dr.watch_id=w.watch_id
         {clause}
         ORDER BY w.active DESC,w.parent_group NULLS FIRST,w.display_name
         LIMIT 500
@@ -1161,13 +1114,31 @@ def spatial_watchlist(
     )
     watch_location_layers = query_all(
         """
-        SELECT l.id::text AS id,l.name,
+        SELECT l.id::text AS id,l.layer_key,l.name,
                (SELECT count(*) FROM map_features f WHERE f.layer_id=l.id AND f.active=true) AS feature_count
         FROM map_layers l
         WHERE l.active=true AND l.layer_type='CUSTOM_GEOJSON'
           AND EXISTS (SELECT 1 FROM map_features f WHERE f.layer_id=l.id AND f.active=true)
         ORDER BY l.name
         """
+    )
+    layer_descriptions = {
+        "NJ_OFFICIAL_MUNICIPALITIES": "Choose individual towns, grouped by county",
+        "NJ_OFFICIAL_COUNTIES": "Watch an entire county boundary",
+        "NJDOT_MAJOR_HIGHWAYS": "Watch along a major road using a Distance",
+    }
+    for layer in watch_location_layers:
+        layer["description"] = layer_descriptions.get(
+            layer.get("layer_key"),
+            "Choose individual saved Locations",
+        )
+    municipality_layer = next(
+        (
+            layer
+            for layer in watch_location_layers
+            if layer.get("layer_key") == "NJ_OFFICIAL_MUNICIPALITIES"
+        ),
+        None,
     )
     bulk_context = None
     if bulk_layer.strip():
@@ -1180,7 +1151,19 @@ def spatial_watchlist(
             parent_by=bulk_parent_by,
             group_by=bulk_group_by,
             name_by=bulk_name_by,
+            group_filter=bulk_group_filter,
         )
+        if (
+            municipality_layer
+            and bulk_context["layer"].get("layer_key") == "NJ_OFFICIAL_COUNTIES"
+        ):
+            for group in bulk_context["groups"]:
+                group["town_picker_url"] = "/watchlist?" + urlencode(
+                    {
+                        "bulk_layer": municipality_layer["id"],
+                        "bulk_group_filter": group["label"],
+                    }
+                ) + "#bulk-watch-builder"
     alert_sources = query_all(
         "SELECT source,count(*) AS total FROM alerts WHERE nullif(trim(source),'') IS NOT NULL GROUP BY source ORDER BY source"
     )
@@ -1196,6 +1179,7 @@ def spatial_watchlist(
         "suggested_category": "",
         "suggested_subtype": "",
         "keyword_choices": [],
+        "selected_keywords": [],
         "display_name": display_name,
         "setup_mode": _setup_mode(setup_mode) if setup_mode.strip() else "LOCATION",
         "search_term": search_term,
@@ -1213,6 +1197,19 @@ def spatial_watchlist(
         alert_prefill = _watch_prefill_from_alert(from_alert)
         if alert_prefill:
             prefill.update(alert_prefill)
+            if setup_mode.strip():
+                prefill["setup_mode"] = _setup_mode(setup_mode)
+            chosen = list(
+                dict.fromkeys(
+                    keyword.strip()[:80]
+                    for keyword in selected_keywords[:12]
+                    if keyword.strip()
+                )
+            )
+            if chosen:
+                prefill["selected_keywords"] = chosen
+                prefill["search_term"] = chosen[0]
+                prefill["aliases"] = ", ".join(chosen[1:])
         elif not error:
             error = "That alert could not be found. No Watch was created."
     return templates.TemplateResponse(
@@ -1336,11 +1333,12 @@ def _bulk_location_context(
     parent_by: str = "",
     group_by: str = "",
     name_by: str = "",
+    group_filter: str = "",
 ) -> dict:
     """Organize one existing Mapping Center layer without copying its GIS data."""
     layer = query_one(
         """
-        SELECT id::text AS id,name
+        SELECT id::text AS id,layer_key,name
         FROM map_layers
         WHERE id=%s AND active=true AND layer_type='CUSTOM_GEOJSON'
         """,
@@ -1454,6 +1452,15 @@ def _bulk_location_context(
             bucket["samples"].append(label)
 
     group_list = sorted(groups.values(), key=lambda item: (item["parent"].casefold(), item["label"].casefold()))
+    normalized_filter = group_filter.strip().casefold()
+    if normalized_filter:
+        group_list = [
+            group
+            for group in group_list
+            if group["label"].casefold() == normalized_filter
+        ]
+        if not group_list:
+            raise HTTPException(404, "That county is no longer available in this Location layer")
     for group in group_list:
         group["count"] = len(group["feature_ids"])
     return {
@@ -1462,9 +1469,11 @@ def _bulk_location_context(
         "parent_by": parent_by,
         "group_by": group_by,
         "name_by": name_by,
+        "group_filter": group_filter.strip(),
         "groups": group_list,
         "features_by_id": features_by_id,
         "feature_count": len(rows),
+        "visible_feature_count": sum(group["count"] for group in group_list),
     }
 
 
