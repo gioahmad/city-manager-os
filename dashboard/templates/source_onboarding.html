@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Source Onboarding · City Manager OS</title>
+  <title>Guided Source Setup · City Manager OS</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header class="topbar">
   <div class="brand">
-    <div class="eyebrow">INTEGRATIONS CENTER</div>
-    <div class="brand-row"><h1>Source Onboarding</h1><span class="private-badge">PRIVATE</span></div>
-    <div class="tagline">Build the integration shell first. Add provider access later.</div>
+    <div class="eyebrow">INTEGRATIONS CENTER · GUIDED SETUP</div>
+    <div class="brand-row"><h1>Source Setup</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Create once, test safely, then activate in the existing integration pipeline</div>
   </div>
 </header>
 {% include "nav.html" %}
@@ -31,7 +31,7 @@
     <div class="panel-head">
       <div><div class="panel-kicker">CONTROL PLANE</div><h2>How onboarding works</h2></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <a class="text-link" href="/integrations">Integration Monitor</a>
+        <a class="text-link" href="/integrations">Back to Integration Monitor</a>
         <a class="text-link" href="/api-lab">API Lab</a>
       </div>
     </div>
@@ -96,64 +96,69 @@
           <label>Name<input name="name" required placeholder="Hudson County Health Alerts"></label>
           <label>Integration Key <span class="hint">Optional; generated if blank</span><input name="integration_key" placeholder="HUDSON_HEALTH"></label>
 
-          <div class="form-grid three-col">
-            <label>Category<select name="category">{% for c in categories %}<option value="{{ c }}" {% if c == new_source.category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
-            <label>Adapter<select name="adapter_type">{% for a in adapter_types %}<option value="{{ a }}" {% if a == new_source.adapter_type %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
-            <label>Method<select name="method">{% for m in methods %}<option value="{{ m }}" {% if m == new_source.method %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></label>
-          </div>
-
+          <label>Category<select name="category">{% for c in categories %}<option value="{{ c }}" {% if c == new_source.category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
           <label>Endpoint URL <span class="hint">May be blank for a placeholder</span><input type="url" name="endpoint_url" value="{{ new_source.endpoint_url }}" placeholder="https://provider.example/api"></label>
 
-          <div class="panel-kicker" style="margin-top:8px">AUTHENTICATION · ENVIRONMENT REFERENCES ONLY</div>
-          <label>Auth Type<select name="auth_type">{% for a in auth_types %}<option value="{{ a }}">{{ a }}</option>{% endfor %}</select></label>
-          <div class="form-grid two-col">
-            <label>Username Env<input name="username_env" placeholder="PROVIDER_USERNAME"></label>
-            <label>Password Env<input name="password_env" placeholder="PROVIDER_PASSWORD"></label>
-          </div>
-          <div class="form-grid two-col">
-            <label>Token Env<input name="token_env" placeholder="PROVIDER_TOKEN"></label>
-            <label>API Key Env<input name="key_env" placeholder="PROVIDER_API_KEY"></label>
-          </div>
-          <label>API Key Name<input name="key_name" placeholder="apikey or X-API-Key"></label>
-
-          <div class="panel-kicker" style="margin-top:8px">REQUEST</div>
-          <label>Headers JSON<textarea name="headers_json" rows="4">{{ new_source.headers_text }}</textarea></label>
-          <label>Query JSON<textarea name="query_json" rows="4">{{ new_source.query_text }}</textarea></label>
-          <label>Request Body<textarea name="request_body" rows="3">{{ new_source.request_body }}</textarea></label>
-
-          <div class="panel-kicker" style="margin-top:8px">PARSER / NORMALIZATION</div>
-          <label>Parser<select name="parser_kind">{% for p in parser_kinds %}<option value="{{ p }}" {% if p == new_source.parser_kind %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
-          <label>Parser Config JSON<textarea name="parser_config_json" rows="10">{{ new_source.parser_config_text }}</textarea></label>
-
-          <div class="form-grid three-col">
-            <label>Poll Seconds<input type="number" min="60" max="86400" name="poll_seconds" value="{{ new_source.poll_seconds }}"></label>
-            <label>Timeout Seconds<input type="number" min="1" max="60" name="timeout_seconds" value="{{ new_source.timeout_seconds }}"></label>
-            <label>Max Response Bytes<input type="number" min="1024" max="5000000" name="max_response_bytes" value="{{ new_source.max_response_bytes }}"></label>
-          </div>
-          <label class="checkbox-row"><input type="checkbox" name="allow_redirects" value="1" {% if new_source.allow_redirects %}checked{% endif %}> Follow redirects</label>
-          <label class="checkbox-row"><input type="checkbox" name="verify_tls" value="1" {% if new_source.verify_tls %}checked{% endif %}> Verify TLS certificate</label>
-
-          <div class="panel-kicker" style="margin-top:8px">OWNERSHIP / SCOPE</div>
           <div class="form-grid two-col">
             <label>Source Owner<input name="source_owner" placeholder="Department / person responsible"></label>
             <label>Owner Contact<input name="source_contact" placeholder="Email, office or provider contact"></label>
           </div>
           <label>Geography / Corridor Scope<input name="geography_scope" placeholder="Weehawken, Hudson County, Lincoln Tunnel corridor"></label>
-          <label>Relevance Keywords<textarea name="relevance_keywords" rows="3" placeholder="Weehawken, Lincoln Tunnel, Route 495"></textarea></label>
-
-          <div class="panel-kicker" style="margin-top:8px">ATTENTION / MAP DEFAULTS</div>
-          <div class="form-grid two-col">
-            <label>WATCH Threshold<input type="number" min="0" max="100" name="watch_threshold" value="45"></label>
-            <label>ALERT Threshold<input type="number" min="0" max="100" name="alert_threshold" value="75"></label>
-          </div>
-          <label class="checkbox-row"><input type="checkbox" name="map_capable" value="1" {% if new_source.map_capable %}checked{% endif %}> Source can produce map geometry</label>
-          <div class="form-grid two-col">
-            <label>Map Layer Key<input name="map_layer_key" placeholder="HUDSON_HEALTH"></label>
-            <label>Map Layer Label<input name="map_layer_label" placeholder="Hudson Health"></label>
-          </div>
-
-          <label>Access / Setup Instructions<textarea name="access_instructions" rows="3" placeholder="How to request access, provider account notes, renewal steps"></textarea></label>
           <label>Notes<textarea name="notes" rows="3" placeholder="Operational purpose, caveats, source quality"></textarea></label>
+
+          <details class="advanced-options">
+            <summary>Advanced connection, parser, and routing controls</summary>
+            <div class="watch-form compact advanced-options-body">
+              <p class="muted small-copy">The selected provider template supplies safe defaults. Open this only when the source requires custom authentication, parsing, timing, attention, or map settings.</p>
+
+              <div class="form-grid two-col">
+                <label>Adapter<select name="adapter_type">{% for a in adapter_types %}<option value="{{ a }}" {% if a == new_source.adapter_type %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
+                <label>Method<select name="method">{% for m in methods %}<option value="{{ m }}" {% if m == new_source.method %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></label>
+              </div>
+
+              <div class="panel-kicker" style="margin-top:8px">AUTHENTICATION · ENVIRONMENT REFERENCES ONLY</div>
+              <label>Auth Type<select name="auth_type">{% for a in auth_types %}<option value="{{ a }}">{{ a }}</option>{% endfor %}</select></label>
+              <div class="form-grid two-col">
+                <label>Username Env<input name="username_env" placeholder="PROVIDER_USERNAME"></label>
+                <label>Password Env<input name="password_env" placeholder="PROVIDER_PASSWORD"></label>
+              </div>
+              <div class="form-grid two-col">
+                <label>Token Env<input name="token_env" placeholder="PROVIDER_TOKEN"></label>
+                <label>API Key Env<input name="key_env" placeholder="PROVIDER_API_KEY"></label>
+              </div>
+              <label>API Key Name<input name="key_name" placeholder="apikey or X-API-Key"></label>
+
+              <div class="panel-kicker" style="margin-top:8px">REQUEST</div>
+              <label>Headers JSON<textarea name="headers_json" rows="4">{{ new_source.headers_text }}</textarea></label>
+              <label>Query JSON<textarea name="query_json" rows="4">{{ new_source.query_text }}</textarea></label>
+              <label>Request Body<textarea name="request_body" rows="3">{{ new_source.request_body }}</textarea></label>
+
+              <div class="panel-kicker" style="margin-top:8px">PARSER / NORMALIZATION</div>
+              <label>Parser<select name="parser_kind">{% for p in parser_kinds %}<option value="{{ p }}" {% if p == new_source.parser_kind %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+              <label>Parser Config JSON<textarea name="parser_config_json" rows="10">{{ new_source.parser_config_text }}</textarea></label>
+
+              <div class="form-grid three-col">
+                <label>Poll Seconds<input type="number" min="60" max="86400" name="poll_seconds" value="{{ new_source.poll_seconds }}"></label>
+                <label>Timeout Seconds<input type="number" min="1" max="60" name="timeout_seconds" value="{{ new_source.timeout_seconds }}"></label>
+                <label>Max Response Bytes<input type="number" min="1024" max="5000000" name="max_response_bytes" value="{{ new_source.max_response_bytes }}"></label>
+              </div>
+              <label class="checkbox-row"><input type="checkbox" name="allow_redirects" value="1" {% if new_source.allow_redirects %}checked{% endif %}> Follow redirects</label>
+              <label class="checkbox-row"><input type="checkbox" name="verify_tls" value="1" {% if new_source.verify_tls %}checked{% endif %}> Verify TLS certificate</label>
+
+              <label>Relevance Keywords<textarea name="relevance_keywords" rows="3" placeholder="Weehawken, Lincoln Tunnel, Route 495"></textarea></label>
+              <div class="form-grid two-col">
+                <label>WATCH Threshold<input type="number" min="0" max="100" name="watch_threshold" value="45"></label>
+                <label>ALERT Threshold<input type="number" min="0" max="100" name="alert_threshold" value="75"></label>
+              </div>
+              <label class="checkbox-row"><input type="checkbox" name="map_capable" value="1" {% if new_source.map_capable %}checked{% endif %}> Source can produce map geometry</label>
+              <div class="form-grid two-col">
+                <label>Map Layer Key<input name="map_layer_key" placeholder="HUDSON_HEALTH"></label>
+                <label>Map Layer Label<input name="map_layer_label" placeholder="Hudson Health"></label>
+              </div>
+
+              <label>Access / Setup Instructions<textarea name="access_instructions" rows="3" placeholder="How to request access, provider account notes, renewal steps"></textarea></label>
+            </div>
+          </details>
 
           <button class="primary-button" type="submit" {% if not can_write %}disabled{% endif %}>Save Inactive Source</button>
         </form>
@@ -243,59 +248,66 @@
                   <label>Integration Key<input value="{{ i.integration_key }}" readonly></label>
                   <label>Name<input name="name" value="{{ i.name }}" required></label>
 
-                  <div class="form-grid three-col">
-                    <label>Category<select name="category">{% for c in categories %}<option value="{{ c }}" {% if c == i.category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
-                    <label>Adapter<select name="adapter_type">{% for a in adapter_types %}<option value="{{ a }}" {% if a == i.adapter_type %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
-                    <label>Method<select name="method">{% for m in methods %}<option value="{{ m }}" {% if m == i.method %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></label>
-                  </div>
-
+                  <label>Category<select name="category">{% for c in categories %}<option value="{{ c }}" {% if c == i.category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
                   <label>Endpoint URL<input type="url" name="endpoint_url" value="{{ i.endpoint_url or '' }}"></label>
-                  <label>Auth Type<select name="auth_type">{% for a in auth_types %}<option value="{{ a }}" {% if a == i.auth_type %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
-
-                  <div class="form-grid two-col">
-                    <label>Username Env<input name="username_env" value="{{ i.auth_config.get('username_env','') }}"></label>
-                    <label>Password Env<input name="password_env" value="{{ i.auth_config.get('password_env','') }}"></label>
-                  </div>
-                  <div class="form-grid two-col">
-                    <label>Token Env<input name="token_env" value="{{ i.auth_config.get('token_env','') }}"></label>
-                    <label>API Key Env<input name="key_env" value="{{ i.auth_config.get('key_env','') }}"></label>
-                  </div>
-                  <label>API Key Name<input name="key_name" value="{{ i.auth_config.get('key_name','') }}"></label>
-
-                  <label>Headers JSON<textarea name="headers_json" rows="4">{{ i.headers_text }}</textarea></label>
-                  <label>Query JSON<textarea name="query_json" rows="4">{{ i.query_text }}</textarea></label>
-                  <label>Request Body<textarea name="request_body" rows="3">{{ i.request_body or '' }}</textarea></label>
-
-                  <label>Parser<select name="parser_kind">{% for p in parser_kinds %}<option value="{{ p }}" {% if p == i.parser_kind %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
-                  <label>Parser Config JSON<textarea name="parser_config_json" rows="9">{{ i.parser_config_text }}</textarea></label>
-
-                  <div class="form-grid three-col">
-                    <label>Poll Seconds<input type="number" min="60" max="86400" name="poll_seconds" value="{{ i.poll_seconds }}"></label>
-                    <label>Timeout<input type="number" min="1" max="60" name="timeout_seconds" value="{{ i.timeout_seconds }}"></label>
-                    <label>Max Bytes<input type="number" min="1024" max="5000000" name="max_response_bytes" value="{{ i.max_response_bytes }}"></label>
-                  </div>
-                  <label class="checkbox-row"><input type="checkbox" name="allow_redirects" value="1" {% if i.allow_redirects %}checked{% endif %}> Follow redirects</label>
-                  <label class="checkbox-row"><input type="checkbox" name="verify_tls" value="1" {% if i.verify_tls %}checked{% endif %}> Verify TLS</label>
-
                   <div class="form-grid two-col">
                     <label>Source Owner<input name="source_owner" value="{{ i.source_owner or '' }}"></label>
                     <label>Owner Contact<input name="source_contact" value="{{ i.source_contact or '' }}"></label>
                   </div>
                   <label>Geography / Corridor Scope<input name="geography_scope" value="{{ i.geography_scope or '' }}"></label>
-                  <label>Relevance Keywords<textarea name="relevance_keywords" rows="3">{{ i.relevance_keywords or '' }}</textarea></label>
-
-                  <div class="form-grid two-col">
-                    <label>WATCH Threshold<input type="number" min="0" max="100" name="watch_threshold" value="{{ i.attention_config.get('watch_threshold',45) }}"></label>
-                    <label>ALERT Threshold<input type="number" min="0" max="100" name="alert_threshold" value="{{ i.attention_config.get('alert_threshold',75) }}"></label>
-                  </div>
-                  <label class="checkbox-row"><input type="checkbox" name="map_capable" value="1" {% if i.map_config.get('enabled') %}checked{% endif %}> Source can produce map geometry</label>
-                  <div class="form-grid two-col">
-                    <label>Map Layer Key<input name="map_layer_key" value="{{ i.map_config.get('layer_key','') }}"></label>
-                    <label>Map Layer Label<input name="map_layer_label" value="{{ i.map_config.get('layer_label','') }}"></label>
-                  </div>
-
-                  <label>Access / Setup Instructions<textarea name="access_instructions" rows="3">{{ i.access_instructions or '' }}</textarea></label>
                   <label>Notes<textarea name="notes" rows="3">{{ i.notes or '' }}</textarea></label>
+
+                  <details class="advanced-options">
+                    <summary>Advanced connection, parser, and routing controls</summary>
+                    <div class="watch-form compact advanced-options-body">
+                      <p class="muted small-copy">Changing these settings invalidates the previous TEST and safely pauses an active source until the new configuration is tested.</p>
+
+                      <div class="form-grid two-col">
+                        <label>Adapter<select name="adapter_type">{% for a in adapter_types %}<option value="{{ a }}" {% if a == i.adapter_type %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
+                        <label>Method<select name="method">{% for m in methods %}<option value="{{ m }}" {% if m == i.method %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></label>
+                      </div>
+
+                      <label>Auth Type<select name="auth_type">{% for a in auth_types %}<option value="{{ a }}" {% if a == i.auth_type %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
+                      <div class="form-grid two-col">
+                        <label>Username Env<input name="username_env" value="{{ i.auth_config.get('username_env','') }}"></label>
+                        <label>Password Env<input name="password_env" value="{{ i.auth_config.get('password_env','') }}"></label>
+                      </div>
+                      <div class="form-grid two-col">
+                        <label>Token Env<input name="token_env" value="{{ i.auth_config.get('token_env','') }}"></label>
+                        <label>API Key Env<input name="key_env" value="{{ i.auth_config.get('key_env','') }}"></label>
+                      </div>
+                      <label>API Key Name<input name="key_name" value="{{ i.auth_config.get('key_name','') }}"></label>
+
+                      <label>Headers JSON<textarea name="headers_json" rows="4">{{ i.headers_text }}</textarea></label>
+                      <label>Query JSON<textarea name="query_json" rows="4">{{ i.query_text }}</textarea></label>
+                      <label>Request Body<textarea name="request_body" rows="3">{{ i.request_body or '' }}</textarea></label>
+
+                      <label>Parser<select name="parser_kind">{% for p in parser_kinds %}<option value="{{ p }}" {% if p == i.parser_kind %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+                      <label>Parser Config JSON<textarea name="parser_config_json" rows="9">{{ i.parser_config_text }}</textarea></label>
+
+                      <div class="form-grid three-col">
+                        <label>Poll Seconds<input type="number" min="60" max="86400" name="poll_seconds" value="{{ i.poll_seconds }}"></label>
+                        <label>Timeout<input type="number" min="1" max="60" name="timeout_seconds" value="{{ i.timeout_seconds }}"></label>
+                        <label>Max Bytes<input type="number" min="1024" max="5000000" name="max_response_bytes" value="{{ i.max_response_bytes }}"></label>
+                      </div>
+                      <label class="checkbox-row"><input type="checkbox" name="allow_redirects" value="1" {% if i.allow_redirects %}checked{% endif %}> Follow redirects</label>
+                      <label class="checkbox-row"><input type="checkbox" name="verify_tls" value="1" {% if i.verify_tls %}checked{% endif %}> Verify TLS</label>
+
+                      <label>Relevance Keywords<textarea name="relevance_keywords" rows="3">{{ i.relevance_keywords or '' }}</textarea></label>
+                      <div class="form-grid two-col">
+                        <label>WATCH Threshold<input type="number" min="0" max="100" name="watch_threshold" value="{{ i.attention_config.get('watch_threshold',45) }}"></label>
+                        <label>ALERT Threshold<input type="number" min="0" max="100" name="alert_threshold" value="{{ i.attention_config.get('alert_threshold',75) }}"></label>
+                      </div>
+                      <label class="checkbox-row"><input type="checkbox" name="map_capable" value="1" {% if i.map_config.get('enabled') %}checked{% endif %}> Source can produce map geometry</label>
+                      <div class="form-grid two-col">
+                        <label>Map Layer Key<input name="map_layer_key" value="{{ i.map_config.get('layer_key','') }}"></label>
+                        <label>Map Layer Label<input name="map_layer_label" value="{{ i.map_config.get('layer_label','') }}"></label>
+                      </div>
+
+                      <label>Access / Setup Instructions<textarea name="access_instructions" rows="3">{{ i.access_instructions or '' }}</textarea></label>
+                    </div>
+                  </details>
+
                   <button class="primary-button" type="submit" {% if not can_write %}disabled{% endif %}>Save Changes</button>
                 </form>
               </details>
