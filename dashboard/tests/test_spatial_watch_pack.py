@@ -86,6 +86,8 @@ def test_effective_geometry_release_is_bounded_and_recoverable():
     assert "INSERT INTO deliveries" not in release
     assert "cmos-e2e" not in release
     assert "tests/test_watchlist_reliability.py </dev/null" in release
+    assert "match_reason LIKE '%%resolver point%%'" in release
+    assert '[[ -z "$ACCEPTANCE_RESULT"' in release
 
 
 def test_browser_uses_existing_watchlist_resolver_subscribers_and_routing():

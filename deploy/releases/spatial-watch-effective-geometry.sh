@@ -147,7 +147,8 @@ on_exit(){
   section "SPATIAL WATCH EFFECTIVE GEOMETRY: $FINAL_STATUS"
   printf 'STATUS=%s\nPHASE=%s\nTARGET=%s\nDASHBOARD=%s\nDATABASE=%s\nN8N=%s\nFULL_E2E=NOT_RUN\nPRIVATE_LOG=%s\n' \
     "$FINAL_STATUS" "$CURRENT_PHASE" "$TARGET_HEAD" "$DASHBOARD_ACTION" "$DATABASE_ACTION" "$N8N_ACTION" "$LOG_FILE"
-  [[ "$ACCEPTANCE_RESULT" == '{}' ]] || printf '%s\n' "$ACCEPTANCE_RESULT" | python3 -m json.tool || true
+  [[ -z "$ACCEPTANCE_RESULT" || "$ACCEPTANCE_RESULT" == '{}' ]] \
+    || printf '%s\n' "$ACCEPTANCE_RESULT" | python3 -m json.tool || true
   exit "$rc"
 }
 
@@ -416,7 +417,7 @@ SELECT
         ))
       )) AS location_watches_with_invalid_filters,
   (SELECT count(*) FROM gis_active_spatial_watch_matches(alert_id)
-    WHERE match_reason LIKE '%resolver point%') AS replay_resolver_matches,
+    WHERE match_reason LIKE '%%resolver point%%') AS replay_resolver_matches,
   (SELECT count(*) FROM gis_active_spatial_watch_matches(alert_id) m
     JOIN watch_items w ON w.id=m.watch_item_id
     WHERE w.watch_id='W_VALLEY_HOSPITAL_012431') AS valley_match
