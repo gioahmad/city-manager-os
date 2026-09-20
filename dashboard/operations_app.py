@@ -43,6 +43,7 @@ SEARCH_SECTION_ORDER = (
     "Locations",
     "Sources",
 )
+ALERT_BULK_LIMIT = 100
 
 
 def make_subscriber_id(name: str):
@@ -243,6 +244,8 @@ def alerts_page(
     window: str = "7d",
     min_priority: int = 1,
     page: int = 1,
+    msg: str = "",
+    error: str = "",
 ):
     where = []
     params = []
@@ -291,27 +294,44 @@ def alerts_page(
     offset = (page - 1) * per_page
     alerts = query_all(
         f"""
-        SELECT a.alert_id,a.source,a.category,a.subtype,a.status,a.event_action,
+        SELECT a.id AS alert_uuid,a.alert_id,a.source,a.category,a.subtype,a.status,a.event_action,
                a.title,a.message,a.priority,a.county,a.municipality,a.received_at,a.updated_at,
                a.observed_at,a.click_url,
                coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address','')) AS location_label,
-               coalesce(wm.matched_watches,'No Watch matched') AS matched_watches
+               coalesce(wm.matched_watches,'No Watch matched') AS matched_watches,
+               coalesce(wm.watch_evidence,'[]'::jsonb) AS watch_evidence
         FROM alerts a
         LEFT JOIN LATERAL (
-          SELECT string_agg(m.display_name,', ' ORDER BY m.display_name) AS matched_watches
+          SELECT string_agg(m.display_name,', ' ORDER BY m.display_name) AS matched_watches,
+                 jsonb_agg(
+                   jsonb_build_object(
+                     'watch_name',m.display_name,
+                     'match_reason',m.match_reason
+                   ) ORDER BY m.display_name
+                 ) AS watch_evidence
           FROM (
-            SELECT w.display_name
-            FROM alert_watch_matches awm
-            JOIN watch_items w ON w.id=awm.watch_item_id
-            WHERE awm.alert_id=a.id
-            UNION
-            SELECT w.display_name
-            FROM deliveries d
-            CROSS JOIN LATERAL jsonb_array_elements_text(
-              coalesce(d.matched_watch_ids,'[]'::jsonb)
-            ) ids(watch_id)
-            JOIN watch_items w ON w.watch_id=ids.watch_id
-            WHERE d.alert_id=a.id
+            SELECT DISTINCT ON (candidate.watch_key)
+                   candidate.watch_key,candidate.display_name,
+                   candidate.match_reason,candidate.happened_at
+            FROM (
+              SELECT w.id::text AS watch_key,w.display_name,awm.match_reason,
+                     awm.matched_at AS happened_at
+              FROM alert_watch_matches awm
+              JOIN watch_items w ON w.id=awm.watch_item_id
+              WHERE awm.alert_id=a.id
+              UNION ALL
+              SELECT coalesce(w.id::text,ids.watch_id) AS watch_key,
+                     coalesce(w.display_name,'Deleted Watch') AS display_name,
+                     d.match_reasons->>((ids.position-1)::int) AS match_reason,
+                     d.created_at AS happened_at
+              FROM deliveries d
+              CROSS JOIN LATERAL jsonb_array_elements_text(
+                coalesce(d.matched_watch_ids,'[]'::jsonb)
+              ) WITH ORDINALITY AS ids(watch_id,position)
+              LEFT JOIN watch_items w ON w.watch_id=ids.watch_id
+              WHERE d.alert_id=a.id
+            ) candidate
+            ORDER BY candidate.watch_key,candidate.happened_at DESC
           ) m
         ) wm ON true
         {clause}
@@ -321,6 +341,14 @@ def alerts_page(
         [*params, per_page, offset],
     )
     for alert in alerts:
+        alert["watch_evidence"] = [
+            {
+                "watch_name": item.get("watch_name") or "Saved Watch",
+                "reason": _humanize_match_reason(item.get("match_reason")),
+            }
+            for item in (alert.get("watch_evidence") or [])
+            if isinstance(item, dict)
+        ]
         alert_reference = str(alert.get("alert_id") or "").strip()
         alert["watch_from_alert_url"] = (
             f"/watchlist?{urlencode({'from_alert': alert_reference})}"
@@ -373,9 +401,102 @@ def alerts_page(
             "total_pages": total_pages,
             "previous_url": previous_url,
             "next_url": next_url,
+            "current_url": f"/alerts?{urlencode({**filters, 'page': page})}",
+            "msg": msg,
+            "error": error,
+            "can_delete_alerts": not getattr(request.state, "cmos_role", None)
+            or getattr(request.state, "cmos_role", None) == "EXECUTIVE",
             "page": "alerts",
         },
     )
+
+
+def _alerts_redirect(return_to: str, *, message: str = "", error: str = "") -> RedirectResponse:
+    target = (
+        return_to
+        if "\r" not in return_to
+        and "\n" not in return_to
+        and (return_to == "/alerts" or return_to.startswith("/alerts?"))
+        else "/alerts"
+    )
+    query = urlencode({key: value for key, value in (("msg", message), ("error", error)) if value})
+    separator = "&" if "?" in target else "?"
+    return RedirectResponse(f"{target}{separator}{query}" if query else target, status_code=303)
+
+
+@app.post("/alerts/bulk-action")
+def alerts_bulk_action(
+    request: Request,
+    alert_ids: list[uuid.UUID] = Form([]),
+    action: str = Form(...),
+    confirm_delete: str = Form(""),
+    return_to: str = Form("/alerts"),
+):
+    try:
+        selected = list(dict.fromkeys(alert_ids))
+        if not selected:
+            raise HTTPException(400, "Choose at least one alert")
+        if len(selected) > ALERT_BULK_LIMIT:
+            raise HTTPException(400, f"Choose {ALERT_BULK_LIMIT} or fewer alerts at a time")
+        action = action.strip().lower()
+        if action not in {"resolve", "delete"}:
+            raise HTTPException(400, "Choose Mark Resolved or Delete Permanently")
+        role = str(getattr(request.state, "cmos_role", "") or "").upper()
+        if action == "delete" and role and role != "EXECUTIVE":
+            raise HTTPException(403, "Only an Executive user can permanently delete alerts")
+        if action == "delete" and confirm_delete.strip().upper() != "DELETE":
+            raise HTTPException(400, "Type DELETE to permanently delete the selected alerts")
+
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id FROM alerts WHERE id=ANY(%s::uuid[]) FOR UPDATE",
+                    (selected,),
+                )
+                found = [row["id"] for row in cur.fetchall()]
+                if not found:
+                    raise HTTPException(404, "The selected alerts no longer exist")
+                if action == "delete":
+                    cur.execute(
+                        "SELECT count(*) AS total FROM deliveries WHERE alert_id=ANY(%s::uuid[])",
+                        (found,),
+                    )
+                    delivery_total = int(cur.fetchone()["total"] or 0)
+                    cur.execute(
+                        "DELETE FROM geo_entity_resolutions WHERE entity_type='ALERT' AND entity_id=ANY(%s::text[])",
+                        ([str(alert_id) for alert_id in found],),
+                    )
+                    cur.execute("DELETE FROM alerts WHERE id=ANY(%s::uuid[])", (found,))
+                else:
+                    delivery_total = 0
+                    cur.execute(
+                        """
+                        UPDATE alerts
+                        SET status='RESOLVED',event_action='RESOLVED',updated_at=now()
+                        WHERE id=ANY(%s::uuid[])
+                        """,
+                        (found,),
+                    )
+            conn.commit()
+
+        if action == "delete":
+            message = (
+                f"Deleted {len(found)} alert{'s' if len(found) != 1 else ''} and "
+                f"{delivery_total} related Notification record{'s' if delivery_total != 1 else ''}. "
+                "A live source may send the alert again."
+            )
+        else:
+            message = f"Marked {len(found)} alert{'s' if len(found) != 1 else ''} resolved. History was kept."
+        return _alerts_redirect(return_to, message=message)
+    except HTTPException as exc:
+        return _alerts_redirect(return_to, error=str(exc.detail))
+    except Exception:
+        incident_id = uuid.uuid4().hex[:10].upper()
+        LOGGER.exception("Alert bulk action failed incident=%s", incident_id)
+        return _alerts_redirect(
+            return_to,
+            error=f"The alerts were not changed. Reference {incident_id}.",
+        )
 
 
 def _global_search_rows(q: str, scope: str):

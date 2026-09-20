@@ -20,7 +20,8 @@ def _watch_item_write_calls():
             continue
         sql = sql_node.value
         if "watch_items" not in sql or not (
-            "INSERT INTO watch_items" in sql or "UPDATE watch_items SET" in sql
+            "INSERT INTO watch_items" in sql
+            or ("UPDATE watch_items SET" in sql and "spatial_target_geom" in sql)
         ):
             continue
         assert isinstance(params_node, ast.Tuple)
@@ -107,7 +108,9 @@ def test_alert_map_shelf_life_and_global_search_are_bounded_and_non_destructive(
     assert "array_to_string(a.tags,' ') ILIKE" in alerts_source
     assert "All stored history" in alerts_template
     assert "Search the complete alert database" in alerts_template
-    assert "DELETE FROM alerts" not in map_source + alerts_source
+    assert "DELETE FROM alerts" not in map_source
+    assert '@app.post("/alerts/bulk-action")' in alerts_source
+    assert "Type DELETE to permanently delete the selected alerts" in alerts_source
 
 
 def test_alert_can_start_an_editable_watch_draft_without_writing_data():

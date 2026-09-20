@@ -60,6 +60,7 @@ SPATIAL_WATCH_TYPES = [
     "CORRIDOR",
 ]
 BULK_WATCH_LIMIT = 250
+BULK_WATCH_ACTION_LIMIT = 500
 BULK_NO_PROPERTY = "__none__"
 BULK_EACH_FEATURE = "__feature__"
 BULK_STORED_NAME = "__stored_name__"
@@ -849,6 +850,11 @@ def spatial_watch_release():
         "alert_keyword_choices": "derived from the selected stored alert",
         "bulk_watch_endpoint": "/watchlist/bulk-create",
         "bulk_watch_limit": BULK_WATCH_LIMIT,
+        "bulk_watch_actions": ["pause", "activate", "delete"],
+        "individual_location_selection": True,
+        "saved_keyword_switches": True,
+        "alert_match_explanations": True,
+        "bulk_alert_actions": ["resolve", "delete"],
         "reusable_location_source": "Mapping Center map_layers and map_features",
     }
 
@@ -1108,6 +1114,13 @@ def spatial_watchlist(
             row.get("spatial_reference_entity_id")
             or (row.get("municipality") if row["location_kind"] == "MUNICIPALITY" else "")
         )
+        row["keyword_choices"] = list(
+            dict.fromkeys(
+                value
+                for value in [row.get("search_term"), *(row.get("aliases") or [])]
+                if value
+            )
+        ) if row["setup_mode"] != "LOCATION" else []
 
     state_aliases = {
         "inactive": "paused",
@@ -1425,9 +1438,18 @@ def _bulk_location_context(
         features_by_id[str(row["id"])] = item
         bucket = groups.setdefault(
             token,
-            {"token": token, "parent": parent, "label": group, "path": path, "feature_ids": [], "samples": []},
+            {
+                "token": token,
+                "parent": parent,
+                "label": group,
+                "path": path,
+                "feature_ids": [],
+                "features": [],
+                "samples": [],
+            },
         )
         bucket["feature_ids"].append(str(row["id"]))
+        bucket["features"].append({"id": str(row["id"]), "label": label})
         if len(bucket["samples"]) < 5:
             bucket["samples"].append(label)
 
@@ -1446,6 +1468,35 @@ def _bulk_location_context(
     }
 
 
+def _selected_bulk_feature_ids(
+    context: dict,
+    *,
+    group_tokens: list[str],
+    feature_ids: list[uuid.UUID],
+) -> list[str]:
+    """Accept town-level choices while preserving the older group submission contract."""
+    known_features = context["features_by_id"]
+    if feature_ids:
+        requested = list(dict.fromkeys(str(feature_id) for feature_id in feature_ids))
+        if not set(requested).issubset(known_features):
+            raise HTTPException(400, "One or more selected Locations changed. Review the layer and try again.")
+        return requested
+
+    selected_tokens = set(group_tokens)
+    if not selected_tokens:
+        raise HTTPException(400, "Choose at least one Location")
+    known_groups = {group["token"]: group for group in context["groups"]}
+    if not selected_tokens.issubset(known_groups):
+        raise HTTPException(400, "One or more Location groups changed. Review the layer and try again.")
+    return list(
+        dict.fromkeys(
+            feature_id
+            for token in selected_tokens
+            for feature_id in known_groups[token]["feature_ids"]
+        )
+    )
+
+
 @app.post("/watchlist/bulk-create")
 @_friendly_watch_errors
 def spatial_watch_bulk_create(
@@ -1454,6 +1505,7 @@ def spatial_watch_bulk_create(
     group_by: str = Form(BULK_EACH_FEATURE),
     name_by: str = Form(BULK_STORED_NAME),
     group_tokens: list[str] = Form([]),
+    feature_ids: list[uuid.UUID] = Form([]),
     topic: str = Form(""),
     aliases: str = Form(""),
     radius_ft: float = Form(50.0),
@@ -1470,21 +1522,15 @@ def spatial_watch_bulk_create(
         group_by=group_by,
         name_by=name_by,
     )
-    selected_tokens = set(group_tokens)
-    if not selected_tokens:
-        raise HTTPException(400, "Choose at least one Location group")
-    known_groups = {group["token"]: group for group in context["groups"]}
-    if not selected_tokens.issubset(known_groups):
-        raise HTTPException(400, "One or more Location groups changed. Review the layer and try again.")
-
-    feature_ids: list[str] = []
-    for token in selected_tokens:
-        feature_ids.extend(known_groups[token]["feature_ids"])
-    feature_ids = list(dict.fromkeys(feature_ids))
-    if len(feature_ids) > BULK_WATCH_LIMIT:
+    selected_feature_ids = _selected_bulk_feature_ids(
+        context,
+        group_tokens=group_tokens,
+        feature_ids=feature_ids,
+    )
+    if len(selected_feature_ids) > BULK_WATCH_LIMIT:
         raise HTTPException(
             400,
-            f"This selection contains {len(feature_ids):,} Locations. Choose {BULK_WATCH_LIMIT} or fewer at a time.",
+            f"This selection contains {len(selected_feature_ids):,} Locations. Choose {BULK_WATCH_LIMIT} or fewer at a time.",
         )
 
     topic = topic.strip()
@@ -1512,13 +1558,13 @@ def spatial_watch_bulk_create(
                 WHERE layer_id=%s AND active=true AND geom IS NOT NULL
                   AND id=ANY(%s::uuid[])
                 """,
-                (layer_id, [uuid.UUID(feature_id) for feature_id in feature_ids]),
+                (layer_id, [uuid.UUID(feature_id) for feature_id in selected_feature_ids]),
             )
             targets = {row["id"]: row["target_wkt"] for row in cur.fetchall()}
-            if len(targets) != len(feature_ids):
+            if len(targets) != len(selected_feature_ids):
                 raise HTTPException(400, "One or more selected Locations changed. Review the layer and try again.")
 
-            for feature_id in feature_ids:
+            for feature_id in selected_feature_ids:
                 feature = context["features_by_id"][feature_id]
                 search_term = topic or feature["label"]
                 gis_lookup = f"map_feature:{feature_id}"
@@ -1582,6 +1628,59 @@ def spatial_watch_bulk_create(
         message += f". Skipped {skipped} existing Watch{'es' if skipped != 1 else ''}"
     params = urlencode({"bulk_layer": str(layer_id), "msg": message})
     return RedirectResponse(f"/watchlist?{params}#bulk-watch-builder", status_code=303)
+
+
+@app.post("/watchlist/bulk-action")
+@_friendly_watch_errors
+def spatial_watch_bulk_action(
+    watch_item_ids: list[uuid.UUID] = Form([]),
+    action: str = Form(...),
+    confirm_delete: str = Form(""),
+):
+    selected = list(dict.fromkeys(watch_item_ids))
+    if not selected:
+        raise HTTPException(400, "Choose at least one Watch")
+    if len(selected) > BULK_WATCH_ACTION_LIMIT:
+        raise HTTPException(400, f"Choose {BULK_WATCH_ACTION_LIMIT} or fewer Watches at a time")
+    action = action.strip().lower()
+    if action not in {"pause", "activate", "delete"}:
+        raise HTTPException(400, "Choose Pause, Reactivate, or Delete")
+    if action == "delete" and confirm_delete.strip().upper() != "DELETE":
+        raise HTTPException(400, "Type DELETE to permanently delete the selected Watches")
+
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM watch_items WHERE id=ANY(%s::uuid[]) FOR UPDATE",
+                (selected,),
+            )
+            total = len(cur.fetchall())
+            if not total:
+                raise HTTPException(404, "The selected Watches no longer exist")
+            if action == "delete":
+                cur.execute("DELETE FROM watch_items WHERE id=ANY(%s::uuid[])", (selected,))
+            elif action == "pause":
+                cur.execute(
+                    "UPDATE watch_items SET active=false,updated_at=now() WHERE id=ANY(%s::uuid[])",
+                    (selected,),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE watch_items
+                    SET active=true,
+                        starts_at=CASE WHEN expires_at<=now() THEN NULL ELSE starts_at END,
+                        expires_at=CASE WHEN expires_at<=now() THEN NULL ELSE expires_at END,
+                        updated_at=now()
+                    WHERE id=ANY(%s::uuid[])
+                    """,
+                    (selected,),
+                )
+        conn.commit()
+
+    label = "deleted" if action == "delete" else "paused" if action == "pause" else "reactivated"
+    suffix = ". Stored alerts and Notification history were kept; Match links were removed." if action == "delete" else "."
+    return _watch_redirect(message=f"{total} Watch{'es' if total != 1 else ''} {label}{suffix}")
 
 
 @app.post("/watchlist/create")
