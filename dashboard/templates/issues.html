@@ -20,6 +20,7 @@
 {% include "nav.html" %}
 <main>
   {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+  {% if prefill_error %}<div class="flash error-text">{{ prefill_error }}</div>{% endif %}
 
   <section class="metrics">
     <div class="metric"><span>Open Work</span><strong>{{ counts.open or 0 }}</strong><small>Active accountable items</small></div>
@@ -37,17 +38,19 @@
     {% for key,label in views %}<a href="/issues?state={{ key }}" class="{{ 'active' if state == key else '' }}">{{ label }}</a>{% endfor %}
   </nav>
 
-  <details class="panel command-capture" style="margin-bottom:14px">
-    <summary>+ New Work Item <span class="muted" style="font-weight:500">Capture something to do, decide, chase, communicate or keep accountable.</span></summary>
+  <details class="panel command-capture" style="margin-bottom:14px" {% if prefill %}open{% endif %}>
+    <summary>{% if prefill %}+ Track Alert as Work Item{% else %}+ New Work Item{% endif %} <span class="muted" style="font-weight:500">{% if prefill %}Review the Alert details, assign it, then create the Work Item.{% else %}Capture something to do, decide, chase, communicate or keep accountable.{% endif %}</span></summary>
     <div class="panel-body form-panel">
       <form method="post" action="/issues/create" class="watch-form">
-        <label>Title<input name="title" required placeholder="What needs attention?"></label>
+        <input type="hidden" name="source" value="{{ prefill.source if prefill else 'MANUAL' }}">
+        {% if prefill %}<div class="flash"><strong>Started from Alert {{ prefill.from_alert }}</strong><br>Nothing has been saved and the original Alert is unchanged.</div>{% endif %}
+        <label>Title<input name="title" value="{{ prefill.title if prefill else '' }}" required placeholder="What needs attention?"></label>
         <div class="form-grid two-col">
-          <label>Type<select name="item_type"><option value="ISSUE">Problem / Issue</option><option value="TASK">Task</option><option value="FOLLOW_UP">Follow Up</option><option value="DECISION">Decision</option><option value="COMMITMENT">Commitment</option><option value="COMMUNICATION">Communication</option><option value="IDEA">Idea / Backlog</option></select></label>
-          <label>Priority<select name="priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == 3 %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label>
+          <label>Type<select name="item_type">{% for value,label in [('ISSUE','Problem / Issue'),('TASK','Task'),('FOLLOW_UP','Follow Up'),('DECISION','Decision'),('COMMITMENT','Commitment'),('COMMUNICATION','Communication'),('IDEA','Idea / Backlog')] %}<option value="{{ value }}" {% if value == (prefill.item_type if prefill else 'ISSUE') %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+          <label>Priority<select name="priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == (prefill.priority if prefill else 3) %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label>
         </div>
-        <label>Description / Notes<textarea name="description" rows="3"></textarea></label>
-        <label>Next Action<input name="next_action" placeholder="What is the very next thing to do?"></label>
+        <label>Description / Notes<textarea name="description" rows="{{ 7 if prefill else 3 }}">{{ prefill.description if prefill else '' }}</textarea></label>
+        <label>Next Action<input name="next_action" value="{{ prefill.next_action if prefill else '' }}" placeholder="What is the very next thing to do?"></label>
         <div class="form-grid two-col">
           <label>Owner / Assigned To<input name="assigned_to" placeholder="Me, department, employee, contractor..."></label>
           <label>Waiting On<input name="waiting_on" placeholder="Person, agency, vendor..."></label>
@@ -56,8 +59,8 @@
 
         <details class="optional-block"><summary>Decision Desk</summary><div class="watch-form" style="margin-top:9px"><label>Options / Tradeoffs<textarea name="decision_options" rows="3"></textarea></label><label>Recommendation<input name="recommendation"></label><div class="form-grid two-col"><label>Decision By<input type="datetime-local" name="decision_by"></label><label>Outcome / Rationale<input name="decision_outcome"></label></div></div></details>
         <details class="optional-block"><summary>Visibility / Communication</summary><div class="watch-form" style="margin-top:9px"><div class="form-grid two-col"><label>Status<select name="visibility_status"><option value="NONE">None</option><option value="WATCH">Watch</option><option value="PREP">Prepare</option><option value="READY">Ready</option><option value="SENT">Sent</option></select></label><label>Audience<input name="visibility_audience" placeholder="Public, Mayor/Council, Staff, Agency..."></label></div><label>Visibility Note<input name="visibility_note"></label></div></details>
-        <details class="optional-block"><summary>Location / Classification</summary><div class="watch-form" style="margin-top:9px"><div class="form-grid two-col"><label>Category<input name="category"></label><label>Municipality<input name="municipality" value="Weehawken"></label></div><label>Address<input name="address"></label></div></details>
-        <button class="primary-button" type="submit">Create Work Item</button>
+        <details class="optional-block" {% if prefill %}open{% endif %}><summary>Location / Classification</summary><div class="watch-form" style="margin-top:9px"><div class="form-grid two-col"><label>Category<input name="category" value="{{ prefill.category if prefill else '' }}"></label><label>Municipality<input name="municipality" value="{{ prefill.municipality if prefill else 'Weehawken' }}"></label></div><label>Address<input name="address" value="{{ prefill.address if prefill else '' }}"></label></div></details>
+        <button class="primary-button" type="submit">{{ 'Create Tracked Work Item' if prefill else 'Create Work Item' }}</button>
       </form>
     </div>
   </details>
