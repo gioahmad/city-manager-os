@@ -79,9 +79,22 @@
       {% if alerts %}
       <form method="post" action="/alerts/bulk-action" data-alert-bulk-form>
         <input type="hidden" name="return_to" value="{{ current_url }}">
+        <input type="hidden" name="q" value="{{ q }}">
+        <input type="hidden" name="source" value="{{ source }}">
+        <input type="hidden" name="category" value="{{ category }}">
+        <input type="hidden" name="municipality" value="{{ municipality }}">
+        <input type="hidden" name="state" value="{{ state }}">
+        <input type="hidden" name="window" value="{{ window }}">
+        <input type="hidden" name="min_priority" value="{{ min_priority }}">
         <div class="bulk-action-toolbar">
           <label class="checkbox-row"><input type="checkbox" data-alert-select-all> Select all on this page</label>
           <span data-alert-bulk-count>0 selected</span>
+          <label>Apply to
+            <select name="selection_scope" data-alert-selection-scope>
+              <option value="selected">Selected on this page</option>
+              <option value="matching">All {{ result_total }} matching results</option>
+            </select>
+          </label>
           <label>Action
             <select name="action" data-alert-bulk-action>
               <option value="resolve">Mark selected resolved · keep history</option>
@@ -90,10 +103,10 @@
               {% endif %}
             </select>
           </label>
-          <label data-alert-delete-confirm hidden>Type DELETE to confirm
+          <label data-alert-delete-confirm hidden><span data-alert-confirm-label>Type DELETE to confirm</span>
             <input name="confirm_delete" autocomplete="off" placeholder="DELETE">
           </label>
-          <button class="secondary-button" type="submit">Apply to Selected</button>
+          <button class="secondary-button" type="submit">Apply Change</button>
         </div>
         <div class="hint">Resolved alerts stay searchable.{% if can_delete_alerts %} Permanent deletion also removes their Match and Notification evidence, and a live source may send them again.{% endif %}</div>
       {% endif %}
@@ -111,12 +124,35 @@
               {% for item in a.watch_evidence %}<div class="alert-why-item"><b>{{ item.watch_name }}</b><span>{{ item.reason }}</span></div>{% else %}<span>No Watch matched this stored alert. It appears in history because the source reported it.</span>{% endfor %}
             </div>
             <div class="row-message">{{ a.message }}</div>
+            {% if a.watch_from_alert_url %}
+            <details class="watch-from-alert" data-alert-watch-builder data-alert-reference="{{ a.alert_id }}">
+              <summary><strong>Create Watch From Alert</strong> · choose what matters</summary>
+              <p>Choose what mattered. The Watch setup will open with these choices and nothing is saved yet.</p>
+              <label>Watch for
+                <select data-alert-watch-mode>
+                  <option value="LOCATION_TOPIC" {% if a.suggested_setup_mode == 'LOCATION_TOPIC' %}selected{% endif %}>This Location plus selected topics</option>
+                  <option value="TOPIC" {% if a.suggested_setup_mode == 'TOPIC' %}selected{% endif %}>Selected topics anywhere</option>
+                  <option value="LOCATION">Anything near this Location</option>
+                </select>
+              </label>
+              {% if a.keyword_choices %}
+              <div class="alert-keyword-picker">
+                <span>Topics found in this Alert</span>
+                <div class="alert-keyword-choices">
+                  {% for keyword in a.keyword_choices %}<label><input type="checkbox" value="{{ keyword }}" data-alert-watch-keyword {% if loop.first %}checked{% endif %}> {{ keyword }}</label>{% endfor %}
+                </div>
+                <small>These suggestions come from this Alert, not a hardcoded keyword list.</small>
+              </div>
+              {% endif %}
+              <button class="secondary-button" type="button" data-alert-watch-continue>Continue Watch Setup</button>
+              <noscript><a class="secondary-button" href="{{ a.watch_from_alert_url }}">Continue Watch Setup</a></noscript>
+            </details>
+            {% endif %}
             <div class="alert-reference">Alert reference: {{ a.alert_id }}</div>
           </div>
           <div class="data-side">
             <span class="status {{ (a.status or 'unknown')|lower }}">{{ a.status }}</span>
             <time>{{ a.received_at.strftime('%m/%d/%Y %I:%M %p') if a.received_at else '' }}</time>
-            {% if a.watch_from_alert_url %}<a class="secondary-button alert-watch-button" href="{{ a.watch_from_alert_url }}">Create Watch From Alert</a>{% endif %}
             {% if a.click_url %}<a class="text-link" href="{{ a.click_url }}" target="_blank" rel="noopener">Open source</a>{% endif %}
           </div>
         </article>
@@ -134,25 +170,45 @@
 </main>
 <script>
 (() => {
+  document.querySelectorAll('[data-alert-watch-builder]').forEach((builder) => {
+    builder.querySelector('[data-alert-watch-continue]')?.addEventListener('click', () => {
+      const params = new URLSearchParams({
+        from_alert: builder.dataset.alertReference,
+        setup_mode: builder.querySelector('[data-alert-watch-mode]').value,
+      });
+      builder.querySelectorAll('[data-alert-watch-keyword]:checked').forEach((choice) => {
+        params.append('selected_keywords', choice.value);
+      });
+      window.location.assign(`/watchlist?${params}`);
+    });
+  });
+
   const form = document.querySelector('[data-alert-bulk-form]');
   if (!form) return;
   const choices = [...form.querySelectorAll('[data-alert-select]')];
   const selectAll = form.querySelector('[data-alert-select-all]');
   const count = form.querySelector('[data-alert-bulk-count]');
   const action = form.querySelector('[data-alert-bulk-action]');
+  const scope = form.querySelector('[data-alert-selection-scope]');
   const confirmation = form.querySelector('[data-alert-delete-confirm]');
   const confirmationInput = confirmation?.querySelector('input');
+  const confirmationLabel = confirmation?.querySelector('[data-alert-confirm-label]');
   const sync = () => {
     const selected = choices.filter((choice) => choice.checked).length;
-    count.textContent = `${selected} selected`;
+    count.textContent = scope?.value === 'matching' ? `All {{ result_total }} matching` : `${selected} selected`;
     selectAll.checked = choices.length > 0 && selected === choices.length;
     selectAll.indeterminate = selected > 0 && selected < choices.length;
     return selected;
   };
   const syncAction = () => {
     const deleting = action.value === 'delete';
-    confirmation.hidden = !deleting;
-    confirmationInput.required = deleting;
+    const allMatching = scope.value === 'matching';
+    const expected = deleting ? (allMatching ? 'DELETE ALL' : 'DELETE') : (allMatching ? 'APPLY ALL' : '');
+    confirmation.hidden = !expected;
+    confirmationInput.required = Boolean(expected);
+    confirmationInput.placeholder = expected;
+    confirmationLabel.textContent = expected ? `Type ${expected} to confirm` : '';
+    count.textContent = allMatching ? `All {{ result_total }} matching` : `${choices.filter((choice) => choice.checked).length} selected`;
   };
   choices.forEach((choice) => choice.addEventListener('change', sync));
   selectAll.addEventListener('change', () => {
@@ -160,8 +216,9 @@
     sync();
   });
   action.addEventListener('change', syncAction);
+  scope.addEventListener('change', syncAction);
   form.addEventListener('submit', (event) => {
-    if (!sync()) {
+    if (scope.value === 'selected' && !sync()) {
       event.preventDefault();
       count.textContent = 'Choose at least one alert';
     }

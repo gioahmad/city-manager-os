@@ -19,7 +19,7 @@ def test_global_search_is_bounded_grouped_and_uses_existing_records():
 
     assert '@app.get("/search", response_class=HTMLResponse)' in source
     assert "q = q.strip()[:160]" in source
-    assert "LIMIT 140" in source
+    assert "LIMIT 220" in source
     assert "SET LOCAL statement_timeout = '12s'" in source
     assert "with db_conn() as conn" in source
     assert "lower(p.prop_loc)>=lower(%s)" in source
@@ -41,6 +41,13 @@ def test_global_search_is_bounded_grouped_and_uses_existing_records():
         "map_features",
         "integrations",
         "source_health",
+        "subscribers",
+        "staff_employees",
+        "operations_routines",
+        "staff_locations",
+        "rule_subsections",
+        "flood_observations",
+        "pseg_outage_state",
     ):
         assert table in source
     assert "Search Everything" in template

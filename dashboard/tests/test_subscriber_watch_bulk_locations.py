@@ -6,8 +6,8 @@ from pathlib import Path
 DASHBOARD_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load_pure(names: set[str]):
-    source = (DASHBOARD_ROOT / "spatial_watch_app.py").read_text()
+def _load_pure(names: set[str], filename: str = "spatial_watch_app.py"):
+    source = (DASHBOARD_ROOT / filename).read_text()
     tree = ast.parse(source)
     selected = []
     for node in tree.body:
@@ -23,8 +23,11 @@ def _load_pure(names: set[str]):
 
 
 def test_alert_keyword_choices_are_derived_from_each_alert():
-    namespace = _load_pure({"ALERT_KEYWORD_STOPWORDS", "_alert_keyword_choices"})
-    choices = namespace["_alert_keyword_choices"](
+    namespace = _load_pure(
+        {"ALERT_KEYWORD_STOPWORDS", "alert_keyword_choices"},
+        "operations_app.py",
+    )
+    choices = namespace["alert_keyword_choices"](
         {
             "title": "BNN - Example location",
             "message": "Working fire reported near a school with road closure",

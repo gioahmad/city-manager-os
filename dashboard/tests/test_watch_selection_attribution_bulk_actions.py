@@ -72,10 +72,13 @@ def test_alerts_explain_matches_and_guard_bulk_deletion():
     assert '@app.post("/alerts/bulk-action")' in source
     assert 'action not in {"resolve", "delete"}' in source
     assert "Only an Executive user can permanently delete alerts" in source
-    assert "Type DELETE to permanently delete the selected alerts" in source
+    assert 'expected_confirmation = "DELETE" if action == "delete" else ""' in source
+    assert 'expected_confirmation = "DELETE ALL" if action == "delete" else "APPLY ALL"' in source
+    assert "Narrow the search before changing all matching alerts" in source
     assert "DELETE FROM geo_entity_resolutions WHERE entity_type='ALERT'" in source
     assert "Permanent deletion also removes their Match and Notification evidence" in template
     assert "Mark selected resolved · keep history" in template
+    assert "All {{ result_total }} matching results" in template
 
 
 def test_changed_templates_compile():

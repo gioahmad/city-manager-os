@@ -19,11 +19,11 @@ SYSTEM_LAYERS = [
     {"key": "flood", "name": "FEMA Flood Zones", "endpoint": "/map/system/flood.geojson", "default_visible": False, "style": {"color": "#e26d6d"}},
     {"key": "parcels", "name": "Parcels", "endpoint": "/map/system/parcels.geojson", "default_visible": False, "style": {"color": "#7fb3d5"}, "viewport": True},
     {"key": "addresses", "name": "NG911 Addresses", "endpoint": "/map/system/addresses.geojson", "default_visible": False, "point": True, "viewport": True},
-    {"key": "watchlist", "name": "Watch Locations", "endpoint": "/map/system/watchlist.geojson", "default_visible": True, "point": True},
+    {"key": "watchlist", "name": "Watch Locations", "endpoint": "/map/system/watchlist.geojson", "default_visible": True, "point": True, "viewport": True},
     {"key": "spatial-references", "name": "Regional References", "endpoint": "/map/system/spatial-references.geojson", "default_visible": True, "style": {"color": "#9b7ede"}, "viewport": True},
     {"key": "alerts", "name": "Alerts", "endpoint": "/map/system/alerts.geojson?hours=12", "default_visible": True, "point": True, "viewport": True},
-    {"key": "operations", "name": "Operations / Work Items", "endpoint": "/map/system/issues.geojson", "default_visible": True, "point": True},
-    {"key": "event-intelligence", "name": "Event Intelligence", "endpoint": "/map/system/events.geojson", "default_visible": False, "point": True},
+    {"key": "operations", "name": "Operations / Work Items", "endpoint": "/map/system/issues.geojson", "default_visible": True, "point": True, "viewport": True},
+    {"key": "event-intelligence", "name": "Event Intelligence", "endpoint": "/map/system/events.geojson", "default_visible": False, "point": True, "viewport": True},
     {"key": "managed-events", "name": "Managed Events", "endpoint": "/map/system/managed-events.geojson", "default_visible": False, "point": True},
     {"key": "transit-intelligence", "name": "Transit Intelligence", "endpoint": "/map/system/transit.geojson", "default_visible": False, "point": True},
 ]
@@ -357,9 +357,25 @@ def map_addresses_geojson(bbox: str | None = None):
 
 
 @app.get("/map/system/watchlist.geojson")
-def map_watchlist_geojson():
+def map_watchlist_geojson(bbox: str | None = None, q: str = ""):
+    box = _bbox(bbox)
+    params: list[Any] = []
+    where = ["w.active=true", "coalesce(w.spatial_geom,w.geom) IS NOT NULL"]
+    if q.strip():
+        needle = f"%{q.strip()}%"
+        where.append(
+            "(w.display_name ILIKE %s OR coalesce(w.search_term,'') ILIKE %s "
+            "OR array_to_string(w.aliases,' ') ILIKE %s OR coalesce(w.address,'') ILIKE %s "
+            "OR coalesce(w.municipality,'') ILIKE %s OR coalesce(w.parent_group,'') ILIKE %s)"
+        )
+        params.extend([needle] * 6)
+    if box:
+        where.append(
+            "ST_Intersects(coalesce(w.spatial_geom,w.geom),ST_MakeEnvelope(%s,%s,%s,%s,4326))"
+        )
+        params.extend(box)
     rows = query_all(
-        """
+        f"""
         SELECT w.watch_id,w.display_name,w.address,w.watch_type,w.min_priority,w.radius_ft,
                w.spatial_scope,w.starts_at,w.expires_at,w.source_filter,w.alert_category_filter,
                CASE
@@ -376,9 +392,10 @@ def map_watchlist_geojson():
                ),'None') AS intended_recipients,
                ST_AsGeoJSON(coalesce(w.spatial_geom,w.geom))::json AS geometry
         FROM watch_items w
-        WHERE w.active=true AND coalesce(w.spatial_geom,w.geom) IS NOT NULL
+        WHERE {' AND '.join(where)}
         ORDER BY w.display_name LIMIT 5000
-        """
+        """,
+        params,
     )
     return JSONResponse(_feature_collection(rows))
 
@@ -467,9 +484,29 @@ def map_alerts_geojson(
 
 
 @app.get("/map/system/issues.geojson")
-def map_issues_geojson():
+def map_issues_geojson(bbox: str | None = None, q: str = ""):
+    box = _bbox(bbox)
+    params: list[Any] = []
+    where = [
+        "i.status NOT IN ('RESOLVED','CLOSED')",
+        "coalesce(i.geom,a.geom) IS NOT NULL",
+    ]
+    if q.strip():
+        needle = f"%{q.strip()}%"
+        where.append(
+            "(i.title ILIKE %s OR coalesce(i.description,'') ILIKE %s "
+            "OR coalesce(i.category,'') ILIKE %s OR coalesce(i.next_action,'') ILIKE %s "
+            "OR coalesce(i.assigned_to,'') ILIKE %s OR coalesce(i.address,'') ILIKE %s "
+            "OR coalesce(i.municipality,'') ILIKE %s)"
+        )
+        params.extend([needle] * 7)
+    if box:
+        where.append(
+            "ST_Intersects(coalesce(i.geom,a.geom),ST_MakeEnvelope(%s,%s,%s,%s,4326))"
+        )
+        params.extend(box)
     rows = query_all(
-        """
+        f"""
         SELECT i.id,i.title,i.item_type,i.status,i.priority,i.assigned_to,i.waiting_on,
                i.next_action,i.due_at,i.follow_up_at,i.source,
                coalesce(i.address,i.employee_location,a.fulladdr) AS mapped_address,
@@ -481,33 +518,53 @@ def map_issues_geojson():
             AND lower(trim(ga.fulladdr))=lower(trim(coalesce(i.address,i.employee_location,'')))
           ORDER BY CASE WHEN ga.status='A' THEN 0 ELSE 1 END,ga.objectid LIMIT 1
         ) a ON true
-        WHERE i.status NOT IN ('RESOLVED','CLOSED') AND coalesce(i.geom,a.geom) IS NOT NULL
+        WHERE {' AND '.join(where)}
         ORDER BY i.priority DESC,i.updated_at DESC LIMIT 5000
-        """
+        """,
+        params,
     )
     return JSONResponse(_feature_collection(rows))
 
 
 @app.get("/map/system/events.geojson")
-def map_system_events():
+def map_system_events(bbox: str | None = None, q: str = ""):
+    box = _bbox(bbox)
+    point = (
+        "COALESCE(e.geom,CASE WHEN e.longitude IS NOT NULL AND e.latitude IS NOT NULL "
+        "THEN ST_SetSRID(ST_MakePoint(e.longitude,e.latitude),4326) ELSE NULL END)"
+    )
+    params: list[Any] = []
+    where = ["e.active=true", f"{point} IS NOT NULL"]
+    if q.strip():
+        needle = f"%{q.strip()}%"
+        where.append(
+            "(e.title ILIKE %s OR coalesce(e.description,'') ILIKE %s "
+            "OR coalesce(e.event_type,'') ILIKE %s OR coalesce(e.venue,'') ILIKE %s "
+            "OR coalesce(e.address,'') ILIKE %s OR coalesce(e.municipality,'') ILIKE %s "
+            "OR coalesce(e.impact_summary,'') ILIKE %s)"
+        )
+        params.extend([needle] * 7)
+    if box:
+        where.append(f"ST_Intersects({point},ST_MakeEnvelope(%s,%s,%s,%s,4326))")
+        params.extend(box)
     rows = query_all(
-        """
+        f"""
         WITH ranked AS (
           SELECT e.id,e.title,e.starts_at,e.ends_at,e.venue,e.address,e.municipality,e.state,
                  e.impact_level,e.impact_score,e.impact_summary,e.road_impact,e.transit_impact,
                  e.source_name,e.source_url,e.fingerprint,
-                 ST_AsGeoJSON(COALESCE(e.geom,CASE WHEN e.longitude IS NOT NULL AND e.latitude IS NOT NULL
-                   THEN ST_SetSRID(ST_MakePoint(e.longitude,e.latitude),4326) ELSE NULL END))::json AS geometry,
+                 ST_AsGeoJSON({point})::json AS geometry,
                  row_number() OVER (PARTITION BY e.fingerprint ORDER BY e.impact_score DESC,e.last_changed_at DESC,e.updated_at DESC) AS dedupe_rank
           FROM event_intelligence e
-          WHERE e.active=true AND (e.geom IS NOT NULL OR (e.latitude IS NOT NULL AND e.longitude IS NOT NULL))
+          WHERE {' AND '.join(where)}
         )
         SELECT id,title,starts_at,ends_at,venue,address,municipality,state,impact_level,impact_score,
                impact_summary,road_impact,transit_impact,source_name,source_url,geometry
         FROM ranked WHERE dedupe_rank=1
         ORDER BY CASE impact_level WHEN 'ALERT' THEN 0 WHEN 'WATCH' THEN 1 ELSE 2 END,impact_score DESC,starts_at NULLS LAST
         LIMIT 2000
-        """
+        """,
+        params,
     )
     return JSONResponse(_feature_collection(rows), media_type="application/geo+json")
 
