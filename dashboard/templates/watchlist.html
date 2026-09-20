@@ -378,10 +378,11 @@
             <label>Municipality context<input name="municipality" placeholder="Optional"></label>
           </div>
           <label>Only these alert sources
-            <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Leave blank for every source; separate several with commas">
-            <span class="hint">Use the exact source names shown in the current alert database.</span>
+            <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Leave blank for every source; separate several with commas" autocomplete="off">
+            <span class="hint">Use exact current source names. The Watch name never populates this filter.</span>
           </label>
-          <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ prefill.alert_category_filter }}" placeholder="Leave blank for every category; separate several with commas"></label>
+          <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ prefill.alert_category_filter }}" placeholder="Leave blank for every category; separate several with commas" autocomplete="off"></label>
+          <span class="hint">Leave both blank to evaluate every alert point inside the saved area. The Watch name never filters alerts.</span>
           <div class="form-grid two-col">
             <label>Technical watch type<select name="watch_type"><option value="">Automatic</option>{% for wt in watch_types %}<option value="{{ wt }}">{{ wt }}</option>{% endfor %}</select></label>
             <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == 'CONTAINS' %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
@@ -496,8 +497,9 @@
                   <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == w.min_priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label>
                   <label>Municipality context<input name="municipality" value="{{ w.municipality or '' }}"></label>
                 </div>
-                <label>Only these alert sources<input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}"></label>
-                <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ (w.alert_category_filter or [])|join(', ') }}"></label>
+                <label>Only these alert sources<input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}" autocomplete="off"></label>
+                <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ (w.alert_category_filter or [])|join(', ') }}" autocomplete="off"></label>
+                <span class="hint">Leave both blank to evaluate every alert point inside the saved area. The Watch name never filters alerts.</span>
                 <div class="form-grid two-col">
                   <label>Technical watch type<select name="watch_type">{% if w.watch_type not in watch_types %}<option value="{{ w.watch_type }}" selected>{{ w.watch_type }}</option>{% endif %}{% for wt in watch_types %}<option value="{{ wt }}" {% if wt == w.watch_type %}selected{% endif %}>{{ wt }}</option>{% endfor %}</select></label>
                   <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == w.match_mode %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>

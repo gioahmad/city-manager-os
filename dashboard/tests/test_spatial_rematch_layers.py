@@ -19,7 +19,7 @@ def _sync_module():
     return module
 
 
-def test_resolved_alerts_reenter_existing_matcher_once_with_precise_location():
+def test_resolved_alerts_reenter_existing_matcher_once_with_visible_location():
     workflow = json.loads(WORKFLOW_PATH.read_text())
     release = RELEASE_PATH.read_text()
     nodes = {node["name"]: node for node in workflow["nodes"]}
@@ -39,17 +39,19 @@ def test_resolved_alerts_reenter_existing_matcher_once_with_precise_location():
         "Mark Resolved Alert Rematched",
     }
     assert "geo_entity_resolutions" in load
-    assert "a.geom IS NOT NULL" in load
-    assert "r.spatial_precision='ADDRESS_POINT'" in load
+    assert "coalesce(a.geom,r.geom) IS NOT NULL" in load
+    assert "r.confidence>=0.85" not in load
+    assert "r.spatial_precision='ADDRESS_POINT'" not in load
     assert "SUPPLIED_COORDINATE" not in load
     assert "TIMESTAMPTZ '__CMOS_ACTIVATED_AT__'" in load
     assert "interval '6 hours'" in load
     assert "spatial_rematch_version" in load
-    assert "ST_X(a.geom)" in load and "ST_Y(a.geom)" in load
+    assert "ST_X(coalesce(a.geom,r.geom))" in load
+    assert "ST_Y(coalesce(a.geom,r.geom))" in load
     assert "nullif(r.municipality,'')" in load
     assert send["alwaysOutputData"] is True
     assert send["parameters"]["mode"] == "each"
-    assert "spatial_rematch_version','geo-v1'" in mark["parameters"]["query"]
+    assert "spatial_rematch_version','geo-v2'" in mark["parameters"]["query"]
     assert "updated_at=now()" not in mark["parameters"]["query"]
     assert "Restore Resolved Standard Alert" in mark["parameters"]["options"]["queryReplacement"]
     assert "ntfy" not in json.dumps(workflow).casefold()
