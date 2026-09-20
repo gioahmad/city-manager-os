@@ -1,4 +1,5 @@
 import uuid
+from urllib.parse import urlencode
 
 from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -57,8 +58,59 @@ def _select_fields() -> str:
     """
 
 
+def _alert_work_prefill(alert_reference: str) -> dict:
+    """Build an editable Command Center draft from an Alert without writing data."""
+    alert_reference = alert_reference.strip()[:160]
+    if not alert_reference:
+        return {}
+    alert = query_one(
+        """
+        SELECT alert_id,title,message,source,category,priority,municipality,click_url,
+               coalesce(nullif(location->>'address',''),nullif(location->>'label','')) AS address,
+               to_char(received_at AT TIME ZONE 'America/New_York','MM/DD/YYYY HH12:MI AM') AS received_local
+        FROM alerts
+        WHERE alert_id=%s
+        ORDER BY received_at DESC,id DESC
+        LIMIT 1
+        """,
+        (alert_reference,),
+    )
+    if not alert:
+        return {}
+
+    details = [f"Alert reference: {alert['alert_id']}"]
+    if alert.get("source"):
+        details.append(f"Source: {alert['source']}")
+    if alert.get("received_local"):
+        details.append(f"Received: {alert['received_local']}")
+    if alert.get("click_url"):
+        details.append(f"Source link: {alert['click_url']}")
+    if alert.get("message"):
+        details.extend(("", str(alert["message"]).strip()))
+
+    return {
+        "from_alert": str(alert["alert_id"]),
+        "title": str(alert.get("title") or alert["alert_id"]).strip(),
+        "description": "\n".join(details),
+        "category": str(alert.get("category") or "").strip(),
+        "priority": max(1, min(5, int(alert.get("priority") or 3))),
+        "municipality": str(alert.get("municipality") or "").strip(),
+        "address": str(alert.get("address") or "").strip(),
+        "item_type": "ISSUE",
+        "next_action": "Review, assign, and determine the municipal response.",
+        "source": "ALERT",
+    }
+
+
 @app.get("/issues", response_class=HTMLResponse)
-def issues(request: Request, q: str = "", state: str = "open", msg: str = ""):
+def issues(
+    request: Request,
+    q: str = "",
+    state: str = "open",
+    msg: str = "",
+    from_alert: str = "",
+):
+    prefill = _alert_work_prefill(from_alert)
     where = []
     params = []
     post_filter = None
@@ -199,6 +251,8 @@ def issues(request: Request, q: str = "", state: str = "open", msg: str = ""):
             "q": q,
             "state": state,
             "msg": msg,
+            "prefill": prefill,
+            "prefill_error": "The selected Alert could not be found." if from_alert and not prefill else "",
             "issue_statuses": ISSUE_STATUSES,
         },
     )
@@ -226,11 +280,15 @@ def issue_create(
     visibility_status: str = Form("NONE"),
     visibility_audience: str = Form(""),
     visibility_note: str = Form(""),
+    source: str = Form("MANUAL"),
 ):
     title = title.strip()
     if not title:
         raise HTTPException(status_code=400, detail="Work item title is required")
     validate_issue(priority)
+    source = source.strip().upper()
+    if source not in {"MANUAL", "ALERT"}:
+        source = "MANUAL"
     execute(
         """
         INSERT INTO issues(
@@ -240,7 +298,7 @@ def issue_create(
           visibility_status,visibility_audience,visibility_note
         )
         VALUES(
-          %s,%s,%s,%s,'OPEN','MANUAL',%s,%s,%s,%s,%s,%s,
+          %s,%s,%s,%s,'OPEN',%s,%s,%s,%s,%s,%s,%s,
           NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York',
           NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York',
           NULLIF(%s,'')::uuid,%s,%s,
@@ -249,7 +307,7 @@ def issue_create(
         )
         """,
         (
-            title,description.strip() or None,category.strip().upper() or None,priority,
+            title,description.strip() or None,category.strip().upper() or None,priority,source,
             address.strip() or None,municipality.strip() or None,assigned_to.strip() or None,
             item_type.strip().upper() or "ISSUE",next_action.strip() or None,waiting_on.strip() or None,
             due_at.strip(),follow_up_at.strip(),operational_event_id.strip(),
@@ -258,7 +316,8 @@ def issue_create(
             visibility_audience.strip() or None,visibility_note.strip() or None,
         ),
     )
-    return RedirectResponse(url="/issues?msg=Work+item+created", status_code=303)
+    message = "Alert is now tracked in Command Center" if source == "ALERT" else "Work item created"
+    return RedirectResponse(url=f"/issues?{urlencode({'msg': message})}", status_code=303)
 
 
 @app.post("/issues/{issue_id}/update")
