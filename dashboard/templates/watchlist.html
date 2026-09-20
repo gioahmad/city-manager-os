@@ -192,17 +192,22 @@
         <input type="hidden" name="name_by" value="{{ bulk_context.name_by }}">
 
         <fieldset class="bulk-location-groups">
-          <legend>Choose Location groups</legend>
-          <label class="checkbox-row bulk-select-all"><input type="checkbox" data-bulk-select-all> Select all groups shown</label>
+          <legend>Choose individual Locations</legend>
+          <label class="checkbox-row bulk-select-all"><input type="checkbox" data-bulk-select-all> Select every Location shown</label>
           <div class="bulk-group-grid">
           {% for group in bulk_context.groups %}
-            <label class="bulk-group-choice">
-              <input type="checkbox" name="group_tokens" value="{{ group.token }}" data-bulk-group data-feature-count="{{ group.count }}">
-              <span><strong>{{ group.path or group.label }}</strong><small>{{ group.count }} Location{{ '' if group.count == 1 else 's' }}{% if group.samples %} · {{ group.samples|join(', ') }}{% if group.count > group.samples|length %}, and more{% endif %}{% endif %}</small></span>
-            </label>
+            <details class="bulk-group-choice" data-bulk-location-group>
+              <summary><span><strong>{{ group.path or group.label }}</strong><small>{{ group.count }} Location{{ '' if group.count == 1 else 's' }} · open to choose towns or features</small></span></summary>
+              <div class="bulk-feature-options">
+                <label class="checkbox-row bulk-group-toggle"><input type="checkbox" data-bulk-group> Select all {{ group.label }}</label>
+                {% for feature in group.features %}
+                <label class="checkbox-row"><input type="checkbox" name="feature_ids" value="{{ feature.id }}" data-bulk-feature> {{ feature.label }}</label>
+                {% endfor %}
+              </div>
+            </details>
           {% else %}<span>This layer has no active map features.</span>{% endfor %}
           </div>
-          <span class="hint">Create up to {{ bulk_watch_limit }} Watches at a time. A city or county polygon watches inside its boundary. A road or corridor uses the Distance below.</span>
+          <span class="hint">Open a county to select only the towns you want. Create up to {{ bulk_watch_limit }} Watches at a time. A city or county polygon watches inside its boundary. A road or corridor uses the Distance below.</span>
         </fieldset>
 
         <div class="form-grid two-col">
@@ -374,7 +379,7 @@
   <div class="panel-head"><div><div class="panel-kicker">MONITOR</div><h2>Saved Watches</h2></div><span class="count-pill">{{ items|length }}</span></div>
   <div class="panel-body">
     <form class="watch-filters" method="get" action="/watchlist">
-      <input name="q" value="{{ q }}" placeholder="Search Watch name, topic, or Location">
+      <input name="q" value="{{ q }}" placeholder="Search Watch name, topic, Location, or group">
       <select name="state">
         {% for value,label in [('all','All statuses'),('watching','Watching'),('matching','Matching'),('needs_recipient','Needs Recipient'),('delivery_problem','Delivery Problem'),('paused','Paused'),('expired','Expired'),('location','Uses a Location')] %}
         <option value="{{ value }}" {% if state == value %}selected{% endif %}>{{ label }}</option>
@@ -383,11 +388,30 @@
       <button class="secondary-button" type="submit">Search</button>
     </form>
 
+    {% if items %}
+    <form id="watch-bulk-form" method="post" action="/watchlist/bulk-action" class="bulk-action-toolbar" data-watch-bulk-form>
+      <label class="checkbox-row"><input type="checkbox" data-watch-select-all> Select all Watches shown</label>
+      <span data-watch-bulk-count>0 selected</span>
+      <label>Action
+        <select name="action" data-watch-bulk-action>
+          <option value="pause">Pause selected</option>
+          <option value="activate">Reactivate selected</option>
+          <option value="delete">Delete selected permanently</option>
+        </select>
+      </label>
+      <label data-watch-delete-confirm hidden>Type DELETE to confirm
+        <input name="confirm_delete" autocomplete="off" placeholder="DELETE">
+      </label>
+      <button class="secondary-button" type="submit">Apply to Selected</button>
+    </form>
+    {% endif %}
+
     <div class="watch-list">
     {% for w in items %}
       <article class="watch-card {% if w.state_label in ['Paused','Expired'] %}inactive{% endif %}">
         <div class="watch-card-summary">
           <div class="watch-summary-main">
+            <label class="watch-select"><input type="checkbox" name="watch_item_ids" value="{{ w.id }}" form="watch-bulk-form" data-watch-select aria-label="Select {{ w.display_name }}"></label>
             <span class="status {{ w.state_class }}">{{ w.state_label }}</span>
             <div>
               <strong>{{ w.display_name }}</strong>
@@ -421,9 +445,18 @@
               {{ mode_choices(w.setup_mode) }}
             </div>
             <div data-needs-topic {% if w.setup_mode == 'LOCATION' %}hidden{% endif %}>
-              <label>Topic or phrase<input name="search_term" value="{{ w.search_term if w.setup_mode != 'LOCATION' else '' }}" placeholder="Example: water main or road closure"></label>
+              {% if w.keyword_choices %}
+              <div class="alert-keyword-picker" data-alert-keywords>
+                <span>Keywords currently on</span>
+                <div class="alert-keyword-choices">
+                  {% for keyword in w.keyword_choices %}<label><input type="checkbox" value="{{ keyword }}" data-alert-keyword checked> {{ keyword }}</label>{% endfor %}
+                </div>
+                <small>Clear a keyword to stop matching it, then save. These are this Watch's saved choices, not a hardcoded list.</small>
+              </div>
+              {% endif %}
+              <label>Topic or phrase<input name="search_term" value="{{ w.search_term if w.setup_mode != 'LOCATION' else '' }}" data-primary-keyword placeholder="Example: water main or road closure"></label>
               <label>Also match these alternatives (optional)
-                <input name="aliases" value="{{ (w.aliases or [])|join(', ') }}" placeholder="Separate phrases with commas">
+                <input name="aliases" value="{{ (w.aliases or [])|join(', ') }}" data-other-keywords placeholder="Separate phrases with commas">
                 <span class="hint">Any one of these phrases may create a Match.</span>
               </label>
             </div>
@@ -546,40 +579,93 @@
   });
 
   document.querySelectorAll('[data-bulk-watch-form]').forEach((form) => {
-    const groups = [...form.querySelectorAll('[data-bulk-group]')];
+    const features = [...form.querySelectorAll('[data-bulk-feature]')];
+    const groups = [...form.querySelectorAll('[data-bulk-location-group]')];
     const selectAll = form.querySelector('[data-bulk-select-all]');
     const count = document.querySelector('[data-bulk-count]');
     const limit = {{ bulk_watch_limit }};
     const sync = () => {
-      const checked = groups.filter((group) => group.checked);
-      const features = checked.reduce((total, group) => total + Number(group.dataset.featureCount || 0), 0);
+      const selected = features.filter((feature) => feature.checked).length;
+      groups.forEach((group) => {
+        const toggle = group.querySelector('[data-bulk-group]');
+        const choices = [...group.querySelectorAll('[data-bulk-feature]')];
+        const checked = choices.filter((choice) => choice.checked).length;
+        if (toggle) {
+          toggle.checked = choices.length > 0 && checked === choices.length;
+          toggle.indeterminate = checked > 0 && checked < choices.length;
+        }
+      });
       if (count) {
-        count.textContent = `${features} Watch${features === 1 ? '' : 'es'} selected`;
-        count.classList.toggle('error-text', features > limit);
+        count.textContent = `${selected} Watch${selected === 1 ? '' : 'es'} selected`;
+        count.classList.toggle('error-text', selected > limit);
       }
-      if (selectAll) selectAll.checked = groups.length > 0 && checked.length === groups.length;
-      return features;
+      if (selectAll) {
+        selectAll.checked = features.length > 0 && selected === features.length;
+        selectAll.indeterminate = selected > 0 && selected < features.length;
+      }
+      return selected;
     };
-    groups.forEach((group) => group.addEventListener('change', sync));
+    features.forEach((feature) => feature.addEventListener('change', sync));
+    groups.forEach((group) => group.querySelector('[data-bulk-group]')?.addEventListener('change', (event) => {
+      group.querySelectorAll('[data-bulk-feature]').forEach((feature) => { feature.checked = event.target.checked; });
+      sync();
+    }));
     selectAll?.addEventListener('change', () => {
-      groups.forEach((group) => { group.checked = selectAll.checked; });
+      features.forEach((feature) => { feature.checked = selectAll.checked; });
       sync();
     });
     form.addEventListener('submit', (event) => {
-      const features = sync();
+      const selected = sync();
       const turningOn = form.querySelector('[name="activate"]')?.checked;
       const hasRecipient = [...form.querySelectorAll('[name="subscriber_ids"]')].some((choice) => choice.checked);
-      if (!features || features > limit || (turningOn && !hasRecipient)) {
+      if (!selected || selected > limit || (turningOn && !hasRecipient)) {
         event.preventDefault();
-        if (count) count.textContent = !features
-          ? 'Choose at least one Location group'
-          : features > limit
+        if (count) count.textContent = !selected
+          ? 'Choose at least one Location'
+          : selected > limit
             ? `Choose ${limit} or fewer Watches at a time`
             : 'Choose a Recipient before turning these Watches on';
         count?.classList.add('error-text');
       }
     });
     sync();
+  });
+
+  document.querySelectorAll('[data-watch-bulk-form]').forEach((form) => {
+    const choices = [...document.querySelectorAll('[data-watch-select]')];
+    const selectAll = form.querySelector('[data-watch-select-all]');
+    const count = form.querySelector('[data-watch-bulk-count]');
+    const action = form.querySelector('[data-watch-bulk-action]');
+    const confirmation = form.querySelector('[data-watch-delete-confirm]');
+    const confirmationInput = confirmation?.querySelector('input');
+    const sync = () => {
+      const selected = choices.filter((choice) => choice.checked).length;
+      if (count) count.textContent = `${selected} selected`;
+      if (selectAll) {
+        selectAll.checked = choices.length > 0 && selected === choices.length;
+        selectAll.indeterminate = selected > 0 && selected < choices.length;
+      }
+      return selected;
+    };
+    const syncAction = () => {
+      const deleting = action?.value === 'delete';
+      if (confirmation) confirmation.hidden = !deleting;
+      if (confirmationInput) confirmationInput.required = deleting;
+    };
+    choices.forEach((choice) => choice.addEventListener('change', sync));
+    selectAll?.addEventListener('change', () => {
+      choices.forEach((choice) => { choice.checked = selectAll.checked; });
+      sync();
+    });
+    action?.addEventListener('change', syncAction);
+    form.addEventListener('submit', (event) => {
+      if (!sync()) {
+        event.preventDefault();
+        if (count) count.textContent = 'Choose at least one Watch';
+      }
+    });
+    sync();
+    syncAction();
   });
 
   document.querySelectorAll('[data-duration-select]').forEach((select) => {

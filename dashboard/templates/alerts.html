@@ -10,11 +10,13 @@
   <div class="brand">
     <div class="eyebrow">SEARCH · REVIEW · LOCATE</div>
     <div class="brand-row"><h1>Alerts</h1><span class="private-badge">PRIVATE</span></div>
-    <div class="tagline">Search the complete alert database without changing stored history</div>
+    <div class="tagline">Search the complete alert database and manage selected records</div>
   </div>
 </header>
 {% include "nav.html" %}
 <main>
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+  {% if error %}<div class="flash flash-error"><strong>Could not complete that change:</strong> {{ error }}</div>{% endif %}
   <section class="metrics watch-metrics">
     <div class="metric"><span>All History</span><strong>{{ counts.total or 0 }}</strong><small>Stored alerts</small></div>
     <div class="metric metric-alerts"><span>Current</span><strong>{{ counts.active or 0 }}</strong><small>Unresolved alerts</small></div>
@@ -74,14 +76,40 @@
     </div>
     <div class="panel-body">
       <div class="alert-result-summary">Showing page {{ current_page }} of {{ total_pages }} · newest first</div>
+      {% if alerts %}
+      <form method="post" action="/alerts/bulk-action" data-alert-bulk-form>
+        <input type="hidden" name="return_to" value="{{ current_url }}">
+        <div class="bulk-action-toolbar">
+          <label class="checkbox-row"><input type="checkbox" data-alert-select-all> Select all on this page</label>
+          <span data-alert-bulk-count>0 selected</span>
+          <label>Action
+            <select name="action" data-alert-bulk-action>
+              <option value="resolve">Mark selected resolved · keep history</option>
+              {% if can_delete_alerts %}
+              <option value="delete">Delete selected permanently</option>
+              {% endif %}
+            </select>
+          </label>
+          <label data-alert-delete-confirm hidden>Type DELETE to confirm
+            <input name="confirm_delete" autocomplete="off" placeholder="DELETE">
+          </label>
+          <button class="secondary-button" type="submit">Apply to Selected</button>
+        </div>
+        <div class="hint">Resolved alerts stay searchable.{% if can_delete_alerts %} Permanent deletion also removes their Match and Notification evidence, and a live source may send them again.{% endif %}</div>
+      {% endif %}
       <div class="data-list alert-search-results">
         {% for a in alerts %}
         <article class="data-row priority-{{ a.priority }}">
           <div class="data-main">
+            <label class="alert-bulk-select"><input type="checkbox" name="alert_ids" value="{{ a.alert_uuid }}" data-alert-select> Select this alert</label>
             <div class="data-title"><span class="priority-chip p{{ a.priority }}">P{{ a.priority }}</span><strong>{{ a.title }}</strong></div>
             <div class="meta">{{ a.source }} · {{ a.category }} · {{ a.subtype }}{% if a.municipality %} · {{ a.municipality }}{% endif %}</div>
             {% if a.location_label %}<div class="alert-location"><strong>Location:</strong> {{ a.location_label }}</div>{% endif %}
-            <div class="alert-watch"><strong>Matched Watches:</strong> {{ a.matched_watches }}</div>
+            <div class="alert-why">
+              <strong>Why you received this</strong>
+              <span><b>Matched Watches:</b> {{ a.matched_watches }}</span>
+              {% for item in a.watch_evidence %}<div class="alert-why-item"><b>{{ item.watch_name }}</b><span>{{ item.reason }}</span></div>{% else %}<span>No Watch matched this stored alert. It appears in history because the source reported it.</span>{% endfor %}
+            </div>
             <div class="row-message">{{ a.message }}</div>
             <div class="alert-reference">Alert reference: {{ a.alert_id }}</div>
           </div>
@@ -94,6 +122,7 @@
         </article>
         {% else %}<div class="empty-state small"><strong>No alerts match these choices.</strong><span>Try a longer time period or remove one filter.</span></div>{% endfor %}
       </div>
+      {% if alerts %}</form>{% endif %}
       <nav class="alert-pagination" aria-label="Alert results pages">
         {% if previous_url %}<a class="secondary-button" href="{{ previous_url }}">Previous</a>{% else %}<span></span>{% endif %}
         <span>Page {{ current_page }} of {{ total_pages }}</span>
@@ -103,5 +132,43 @@
   </article>
   <footer><span>City Manager OS</span><span>Complete alert history · map view defaults to 12 hours</span></footer>
 </main>
+<script>
+(() => {
+  const form = document.querySelector('[data-alert-bulk-form]');
+  if (!form) return;
+  const choices = [...form.querySelectorAll('[data-alert-select]')];
+  const selectAll = form.querySelector('[data-alert-select-all]');
+  const count = form.querySelector('[data-alert-bulk-count]');
+  const action = form.querySelector('[data-alert-bulk-action]');
+  const confirmation = form.querySelector('[data-alert-delete-confirm]');
+  const confirmationInput = confirmation?.querySelector('input');
+  const sync = () => {
+    const selected = choices.filter((choice) => choice.checked).length;
+    count.textContent = `${selected} selected`;
+    selectAll.checked = choices.length > 0 && selected === choices.length;
+    selectAll.indeterminate = selected > 0 && selected < choices.length;
+    return selected;
+  };
+  const syncAction = () => {
+    const deleting = action.value === 'delete';
+    confirmation.hidden = !deleting;
+    confirmationInput.required = deleting;
+  };
+  choices.forEach((choice) => choice.addEventListener('change', sync));
+  selectAll.addEventListener('change', () => {
+    choices.forEach((choice) => { choice.checked = selectAll.checked; });
+    sync();
+  });
+  action.addEventListener('change', syncAction);
+  form.addEventListener('submit', (event) => {
+    if (!sync()) {
+      event.preventDefault();
+      count.textContent = 'Choose at least one alert';
+    }
+  });
+  sync();
+  syncAction();
+})();
+</script>
 </body>
 </html>
