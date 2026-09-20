@@ -12,6 +12,40 @@ from app import db_conn, execute, query_all, query_one, templates
 
 LOGGER = logging.getLogger(__name__)
 
+
+def require_watch_recipients(cur, watch_item_ids) -> None:
+    """Keep an active Watch from looking ready when it cannot notify anyone."""
+    watch_item_ids = list(dict.fromkeys(watch_item_ids))
+    if not watch_item_ids:
+        return
+    cur.execute(
+        """
+        SELECT count(*) AS total
+        FROM watch_items w
+        WHERE w.id=ANY(%s::uuid[])
+          AND w.active=true
+          AND (w.expires_at IS NULL OR w.expires_at>now())
+          AND NOT EXISTS (
+            SELECT 1
+            FROM watch_item_recipients wir
+            JOIN subscribers s ON s.id=wir.subscriber_id
+            WHERE wir.watch_item_id=w.id AND wir.active=true AND s.active=true
+          )
+        """,
+        (watch_item_ids,),
+    )
+    total = int(cur.fetchone()["total"])
+    if total:
+        noun = "Watch would" if total == 1 else "Watches would"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{total} active {noun} have no active Recipient. "
+                f"Choose a Recipient or pause {'it' if total == 1 else 'them'} first."
+            ),
+        )
+
+
 ALERT_KEYWORD_STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "been", "by", "for", "from",
     "has", "have", "in", "incident", "is", "it", "new", "of", "on", "or",
@@ -1392,20 +1426,53 @@ def subscriber_create(name: str = Form(...), ntfy_topic: str = Form(...), notes:
 
 @app.post("/subscribers/{subscriber_uuid}/update")
 def subscriber_update(subscriber_uuid: uuid.UUID, name: str = Form(...), ntfy_topic: str = Form(...), notes: str = Form(""), active: str | None = Form(None)):
-    execute(
-        """
-        UPDATE subscribers
-        SET name=%s, ntfy_topic=%s, notes=%s, active=%s, updated_at=now()
-        WHERE id=%s
-        """,
-        (name.strip(), ntfy_topic.strip(), notes.strip() or None, active is not None, subscriber_uuid),
-    )
+    with db_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT active FROM subscribers WHERE id=%s FOR UPDATE", (subscriber_uuid,))
+        current = cur.fetchone()
+        if not current:
+            raise HTTPException(404, "Recipient not found")
+        cur.execute(
+            """SELECT watch_item_id FROM watch_item_recipients
+               WHERE subscriber_id=%s AND active=true""",
+            (subscriber_uuid,),
+        )
+        affected = [row["watch_item_id"] for row in cur.fetchall()]
+        cur.execute(
+            """
+            UPDATE subscribers
+            SET name=%s,ntfy_topic=%s,notes=%s,active=%s,updated_at=now()
+            WHERE id=%s
+            RETURNING id
+            """,
+            (name.strip(), ntfy_topic.strip(), notes.strip() or None, active is not None, subscriber_uuid),
+        )
+        cur.fetchone()
+        if current["active"] and active is None:
+            require_watch_recipients(cur, affected)
+        conn.commit()
     return RedirectResponse(url="/subscribers?msg=Recipient+updated", status_code=303)
 
 
 @app.post("/subscribers/{subscriber_uuid}/toggle")
 def subscriber_toggle(subscriber_uuid: uuid.UUID):
-    execute("UPDATE subscribers SET active = NOT active, updated_at=now() WHERE id=%s", (subscriber_uuid,))
+    with db_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT watch_item_id FROM watch_item_recipients
+               WHERE subscriber_id=%s AND active=true""",
+            (subscriber_uuid,),
+        )
+        affected = [row["watch_item_id"] for row in cur.fetchall()]
+        cur.execute(
+            """UPDATE subscribers SET active=NOT active,updated_at=now()
+               WHERE id=%s RETURNING active""",
+            (subscriber_uuid,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Recipient not found")
+        if not row["active"]:
+            require_watch_recipients(cur, affected)
+        conn.commit()
     return RedirectResponse(url="/subscribers?msg=Recipient+status+changed", status_code=303)
 
 
@@ -1423,14 +1490,28 @@ def subscriber_watches_update(
             raise HTTPException(400, "Review the visible Watch choices and try again")
         with db_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT id FROM subscribers WHERE id=%s FOR UPDATE", (subscriber_uuid,))
-                if not cur.fetchone():
+                cur.execute("SELECT id,active FROM subscribers WHERE id=%s FOR UPDATE", (subscriber_uuid,))
+                subscriber = cur.fetchone()
+                if not subscriber:
                     raise HTTPException(404, "That Recipient no longer exists")
+                if selected and not subscriber["active"]:
+                    raise HTTPException(400, "Reactivate this Recipient before assigning Watches")
                 for watch_item_id in selected:
                     cur.execute("SELECT id FROM watch_items WHERE id=%s", (watch_item_id,))
                     if not cur.fetchone():
                         raise HTTPException(400, "One or more selected Watches no longer exist")
                 if visible:
+                    cur.execute(
+                        """
+                        SELECT watch_item_id
+                        FROM watch_item_recipients
+                        WHERE subscriber_id=%s AND active=true
+                          AND watch_item_id=ANY(%s::uuid[])
+                          AND NOT (watch_item_id=ANY(%s::uuid[]))
+                        """,
+                        (subscriber_uuid, visible, selected),
+                    )
+                    removed = [row["watch_item_id"] for row in cur.fetchall()]
                     cur.execute(
                         """
                         UPDATE watch_item_recipients SET active=false
@@ -1447,6 +1528,7 @@ def subscriber_watches_update(
                         """,
                         [(watch_item_id, subscriber_uuid) for watch_item_id in selected],
                     )
+                require_watch_recipients(cur, removed if visible else [])
                 cur.execute(
                     "SELECT count(*) AS total FROM watch_item_recipients WHERE subscriber_id=%s AND active=true",
                     (subscriber_uuid,),
@@ -1509,19 +1591,31 @@ def routing_page(request: Request, msg: str = ""):
 
 @app.post("/routing/create")
 def routing_create(watch_item_id: uuid.UUID = Form(...), subscriber_id: uuid.UUID = Form(...)):
-    execute(
-        """
-        INSERT INTO watch_item_recipients (watch_item_id, subscriber_id, active)
-        VALUES (%s, %s, true)
-        ON CONFLICT (watch_item_id, subscriber_id)
-        DO UPDATE SET active = true
-        """,
-        (watch_item_id, subscriber_id),
-    )
+    with db_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO watch_item_recipients (watch_item_id,subscriber_id,active)
+            VALUES (%s,%s,true)
+            ON CONFLICT (watch_item_id,subscriber_id) DO UPDATE SET active=true
+            """,
+            (watch_item_id, subscriber_id),
+        )
+        require_watch_recipients(cur, [watch_item_id])
+        conn.commit()
     return RedirectResponse(url="/routing?msg=Delivery+connection+activated", status_code=303)
 
 
 @app.post("/routing/{route_id}/toggle")
 def routing_toggle(route_id: uuid.UUID):
-    execute("UPDATE watch_item_recipients SET active = NOT active WHERE id=%s", (route_id,))
+    with db_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE watch_item_recipients SET active=NOT active
+               WHERE id=%s RETURNING active,watch_item_id""",
+            (route_id,),
+        )
+        route = cur.fetchone()
+        if not route:
+            raise HTTPException(404, "Delivery connection not found")
+        require_watch_recipients(cur, [route["watch_item_id"]])
+        conn.commit()
     return RedirectResponse(url="/routing?msg=Delivery+connection+status+changed", status_code=303)

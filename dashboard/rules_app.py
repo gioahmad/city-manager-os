@@ -4,11 +4,12 @@ import uuid
 from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from operations_app import app
+from operations_app import app, require_watch_recipients
 from app import (
     MATCH_MODES,
     WATCH_TYPES,
     csv_array,
+    db_conn,
     execute,
     make_watch_id,
     query_all,
@@ -62,8 +63,8 @@ def taxonomy(section_id: str, subsection_id: str):
     return section, subsection
 
 
-def set_recipients(watch_item_id, recipient_ids):
-    execute(
+def set_recipients(cur, watch_item_id, recipient_ids):
+    cur.execute(
         """
         UPDATE watch_item_recipients
         SET active=false
@@ -75,10 +76,13 @@ def set_recipients(watch_item_id, recipient_ids):
     for rid in recipient_ids:
         try:
             sid = uuid.UUID(rid)
-        except Exception:
-            continue
+        except ValueError as exc:
+            raise HTTPException(400, "Choose the Recipient again") from exc
 
-        execute(
+        cur.execute("SELECT id FROM subscribers WHERE id=%s AND active=true", (sid,))
+        if not cur.fetchone():
+            raise HTTPException(400, "One or more selected Recipients are paused or missing")
+        cur.execute(
             """
             INSERT INTO watch_item_recipients (
               watch_item_id,
@@ -287,51 +291,31 @@ def rules_quick_add(
 
     section, subsection = taxonomy(section_id, subsection_id)
 
-    row = query_one(
-        """
-        INSERT INTO watch_items (
-          watch_id,
-          active,
-          watch_type,
-          display_name,
-          search_term,
-          aliases,
-          match_mode,
-          match_field,
-          category,
-          subcategory,
-          tags,
-          min_priority,
-          municipality,
-          notes,
-          rule_section_id,
-          rule_subsection_id
+    with db_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO watch_items (
+              watch_id,active,watch_type,display_name,search_term,aliases,match_mode,
+              match_field,category,subcategory,tags,min_priority,municipality,notes,
+              rule_section_id,rule_subsection_id
+            )
+            VALUES (%s,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id
+            """,
+            (
+                make_watch_id(display_name), watch_type.strip().upper(), display_name,
+                search_term, csv_array(aliases), match_mode, match_field.strip() or None,
+                section.get("name") if section else None,
+                subsection.get("name") if subsection else None, csv_array(tags), min_priority,
+                municipality.strip() or None, notes.strip() or None,
+                section.get("id") if section else None,
+                subsection.get("id") if subsection else None,
+            ),
         )
-        VALUES (
-          %s,true,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
-        )
-        RETURNING id
-        """,
-        (
-            make_watch_id(display_name),
-            watch_type.strip().upper(),
-            display_name,
-            search_term,
-            csv_array(aliases),
-            match_mode,
-            match_field.strip() or None,
-            section.get("name") if section else None,
-            subsection.get("name") if subsection else None,
-            csv_array(tags),
-            min_priority,
-            municipality.strip() or None,
-            notes.strip() or None,
-            section.get("id") if section else None,
-            subsection.get("id") if subsection else None,
-        ),
-    )
-
-    set_recipients(row["id"], recipient_ids)
+        watch_item_id = cur.fetchone()["id"]
+        set_recipients(cur, watch_item_id, recipient_ids)
+        require_watch_recipients(cur, [watch_item_id])
+        conn.commit()
 
     return RedirectResponse(
         url="/rules?msg=Rule+created",
@@ -371,49 +355,32 @@ def rules_update(
 
     section, subsection = taxonomy(section_id, subsection_id)
 
-    execute(
-        """
-        UPDATE watch_items
-        SET
-          active=%s,
-          watch_type=%s,
-          display_name=%s,
-          search_term=%s,
-          aliases=%s,
-          match_mode=%s,
-          match_field=%s,
-          category=%s,
-          subcategory=%s,
-          tags=%s,
-          min_priority=%s,
-          municipality=%s,
-          notes=%s,
-          rule_section_id=%s,
-          rule_subsection_id=%s,
-          updated_at=now()
-        WHERE id=%s
-        """,
-        (
-            active is not None,
-            watch_type.strip().upper(),
-            display_name,
-            search_term,
-            csv_array(aliases),
-            match_mode,
-            match_field.strip() or None,
-            section.get("name") if section else None,
-            subsection.get("name") if subsection else None,
-            csv_array(tags),
-            min_priority,
-            municipality.strip() or None,
-            notes.strip() or None,
-            section.get("id") if section else None,
-            subsection.get("id") if subsection else None,
-            item_id,
-        ),
-    )
-
-    set_recipients(item_id, recipient_ids)
+    with db_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE watch_items
+            SET active=%s,watch_type=%s,display_name=%s,search_term=%s,aliases=%s,
+                match_mode=%s,match_field=%s,category=%s,subcategory=%s,tags=%s,
+                min_priority=%s,municipality=%s,notes=%s,rule_section_id=%s,
+                rule_subsection_id=%s,updated_at=now()
+            WHERE id=%s
+            RETURNING id
+            """,
+            (
+                active is not None, watch_type.strip().upper(), display_name, search_term,
+                csv_array(aliases), match_mode, match_field.strip() or None,
+                section.get("name") if section else None,
+                subsection.get("name") if subsection else None, csv_array(tags), min_priority,
+                municipality.strip() or None, notes.strip() or None,
+                section.get("id") if section else None,
+                subsection.get("id") if subsection else None, item_id,
+            ),
+        )
+        if not cur.fetchone():
+            raise HTTPException(404, "Watch not found")
+        set_recipients(cur, item_id, recipient_ids)
+        require_watch_recipients(cur, [item_id])
+        conn.commit()
 
     return RedirectResponse(
         url="/rules?msg=Rule+updated",
@@ -423,15 +390,22 @@ def rules_update(
 
 @app.post("/rules/{item_id}/toggle")
 def rules_toggle(item_id: uuid.UUID):
-    execute(
-        """
-        UPDATE watch_items
-        SET active=NOT active,
-            updated_at=now()
-        WHERE id=%s
-        """,
-        (item_id,),
-    )
+    with db_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE watch_items
+            SET active=NOT active,updated_at=now()
+            WHERE id=%s
+            RETURNING active
+            """,
+            (item_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Watch not found")
+        if row["active"]:
+            require_watch_recipients(cur, [item_id])
+        conn.commit()
 
     return RedirectResponse(
         url="/rules?msg=Rule+status+changed",

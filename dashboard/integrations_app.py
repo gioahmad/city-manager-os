@@ -13,8 +13,17 @@ from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from schedule_app import app
-from app import db_conn, execute, make_watch_id, query_all, query_one, templates, validate_watch
+from app import (
+    db_conn,
+    execute,
+    make_watch_id,
+    query_all,
+    query_one,
+    templates,
+    validate_watch,
+)
 from integration_engine import load_integration, run_integration
+from operations_app import require_watch_recipients
 from transit_engine import is_transit_adapter, run_transit_integration
 from integration_runtime import (
     apply_literal_auth,
@@ -291,6 +300,7 @@ def alert_admin_create_watch(
                    ON CONFLICT(watch_item_id,subscriber_id) DO UPDATE SET active=true""",
                 (watch_uuid,subscriber_id),
             )
+        require_watch_recipients(cur, [watch_uuid])
         conn.commit()
     return RedirectResponse("/alert-admin?msg=Watch+created+and+routing+saved",status_code=303)
 

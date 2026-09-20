@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from schedule_app import app
 from app import db_conn, execute, query_all, query_one, templates
+from operations_app import require_watch_recipients
 
 
 def _make_subscriber_id(name: str) -> str:
@@ -306,6 +307,7 @@ def alert_admin_save_recipients(
                 """,
                 (watch_item_id, subscriber_id),
             )
+        require_watch_recipients(cur, [watch_item_id])
         conn.commit()
 
     return RedirectResponse(
@@ -316,10 +318,22 @@ def alert_admin_save_recipients(
 
 @app.post("/alert-admin/watch/{watch_item_id}/toggle")
 def alert_admin_toggle_watch(watch_item_id: uuid.UUID):
-    execute(
-        "UPDATE watch_items SET active=NOT active,updated_at=now() WHERE id=%s",
-        (watch_item_id,),
-    )
+    with db_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE watch_items
+            SET active=NOT active,updated_at=now()
+            WHERE id=%s
+            RETURNING active
+            """,
+            (watch_item_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Watch item not found")
+        if row["active"]:
+            require_watch_recipients(cur, [watch_item_id])
+        conn.commit()
     return RedirectResponse("/alert-admin?msg=Watch+status+updated", status_code=303)
 
 
@@ -351,8 +365,22 @@ def alert_admin_create_subscriber(
 
 @app.post("/alert-admin/subscriber/{subscriber_uuid}/toggle")
 def alert_admin_toggle_subscriber(subscriber_uuid: uuid.UUID):
-    execute(
-        "UPDATE subscribers SET active=NOT active,updated_at=now() WHERE id=%s",
-        (subscriber_uuid,),
-    )
+    with db_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT watch_item_id FROM watch_item_recipients
+               WHERE subscriber_id=%s AND active=true""",
+            (subscriber_uuid,),
+        )
+        affected = [row["watch_item_id"] for row in cur.fetchall()]
+        cur.execute(
+            """UPDATE subscribers SET active=NOT active,updated_at=now()
+               WHERE id=%s RETURNING active""",
+            (subscriber_uuid,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Recipient not found")
+        if not row["active"]:
+            require_watch_recipients(cur, affected)
+        conn.commit()
     return RedirectResponse("/alert-admin?msg=Recipient+status+updated", status_code=303)
