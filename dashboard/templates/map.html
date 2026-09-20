@@ -239,7 +239,7 @@ function spatialActions(feature,layer,key){
   else if(layer.getBounds){const bounds=layer.getBounds();if(bounds.isValid())center=bounds.getCenter();}
   const wrap=document.createElement('div');wrap.className='map-layer-actions';
   const label=merged.title||merged.display_name||merged.name||merged.label||merged.canonical_name||merged.fulladdr||merged.prop_loc||merged.mapped_address||'Map selection';
-  if(key==='alerts'&&merged.alert_id){wrap.appendChild(actionLink('Create Watch From Alert','/watchlist?'+new URLSearchParams({from_alert:merged.alert_id})));wrap.appendChild(actionLink('Open Full Alert','/alerts?'+new URLSearchParams({q:merged.alert_id,window:'all',state:'all'})));const impact=document.createElement('button');impact.type='button';impact.className='map-mini-button';impact.textContent='Show Impact Area';impact.addEventListener('click',()=>showImpactArea(merged.alert_id));wrap.appendChild(impact);}
+  if(key==='alerts'&&merged.alert_id){wrap.appendChild(actionLink('Track This Alert','/issues?'+new URLSearchParams({from_alert:merged.alert_id})));wrap.appendChild(actionLink('Create Watch From Alert','/watchlist?'+new URLSearchParams({from_alert:merged.alert_id})));wrap.appendChild(actionLink('Open Full Alert','/alerts?'+new URLSearchParams({q:merged.alert_id,window:'all',state:'all'})));const impact=document.createElement('button');impact.type='button';impact.className='map-mini-button';impact.textContent='Show Impact Area';impact.addEventListener('click',()=>showImpactArea(merged.alert_id));wrap.appendChild(impact);}
   else if(key==='watchlist'&&merged.watch_id){wrap.appendChild(actionLink('Open Watch','/watchlist?'+new URLSearchParams({q:merged.watch_id})));}
   else{
     let locationKind='',locationId='';
