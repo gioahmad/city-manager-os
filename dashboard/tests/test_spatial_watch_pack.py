@@ -59,6 +59,8 @@ def test_guarded_database_installer_covers_point_corridor_and_no_writes():
     assert "APPROXIMATE_COUNTY" in installer
     assert "CMOS56:CORRIDOR_IN" in installer
     assert "CMOS56:CORRIDOR_OUT" in installer
+    assert installer.count("watch_item_id BETWEEN") == 5
+    assert installer.count("watch_item_id='56000000-0000-0000-0000-000000000005'::uuid") == 2
     assert "ST_LineString" in installer
     assert "BEGIN;" in installer and "ROLLBACK;" in installer
     assert "INSERT INTO deliveries" not in installer
@@ -83,6 +85,7 @@ def test_effective_geometry_release_is_bounded_and_recoverable():
     assert "RETROSPECTIVE_NOTIFICATION_SENT=NO" in release
     assert "INSERT INTO deliveries" not in release
     assert "cmos-e2e" not in release
+    assert "tests/test_watchlist_reliability.py </dev/null" in release
 
 
 def test_browser_uses_existing_watchlist_resolver_subscribers_and_routing():
