@@ -20,6 +20,18 @@ ALL_SERVICES = {
     "citymanager-ops-engine",
     "citymanager-integration-engine",
 }
+DASHBOARD_PROBES_BY_FILE = {
+    "executive_workflow_app.py": ("/inbox", "/my-day", "/what-changed"),
+    "flood_app.py": ("/flood",),
+    "integrations_app.py": ("/admin-tools", "/event-intelligence", "/integrations"),
+    "issues_app.py": ("/issues",),
+    "operations_app.py": ("/alerts", "/search", "/source-health"),
+    "operations_occurrence_controls.py": ("/operations-routines",),
+    "operations_routines_app.py": ("/operations-routines", "/staff-admin"),
+    "schedule_app.py": ("/schedule",),
+    "today_board_app.py": ("/today-board",),
+    "transit_app.py": ("/transit",),
+}
 
 
 @dataclass
@@ -185,6 +197,7 @@ def classify(files: list[str]) -> Plan:
 
         if path.startswith("dashboard/") and path.endswith(".py"):
             add_dashboard(plan, "citymanager-dashboard")
+            add_probe(plan, *DASHBOARD_PROBES_BY_FILE.get(name, ()))
             plan.reasons.add("dashboard application")
             if name in {"app.py", "phase3_app.py"}:
                 plan.full_e2e = True

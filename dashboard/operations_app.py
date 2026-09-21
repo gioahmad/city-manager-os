@@ -292,8 +292,8 @@ def operations_home(request: Request):
         SELECT
           id, title, item_type, category, priority, status,
           assigned_to, next_action, waiting_on,
-          due_at AT TIME ZONE 'America/New_York' AS due_local,
-          follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local,
+          due_at AT TIME ZONE current_setting('TimeZone') AS due_local,
+          follow_up_at AT TIME ZONE current_setting('TimeZone') AS follow_up_local,
           updated_at,
           CASE
             WHEN due_at IS NOT NULL AND due_at <= now() THEN 'DUE'
@@ -324,9 +324,9 @@ def operations_home(request: Request):
           count(*) FILTER (
             WHERE status NOT IN ('RESOLVED','CLOSED')
               AND (
-                (due_at IS NOT NULL AND due_at < ((date_trunc('day', now() AT TIME ZONE 'America/New_York') + interval '1 day') AT TIME ZONE 'America/New_York'))
+                (due_at IS NOT NULL AND due_at < ((date_trunc('day', now() AT TIME ZONE current_setting('TimeZone')) + interval '1 day') AT TIME ZONE current_setting('TimeZone')))
                 OR
-                (follow_up_at IS NOT NULL AND follow_up_at < ((date_trunc('day', now() AT TIME ZONE 'America/New_York') + interval '1 day') AT TIME ZONE 'America/New_York'))
+                (follow_up_at IS NOT NULL AND follow_up_at < ((date_trunc('day', now() AT TIME ZONE current_setting('TimeZone')) + interval '1 day') AT TIME ZONE current_setting('TimeZone')))
               )
           ) AS today,
           count(*) FILTER (
@@ -344,8 +344,8 @@ def operations_home(request: Request):
     happening_now = query_all(
         """
         SELECT id, title, category, location_name, address, municipality,
-               starts_at AT TIME ZONE 'America/New_York' AS starts_local,
-               ends_at AT TIME ZONE 'America/New_York' AS ends_local,
+               starts_at AT TIME ZONE current_setting('TimeZone') AS starts_local,
+               ends_at AT TIME ZONE current_setting('TimeZone') AS ends_local,
                priority, source, notes,
                CASE
                  WHEN starts_at <= now()

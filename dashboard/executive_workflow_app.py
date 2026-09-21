@@ -280,7 +280,7 @@ async def quick_capture(request: Request):
           item_type,next_action,waiting_on,follow_up_at
         ) VALUES(
           %s,%s,%s,%s,'OPEN',%s,'Weehawken',%s,%s,%s,%s,
-          NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York'
+          NULLIF(%s,'')::timestamp AT TIME ZONE current_setting('TimeZone')
         )
         """,
         (
@@ -306,7 +306,7 @@ def executive_inbox(request: Request, msg: str = ""):
     rows = query_all(
         """
         SELECT id,title,description,priority,category,assigned_to,next_action,waiting_on,
-               follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local,
+               follow_up_at AT TIME ZONE current_setting('TimeZone') AS follow_up_local,
                created_at,updated_at
         FROM issues
         WHERE source='QUICK_CAPTURE_INBOX'
@@ -349,7 +349,7 @@ async def executive_inbox_triage(issue_id: uuid.UUID, request: Request):
         UPDATE issues
         SET title=%s,item_type=%s,source='QUICK_CAPTURE',category=%s,priority=%s,assigned_to=%s,next_action=%s,
             waiting_on=%s,
-            follow_up_at=NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York',
+            follow_up_at=NULLIF(%s,'')::timestamp AT TIME ZONE current_setting('TimeZone'),
             updated_at=now()
         WHERE id=%s AND source='QUICK_CAPTURE_INBOX'
         """,
@@ -392,7 +392,7 @@ async def quick_waiting(issue_id: uuid.UUID, request: Request):
         """
         UPDATE issues
         SET waiting_on=%s,
-            follow_up_at=NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York',
+            follow_up_at=NULLIF(%s,'')::timestamp AT TIME ZONE current_setting('TimeZone'),
             updated_at=now()
         WHERE id=%s AND status NOT IN ('RESOLVED','CLOSED')
         """,

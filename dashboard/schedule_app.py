@@ -109,15 +109,15 @@ def schedule_page(request: Request, state: str = "upcoming", q: str = "", msg: s
     rows = query_all(
         f"""
         SELECT id, active, title, category, location_name, address, municipality,
-               starts_at AT TIME ZONE 'America/New_York' AS starts_local,
-               ends_at AT TIME ZONE 'America/New_York' AS ends_local,
+               starts_at AT TIME ZONE current_setting('TimeZone') AS starts_local,
+               ends_at AT TIME ZONE current_setting('TimeZone') AS ends_local,
                priority, source, notes,
                attendees, objective, prep_notes, decisions_needed, debrief_notes,
                owner, event_status, event_scope, source_url,
                expected_attendance, impact_notes,
                confirmation_status, waiting_on, preparation_status,
                agencies_involved, reference_links, preparation_checklist,
-               reminder_at AT TIME ZONE 'America/New_York' AS reminder_local,
+               reminder_at AT TIME ZONE current_setting('TimeZone') AS reminder_local,
                COALESCE(
                  (
                    SELECT jsonb_agg(
@@ -128,7 +128,7 @@ def schedule_page(request: Request, state: str = "upcoming", q: str = "", msg: s
                        'assigned_to', i.assigned_to,
                        'next_action', i.next_action,
                        'waiting_on', i.waiting_on,
-                       'due_at', i.due_at AT TIME ZONE 'America/New_York'
+                       'due_at', i.due_at AT TIME ZONE current_setting('TimeZone')
                      )
                      ORDER BY
                        CASE
@@ -173,8 +173,8 @@ def schedule_page(request: Request, state: str = "upcoming", q: str = "", msg: s
             WHERE active = true
               AND event_status NOT IN ('COMPLETED','CANCELLED')
               AND starts_at > now()
-              AND starts_at < date_trunc('day', now() AT TIME ZONE 'America/New_York')
-                  AT TIME ZONE 'America/New_York' + interval '1 day'
+              AND starts_at < date_trunc('day', now() AT TIME ZONE current_setting('TimeZone'))
+                  AT TIME ZONE current_setting('TimeZone') + interval '1 day'
           ) AS later_today,
           count(*) FILTER (
             WHERE active = true
@@ -260,14 +260,14 @@ def schedule_create(
         )
         VALUES (
           %s, %s, %s, %s, %s,
-          %s::timestamp AT TIME ZONE 'America/New_York',
-          NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
+          %s::timestamp AT TIME ZONE current_setting('TimeZone'),
+          NULLIF(%s, '')::timestamp AT TIME ZONE current_setting('TimeZone'),
           %s, 'MANUAL', %s,
           %s, %s, %s, %s, %s,
           %s, %s, %s, %s,
           NULLIF(%s, '')::integer,
           %s, %s, %s, %s, %s, %s, %s::jsonb,
-          NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York'
+          NULLIF(%s, '')::timestamp AT TIME ZONE current_setting('TimeZone')
         )
         """,
         (
@@ -338,8 +338,8 @@ def schedule_update(
             location_name = %s,
             address = %s,
             municipality = %s,
-            starts_at = %s::timestamp AT TIME ZONE 'America/New_York',
-            ends_at = NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
+            starts_at = %s::timestamp AT TIME ZONE current_setting('TimeZone'),
+            ends_at = NULLIF(%s, '')::timestamp AT TIME ZONE current_setting('TimeZone'),
             priority = %s,
             notes = %s,
             attendees = %s,
@@ -361,7 +361,7 @@ def schedule_update(
             reference_links = %s,
             preparation_checklist = %s::jsonb,
             reminder_at =
-              NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York',
+              NULLIF(%s, '')::timestamp AT TIME ZONE current_setting('TimeZone'),
             updated_at = now()
         WHERE id = %s
         """,
@@ -521,7 +521,7 @@ def schedule_create_action(
           %s,
           %s,
           %s,
-          NULLIF(%s, '')::timestamp AT TIME ZONE 'America/New_York'
+          NULLIF(%s, '')::timestamp AT TIME ZONE current_setting('TimeZone')
         )
         """,
         (

@@ -223,7 +223,11 @@ def admin_tools(request: Request):
           (SELECT count(*) FROM watch_item_recipients WHERE active) AS routes,
           (SELECT count(*) FROM integrations WHERE active) AS integrations,
           (SELECT count(*) FROM event_intelligence WHERE active AND impact_level IN ('WATCH','ALERT')) AS event_watch,
-          (SELECT count(*) FROM source_health WHERE upper(status) NOT IN ('OK','HEALTHY')) AS unhealthy
+          (SELECT count(*) FROM source_health WHERE upper(status) NOT IN ('OK','HEALTHY')) AS unhealthy,
+          current_setting('TimeZone') AS application_timezone,
+          (SELECT count(*) FROM pg_stat_activity
+             WHERE datname=current_database() AND backend_type='client backend') AS database_connections,
+          current_setting('max_connections')::integer AS database_connection_limit
         """
     )
     return templates.TemplateResponse(
@@ -743,13 +747,13 @@ def event_intelligence_page(
     if horizon == "today":
         where.append(
             "COALESCE(e.ends_at,e.starts_at) >= "
-            "(date_trunc('day',now() AT TIME ZONE 'America/New_York') "
-            "AT TIME ZONE 'America/New_York')"
+            "(date_trunc('day',now() AT TIME ZONE current_setting('TimeZone')) "
+            "AT TIME ZONE current_setting('TimeZone'))"
         )
         where.append(
             "e.starts_at < "
-            "((date_trunc('day',now() AT TIME ZONE 'America/New_York') "
-            "+ interval '1 day') AT TIME ZONE 'America/New_York')"
+            "((date_trunc('day',now() AT TIME ZONE current_setting('TimeZone')) "
+            "+ interval '1 day') AT TIME ZONE current_setting('TimeZone'))"
         )
     elif horizon == "24h":
         where.append(
@@ -761,13 +765,13 @@ def event_intelligence_page(
     elif horizon == "weekend":
         where.append(
             "COALESCE(e.ends_at,e.starts_at) >= "
-            "((date_trunc('week',now() AT TIME ZONE 'America/New_York') "
-            "+ interval '5 days') AT TIME ZONE 'America/New_York')"
+            "((date_trunc('week',now() AT TIME ZONE current_setting('TimeZone')) "
+            "+ interval '5 days') AT TIME ZONE current_setting('TimeZone'))"
         )
         where.append(
             "e.starts_at < "
-            "((date_trunc('week',now() AT TIME ZONE 'America/New_York') "
-            "+ interval '7 days') AT TIME ZONE 'America/New_York')"
+            "((date_trunc('week',now() AT TIME ZONE current_setting('TimeZone')) "
+            "+ interval '7 days') AT TIME ZONE current_setting('TimeZone'))"
         )
     elif horizon == "7d":
         where.append(
@@ -865,8 +869,8 @@ def event_intelligence_page(
             e.*,
             i.name AS integration_name,
             i.integration_key,
-            e.starts_at AT TIME ZONE 'America/New_York' AS starts_local,
-            e.ends_at AT TIME ZONE 'America/New_York' AS ends_local,
+            e.starts_at AT TIME ZONE current_setting('TimeZone') AS starts_local,
+            e.ends_at AT TIME ZONE current_setting('TimeZone') AS ends_local,
 
             CASE
               WHEN upper(COALESCE(e.municipality,''))='WEEHAWKEN'
