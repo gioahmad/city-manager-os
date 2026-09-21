@@ -149,6 +149,7 @@ def test_mapping_center_previews_and_reuses_canonical_references():
 
 
 def test_central_matcher_adds_spatial_match_without_parallel_delivery():
+    shared_matcher = (DASHBOARD_ROOT / "static/watch_matcher.js").read_text().rstrip()
     for path in (
         "workflows/core/CORE_Watchlist_Matcher_v1.json",
         "workflows/live/CORE_Watchlist_Matcher_live.json",
@@ -161,12 +162,13 @@ def test_central_matcher_adds_spatial_match_without_parallel_delivery():
         assert "supplied_alert_geom" in loader["query"]
         assert "jsonb_typeof(alert#>'{location,longitude}')='number'" in loader["query"]
         assert "queryReplacement" in loader["options"]
-        assert "row.spatial_match_type" in matcher
+        assert matcher.startswith(shared_matcher + "\n\n")
+        assert "watch.spatial_match_type" in matcher
         assert "result.match_type || row.match_mode" in matcher
         assert "locationPlusTopic" in matcher
-        assert "municipalityLocationMatch" in matcher
-        assert "locationPlusTopic && !locationMatched" in matcher
-        assert "match_type: locationPlusTopic ? 'LOCATION_TOPIC'" in matcher
+        assert "municipalityMatch" in matcher
+        assert "const locationMatched = spatialMatch" in matcher
+        assert "locationPlusTopic ? 'LOCATION_TOPIC'" in matcher
         assert "recipientMap" in matcher
         assert "matched_watch_ids.includes(row.watch_id)" in matcher
 

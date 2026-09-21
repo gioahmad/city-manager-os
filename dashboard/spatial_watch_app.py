@@ -43,6 +43,7 @@ from geo_resolver import MIN_PRECISE_CONFIDENCE, resolve_payload
 RELEASE_ID = "alerting-spatial-watch-simplification-v1"
 COMPLETION_RELEASE_ID = "alert-watch-completion-performance-v1"
 GEOMETRY_RELEASE_ID = "spatial-watch-effective-geometry-v1"
+WATCH_LAB_RELEASE_ID = "watch-lab-read-only-v1"
 LOCAL_ZONE = ZoneInfo(os.getenv("APP_TIMEZONE") or os.getenv("TZ") or "America/New_York")
 LOGGER = logging.getLogger(__name__)
 NTFY_PUBLISH_BASE = os.getenv("CMOS_NTFY_PUBLISH_BASE", "http://100.94.203.47:8080").rstrip("/")
@@ -751,6 +752,7 @@ def spatial_watch_release():
         "release_id": RELEASE_ID,
         "completion_release_id": COMPLETION_RELEASE_ID,
         "geometry_release_id": GEOMETRY_RELEASE_ID,
+        "watch_lab_release_id": WATCH_LAB_RELEASE_ID,
         "architecture": "SEE IT -> TRACK IT -> TELL ME",
         "watch_source_of_truth": "watch_items",
         "delivery_path": ["Subscribers", "Routing", "Delivery Guard", "ntfy"],
@@ -779,6 +781,8 @@ def spatial_watch_release():
         "map_alert_window_max_hours": 168,
         "test_notification_isolated": True,
         "test_notification_endpoint": "/api/watchlist/test-notification",
+        "watch_lab_endpoint": "/api/watch-lab/evaluate",
+        "watch_lab_read_only": True,
         "global_alert_search": "/alerts?window=all",
         "recipient_watch_assignment": "/subscribers/{recipient_id}/watches",
         "unrouted_watch_repair": "/watchlist/repair-unrouted",
@@ -808,6 +812,199 @@ def spatial_watch_release():
 @app.get("/api/watchlist/health")
 def watchlist_health():
     return _json_safe(_watch_health())
+
+
+@app.post("/api/watch-lab/evaluate")
+@_friendly_watch_api_errors
+def watch_lab_evaluate(
+    watch_item_id: uuid.UUID = Form(...),
+    alert_id: str = Form(...),
+    point_mode: str = Form("ALERT"),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
+):
+    """Load one real Alert and Watch for a read-only run of the shared matcher."""
+    alert_reference = alert_id.strip()[:160]
+    if not alert_reference:
+        raise HTTPException(400, "Enter an alert ID")
+    point_mode = point_mode.strip().upper() or "ALERT"
+    if point_mode not in {"ALERT", "WATCH_CENTER", "CUSTOM"}:
+        raise HTTPException(400, "Choose the saved alert point, Watch center, or custom point")
+    lat = _float_or_none(latitude)
+    lon = _float_or_none(longitude)
+    if point_mode == "CUSTOM":
+        if lat is None or lon is None:
+            raise HTTPException(400, "Custom point requires both latitude and longitude")
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            raise HTTPException(400, "Latitude or longitude is outside its valid range")
+    else:
+        lat = lon = None
+
+    row = query_one(
+        """
+        WITH selected_watch AS (
+          SELECT w.*
+          FROM watch_items w
+          WHERE w.id=%s
+        ), selected_alert AS (
+          SELECT a.*,
+                 r.status AS resolver_status,
+                 r.match_type AS resolver_match_type,
+                 r.confidence AS resolver_confidence,
+                 r.spatial_precision AS resolver_spatial_precision,
+                 r.resolved_label,
+                 r.geom AS resolver_geom
+          FROM alerts a
+          LEFT JOIN geo_entity_resolutions r
+            ON r.entity_type='ALERT' AND r.entity_id=a.id::text
+          WHERE a.alert_id=%s
+          LIMIT 1
+        ), prepared AS (
+          SELECT w.*,a.id AS alert_uuid,a.alert_id,a.source,a.category,a.subtype,a.status,
+                 a.event_action,a.title,a.message,a.priority,a.county AS alert_county,
+                 a.municipality AS alert_municipality,a.location,a.tags,a.click_url,
+                 a.source_url,a.received_at,a.geom AS stored_alert_geom,
+                 a.resolver_status,a.resolver_match_type,a.resolver_confidence,
+                 a.resolver_spatial_precision,a.resolved_label,a.resolver_geom,
+                 CASE
+                   WHEN %s='WATCH_CENTER' AND coalesce(w.spatial_target_geom,w.geom) IS NOT NULL
+                     THEN ST_PointOnSurface(coalesce(w.spatial_target_geom,w.geom))
+                   WHEN %s='CUSTOM'
+                     THEN ST_SetSRID(ST_MakePoint(%s::double precision,%s::double precision),4326)
+                   ELSE NULL::geometry
+                 END::geometry(Point,4326) AS supplied_geom
+          FROM selected_watch w CROSS JOIN selected_alert a
+        ), effective AS (
+          SELECT p.*,
+                 CASE
+                   WHEN p.stored_alert_geom IS NOT NULL THEN p.stored_alert_geom
+                   WHEN p.supplied_geom IS NOT NULL THEN p.supplied_geom
+                   WHEN p.resolver_status='RESOLVED' THEN p.resolver_geom
+                   ELSE NULL::geometry
+                 END::geometry(Point,4326) AS effective_alert_geom,
+                 CASE
+                   WHEN p.stored_alert_geom IS NOT NULL THEN 'stored alert point'
+                   WHEN p.supplied_geom IS NOT NULL THEN 'supplied alert point'
+                   WHEN p.resolver_status='RESOLVED' AND p.resolver_geom IS NOT NULL
+                     THEN concat(
+                       'resolver point',
+                       CASE WHEN nullif(p.resolver_spatial_precision,'') IS NULL THEN ''
+                            ELSE ' ('||p.resolver_spatial_precision||')' END
+                     )
+                   ELSE NULL
+                 END AS effective_geometry_source
+          FROM prepared p
+        )
+        SELECT
+          e.alert_uuid::text,e.alert_id,e.source,e.category,e.subtype,e.status,e.event_action,
+          e.title,e.message,e.priority,e.alert_county,e.alert_municipality,e.location,e.tags,
+          e.click_url,e.source_url,e.received_at,e.resolver_status,e.resolver_match_type,
+          e.resolver_confidence,e.resolver_spatial_precision,e.resolved_label,
+          ST_X(e.effective_alert_geom) AS effective_longitude,
+          ST_Y(e.effective_alert_geom) AS effective_latitude,
+          e.effective_geometry_source,
+          e.stored_alert_geom IS NOT NULL AND e.supplied_geom IS NOT NULL AS supplied_point_ignored,
+          e.id::text AS watch_item_uuid,e.watch_id,e.active,e.watch_type,e.display_name,
+          e.search_term,e.aliases,e.match_mode,e.match_field,e.min_priority,e.address,
+          e.municipality,e.source_filter,e.alert_category_filter,e.starts_at,e.expires_at,
+          e.nearby_enabled,e.radius_ft,e.spatial_scope,
+          e.effective_alert_geom IS NOT NULL AS alert_geometry_ready,
+          coalesce(e.spatial_target_geom,e.geom) IS NOT NULL AND e.spatial_geom IS NOT NULL
+            AS watch_target_ready,
+          sm.match_type AS spatial_match_type,sm.match_reason AS spatial_match_reason,
+          sm.distance_ft AS spatial_distance_ft,
+          CASE WHEN e.effective_alert_geom IS NOT NULL
+                     AND coalesce(e.spatial_target_geom,e.geom) IS NOT NULL
+               THEN ST_Distance(
+                 e.effective_alert_geom::geography,
+                 coalesce(e.spatial_target_geom,e.geom)::geography
+               )/0.3048 END AS distance_ft,
+          CASE
+            WHEN e.effective_alert_geom IS NULL OR e.spatial_geom IS NULL THEN false
+            WHEN upper(coalesce(e.spatial_scope,'RADIUS'))='RADIUS'
+              THEN ST_DWithin(
+                e.effective_alert_geom::geography,
+                coalesce(e.spatial_target_geom,e.geom)::geography,
+                e.radius_ft*0.3048
+              )
+            ELSE ST_Intersects(e.effective_alert_geom,e.spatial_geom)
+          END AS point_inside_watch,
+          coalesce((
+            SELECT jsonb_agg(jsonb_build_object(
+              'subscriber_uuid',s.id::text,
+              'subscriber_id',s.subscriber_id,
+              'name',s.name,
+              'ntfy_topic',s.ntfy_topic
+            ) ORDER BY s.name)
+            FROM watch_item_recipients wir
+            JOIN subscribers s ON s.id=wir.subscriber_id AND s.active
+            WHERE wir.watch_item_id=e.id AND wir.active
+          ),'[]'::jsonb) AS recipients,
+          EXISTS (
+            SELECT 1 FROM alert_watch_matches awm
+            WHERE awm.alert_id=e.alert_uuid AND awm.watch_item_id=e.id
+          ) AS persisted_match,
+          (
+            SELECT awm.match_reason FROM alert_watch_matches awm
+            WHERE awm.alert_id=e.alert_uuid AND awm.watch_item_id=e.id
+            ORDER BY awm.matched_at DESC LIMIT 1
+          ) AS persisted_match_reason
+        FROM effective e
+        LEFT JOIN LATERAL gis_active_spatial_watch_matches(e.alert_id,e.supplied_geom) sm
+          ON sm.watch_item_id=e.id
+        """,
+        (watch_item_id, alert_reference, point_mode, point_mode, lon, lat),
+    )
+    if not row:
+        raise HTTPException(404, "That Watch or alert ID was not found")
+
+    alert = {
+        key: row.get(key)
+        for key in (
+            "alert_uuid", "alert_id", "source", "category", "subtype", "status",
+            "event_action", "title", "message", "priority", "location", "tags",
+            "click_url", "source_url", "received_at",
+        )
+    }
+    alert["county"] = row.get("alert_county")
+    alert["municipality"] = row.get("alert_municipality")
+    watch = {
+        key: row.get(key)
+        for key in (
+            "watch_item_uuid", "watch_id", "active", "watch_type", "display_name",
+            "search_term", "aliases", "match_mode", "match_field", "min_priority",
+            "address", "municipality", "source_filter", "alert_category_filter",
+            "starts_at", "expires_at", "nearby_enabled", "radius_ft", "spatial_scope",
+            "alert_geometry_ready", "watch_target_ready", "spatial_match_type",
+            "spatial_match_reason", "spatial_distance_ft", "distance_ft", "recipients",
+            "effective_geometry_source", "point_inside_watch",
+        )
+    }
+    return JSONResponse(
+        _json_safe(
+            {
+                "ok": True,
+                "read_only": True,
+                "matcher_version": "watch-matcher-v2",
+                "point_mode": point_mode,
+                "alert": alert,
+                "watch": watch,
+                "evidence": {
+                    "point_inside_watch": row.get("point_inside_watch"),
+                    "persisted_match": row.get("persisted_match"),
+                    "persisted_match_reason": row.get("persisted_match_reason"),
+                    "supplied_point_ignored": row.get("supplied_point_ignored"),
+                    "resolver_status": row.get("resolver_status"),
+                    "resolver_match_type": row.get("resolver_match_type"),
+                    "resolver_confidence": row.get("resolver_confidence"),
+                    "resolver_spatial_precision": row.get("resolver_spatial_precision"),
+                    "resolved_label": row.get("resolved_label"),
+                    "effective_latitude": row.get("effective_latitude"),
+                    "effective_longitude": row.get("effective_longitude"),
+                },
+            }
+        )
+    )
 
 
 @app.get("/api/watch-locations/search")
@@ -1226,6 +1423,7 @@ def spatial_watchlist(
         name="watchlist.html",
         context={
             "items": items,
+            "watch_lab_items": all_items,
             "counts": status_counts,
             "subscribers": subscribers,
             "q": q,
