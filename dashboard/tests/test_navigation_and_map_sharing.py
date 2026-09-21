@@ -129,6 +129,36 @@ def test_saved_views_measurements_and_current_view_brief_stay_browser_native():
     assert ".map-measure-label" in styles
 
 
+def test_selected_features_show_cross_layer_context_from_loaded_map_data():
+    template = (TEMPLATES / "map.html").read_text()
+    styles = (DASHBOARD_ROOT / "static" / "map.css").read_text()
+
+    assert "CONTEXT_RADIUS_METERS=1609.344" in template
+    for key in (
+        "alerts",
+        "watchlist",
+        "operations",
+        "event-intelligence",
+        "managed-events",
+        "transit-intelligence",
+        "spatial-references",
+    ):
+        assert f"'{key}'" in template.split("const CONTEXT_LAYER_KEYS=", 1)[1].split("];", 1)[0]
+    assert "function featureContainsPoint(feature,point)" in template
+    assert "featureContainsPoint(feature,candidateCenter)||featureContainsPoint(candidateFeature,center)" in template
+    assert "function nearbyLoadedRecords(feature,layer,key)" in template
+    assert "candidateLayer===layer" in template
+    assert "!map.hasLayer(group)" in template
+    assert "map.distance(center,candidateCenter)" in template
+    assert ".sort((a,b)=>a.distance-b.distance).slice(0,8)" in template
+    assert "Inside the selected area or within 1 mile. Uses currently enabled layers only." in template
+    assert "selectedFeatureContext(feature,layer,key,layerName)" in template
+    assert "fetch('/map/context" not in template
+    assert ".map-context-facts" in styles
+    assert ".map-context-record" in styles
+    assert "/static/map.css?v=20260921-7" in template
+
+
 def test_map_template_compiles_after_browser_native_tools():
     environment = Environment(loader=FileSystemLoader(TEMPLATES))
     environment.get_template("map.html")
