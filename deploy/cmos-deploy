@@ -453,6 +453,26 @@ for path in sys.argv[1:]:
     ])
 
 
+def _image_exists(image: str) -> bool:
+    return subprocess.run(
+        ["docker", "image", "inspect", image],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ).returncode == 0
+
+
+def _preserve_service_image(service: str, image: str, tag: str) -> None:
+    if _image_exists(image):
+        run(["docker", "image", "tag", image, tag])
+        return
+    print(
+        f"ROLLBACK SNAPSHOT: {service} original image {image} is unavailable; "
+        "committing the running container",
+        flush=True,
+    )
+    run(["docker", "commit", "--pause=false", service, tag])
+
+
 def rollback_state(services: set[str]) -> tuple[dict[str, str], str]:
     images = {
         service: subprocess.check_output(
@@ -468,7 +488,7 @@ def rollback_state(services: set[str]) -> tuple[dict[str, str], str]:
     preserved = {}
     for service, image in images.items():
         tag = f"dashboard-citymanager-dashboard:cmos-deploy-rollback-{service}"
-        run(["docker", "image", "tag", image, tag])
+        _preserve_service_image(service, image, tag)
         preserved[service] = tag
 
     preserved_latest = "dashboard-citymanager-dashboard:cmos-deploy-rollback-latest"
