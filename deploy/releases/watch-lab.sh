@@ -39,6 +39,10 @@ publish_matcher(){
 rollback_release(){
   local rc=$?
   trap - ERR
+  if (( DASHBOARD_CHANGED == 1 )); then
+    log "FAILURE DIAGNOSTIC: dashboard logs before rollback"
+    docker logs --tail 120 citymanager-dashboard >&2 || true
+  fi
   if (( DASHBOARD_CHANGED == 1 )) && docker image inspect \
     dashboard-citymanager-dashboard:cmos-deploy-rollback-citymanager-dashboard >/dev/null 2>&1; then
     log "ROLLBACK: restoring the prior dashboard image"
@@ -98,6 +102,7 @@ log "Running read-only Valley Hospital acceptance with zero Match or delivery wr
 docker exec -i citymanager-dashboard python - <<'PY'
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -132,9 +137,13 @@ def evaluate(point_mode):
         data=body,
         headers=headers,
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        assert response.status == 200
-        return json.load(response)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            assert response.status == 200
+            return json.load(response)
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace")
+        raise RuntimeError(f"Watch Lab {point_mode} returned HTTP {exc.code}: {body}") from exc
 
 saved = evaluate("ALERT")
 center = evaluate("WATCH_CENTER")

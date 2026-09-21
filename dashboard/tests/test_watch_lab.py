@@ -29,6 +29,10 @@ def test_watch_lab_endpoint_is_read_only_and_uses_canonical_spatial_matcher():
     )[0]
     assert '@app.post("/api/watch-lab/evaluate")' in source
     assert "gis_active_spatial_watch_matches(e.alert_id,e.supplied_geom)" in endpoint
+    assert "a.category AS alert_category" in endpoint
+    assert "a.tags AS alert_tags" in endpoint
+    assert "e.alert_category AS category" in endpoint
+    assert "e.alert_tags AS tags" in endpoint
     assert "stored_alert_geom IS NOT NULL THEN" in endpoint
     assert "WHEN p.supplied_geom IS NOT NULL THEN" in endpoint
     assert "WHEN p.resolver_status='RESOLVED'" in endpoint
@@ -157,3 +161,12 @@ def test_sync_script_has_no_second_matcher_implementation():
     assert 'MATCHER_SOURCE = ROOT / "dashboard/static/watch_matcher.js"' in sync
     assert 'ADAPTER_SOURCE = ROOT / "deploy/n8n/watch_matcher_adapter.js"' in sync
     assert "function evaluateWatch" not in sync
+
+
+def test_watch_lab_release_reports_api_and_dashboard_failures_before_rollback():
+    release = _repository_file("deploy/releases/watch-lab.sh").read_text()
+    assert "urllib.error.HTTPError" in release
+    assert "docker logs --tail 120 citymanager-dashboard" in release
+    assert release.index("docker logs --tail 120 citymanager-dashboard") < release.index(
+        "ROLLBACK: restoring the prior dashboard image"
+    )
