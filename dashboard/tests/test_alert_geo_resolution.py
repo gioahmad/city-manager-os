@@ -456,6 +456,21 @@ def test_bnn_recovery_release_requires_target_mapping_and_real_coverage_gain():
     assert "full_e2e=NOT_RUN notifications=NONE" in release
 
 
+def test_bnn_recovery_uses_an_exclusive_worker_window_and_always_restarts_it():
+    release = Path(__file__).resolve().parents[2].joinpath(
+        "deploy/releases/bnn-map-recovery.sh"
+    ).read_text()
+
+    stop = release.index('stop -t 30 "$INTEGRATION_SERVICE"')
+    backfill = release.index("backfill --limit 10000 --since-days 3650 --source BNN")
+    audit = release.index("/app/geo_resolver.py audit --source BNN")
+    restart = release.rindex('resume_integration_engine || fail')
+
+    assert "trap cleanup EXIT" in release
+    assert 'run --rm --no-deps -T --entrypoint python' in release
+    assert stop < backfill < audit < restart
+
+
 def test_entity_resolution_sql_parameter_contract():
     _Cursor.queries.clear()
     _save_entity_resolution(

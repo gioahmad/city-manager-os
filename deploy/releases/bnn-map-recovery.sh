@@ -7,9 +7,30 @@ BASE="${1:?usage: bnn-map-recovery.sh BASE TARGET}"
 TARGET="${2:?usage: bnn-map-recovery.sh BASE TARGET}"
 ALERT_ID="${BNN_ACCEPTANCE_ALERT_ID:-BNN:d1468ab2}"
 COMPOSE=(docker compose -f "$REPO/dashboard/docker-compose.yml")
+INTEGRATION_SERVICE="citymanager-integration-engine"
+INTEGRATION_STOPPED=0
 
 log(){ printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 fail(){ log "ERROR: $*"; exit 1; }
+
+resume_integration_engine(){
+  [[ "$INTEGRATION_STOPPED" == 1 ]] || return 0
+  log "Restarting the integration worker"
+  "${COMPOSE[@]}" up -d --no-deps "$INTEGRATION_SERVICE"
+  [[ "$(docker inspect -f '{{.State.Running}}' "$INTEGRATION_SERVICE" 2>/dev/null || true)" == true ]] || return 1
+  INTEGRATION_STOPPED=0
+}
+
+cleanup(){
+  local rc=$?
+  trap - EXIT
+  if [[ "$INTEGRATION_STOPPED" == 1 ]] && ! resume_integration_engine; then
+    log "ERROR: integration worker restart failed"
+    rc=1
+  fi
+  exit "$rc"
+}
+trap cleanup EXIT
 
 cd "$REPO"
 [[ "$(git branch --show-current)" == main ]] || fail "production checkout must be on main"
@@ -95,9 +116,14 @@ printf 'BNN_TARGET_DRY_RUN=%s\n' "$DRY_RUN"
 log "Applying the focused dashboard and integration-engine release"
 "$REPO/deploy/cmos-deploy" apply --base "$BASE" --target "$TARGET"
 
+log "Stopping the integration worker for an exclusive resolver maintenance window"
+INTEGRATION_STOPPED=1
+"${COMPOSE[@]}" stop -t 30 "$INTEGRATION_SERVICE"
+
 log "Reprocessing previously unmapped BNN alerts through resolver v5"
-BACKFILL_RAW="$(docker exec citymanager-integration-engine \
-  python /app/geo_resolver.py backfill --limit 10000 --since-days 3650 --source BNN)"
+BACKFILL_RAW="$("${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python \
+  "$INTEGRATION_SERVICE" /app/geo_resolver.py \
+  backfill --limit 10000 --since-days 3650 --source BNN)"
 BACKFILL="$(printf '%s\n' "$BACKFILL_RAW" | tail -n 1)"
 printf 'BNN_BACKFILL_SUMMARY=%s\n' "$BACKFILL"
 python - "$BACKFILL" <<'PY'
@@ -109,7 +135,8 @@ assert int(summary.get("processed") or 0)==int(summary.get("selected") or 0), su
 PY
 
 log "Auditing every stored BNN alert without writes"
-AUDIT="$(docker exec citymanager-integration-engine python /app/geo_resolver.py audit --source BNN)"
+AUDIT="$("${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python \
+  "$INTEGRATION_SERVICE" /app/geo_resolver.py audit --source BNN)"
 printf 'BNN_AUDIT_SUMMARY=%s\n' "$AUDIT"
 python - "$AUDIT" <<'PY'
 import json,sys
@@ -134,4 +161,6 @@ if not before["target_mapped"]:
     assert int(after["mapped"])>int(before["mapped"]), (before,after)
 PY
 
+resume_integration_engine || fail "integration worker did not restart"
+trap - EXIT
 log "BNN MAP RECOVERY: PASS target=${ALERT_ID} full_e2e=NOT_RUN notifications=NONE"
