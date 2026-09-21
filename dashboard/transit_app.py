@@ -66,8 +66,8 @@ def transit_center(
     observations = query_all(
         f"""
         SELECT o.*,p.provider_key,p.name AS provider_name,i.integration_key,i.name AS integration_name,
-               o.starts_at AT TIME ZONE 'America/New_York' AS starts_local,
-               o.ends_at AT TIME ZONE 'America/New_York' AS ends_local
+               o.starts_at AT TIME ZONE current_setting('TimeZone') AS starts_local,
+               o.ends_at AT TIME ZONE current_setting('TimeZone') AS ends_local
         FROM transit_observations o
         JOIN transit_providers p ON p.id=o.provider_id
         LEFT JOIN integrations i ON i.id=o.source_integration_id

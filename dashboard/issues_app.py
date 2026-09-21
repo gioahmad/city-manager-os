@@ -51,9 +51,9 @@ def _select_fields() -> str:
       visibility_status,visibility_audience,visibility_note,
       due_at,follow_up_at,decision_by,
       waiting_on_since,waiting_on_last_chased,waiting_on_chase_count,
-      due_at AT TIME ZONE 'America/New_York' AS due_local,
-      follow_up_at AT TIME ZONE 'America/New_York' AS follow_up_local,
-      decision_by AT TIME ZONE 'America/New_York' AS decision_by_local,
+      due_at AT TIME ZONE current_setting('TimeZone') AS due_local,
+      follow_up_at AT TIME ZONE current_setting('TimeZone') AS follow_up_local,
+      decision_by AT TIME ZONE current_setting('TimeZone') AS decision_by_local,
       created_at,updated_at,closed_at
     """
 
@@ -67,7 +67,7 @@ def _alert_work_prefill(alert_reference: str) -> dict:
         """
         SELECT alert_id,title,message,source,category,priority,municipality,click_url,
                coalesce(nullif(location->>'address',''),nullif(location->>'label','')) AS address,
-               to_char(received_at AT TIME ZONE 'America/New_York','MM/DD/YYYY HH12:MI AM') AS received_local
+               to_char(received_at AT TIME ZONE current_setting('TimeZone'),'MM/DD/YYYY HH12:MI AM') AS received_local
         FROM alerts
         WHERE alert_id=%s
         ORDER BY received_at DESC,id DESC
@@ -129,9 +129,9 @@ def issues(
     elif state == "today":
         where.append(ACTIVE_WORK_SQL)
         where.append(
-            "((due_at IS NOT NULL AND due_at < ((date_trunc('day',now() AT TIME ZONE 'America/New_York') + interval '1 day') AT TIME ZONE 'America/New_York')) "
-            "OR (follow_up_at IS NOT NULL AND follow_up_at < ((date_trunc('day',now() AT TIME ZONE 'America/New_York') + interval '1 day') AT TIME ZONE 'America/New_York')) "
-            "OR (decision_by IS NOT NULL AND decision_by < ((date_trunc('day',now() AT TIME ZONE 'America/New_York') + interval '1 day') AT TIME ZONE 'America/New_York')))"
+            "((due_at IS NOT NULL AND due_at < ((date_trunc('day',now() AT TIME ZONE current_setting('TimeZone')) + interval '1 day') AT TIME ZONE current_setting('TimeZone'))) "
+            "OR (follow_up_at IS NOT NULL AND follow_up_at < ((date_trunc('day',now() AT TIME ZONE current_setting('TimeZone')) + interval '1 day') AT TIME ZONE current_setting('TimeZone'))) "
+            "OR (decision_by IS NOT NULL AND decision_by < ((date_trunc('day',now() AT TIME ZONE current_setting('TimeZone')) + interval '1 day') AT TIME ZONE current_setting('TimeZone'))))"
         )
     elif state == "overdue":
         where.append(ACTIVE_WORK_SQL)
@@ -299,10 +299,10 @@ def issue_create(
         )
         VALUES(
           %s,%s,%s,%s,'OPEN',%s,%s,%s,%s,%s,%s,%s,
-          NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York',
-          NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York',
+          NULLIF(%s,'')::timestamp AT TIME ZONE current_setting('TimeZone'),
+          NULLIF(%s,'')::timestamp AT TIME ZONE current_setting('TimeZone'),
           NULLIF(%s,'')::uuid,%s,%s,
-          NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York',
+          NULLIF(%s,'')::timestamp AT TIME ZONE current_setting('TimeZone'),
           %s,%s,%s,%s
         )
         """,
@@ -354,10 +354,10 @@ def issue_update(
         UPDATE issues
         SET title=%s,description=%s,category=%s,priority=%s,status=%s,address=%s,municipality=%s,
             assigned_to=%s,item_type=%s,next_action=%s,waiting_on=%s,
-            due_at=NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York',
-            follow_up_at=NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York',
+            due_at=NULLIF(%s,'')::timestamp AT TIME ZONE current_setting('TimeZone'),
+            follow_up_at=NULLIF(%s,'')::timestamp AT TIME ZONE current_setting('TimeZone'),
             decision_options=%s,recommendation=%s,
-            decision_by=NULLIF(%s,'')::timestamp AT TIME ZONE 'America/New_York',
+            decision_by=NULLIF(%s,'')::timestamp AT TIME ZONE current_setting('TimeZone'),
             decision_outcome=%s,visibility_status=%s,visibility_audience=%s,visibility_note=%s,
             updated_at=now(),
             closed_at=CASE WHEN %s IN ('RESOLVED','CLOSED') THEN COALESCE(closed_at,now()) ELSE NULL END

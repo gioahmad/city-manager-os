@@ -30,12 +30,12 @@ def _today_operations_with_notes():
         """
         SELECT
           rr.id AS run_id, rr.service_date,
-          rr.scheduled_for AT TIME ZONE 'America/New_York' AS scheduled_local,
-          rr.due_at AT TIME ZONE 'America/New_York' AS due_local,
+          rr.scheduled_for AT TIME ZONE current_setting('TimeZone') AS scheduled_local,
+          rr.due_at AT TIME ZONE current_setting('TimeZone') AS due_local,
           rr.status, rr.acknowledged_at, rr.acknowledged_by,
           rr.exception_note, rr.exception_issue_id, rr.issue_id,
           rr.run_note, rr.run_note_by,
-          rr.run_note_at AT TIME ZONE 'America/New_York' AS run_note_local,
+          rr.run_note_at AT TIME ZONE current_setting('TimeZone') AS run_note_local,
           r.id AS routine_id, r.name, r.routine_kind, r.department,
           r.priority, r.confirmation_required, r.escalate_if_missed,
           r.verification_required, r.location_label,
@@ -51,7 +51,7 @@ def _today_operations_with_notes():
         LEFT JOIN staff_work_types wt ON wt.id=r.work_type_id
         LEFT JOIN staff_employees e ON e.id=r.assigned_employee_id
         LEFT JOIN issues i ON i.id=rr.issue_id
-        WHERE rr.service_date=(now() AT TIME ZONE 'America/New_York')::date
+        WHERE rr.service_date=(now() AT TIME ZONE current_setting('TimeZone'))::date
           AND r.active=true
           AND (r.starts_on IS NULL OR rr.service_date >= r.starts_on)
           AND (r.ends_on IS NULL OR rr.service_date <= r.ends_on)
@@ -81,7 +81,7 @@ def _operations_counts_with_window():
           ) AS awareness_now
         FROM operations_routine_runs rr
         JOIN operations_routines r ON r.id=rr.routine_id
-        WHERE rr.service_date=(now() AT TIME ZONE 'America/New_York')::date
+        WHERE rr.service_date=(now() AT TIME ZONE current_setting('TimeZone'))::date
           AND r.active=true
           AND (r.starts_on IS NULL OR rr.service_date >= r.starts_on)
           AND (r.ends_on IS NULL OR rr.service_date <= r.ends_on)
@@ -145,7 +145,7 @@ def routine_window(
         USING operations_routines r
         WHERE rr.routine_id=r.id
           AND r.id=%s
-          AND rr.service_date >= (now() AT TIME ZONE 'America/New_York')::date
+          AND rr.service_date >= (now() AT TIME ZONE current_setting('TimeZone'))::date
           AND rr.issue_id IS NULL
           AND rr.acknowledged_at IS NULL
           AND rr.exception_note IS NULL

@@ -23,6 +23,8 @@
     <div class="metric"><span>Integrations</span><strong>{{ counts.integrations or 0 }}</strong><small>Active external sources</small></div>
     <div class="metric metric-alerts"><span>Event Watch</span><strong>{{ counts.event_watch or 0 }}</strong><small>WATCH / ALERT events</small></div>
     <div class="metric"><span>Source Warnings</span><strong>{{ counts.unhealthy or 0 }}</strong><small>Needs attention</small></div>
+    <div class="metric"><span>Database Sessions</span><strong>{{ counts.database_connections or 0 }} / {{ counts.database_connection_limit or '?' }}</strong><small>Current use / PostgreSQL limit</small></div>
+    <div class="metric"><span>Local Time Zone</span><strong>{{ counts.application_timezone or 'Not configured' }}</strong><small>Used by deadlines, events and routines</small></div>
   </section>
 
   <section class="module-grid" style="margin-top:16px">

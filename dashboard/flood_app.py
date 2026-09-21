@@ -31,7 +31,7 @@ def flood_page(request: Request):
     watched = query_all("SELECT * FROM gis_watch_items_in_flood_zones() LIMIT 200")
     latest = query_one(
         """
-        SELECT source,station_id,observed_at AT TIME ZONE 'America/New_York' AS observed_local,
+        SELECT source,station_id,observed_at AT TIME ZONE current_setting('TimeZone') AS observed_local,
                water_level_mhhw_ft,predicted_level_mhhw_ft,flood_category,title
         FROM flood_observations
         ORDER BY observed_at DESC
@@ -40,7 +40,7 @@ def flood_page(request: Request):
     )
     flood_alerts = query_all(
         """
-        SELECT source,title,message,priority,status,received_at AT TIME ZONE 'America/New_York' AS received_local
+        SELECT source,title,message,priority,status,received_at AT TIME ZONE current_setting('TimeZone') AS received_local
         FROM alerts
         WHERE source IN ('NWS_FLOOD','NOAA_TIDE')
           AND status <> 'RESOLVED'

@@ -421,8 +421,8 @@ async def today_board_override(request: Request, rule_id: uuid.UUID):
         INSERT INTO daily_constant_overrides(rule_id,starts_at,ends_at,value,detail,reason,created_by)
         VALUES (
           %s,
-          %s::timestamp AT TIME ZONE 'America/New_York',
-          %s::timestamp AT TIME ZONE 'America/New_York',
+          %s::timestamp AT TIME ZONE current_setting('TimeZone'),
+          %s::timestamp AT TIME ZONE current_setting('TimeZone'),
           %s::jsonb,%s,%s,%s
         )
         """,

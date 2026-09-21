@@ -73,8 +73,8 @@ def _today_operations():
         """
         SELECT
           rr.id AS run_id, rr.service_date,
-          rr.scheduled_for AT TIME ZONE 'America/New_York' AS scheduled_local,
-          rr.due_at AT TIME ZONE 'America/New_York' AS due_local,
+          rr.scheduled_for AT TIME ZONE current_setting('TimeZone') AS scheduled_local,
+          rr.due_at AT TIME ZONE current_setting('TimeZone') AS due_local,
           rr.status, rr.acknowledged_at, rr.acknowledged_by,
           rr.exception_note, rr.exception_issue_id, rr.issue_id,
           r.id AS routine_id, r.name, r.routine_kind, r.department,
@@ -91,7 +91,7 @@ def _today_operations():
         LEFT JOIN staff_work_types wt ON wt.id=r.work_type_id
         LEFT JOIN staff_employees e ON e.id=r.assigned_employee_id
         LEFT JOIN issues i ON i.id=rr.issue_id
-        WHERE rr.service_date=(now() AT TIME ZONE 'America/New_York')::date
+        WHERE rr.service_date=(now() AT TIME ZONE current_setting('TimeZone'))::date
           AND r.active=true
         ORDER BY rr.scheduled_for,r.priority DESC,r.name
         """
@@ -119,7 +119,7 @@ def _operations_counts():
           ) AS awareness_now
         FROM operations_routine_runs rr
         JOIN operations_routines r ON r.id=rr.routine_id
-        WHERE rr.service_date=(now() AT TIME ZONE 'America/New_York')::date
+        WHERE rr.service_date=(now() AT TIME ZONE current_setting('TimeZone'))::date
           AND r.active=true
         """
     )
@@ -130,7 +130,7 @@ def _verification_queue():
         """
         SELECT
           i.id,i.title,i.priority,i.status,i.assigned_to,i.employee_location,
-          i.updated_at AT TIME ZONE 'America/New_York' AS updated_local,
+          i.updated_at AT TIME ZONE current_setting('TimeZone') AS updated_local,
           i.verification_note,
           wt.name AS work_type_name,
           (
