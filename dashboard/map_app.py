@@ -1,10 +1,10 @@
 import json
 import re
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from schedule_app import app
 from app import db_conn, execute, query_all, query_one, templates
 from gis_import import MAX_UPLOAD_BYTES, read_import
-from geo_resolver import resolve_payload
+from geo_resolver import RESOLVER_VERSION, resolve_payload
 from operations_app import ALERT_WINDOWS
 
 
@@ -44,6 +44,39 @@ def _bbox(value: str | None):
     if len(vals) != 4 or vals[0] >= vals[2] or vals[1] >= vals[3]:
         raise HTTPException(status_code=400, detail="Invalid bbox")
     return tuple(vals)
+
+
+def _coordinate_pair(value: Any) -> tuple[float, float]:
+    """Parse latitude/longitude text, including a copied Google Maps URL."""
+    text = unquote(str(value or "").strip())
+    match = re.search(
+        r"@\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)",
+        text,
+    ) or re.search(
+        r"(?<![\d.])(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)(?![\d.])",
+        text,
+    )
+    if not match:
+        raise HTTPException(
+            status_code=400,
+            detail="Paste coordinates as latitude, longitude or paste a Google Maps link.",
+        )
+    latitude, longitude = (float(match.group(1)), float(match.group(2)))
+    if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+        raise HTTPException(status_code=400, detail="Coordinates are outside valid latitude/longitude ranges.")
+    return latitude, longitude
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return dict(parsed) if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+    return {}
 
 
 def _feature_collection(rows, geometry_field="geometry"):
@@ -308,6 +341,242 @@ async def map_resolve(request: Request):
     return JSONResponse(result)
 
 
+@app.post("/map/alerts/{alert_id}/location")
+async def map_alert_location_correct(alert_id: str, request: Request):
+    """Save an operator-verified alert point and queue the existing spatial rematcher."""
+    if getattr(request.state, "cmos_role", None) == "READ_ONLY":
+        raise HTTPException(status_code=403, detail="Your role cannot change alert locations.")
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Payload must be a JSON object")
+
+    if "coordinates" in payload:
+        latitude, longitude = _coordinate_pair(payload.get("coordinates"))
+    elif "latitude" in payload and "longitude" in payload:
+        latitude, longitude = _coordinate_pair(
+            f"{payload.get('latitude')}, {payload.get('longitude')}"
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Coordinates are required.")
+
+    requested_label = str(payload.get("label") or "").strip()[:300]
+    reason = str(payload.get("reason") or "Corrected from Mapping Center").strip()[:500]
+    actor = str(getattr(request.state, "cmos_user", None) or "local")[:120]
+    role = str(getattr(request.state, "cmos_role", None) or "LOCAL")[:40]
+    corrected_at = datetime.now(timezone.utc).isoformat()
+
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT a.id::text,a.alert_id,a.title,a.location,a.metadata,a.municipality,a.county,
+                       r.state,r.resolved_label,r.match_type AS prior_match_type,
+                       r.provenance AS prior_resolution_provenance,
+                       ST_Y(coalesce(a.geom,r.geom)) AS prior_latitude,
+                       ST_X(coalesce(a.geom,r.geom)) AS prior_longitude,
+                       (a.received_at>=now()-interval '6 hours'
+                        AND a.status<>'RESOLVED'
+                        AND (a.expires_at IS NULL OR a.expires_at>now())) AS rematch_eligible
+                FROM alerts a
+                LEFT JOIN geo_entity_resolutions r
+                  ON r.entity_type='ALERT' AND r.entity_id=a.id::text
+                WHERE a.alert_id=%s
+                FOR UPDATE OF a
+                """,
+                (alert_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Alert not found.")
+
+            cur.execute(
+                """
+                WITH point AS (
+                  SELECT ST_SetSRID(ST_MakePoint(%s,%s),4326)::geometry(Point,4326) AS geom
+                )
+                SELECT ga.fulladdr,ga.post_comm,ga.post_code,ga.state,
+                       ST_Distance(ga.geom::geography,point.geom::geography) AS distance_meters
+                FROM gis_addresses ga CROSS JOIN point
+                WHERE ga.geom IS NOT NULL
+                  AND ST_DWithin(ga.geom::geography,point.geom::geography,500)
+                ORDER BY ga.geom <-> point.geom,
+                         CASE WHEN ga.status='A' THEN 0 ELSE 1 END,
+                         ga.objectid
+                LIMIT 1
+                """,
+                (longitude, latitude),
+            )
+            nearest = cur.fetchone() or {}
+
+            location = _json_object(row.get("location"))
+            metadata = _json_object(row.get("metadata"))
+            label = requested_label or str(
+                nearest.get("fulladdr")
+                or location.get("label")
+                or location.get("address")
+                or row.get("resolved_label")
+                or row.get("title")
+                or alert_id
+            ).strip()[:300]
+            previous = {
+                "latitude": float(row["prior_latitude"]) if row.get("prior_latitude") is not None else None,
+                "longitude": float(row["prior_longitude"]) if row.get("prior_longitude") is not None else None,
+                "label": location.get("label") or location.get("address") or row.get("resolved_label"),
+                "match_type": row.get("prior_match_type"),
+            }
+            correction = {
+                "corrected_at": corrected_at,
+                "corrected_by": actor,
+                "role": role,
+                "reason": reason,
+                "previous": previous,
+                "latitude": latitude,
+                "longitude": longitude,
+                "label": label,
+            }
+
+            location.update(
+                {
+                    "label": label,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                }
+            )
+            if requested_label or nearest.get("fulladdr"):
+                location["address"] = requested_label or nearest["fulladdr"]
+            if nearest.get("post_comm"):
+                location["municipality"] = nearest["post_comm"]
+            if nearest.get("post_code"):
+                location["zip"] = nearest["post_code"]
+            if not location.get("state"):
+                location["state"] = nearest.get("state") or row.get("state") or "NJ"
+            cmos = _json_object(metadata.get("_cmos"))
+            corrections = cmos.get("location_corrections")
+            corrections = list(corrections) if isinstance(corrections, list) else []
+            corrections.append(correction)
+            cmos.update(
+                {
+                    "location_source": "MANUAL_COORDINATE_CORRECTION",
+                    "location_corrections": corrections,
+                    "spatial_rematch_version": "manual-location-pending-v1",
+                    "spatial_rematch_requested_at": corrected_at,
+                }
+            )
+            metadata["_cmos"] = cmos
+            metadata["geo_resolution"] = {
+                "status": "RESOLVED",
+                "match_type": "MANUAL_COORDINATE_CORRECTION",
+                "confidence": 1.0,
+                "spatial_precision": "MANUAL_COORDINATE",
+                "resolved_label": label,
+                "resolver_version": RESOLVER_VERSION,
+            }
+            prior_provenance = _json_object(row.get("prior_resolution_provenance"))
+            resolution_corrections = prior_provenance.get("location_corrections")
+            resolution_corrections = (
+                list(resolution_corrections) if isinstance(resolution_corrections, list) else []
+            )
+            resolution_corrections.append(correction)
+            provenance = {
+                "runtime_source": "MAPPING_CENTER",
+                "resolver_version": RESOLVER_VERSION,
+                "corrected_at": corrected_at,
+                "corrected_by": actor,
+                "role": role,
+                "reason": reason,
+                "previous": previous,
+                "location_corrections": resolution_corrections,
+                "nearest_local_address": nearest.get("fulladdr"),
+                "nearest_local_address_distance_meters": (
+                    float(nearest["distance_meters"])
+                    if nearest.get("distance_meters") is not None
+                    else None
+                ),
+            }
+
+            cur.execute(
+                """
+                UPDATE alerts
+                SET geom=ST_SetSRID(ST_MakePoint(%s,%s),4326),
+                    location=%s::jsonb,
+                    metadata=%s::jsonb,
+                    municipality=coalesce(%s::text,municipality),
+                    updated_at=now()
+                WHERE id=%s::uuid
+                """,
+                (
+                    longitude,
+                    latitude,
+                    json.dumps(location, default=str),
+                    json.dumps(metadata, default=str),
+                    nearest.get("post_comm"),
+                    row["id"],
+                ),
+            )
+            cur.execute(
+                """
+                INSERT INTO geo_entity_resolutions(
+                  entity_type,entity_id,cache_key,status,match_type,confidence,
+                  resolved_label,municipality,county,state,provenance,geom,
+                  spatial_precision,resolver_version,resolved_at,last_attempt_at,
+                  attempt_count,updated_at
+                ) VALUES (
+                  'ALERT',%s,NULL,'RESOLVED','MANUAL_COORDINATE_CORRECTION',1.0,
+                  %s,%s,%s,%s,%s::jsonb,
+                  ST_SetSRID(ST_MakePoint(%s,%s),4326),
+                  'MANUAL_COORDINATE',%s,now(),now(),1,now()
+                )
+                ON CONFLICT (entity_type,entity_id) DO UPDATE
+                SET cache_key=NULL,status='RESOLVED',match_type=EXCLUDED.match_type,
+                    confidence=1.0,resolved_label=EXCLUDED.resolved_label,
+                    municipality=coalesce(EXCLUDED.municipality,geo_entity_resolutions.municipality),
+                    county=coalesce(EXCLUDED.county,geo_entity_resolutions.county),
+                    state=coalesce(EXCLUDED.state,geo_entity_resolutions.state),
+                    provenance=EXCLUDED.provenance,geom=EXCLUDED.geom,
+                    spatial_precision=EXCLUDED.spatial_precision,
+                    resolver_version=EXCLUDED.resolver_version,resolved_at=now(),
+                    last_attempt_at=now(),attempt_count=geo_entity_resolutions.attempt_count+1,
+                    updated_at=now()
+                """,
+                (
+                    row["id"],
+                    label,
+                    location.get("municipality") or row.get("municipality"),
+                    location.get("county") or row.get("county"),
+                    location.get("state") or row.get("state") or "NJ",
+                    json.dumps(provenance, default=str),
+                    longitude,
+                    latitude,
+                    RESOLVER_VERSION,
+                ),
+            )
+            cur.execute(
+                """
+                DELETE FROM alert_watch_matches
+                WHERE alert_id=%s::uuid AND match_type IN ('PROXIMITY','LOCATION_TOPIC')
+                """,
+                (row["id"],),
+            )
+            cleared_spatial_matches = cur.rowcount
+        conn.commit()
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "alert_id": alert_id,
+            "latitude": latitude,
+            "longitude": longitude,
+            "label": label,
+            "match_type": "MANUAL_COORDINATE_CORRECTION",
+            "spatial_rematch": "QUEUED" if row.get("rematch_eligible") else "NOT_CURRENT",
+            "cleared_spatial_matches": cleared_spatial_matches,
+        }
+    )
+
+
 @app.get("/map/system/flood.geojson")
 def map_flood_geojson():
     rows = query_all(
@@ -454,7 +723,12 @@ def map_alerts_geojson(
         SELECT a.id,a.alert_id,a.source,a.category,a.subtype,a.status,a.event_action,
                a.title,left(a.message,600) AS message,a.priority,a.county,a.municipality,
                coalesce(wm.matched_watches,'No Watch matched') AS matched_watches,
-               coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address',''),r.resolved_label) AS mapped_address,
+               CASE WHEN r.match_type='MANUAL_COORDINATE_CORRECTION'
+                    THEN coalesce(r.resolved_label,nullif(a.location->>'label',''),nullif(a.location->>'address',''))
+                    WHEN a.geom IS NULL
+                    THEN coalesce(r.resolved_label,nullif(a.location->>'label',''),nullif(a.location->>'address',''))
+                    ELSE coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address',''),r.resolved_label)
+               END AS mapped_address,
                a.observed_at,a.received_at,a.click_url,
                r.status AS resolution_status,r.match_type,r.confidence,
                r.spatial_precision,(a.geom IS NULL) AS approximate,
@@ -477,6 +751,8 @@ def map_alerts_geojson(
             ) ids(watch_id)
             JOIN watch_items w ON w.watch_id=ids.watch_id
             WHERE d.alert_id=a.id
+              AND (r.match_type IS DISTINCT FROM 'MANUAL_COORDINATE_CORRECTION'
+                   OR d.created_at>=r.updated_at)
           ) m
         ) wm ON true
         WHERE {' AND '.join(where)}

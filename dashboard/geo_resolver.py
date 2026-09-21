@@ -11,14 +11,17 @@ import json
 import os
 import re
 import argparse
+import sys
 import time
+from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping
 
-RESOLVER_VERSION = 3
+RESOLVER_VERSION = 4
 MAX_CANDIDATE_LENGTH = 300
 MAX_CANDIDATES = 40
 MIN_PRECISE_CONFIDENCE = 0.75
+MAX_INTERSECTION_DISTANCE_FEET = 1320.0
 
 _SPACE_RE = re.compile(r"\s+")
 _ADDRESS_RE = re.compile(r"^\s*\d+[A-Z]?(?:-\d+[A-Z]?)?\s+.+", re.I)
@@ -53,6 +56,11 @@ _EMBEDDED_ADDRESS_RE = re.compile(
     r"(?:AVE(?:NUE)?|BLVD|BOULEVARD|CIR(?:CLE)?|CT|COURT|DR(?:IVE)?|"
     r"HWY|HIGHWAY|LN|LANE|PKWY|PARKWAY|PL|PLACE|PLZ|PLAZA|RD|ROAD|"
     r"ST|STREET|TER|TERRACE|TPKE|TURNPIKE|WAY|EXPY|EXPRESSWAY)\b",
+    re.I,
+)
+_LOCALITY_STATE_RE = re.compile(
+    r"(?:^|[,;/|]\s*)([A-Z][A-Z .'-]{1,48}?)\s*,?\s+"
+    r"(?:NJ|NEW JERSEY)(?:\s+\d{5}(?:-\d{4})?)?\b",
     re.I,
 )
 
@@ -219,6 +227,16 @@ def _context_value(payload: Mapping[str, Any], names: set[str]) -> str:
     return ""
 
 
+def _municipality_hint(payload: Mapping[str, Any]) -> str:
+    """Read a New Jersey locality from free text when a source omits its city field."""
+    for _path, value in _walk_strings(payload):
+        for match in _LOCALITY_STATE_RE.finditer(value):
+            locality = _SPACE_RE.sub(" ", match.group(1)).strip(" ,.;:-")
+            if locality and not any(char.isdigit() for char in locality) and not _STREET_WORD_RE.search(locality):
+                return locality
+    return ""
+
+
 def _row_value(row: Any, key: str, position: int) -> Any:
     if isinstance(row, Mapping):
         return row.get(key)
@@ -319,6 +337,216 @@ def _address_variants(text: str) -> list[str]:
                 if suffix == long_name:
                     variants.append(" ".join([*words[:-1], short]))
     return list(dict.fromkeys(variants))
+
+
+def _without_locality(text: str, municipality: str) -> str:
+    value = normalize_text(text)
+    locality = normalize_text(municipality)
+    if locality:
+        value = re.sub(
+            rf"^{re.escape(locality)}\s+(?:NJ|NEW JERSEY)(?:\s+\d{{5}}(?:-\d{{4}})?)?\s*-?\s*",
+            "",
+            value,
+        ).strip()
+    value = re.sub(r"\s+(?:NJ|NEW JERSEY)(?:\s+\d{5}(?:-\d{4})?)?$", "", value).strip()
+    if locality:
+        value = re.sub(rf"\s+{re.escape(locality)}$", "", value).strip()
+    return value
+
+
+def _street_variants(text: str, municipality: str = "") -> list[str]:
+    """Return bounded street-name variants suitable for local address-point lookup."""
+    value = _without_locality(text, municipality)
+    value = re.sub(r"^\d+[A-Z]?(?:-\d+[A-Z]?)?\s+", "", value).strip()
+    if not value:
+        return []
+
+    words = value.split()
+    suffix_positions = [
+        index for index, word in enumerate(words)
+        if _STREET_WORD_RE.fullmatch(word)
+    ]
+    if suffix_positions:
+        end = suffix_positions[-1]
+        bases = [" ".join(words[start:end + 1]) for start in range(max(0, end - 5), end)]
+    else:
+        bases = [value]
+
+    variants: list[str] = []
+    for base in bases:
+        if len(base.split()) < 2 and not _CORRIDOR_RE.search(base):
+            continue
+        variants.extend(normalize_text(item) for item in _address_variants(base))
+    return list(dict.fromkeys(item for item in variants if item))
+
+
+def _intersection_parts(text: str, municipality: str = "") -> tuple[str, str] | None:
+    match = _INTERSECTION_RE.match(_without_locality(text, municipality))
+    if not match:
+        return None
+    first, second = (part.strip() for part in match.groups())
+    return (first, second) if first and second else None
+
+
+def _address_number(text: str) -> int | None:
+    match = re.match(r"^\s*(\d+)", _without_locality(text, ""))
+    return int(match.group(1)) if match else None
+
+
+def _resolve_street(conn, candidate: LocationCandidate, municipality: str) -> dict[str, Any] | None:
+    if not municipality:
+        return None
+    variants = _street_variants(candidate.text, municipality)
+    if not variants:
+        return None
+    requested_number = _address_number(candidate.text)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH input AS (
+              SELECT %s::integer AS requested_number
+            ),
+            street_points AS (
+              SELECT a.objectid,a.fulladdr,a.post_comm,a.post_code,a.pcl_guid,a.geom,
+                     CASE WHEN trim(a.fulladdr) ~ '^[0-9]+'
+                          THEN substring(trim(a.fulladdr) from '^([0-9]+)')::integer END
+                       AS address_number
+              FROM gis_addresses a
+              WHERE a.geom IS NOT NULL
+                AND coalesce(a.status,'A')='A'
+                AND lower(a.post_comm)=lower(%s)
+                AND upper(regexp_replace(trim(a.fulladdr),'^[0-9A-Z-]+[[:space:]]+','','i'))
+                      =ANY(%s::text[])
+            ),
+            center AS (
+              SELECT ST_Centroid(ST_Collect(geom)) AS geom,count(*) AS address_count
+              FROM street_points
+            )
+            SELECT p.fulladdr,p.post_comm,p.post_code,p.pcl_guid,
+                   ST_X(p.geom) AS longitude,ST_Y(p.geom) AS latitude,
+                   c.address_count,p.address_number,
+                   CASE WHEN i.requested_number IS NOT NULL AND p.address_number IS NOT NULL
+                        THEN abs(p.address_number-i.requested_number) END AS number_delta
+            FROM street_points p
+            CROSS JOIN center c
+            CROSS JOIN input i
+            WHERE c.geom IS NOT NULL
+            ORDER BY
+              CASE WHEN i.requested_number IS NOT NULL AND p.address_number IS NOT NULL
+                   THEN 0 ELSE 1 END,
+              CASE WHEN i.requested_number IS NOT NULL AND p.address_number IS NOT NULL
+                   THEN abs(p.address_number-i.requested_number) END NULLS LAST,
+              p.geom <-> c.geom,p.objectid
+            LIMIT 1
+            """,
+            (requested_number, municipality, variants),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    number_delta = _row_value(row, "number_delta", 8)
+    confidence = 0.45
+    if requested_number is not None and number_delta is not None:
+        confidence = 0.72 if number_delta <= 2 else 0.65 if number_delta <= 10 else 0.55
+    return {
+        "status": "RESOLVED",
+        "match_type": "LOCAL_NEAREST_ADDRESS",
+        "confidence": confidence,
+        "label": _row_value(row, "fulladdr", 0),
+        "municipality": _row_value(row, "post_comm", 1) or municipality,
+        "postal_code": _row_value(row, "post_code", 2),
+        "parcel_id": _row_value(row, "pcl_guid", 3),
+        "longitude": _row_value(row, "longitude", 4),
+        "latitude": _row_value(row, "latitude", 5),
+        "candidate_count": _row_value(row, "address_count", 6),
+        "requested_address_number": requested_number,
+        "matched_address_number": _row_value(row, "address_number", 7),
+        "address_number_delta": number_delta,
+        "candidate": candidate.as_dict(),
+        "spatial_precision": "APPROXIMATE_ADDRESS_POINT",
+    }
+
+
+def _resolve_intersection(conn, candidate: LocationCandidate, municipality: str) -> dict[str, Any] | None:
+    if not municipality:
+        return None
+    parts = _intersection_parts(candidate.text, municipality)
+    if not parts:
+        return None
+    first, second = parts
+    first_variants = _street_variants(first)
+    second_variants = _street_variants(second)
+    if not first_variants or not second_variants or set(first_variants) == set(second_variants):
+        return None
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH first_points AS (
+              SELECT a.objectid,a.fulladdr,a.post_comm,a.post_code,a.pcl_guid,a.geom
+              FROM gis_addresses a
+              WHERE a.geom IS NOT NULL
+                AND coalesce(a.status,'A')='A'
+                AND lower(a.post_comm)=lower(%s)
+                AND upper(regexp_replace(trim(a.fulladdr),'^[0-9A-Z-]+[[:space:]]+','','i'))
+                      =ANY(%s::text[])
+            ),
+            second_points AS (
+              SELECT a.fulladdr,a.geom
+              FROM gis_addresses a
+              WHERE a.geom IS NOT NULL
+                AND coalesce(a.status,'A')='A'
+                AND lower(a.post_comm)=lower(%s)
+                AND upper(regexp_replace(trim(a.fulladdr),'^[0-9A-Z-]+[[:space:]]+','','i'))
+                      =ANY(%s::text[])
+            ),
+            closest AS (
+              SELECT f.fulladdr AS first_address,s.fulladdr AS second_address,
+                     f.post_comm,f.post_code,f.pcl_guid,
+                     f.geom AS first_geom,s.geom AS second_geom,
+                     ST_Distance(f.geom::geography,s.geom::geography) AS distance_m
+              FROM first_points f
+              CROSS JOIN LATERAL (
+                SELECT fulladdr,geom
+                FROM second_points s
+                ORDER BY f.geom <-> s.geom
+                LIMIT 1
+              ) s
+              ORDER BY f.geom <-> s.geom
+              LIMIT 1
+            )
+            SELECT first_address,second_address,post_comm,post_code,pcl_guid,
+                   ST_X(first_geom) AS longitude,ST_Y(first_geom) AS latitude,
+                   distance_m/0.3048 AS distance_ft,
+                   (SELECT count(*) FROM first_points) AS first_count,
+                   (SELECT count(*) FROM second_points) AS second_count
+            FROM closest
+            """,
+            (municipality, first_variants, municipality, second_variants),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    distance_feet = float(_row_value(row, "distance_ft", 7) or 0)
+    if distance_feet > MAX_INTERSECTION_DISTANCE_FEET:
+        return None
+    return {
+        "status": "RESOLVED",
+        "match_type": "LOCAL_NEAREST_INTERSECTION_ADDRESS",
+        "confidence": 0.70 if distance_feet <= 250 else 0.60,
+        "label": _row_value(row, "first_address", 0),
+        "municipality": _row_value(row, "post_comm", 2) or municipality,
+        "postal_code": _row_value(row, "post_code", 3),
+        "parcel_id": _row_value(row, "pcl_guid", 4),
+        "longitude": _row_value(row, "longitude", 5),
+        "latitude": _row_value(row, "latitude", 6),
+        "candidate_count": int(_row_value(row, "first_count", 8) or 0)
+        + int(_row_value(row, "second_count", 9) or 0),
+        "distance_feet": distance_feet,
+        "intersection": f"{first.title()} & {second.title()}",
+        "cross_street_nearest_address": _row_value(row, "second_address", 1),
+        "candidate": candidate.as_dict(),
+        "spatial_precision": "APPROXIMATE_INTERSECTION",
+    }
 
 
 def _resolve_address(conn, candidate: LocationCandidate, municipality: str) -> dict[str, Any] | None:
@@ -603,13 +831,15 @@ def resolve_payload(
     entity_type: str | None = None,
     entity_id: str | None = None,
     use_cache: bool = True,
+    persist: bool = True,
 ) -> dict[str, Any]:
-    """Resolve a fluid payload using local PostGIS data and persist provenance."""
+    """Resolve a fluid payload using local PostGIS data, optionally without writes."""
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), Mapping) else {}
     approximate_coordinate = bool(metadata.get("location_approximate"))
     candidates = extract_location_candidates(payload)
+    municipality = _context_value(payload, {"municipality", "city", "borough", "post_comm"})
     context = {
-        "municipality": _context_value(payload, {"municipality", "city", "borough", "post_comm"}),
+        "municipality": municipality or _municipality_hint(payload),
         "county": _context_value(payload, {"county"}),
         "state": _context_value(payload, {"state", "state_code"}),
         "source": _context_value(payload, {"source"}),
@@ -618,7 +848,7 @@ def resolve_payload(
     versions = _dataset_versions(conn)
     coordinate = extract_coordinates(payload)
     cache_key = _cache_key(candidates, context, versions, coordinate)
-    if use_cache:
+    if use_cache and persist:
         cached = _cached_result(conn, cache_key)
         if cached is not None:
             if entity_type and entity_id:
@@ -648,10 +878,28 @@ def resolve_payload(
         }
     else:
         result = {}
+        ambiguous_address: tuple[dict[str, Any], LocationCandidate] | None = None
         for candidate in candidates:
             if candidate.kind != "address":
                 continue
             matched = _resolve_address(conn, candidate, context["municipality"])
+            if matched:
+                if matched["status"] == "RESOLVED":
+                    result = matched
+                    result["county"] = context["county"] or None
+                    result["state"] = context["state"] or "NJ"
+                    result["provenance"] = {
+                        "source_path": candidate.source_path,
+                        "source_text": candidate.text,
+                        "resolver_version": RESOLVER_VERSION,
+                        "runtime_source": "LOCAL_POSTGIS",
+                    }
+                    break
+                if ambiguous_address is None:
+                    ambiguous_address = (matched, candidate)
+        if not result:
+            candidate = next((item for item in candidates if item.kind == "intersection"), None)
+            matched = _resolve_intersection(conn, candidate, context["municipality"]) if candidate else None
             if matched:
                 result = matched
                 result["county"] = context["county"] or None
@@ -661,8 +909,33 @@ def resolve_payload(
                     "source_text": candidate.text,
                     "resolver_version": RESOLVER_VERSION,
                     "runtime_source": "LOCAL_POSTGIS",
+                    "approximate": True,
                 }
-                break
+        if not result:
+            candidate = next(
+                (item for item in candidates if item.kind in {"address", "corridor"}),
+                None,
+            )
+            if candidate is None:
+                intersection = next((item for item in candidates if item.kind == "intersection"), None)
+                parts = _intersection_parts(intersection.text, context["municipality"]) if intersection else None
+                if intersection and parts:
+                    candidate = LocationCandidate(
+                        parts[0], normalize_text(parts[0]), "corridor", intersection.source_path,
+                        intersection.score,
+                    )
+            matched = _resolve_street(conn, candidate, context["municipality"]) if candidate else None
+            if matched:
+                result = matched
+                result["county"] = context["county"] or None
+                result["state"] = context["state"] or "NJ"
+                result["provenance"] = {
+                    "source_path": candidate.source_path,
+                    "source_text": candidate.text,
+                    "resolver_version": RESOLVER_VERSION,
+                    "runtime_source": "LOCAL_POSTGIS",
+                    "approximate": True,
+                }
         if not result:
             place = _resolve_place(
                 conn,
@@ -677,6 +950,17 @@ def resolve_payload(
                     "runtime_source": "LOCAL_POSTGIS",
                     "approximate": True,
                 }
+        if not result and ambiguous_address:
+            result, candidate = ambiguous_address
+            result["county"] = context["county"] or None
+            result["state"] = context["state"] or "NJ"
+            result["provenance"] = {
+                "source_path": candidate.source_path,
+                "source_text": candidate.text,
+                "resolver_version": RESOLVER_VERSION,
+                "runtime_source": "LOCAL_POSTGIS",
+                "reason": "Multiple local address points matched",
+            }
         if not result:
             result = {
                 "status": "UNRESOLVED",
@@ -697,10 +981,11 @@ def resolve_payload(
     result["cache_hit"] = False
     result["candidates"] = [candidate.as_dict() for candidate in candidates]
     result["dataset_versions"] = versions
-    _save_cache(conn, cache_key, result, candidates, context, versions)
-    if entity_type and entity_id:
-        _save_entity_resolution(conn, entity_type, str(entity_id), cache_key, result)
-    conn.commit()
+    if persist:
+        _save_cache(conn, cache_key, result, candidates, context, versions)
+        if entity_type and entity_id:
+            _save_entity_resolution(conn, entity_type, str(entity_id), cache_key, result)
+        conn.commit()
     return result
 
 
@@ -730,6 +1015,93 @@ def _alert_payload(row: Mapping[str, Any]) -> dict[str, Any]:
         "location": location,
         "metadata": _as_dict(row.get("metadata")),
         "raw_payload": _as_dict(row.get("raw_payload")),
+    }
+
+
+def audit_alerts(
+    conn,
+    *,
+    limit: int | None = None,
+    since_days: int | None = None,
+    sources: list[str] | None = None,
+) -> dict[str, Any]:
+    """Run stored alerts through the resolver without writing or notifying."""
+    started = time.perf_counter()
+    limit = max(1, min(int(limit), 1_000_000)) if limit is not None else None
+    since_days = max(1, min(int(since_days), 36500)) if since_days is not None else None
+    sources = sources or ["BNN"]
+    where = ["a.source=ANY(%s::text[])"]
+    params: list[Any] = [sources]
+    if since_days is not None:
+        where.append("a.received_at >= now()-(%s * interval '1 day')")
+        params.append(since_days)
+    limit_sql = ""
+    if limit is not None:
+        limit_sql = "LIMIT %s"
+        params.append(limit)
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT a.alert_id,a.source,a.county,a.municipality,a.title,a.message,
+                   a.location,a.metadata,a.raw_payload,
+                   count(*) OVER() AS total_available
+            FROM alerts a
+            WHERE {' AND '.join(where)}
+            ORDER BY a.received_at DESC,a.id
+            {limit_sql}
+            """,
+            tuple(params),
+        )
+        rows = cur.fetchall()
+
+    status_counts: Counter[str] = Counter()
+    match_counts: Counter[str] = Counter()
+    precision_counts: Counter[str] = Counter()
+    examples: dict[str, list[dict[str, Any]]] = {}
+    errors: list[dict[str, str]] = []
+    for index, row in enumerate(rows, 1):
+        try:
+            result = resolve_payload(conn, _alert_payload(row), use_cache=False, persist=False)
+            status = str(result.get("status") or "UNRESOLVED")
+            match_type = str(result.get("match_type") or "UNRESOLVED")
+            precision = str(result.get("spatial_precision") or "NONE")
+            status_counts[status] += 1
+            match_counts[match_type] += 1
+            precision_counts[precision] += 1
+            bucket = examples.setdefault(match_type, [])
+            if len(bucket) < 5:
+                location = _as_dict(row.get("location"))
+                bucket.append(
+                    {
+                        "alert_id": row.get("alert_id"),
+                        "reported_location": location.get("address") or location.get("label"),
+                        "resolved_label": result.get("label"),
+                        "municipality": result.get("municipality"),
+                        "confidence": result.get("confidence"),
+                        "longitude": result.get("longitude"),
+                        "latitude": result.get("latitude"),
+                    }
+                )
+        except Exception as exc:
+            conn.rollback()
+            errors.append({"alert_id": str(row.get("alert_id") or ""), "error": str(exc)})
+        if index % 100 == 0:
+            print(f"GEO AUDIT progress={index}/{len(rows)}", file=sys.stderr, flush=True)
+
+    total_available = int(rows[0].get("total_available") or 0) if rows else 0
+    return {
+        "mode": "READ_ONLY",
+        "sources": sources,
+        "total_available": total_available,
+        "selected": len(rows),
+        "complete": len(rows) == total_available,
+        "status_counts": dict(status_counts),
+        "match_type_counts": dict(match_counts),
+        "spatial_precision_counts": dict(precision_counts),
+        "examples": examples,
+        "errors": errors[:20],
+        "error_count": len(errors),
+        "duration_ms": int((time.perf_counter() - started) * 1000),
     }
 
 
@@ -782,6 +1154,7 @@ def process_pending_alerts(
                   AND (
                     %s
                     OR r.id IS NULL
+                    OR (a.geom IS NULL AND coalesce(r.resolver_version,0) < %s)
                     OR (
                       a.geom IS NULL
                       AND r.status='RESOLVED'
@@ -793,7 +1166,10 @@ def process_pending_alerts(
                 ORDER BY a.priority DESC,a.received_at DESC,a.id
                 LIMIT %s
                 """,
-                (since_days, sources, sources, force, MIN_PRECISE_CONFIDENCE, limit),
+                (
+                    since_days, sources, sources, force, RESOLVER_VERSION,
+                    MIN_PRECISE_CONFIDENCE, limit,
+                ),
             )
             rows = cur.fetchall()
         summary["selected"] = len(rows)
@@ -925,18 +1301,30 @@ def _connect():
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="City Manager OS local alert geography worker")
-    parser.add_argument("mode", choices=("backfill",))
-    parser.add_argument("--limit", type=int, default=5000)
-    parser.add_argument("--since-days", type=int, default=3650)
+    parser.add_argument("mode", choices=("audit", "backfill"))
+    parser.add_argument("--limit", type=int)
+    parser.add_argument("--since-days", type=int)
     parser.add_argument("--source", action="append", dest="sources")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     with _connect() as conn:
-        for attempt in range(1, 31):
-            summary = process_pending_alerts(
+        if args.mode == "audit":
+            with conn.cursor() as cur:
+                cur.execute("SET TRANSACTION READ ONLY")
+            summary = audit_alerts(
                 conn,
                 limit=args.limit,
                 since_days=args.since_days,
+                sources=args.sources or ["BNN"],
+            )
+            conn.rollback()
+            print(json.dumps(summary, sort_keys=True))
+            return 1 if summary.get("error_count") or not summary.get("complete") else 0
+        for attempt in range(1, 31):
+            summary = process_pending_alerts(
+                conn,
+                limit=args.limit or 5000,
+                since_days=args.since_days or 3650,
                 sources=args.sources,
                 force=args.force,
             )
