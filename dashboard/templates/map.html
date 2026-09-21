@@ -189,6 +189,7 @@ const groups={};
 const loadVersions={};
 const layerLoads={};
 const loadedSignatures={};
+const layerMetrics={};
 const FEATURE_CLICK_CONTRACT='all-geojson-and-map-locations-v1';
 const selectedTitle=document.getElementById('map-selected-title');
 const selectedLayer=document.getElementById('map-selected-layer');
@@ -284,13 +285,14 @@ function boundsParam(){const b=map.getBounds();return[b.getWest(),b.getSouth(),b
 function layerRuntime(key,message,state=''){
   document.querySelectorAll('[data-layer-runtime="'+key+'"]').forEach(el=>{el.textContent=message;el.classList.toggle('failed',state==='failed');el.classList.toggle('loading',state==='loading');});
 }
+function refreshClock(){return new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}
 async function loadGeo(key,endpoint,color,viewport=false,layerName=key,force=false){
   let url=endpoint;
   if(viewport)url+=(url.includes('?')?'&':'?')+'bbox='+encodeURIComponent(boundsParam());
   const signature=url;
   if(!force&&layerLoads[key]?.signature===signature)return layerLoads[key].promise;
   if(layerLoads[key]){layerLoads[key].controller.abort();delete layerLoads[key];}
-  if(!force&&loadedSignatures[key]===signature&&groups[key]){const count=groups[key].getLayers?.().length||0;layerRuntime(key,compactNumber(count)+' features · current view cached');return groups[key];}
+  if(!force&&loadedSignatures[key]===signature&&groups[key]){layerRuntime(key,layerMetrics[key]||'Current view cached');return groups[key];}
   const controller=new AbortController(),version=(loadVersions[key]||0)+1;
   loadVersions[key]=version;
   status('Loading '+layerName+'...');
@@ -309,13 +311,14 @@ async function loadGeo(key,endpoint,color,viewport=false,layerName=key,force=fal
       loadedSignatures[key]=signature;
       refreshFeatureOrder();
       const count=data.features?.length||0,elapsed=Math.round(performance.now()-started),size=Math.max(1,Math.round(raw.length/1024));
-      layerRuntime(key,compactNumber(count)+' features · '+elapsed+' ms · ~'+compactNumber(size)+' KB');
+      layerMetrics[key]=compactNumber(count)+' features · '+elapsed+' ms · ~'+compactNumber(size)+' KB · refreshed '+refreshClock();
+      layerRuntime(key,layerMetrics[key]);
       status(layerName+' · '+count+' features');
       return groups[key];
     }catch(error){
       if(error.name==='AbortError')return groups[key]||null;
       const retained=Boolean(groups[key]);
-      layerRuntime(key,'Refresh failed'+(retained?' · previous data kept':''),'failed');
+      layerRuntime(key,'Refresh failed'+(retained?' · previous data kept':'')+(layerMetrics[key]?' · last good '+layerMetrics[key]:''),'failed');
       throw error;
     }finally{
       if(layerLoads[key]?.controller===controller)delete layerLoads[key];
@@ -324,7 +327,7 @@ async function loadGeo(key,endpoint,color,viewport=false,layerName=key,force=fal
   layerLoads[key]={signature,controller,promise};
   return promise;
 }
-function removeLayer(key){loadVersions[key]=(loadVersions[key]||0)+1;layerLoads[key]?.controller.abort();delete layerLoads[key];delete loadedSignatures[key];if(groups[key]){map.removeLayer(groups[key]);groups[key]=null;}if(key==='watchlist'&&groups['watch-centers']){map.removeLayer(groups['watch-centers']);groups['watch-centers']=null;}layerRuntime(key,'Not loaded');}
+function removeLayer(key){loadVersions[key]=(loadVersions[key]||0)+1;layerLoads[key]?.controller.abort();delete layerLoads[key];delete loadedSignatures[key];delete layerMetrics[key];if(groups[key]){map.removeLayer(groups[key]);groups[key]=null;}if(key==='watchlist'&&groups['watch-centers']){map.removeLayer(groups['watch-centers']);groups['watch-centers']=null;}layerRuntime(key,'Not loaded');}
 async function showImpactArea(alertId){const requested=window.prompt('Impact buffer in feet','500');if(requested===null)return;const radius=Math.max(1,Math.min(Number(requested)||500,26400));status('Loading impact area...');const res=await fetch('/api/alerts/'+encodeURIComponent(alertId)+'/impact-buffer.geojson?radius_ft='+radius,{headers:{Accept:'application/geo+json'}});if(!res.ok){status('Impact area unavailable');return;}const data=await res.json();removeLayer('impact-preview');groups['impact-preview']=L.geoJSON(data,{style:{color:'#d64545',weight:3,fillColor:'#d64545',fillOpacity:.16,interactive:false}}).addTo(map);refreshFeatureOrder();const bounds=groups['impact-preview'].getBounds();if(bounds.isValid())map.fitBounds(bounds,{padding:[30,30],maxZoom:18});status('Impact area · '+radius.toLocaleString()+' ft');}
 
 async function syncSystemLayer(el,force=false){if(!el.checked){removeLayer(el.dataset.key);return null;}return loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,el.dataset.viewport==='1',el.dataset.name||el.dataset.key,force);}
@@ -353,7 +356,7 @@ function addBasemap(el,key){
       layerRuntime(key,'Tile provider unavailable','failed');
     }
   });
-  layer.on('tileload',()=>{consecutiveErrors=Math.max(0,consecutiveErrors-1);layerRuntime(key,'Tiles load on demand');});
+  layer.on('tileload',()=>{consecutiveErrors=Math.max(0,consecutiveErrors-1);layerMetrics[key]='Tiles loaded · refreshed '+refreshClock();layerRuntime(key,layerMetrics[key]);});
   groups[key]=layer.addTo(map);
   layerRuntime(key,'Loading tiles...','loading');
   status('Basemap enabled');

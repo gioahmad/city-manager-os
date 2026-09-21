@@ -155,12 +155,14 @@ def test_mapping_center_deduplicates_cancels_and_reports_layer_refreshes():
 
     assert "const layerLoads={};" in template
     assert "const loadedSignatures={};" in template
+    assert "const layerMetrics={};" in template
     assert "loadedSignatures[key]===signature" in template
     assert "layerLoads[key]?.signature===signature" in template
     assert template.index("layerLoads[key]?.signature===signature") < template.index("loadedSignatures[key]===signature")
     assert "new AbortController()" in template
     assert "signal:controller.signal" in template
     assert "previous data kept" in template
+    assert "refreshed '+refreshClock()" in template
     assert "syncSystemLayer(toggle,true)" in template
     assert "Promise.allSettled(jobs)" in template
     assert "},600);" in template
