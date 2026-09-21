@@ -44,7 +44,14 @@ assert_line "$schema" "full_e2e=yes"
 
 workflow="$($HARNESS plan --files workflows/core/CORE_Watchlist_Matcher_v1.json)"
 assert_line "$workflow" "external=n8n-workflow-publish"
-assert_line "$workflow" "full_e2e=yes"
+assert_line "$workflow" "tests=tests/test_spatial_watch_pack.py,tests/test_watch_lab.py"
+assert_line "$workflow" "full_e2e=no"
+
+watch_lab="$($HARNESS plan --files dashboard/spatial_watch_app.py dashboard/templates/watchlist.html dashboard/static/watch_matcher.js)"
+assert_line "$watch_lab" "services=citymanager-dashboard"
+assert_line "$watch_lab" "probes=/api/spatial-watch/release,/api/watchlist/health,/watchlist"
+assert_line "$watch_lab" "tests=tests/test_spatial_watch_pack.py,tests/test_watch_lab.py,tests/test_watchlist_reliability.py"
+assert_line "$watch_lab" "full_e2e=no"
 
 docs="$($HARNESS plan --files docs/CHANGE_AWARE_DEPLOYMENT.md README.md)"
 assert_line "$docs" "build=no"

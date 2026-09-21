@@ -141,6 +141,51 @@
   </div>
 </article>
 
+<article class="panel watch-lab-panel" id="watch-lab">
+  <div class="panel-head">
+    <div><div class="panel-kicker">READ-ONLY DIAGNOSTIC</div><h2>Watch Lab · Why did this match?</h2></div>
+    <span class="status healthy">No sends</span>
+  </div>
+  <div class="panel-body watch-lab-body">
+    <p class="watch-lab-intro">Choose one saved Watch and one real alert. The Lab runs the same evaluator as the live central matcher, shows every decision gate, and never creates an alert, Match, delivery, or Notification.</p>
+    <form class="watch-lab-form" data-watch-lab-form>
+      <label>Saved Watch
+        <select name="watch_item_id" required>
+          <option value="">Choose a Watch</option>
+          {% for w in watch_lab_items %}<option value="{{ w.id }}">{{ w.display_name }} · {{ w.state_label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Alert ID
+        <input name="alert_id" required placeholder="Example: ORU:eb5707b3" autocomplete="off">
+      </label>
+      <label>Point to evaluate
+        <select name="point_mode" data-watch-lab-point-mode>
+          <option value="ALERT">Saved alert point · live behavior</option>
+          <option value="WATCH_CENTER">Watch center · safe inside test</option>
+          <option value="CUSTOM">Custom latitude and longitude</option>
+        </select>
+      </label>
+      <div class="watch-lab-coordinates" data-watch-lab-coordinates hidden>
+        <label>Latitude<input name="latitude" inputmode="decimal" placeholder="40.965353"></label>
+        <label>Longitude<input name="longitude" inputmode="decimal" placeholder="-74.072017"></label>
+      </div>
+      <button class="primary-button" type="submit">Run Read-Only Test</button>
+    </form>
+    <div class="hint">A Watch-center or custom point replaces only a missing/resolver point. If the alert already has a stored point, that authoritative point remains in use and the result will say so.</div>
+    <div class="watch-lab-result" data-watch-lab-result hidden aria-live="polite">
+      <div class="watch-lab-verdict" data-watch-lab-verdict></div>
+      <div class="watch-lab-facts" data-watch-lab-facts></div>
+      <div class="watch-lab-gates" data-watch-lab-gates></div>
+      <div class="watch-lab-evidence" data-watch-lab-evidence></div>
+      <div class="watch-card-actions">
+        <button class="secondary-button" type="button" data-watch-lab-copy>Copy Diagnostic Receipt</button>
+        <a class="secondary-button" data-watch-lab-alert-link href="/alerts?window=all">Open Alert History</a>
+        <a class="secondary-button" href="/map">Open Mapping Center</a>
+      </div>
+    </div>
+  </div>
+</article>
+
 <article class="panel watch-location-library" id="bulk-watch-builder">
   <div class="panel-head">
     <div><div class="panel-kicker">REUSABLE WATCH LOCATIONS</div><h2>Create several Watches from a map layer</h2></div>
@@ -542,6 +587,7 @@
 <footer><span>City Manager OS</span><span>One Watch system · one Notification path</span></footer>
 </main>
 
+<script src="/static/watch_matcher.js?v=2"></script>
 <script>
 (() => {
   const setMessage = (element, message, isError = false) => {
@@ -549,6 +595,125 @@
     element.textContent = message;
     element.classList.toggle('error-text', isError);
   };
+
+  const watchLabForm = document.querySelector('[data-watch-lab-form]');
+  if (watchLabForm) {
+    const pointMode = watchLabForm.querySelector('[data-watch-lab-point-mode]');
+    const coordinates = watchLabForm.querySelector('[data-watch-lab-coordinates]');
+    const resultPanel = document.querySelector('[data-watch-lab-result]');
+    const verdict = resultPanel?.querySelector('[data-watch-lab-verdict]');
+    const facts = resultPanel?.querySelector('[data-watch-lab-facts]');
+    const gates = resultPanel?.querySelector('[data-watch-lab-gates]');
+    const evidence = resultPanel?.querySelector('[data-watch-lab-evidence]');
+    const copyButton = resultPanel?.querySelector('[data-watch-lab-copy]');
+    const alertLink = resultPanel?.querySelector('[data-watch-lab-alert-link]');
+    let receipt = '';
+
+    const syncPointMode = () => {
+      if (coordinates) coordinates.hidden = pointMode?.value !== 'CUSTOM';
+      coordinates?.querySelectorAll('input').forEach((input) => {
+        input.required = pointMode?.value === 'CUSTOM';
+      });
+    };
+    pointMode?.addEventListener('change', syncPointMode);
+    syncPointMode();
+
+    const addFact = (label, value) => {
+      const item = document.createElement('div');
+      const strong = document.createElement('strong');
+      const span = document.createElement('span');
+      strong.textContent = value;
+      span.textContent = label;
+      item.append(strong, span);
+      facts.append(item);
+    };
+
+    watchLabForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      resultPanel.hidden = false;
+      verdict.className = 'watch-lab-verdict waiting';
+      verdict.textContent = 'Running the shared matcher in read-only mode...';
+      facts.replaceChildren();
+      gates.replaceChildren();
+      evidence.replaceChildren();
+      receipt = '';
+      try {
+        const response = await fetch('/api/watch-lab/evaluate', {
+          method: 'POST',
+          body: new FormData(watchLabForm)
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.message || 'Watch Lab request failed');
+        if (!window.CmosWatchMatcher) throw new Error('Shared Watch matcher did not load');
+        const decision = window.CmosWatchMatcher.evaluateWatch(payload.alert, payload.watch);
+        const matched = decision.matched;
+        verdict.className = `watch-lab-verdict ${matched ? 'pass' : 'fail'}`;
+        verdict.textContent = matched
+          ? 'MATCH: this Watch accepts this alert'
+          : 'NO MATCH: one or more Watch conditions failed';
+
+        addFact('Watch', payload.watch.display_name || payload.watch.watch_id);
+        addFact('Alert', payload.alert.alert_id);
+        addFact('Effective point', payload.watch.effective_geometry_source || 'No usable point');
+        addFact('Distance', payload.watch.distance_ft === null || payload.watch.distance_ft === undefined
+          ? 'Unavailable'
+          : `${Number(payload.watch.distance_ft).toLocaleString(undefined, {maximumFractionDigits: 1})} ft`);
+        addFact('Match eligibility', matched ? 'Eligible' : 'Not eligible');
+        addFact('Notification route', decision.notification_ready ? 'Ready' : 'Not ready');
+
+        decision.gates.forEach((item) => {
+          const row = document.createElement('div');
+          row.className = `watch-lab-gate ${String(item.status || '').toLowerCase()}`;
+          const status = document.createElement('strong');
+          const body = document.createElement('span');
+          const detail = document.createElement('small');
+          status.textContent = item.status;
+          body.textContent = item.label;
+          detail.textContent = item.detail;
+          row.append(status, body, detail);
+          gates.append(row);
+        });
+
+        const evidenceLines = [
+          payload.evidence.persisted_match
+            ? `Stored evidence: this Alert previously matched this Watch${payload.evidence.persisted_match_reason ? ` (${payload.evidence.persisted_match_reason})` : ''}.`
+            : 'Stored evidence: no prior Match row exists for this Alert and Watch.',
+          payload.evidence.point_inside_watch
+            ? 'Geometry check: the effective point is inside the saved Watch area.'
+            : 'Geometry check: the effective point is outside the saved Watch area or geometry is unavailable.',
+          payload.evidence.supplied_point_ignored
+            ? 'Point override: ignored because the Alert already has an authoritative stored point.'
+            : `Point mode: ${payload.point_mode.replaceAll('_', ' ').toLowerCase()}.`,
+          'Safety: this test made no database writes and called no delivery workflow.'
+        ];
+        evidenceLines.forEach((line) => {
+          const item = document.createElement('p');
+          item.textContent = line;
+          evidence.append(item);
+        });
+        alertLink.href = `/alerts?window=all&q=${encodeURIComponent(payload.alert.alert_id)}`;
+        receipt = [
+          `WATCH LAB ${payload.matcher_version}`,
+          `Watch: ${payload.watch.display_name} (${payload.watch.watch_id})`,
+          `Alert: ${payload.alert.alert_id}`,
+          `Decision: ${matched ? 'MATCH' : 'NO MATCH'}`,
+          `Point: ${payload.watch.effective_geometry_source || 'unavailable'}`,
+          ...decision.gates.map((item) => `${item.status} ${item.label}: ${item.detail}`),
+          ...evidenceLines
+        ].join('\n');
+      } catch (error) {
+        verdict.className = 'watch-lab-verdict fail';
+        verdict.textContent = error.message || 'Watch Lab request failed';
+      }
+    });
+
+    copyButton?.addEventListener('click', async () => {
+      if (!receipt) return;
+      await navigator.clipboard.writeText(receipt);
+      copyButton.textContent = 'Diagnostic Copied';
+      setTimeout(() => { copyButton.textContent = 'Copy Diagnostic Receipt'; }, 1800);
+    });
+  }
 
   const syncMode = (form) => {
     const selected = form.querySelector('[name="setup_mode"]:checked');

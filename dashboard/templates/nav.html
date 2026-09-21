@@ -1,40 +1,50 @@
 <link rel="stylesheet" href="/static/ops.css?v=20260903-2">
 <link rel="stylesheet" href="/static/density.css?v=20260903-1">
-<link rel="stylesheet" href="/static/command_nav.css?v=20260907-1">
+<link rel="stylesheet" href="/static/command_nav.css?v=20260921-1">
 
 <nav class="main-nav desktop-nav" aria-label="Primary navigation">
   <div class="nav-inner">
     <a href="/my-day" class="{% if request.url.path.startswith('/my-day') %}active{% endif %}">My Day</a>
-    <a href="/search" class="{% if request.url.path.startswith('/search') %}active{% endif %}">Search</a>
     <a href="/issues" class="{% if request.url.path.startswith('/issues') %}active{% endif %}">Command</a>
     <a href="/inbox" class="{% if request.url.path.startswith('/inbox') %}active{% endif %}">Inbox</a>
-    <a href="/staff-admin" class="{% if request.url.path.startswith('/staff-admin') or request.url.path.startswith('/operations-routines') %}active{% endif %}">Operations</a>
-    <a href="/schedule" class="{% if request.url.path.startswith('/schedule') or request.url.path.startswith('/event-intelligence') %}active{% endif %}">Events</a>
-    <a href="/map" class="{% if request.url.path.startswith('/map') or request.url.path.startswith('/flood') or request.url.path.startswith('/spatial-reference') %}active{% endif %}">Map</a>
-    <a href="/transit" class="{% if request.url.path.startswith('/transit') %}active{% endif %}">Transit</a>
+    <a href="/map" class="{% if request.url.path.startswith('/map') or request.url.path.startswith('/flood') %}active{% endif %}">Map</a>
     <a href="/alerts" class="{% if request.url.path.startswith('/alerts') %}active{% endif %}">Alerts</a>
+    <a href="/search" class="{% if request.url.path.startswith('/search') %}active{% endif %}">Search</a>
 
-    <details class="nav-admin {% if request.url.path == '/' or request.url.path.startswith('/modules') or request.url.path.startswith('/admin-tools') or request.url.path.startswith('/rules') or request.url.path.startswith('/today-board') or request.url.path.startswith('/watchlist') or request.url.path.startswith('/subscribers') or request.url.path.startswith('/routing') or request.url.path.startswith('/integrations') or request.url.path.startswith('/api-lab') or request.url.path.startswith('/source-health') or request.url.path.startswith('/deliveries') or request.url.path.startswith('/alert-admin') %}active{% endif %}">
-      <summary>Admin / More</summary>
-      <div class="nav-admin-menu">
+    <details class="nav-group nav-operations {% if request.url.path.startswith('/staff-admin') or request.url.path.startswith('/operations-routines') or request.url.path.startswith('/schedule') or request.url.path.startswith('/event-intelligence') or request.url.path.startswith('/today-board') or request.url.path.startswith('/transit') %}active{% endif %}">
+      <summary>Operations</summary>
+      <div class="nav-group-menu">
+        <span class="nav-menu-label">DAILY OPERATIONS</span>
+        <a href="/staff-admin">Staff Operations</a>
+        <a href="/schedule">Events Center</a>
+        <a href="/event-intelligence">Event Intelligence</a>
+        <a href="/today-board">Today Board</a>
+        <a href="/today-board/setup">Today Board Setup</a>
+        <a href="/transit">Transit Intelligence</a>
+        <span class="nav-menu-label">FIELD ACCESS</span>
+        <a href="https://ops.nhnj.us/staff" target="_blank" rel="noopener">Employee Portal ↗</a>
+      </div>
+    </details>
+
+    <details class="nav-group nav-control {% if request.url.path == '/' or request.url.path.startswith('/modules') or request.url.path.startswith('/admin-tools') or request.url.path.startswith('/rules') or request.url.path.startswith('/watchlist') or request.url.path.startswith('/subscribers') or request.url.path.startswith('/routing') or request.url.path.startswith('/integrations') or request.url.path.startswith('/api-lab') or request.url.path.startswith('/source-health') or request.url.path.startswith('/deliveries') or request.url.path.startswith('/alert-admin') or request.url.path.startswith('/spatial-reference') or request.url.path.startswith('/what-changed') %}active{% endif %}">
+      <summary>Control Center</summary>
+      <div class="nav-group-menu">
+        <span class="nav-menu-label">SYSTEM</span>
         <a href="/">Overview</a>
         <a href="/what-changed">What Changed</a>
         <a href="/modules">Modules</a>
         <a href="/admin-tools">Admin Tools</a>
-        <span class="nav-menu-label">CONFIGURATION</span>
-        <a href="/rules">Rules Center</a>
-        <a href="/today-board">Today Board</a>
-        <a href="/today-board/setup">Today Board Setup Wizard</a>
+        <span class="nav-menu-label">ALERTING</span>
         <a href="/watchlist">Watches</a>
-        <a href="/spatial-reference">Reference Catalog</a>
+        <a href="/rules">Rules Center</a>
         <a href="/subscribers">Recipients</a>
         <a href="/routing">Advanced Delivery Rules</a>
+        <span class="nav-menu-label">DATA + HEALTH</span>
         <a href="/integrations">Integrations Center</a>
-        <a href="/api-lab">API Lab</a>
-        <span class="nav-menu-label">HEALTH / AUDIT</span>
+        <a href="/spatial-reference">Reference Catalog</a>
         <a href="/source-health">Source Health</a>
         <a href="/deliveries">Notification History</a>
-        <a href="https://ops.nhnj.us/staff" target="_blank" rel="noopener">Employee Portal ↗</a>
+        <a href="/api-lab">API Lab</a>
         <span class="nav-menu-label">ACCESS</span>
         <a href="/logout">Sign Out</a>
       </div>
@@ -44,31 +54,36 @@
 
 <nav class="mobile-nav" aria-label="Mobile navigation">
   <a href="/my-day" class="{% if request.url.path.startswith('/my-day') %}active{% endif %}">My Day</a>
-  <a href="/search" class="{% if request.url.path.startswith('/search') %}active{% endif %}">Search</a>
   <a href="/issues" class="{% if request.url.path.startswith('/issues') %}active{% endif %}">Command</a>
-  <a href="/staff-admin" class="{% if request.url.path.startswith('/staff-admin') or request.url.path.startswith('/operations-routines') %}active{% endif %}">Ops</a>
-  <details class="mobile-more {% if not request.url.path.startswith('/my-day') and not request.url.path.startswith('/search') and not request.url.path.startswith('/issues') and not request.url.path.startswith('/staff-admin') %}active{% endif %}">
+  <a href="/map" class="{% if request.url.path.startswith('/map') or request.url.path.startswith('/flood') %}active{% endif %}">Map</a>
+  <a href="/search" class="{% if request.url.path.startswith('/search') %}active{% endif %}">Search</a>
+  <details class="mobile-more {% if not request.url.path.startswith('/my-day') and not request.url.path.startswith('/issues') and not request.url.path.startswith('/map') and not request.url.path.startswith('/flood') and not request.url.path.startswith('/search') %}active{% endif %}">
     <summary>More</summary>
     <div class="mobile-menu">
-      <a href="/schedule">Events</a>
-      <a href="/map">Mapping Center</a>
-      <a href="/transit">Transit Intelligence</a>
-      <a href="/alerts">Alerts</a>
+      <span class="nav-menu-label">DAILY</span>
       <a href="/inbox">Inbox</a>
-      <a href="/what-changed">What Changed</a>
-      <a href="/">Overview</a>
-      <a href="/modules">Modules</a>
-      <a href="/rules">Rules Center</a>
+      <a href="/alerts">Alerts</a>
+      <a href="/staff-admin">Staff Operations</a>
+      <a href="/schedule">Events Center</a>
+      <a href="/event-intelligence">Event Intelligence</a>
       <a href="/today-board">Today Board</a>
-      <a href="/today-board/setup">Today Board Setup Wizard</a>
+      <a href="/today-board/setup">Today Board Setup</a>
+      <a href="/transit">Transit Intelligence</a>
+      <span class="nav-menu-label">ALERTING</span>
       <a href="/watchlist">Watches</a>
-      <a href="/spatial-reference">Reference Catalog</a>
+      <a href="/rules">Rules Center</a>
       <a href="/subscribers">Recipients</a>
-      <a href="/routing">Advanced Delivery Rules</a>
+      <a href="/routing">Delivery Rules</a>
+      <span class="nav-menu-label">CONTROL CENTER</span>
+      <a href="/">Overview</a>
+      <a href="/what-changed">What Changed</a>
+      <a href="/admin-tools">Admin Tools</a>
+      <a href="/modules">Modules</a>
       <a href="/integrations">Integrations Center</a>
-      <a href="/api-lab">API Lab</a>
+      <a href="/spatial-reference">Reference Catalog</a>
       <a href="/source-health">Source Health</a>
       <a href="/deliveries">Notification History</a>
+      <a href="/api-lab">API Lab</a>
       <a href="https://ops.nhnj.us/staff" target="_blank" rel="noopener">Employee Portal ↗</a>
       <a href="/logout">Sign Out</a>
     </div>

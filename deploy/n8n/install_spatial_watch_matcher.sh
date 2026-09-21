@@ -5,6 +5,7 @@ REPO="${CMOS_REPO:-/opt/city-manager-os}"
 EXPECTED_TARGET="${1:-}"
 MATCHER_ID="ESH9c2pZ8QfkMosO"
 MATCHER_FILE="$REPO/workflows/live/CORE_Watchlist_Matcher_live.json"
+MATCHER_SOURCE="$REPO/dashboard/static/watch_matcher.js"
 BACKUP_ROOT="/var/backups/city-manager-os/spatial-watch-matcher"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="${CMOS_MATCHER_BACKUP_DIR:-$BACKUP_ROOT/$STAMP}"
@@ -66,6 +67,7 @@ cd "$REPO"
 [[ -z "$EXPECTED_TARGET" || "$(git rev-parse HEAD)" == "$EXPECTED_TARGET" ]] \
   || fail "HEAD does not match expected target"
 [[ -s "$MATCHER_FILE" ]] || fail "matcher definition is missing"
+[[ -s "$MATCHER_SOURCE" ]] || fail "shared matcher source is missing"
 for container in n8n citymanager-postgis; do
   [[ "$(docker inspect "$container" --format '{{.State.Running}}' 2>/dev/null || true)" == true ]] \
     || fail "required container is not running: $container"
@@ -87,9 +89,9 @@ docker cp "n8n:$TMP_BACKUP" "$BACKUP_DIR/CORE_Watchlist_Matcher_pre56.json"
 chmod 600 "$BACKUP_DIR/database.sqlite" "$BACKUP_DIR/CORE_Watchlist_Matcher_pre56.json"
 
 log "Preparing and validating the spatial matcher definition"
-python3 - "$MATCHER_FILE" "$TMP_TARGET" "$MATCHER_ID" <<'PY'
+python3 - "$MATCHER_FILE" "$TMP_TARGET" "$MATCHER_ID" "$MATCHER_SOURCE" <<'PY'
 import json,sys,uuid
-source,target,workflow_id=sys.argv[1:]
+source,target,workflow_id,matcher_source=sys.argv[1:]
 payload=json.load(open(source))
 items=payload if isinstance(payload,list) else [payload]
 workflow=next((item for item in items if item.get('id')==workflow_id),None)
@@ -99,6 +101,9 @@ load=nodes.get('Load Active Watchlist + Recipients') or {}
 match=nodes.get('Match + Resolve Recipients') or {}
 query=(load.get('parameters') or {}).get('query','')
 code=(match.get('parameters') or {}).get('jsCode','')
+canonical=open(matcher_source).read().rstrip()
+if not code.startswith(canonical + '\n\n'):
+    raise SystemExit('published workflow is not using the shared Watch evaluator')
 required_query=('gis_active_spatial_watch_matches','supplied_alert_geom','spatial_match_reason','queryReplacement')
 if not all(value in (query + json.dumps(load.get('parameters') or {})) for value in required_query):
     raise SystemExit('spatial loader contract missing')
@@ -129,6 +134,8 @@ if(output.match_count!==1)throw new Error('text plus spatial produced duplicate 
 if(output.matches[0].match_mode!=='PROXIMITY')throw new Error('spatial match did not take precedence');
 if(output.recipient_count!==1||output.delivery_payloads.length!==1)throw new Error('recipient delivery was not deduplicated');
 if(output.matched_watch_ids.length!==1)throw new Error('watch ID was duplicated');
+const spatialOnlyOutside=evaluate(alert,{{...row,spatial_match_type:null,spatial_match_reason:null,nearby_enabled:true}});
+if(spatialOnlyOutside.match_count!==0)throw new Error('spatial-only Watch fell through to text matching');
 const locationTopic={{...row,watch_id:'CMOS_LOCATION_TOPIC',watch_type:'LOCATION_TOPIC',search_term:'ROAD CLOSURE',recipients:[recipient]}};
 const inside=evaluate(alert,locationTopic);
 if(inside.match_count!==1||inside.matches[0].match_mode!=='LOCATION_TOPIC')throw new Error('Location plus topic did not require and record both conditions');
@@ -138,7 +145,7 @@ const wrongTopic=evaluate({{...alert,search_text:'PARK AVENUE WATER MAIN'}},loca
 if(wrongTopic.match_count!==0)throw new Error('Location plus topic matched without the topic');
 const municipality=evaluate(alert,{{...locationTopic,nearby_enabled:false,municipality:'Weehawken',spatial_match_type:null,spatial_match_reason:null}});
 if(municipality.match_count!==1)throw new Error('municipality plus topic did not match both conditions');
-console.log('MATCHER CONTRACT spatial_dedup=ONE location_plus_topic=AND municipality_plus_topic=AND recipient_delivery=ONE');
+console.log('MATCHER CONTRACT spatial_only=GEOGRAPHY spatial_dedup=ONE location_plus_topic=AND municipality_plus_topic=AND recipient_delivery=ONE');
 '''
 open(sys.argv[2],'w').write(script)
 PY
@@ -156,7 +163,7 @@ docker restart n8n >/dev/null
 wait_ready || fail "n8n did not become ready"
 
 log "Verifying the active published workflow contract"
-python3 - "$N8N_DB" "$MATCHER_ID" <<'PY'
+python3 - "$N8N_DB" "$MATCHER_ID" "$MATCHER_SOURCE" <<'PY'
 import json,sqlite3,sys
 con=sqlite3.connect(sys.argv[1]); con.row_factory=sqlite3.Row
 row=con.execute('SELECT active,activeVersionId,nodes FROM workflow_entity WHERE id=?',(sys.argv[2],)).fetchone()
@@ -168,6 +175,9 @@ match=nodes.get('Match + Resolve Recipients') or {}
 query=(load.get('parameters') or {}).get('query','')
 options=(load.get('parameters') or {}).get('options') or {}
 code=(match.get('parameters') or {}).get('jsCode','')
+canonical=open(sys.argv[3]).read().rstrip()
+if not code.startswith(canonical + '\n\n'):
+    raise SystemExit('published matcher does not use the shared Watch evaluator')
 if 'gis_active_spatial_watch_matches' not in query:
     raise SystemExit('published loader does not call PostGIS spatial matching')
 if 'supplied_alert_geom' not in query:

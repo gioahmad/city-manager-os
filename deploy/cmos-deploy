@@ -201,6 +201,9 @@ def classify(files: list[str]) -> Plan:
                 add_test(plan, "test_source_onboarding.py", "test_event_source_pack.py")
             elif name == "attention_engine.py":
                 add_test(plan, "test_attention_engine.py")
+            elif name == "spatial_watch_app.py":
+                add_test(plan, "test_spatial_watch_pack.py", "test_watch_lab.py", "test_watchlist_reliability.py")
+                add_probe(plan, "/watchlist", "/api/spatial-watch/release", "/api/watchlist/health")
             else:
                 add_test(plan, "test_attention_engine.py")
             continue
@@ -210,6 +213,16 @@ def classify(files: list[str]) -> Plan:
             plan.backup_required = True
             plan.full_e2e = True
             plan.reasons.add("database migration requires guarded feature installer")
+            continue
+
+        if path in {
+            "workflows/core/CORE_Watchlist_Matcher_v1.json",
+            "workflows/live/CORE_Watchlist_Matcher_live.json",
+        }:
+            plan.external.add("n8n-workflow-publish")
+            plan.backup_required = True
+            plan.reasons.add("guarded central Watch matcher publish")
+            add_test(plan, "test_spatial_watch_pack.py", "test_watch_lab.py")
             continue
 
         if path == "workflows/core/CORE_Resolved_Spatial_Rematch_v1.json":
@@ -543,7 +556,9 @@ def main() -> int:
         print("CMOS CHANGE-AWARE VERIFY: PASS")
         return 0
 
-    if plan.backup_required:
+    if plan.backup_required and plan.external.intersection(
+        {"postgis-migration", "postgis-statewide-import", "infrastructure-compose"}
+    ):
         run([str(ROOT / "deploy" / "postgis" / "verify-backup.sh")])
     try:
         deploy(plan, target)
