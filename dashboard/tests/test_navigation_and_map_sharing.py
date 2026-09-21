@@ -84,7 +84,8 @@ def test_operational_map_link_round_trips_existing_map_state():
 
     assert "custom-'+el.dataset.id" in template
     assert "runMapSearch(initialMapQuery,sharedMapView)" in template
-    assert "localStorage" not in template
+    assert "SAVED_MAP_VIEWS_KEY='cmos.map.savedViews.v1'" in template
+    assert "localStorage.setItem(SAVED_MAP_VIEWS_KEY" in template
     assert ".map-share-status" in styles
 
 
@@ -98,3 +99,36 @@ def test_map_sharing_adds_no_server_side_state_or_parallel_map():
     assert "CREATE TABLE" not in source
     assert "MapLibre" not in template
     assert "Cesium" not in template
+
+
+def test_saved_views_measurements_and_current_view_brief_stay_browser_native():
+    template = (TEMPLATES / "map.html").read_text()
+    styles = (DASHBOARD_ROOT / "static" / "map.css").read_text()
+
+    assert 'id="saved-map-view-name"' in template
+    assert 'id="saved-map-views"' in template
+    assert "views.unshift({name,url:operationalMapUrl()" in template
+    assert "window.location.assign(url)" in template
+    assert "fetch('/map/saved" not in template
+
+    assert '<option value="">Measure only · do not save</option>' in template
+    assert 'id="map-measure-result"' in template
+    assert "function measurementText(layer,type)" in template
+    assert "L.GeometryUtil.geodesicArea(points)" in template
+    draw_handler = template.split("const drawLayerSelect", 1)[1]
+    measure_only = "if(!layerId){showMeasurement(ev.layer,ev.layerType);return;}"
+    assert measure_only in draw_handler
+    assert draw_handler.index(measure_only) < draw_handler.index("fetch('/map/layer/'")
+
+    assert 'id="build-current-view-brief"' in template
+    assert 'id="current-view-brief"' in template
+    assert "function layerFeaturesInView(group)" in template
+    assert "function buildCurrentViewBrief()" in template
+    assert "Loaded data only · built " in template
+    assert ".map-saved-actions" in styles
+    assert ".map-measure-label" in styles
+
+
+def test_map_template_compiles_after_browser_native_tools():
+    environment = Environment(loader=FileSystemLoader(TEMPLATES))
+    environment.get_template("map.html")

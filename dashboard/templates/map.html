@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
-  <link rel="stylesheet" href="/static/map.css?v=20260921-5">
+  <link rel="stylesheet" href="/static/map.css?v=20260921-6">
   <link rel="stylesheet" href="/static/map_status.css?v=20260909-1">
 </head>
 <body>
@@ -149,10 +149,10 @@
 
       <section class="map-tool-panel" data-panel-name="draw">
         <div class="map-section-title"><div><div class="panel-kicker">FIELD / PLANNING</div><h3>Draw on Map</h3></div></div>
-        {% if editable_layers %}
-        <label class="map-form-label">Save drawings to<select id="draw-layer-select">{% for layer in editable_layers %}<option value="{{ layer.id }}">{{ layer.name }}</option>{% endfor %}</select></label>
-        <div class="map-help-card">Use the Leaflet drawing buttons on the map to add a point, line, rectangle or polygon. The drawing saves directly to the selected layer.</div>
-        {% else %}<div class="map-help-card">Create an Editable / Imported GIS layer first to save drawings.</div>{% endif %}
+        <label class="map-form-label">Drawing action<select id="draw-layer-select"><option value="">Measure only · do not save</option>{% for layer in editable_layers %}<option value="{{ layer.id }}">Save to {{ layer.name }}</option>{% endfor %}</select></label>
+        <div id="map-measure-result" class="map-help-card" aria-live="polite">Choose a point, line, rectangle or polygon from the map. Lines show distance; shapes show area and perimeter.</div>
+        <button id="clear-map-measurement" class="map-mini-button map-full-button" type="button">Clear Measurement</button>
+        {% if editable_layers %}<p class="muted small-copy">Choose a named layer only when the drawing should be saved. Measure Only never writes to City Manager OS.</p>{% else %}<p class="muted small-copy">Measurements work without a layer. Create an Editable / Imported GIS layer only when drawings need to be saved.</p>{% endif %}
       </section>
 
       <section class="map-tool-panel" data-panel-name="tools">
@@ -160,6 +160,18 @@
         <button id="fit-town-tools" class="secondary-button map-full-button" type="button">Fit Weehawken</button>
         <button id="copy-map-link" class="secondary-button map-full-button" type="button">Copy Operational Map Link</button>
         <small id="map-share-status" class="map-share-status" aria-live="polite">Copies this view, enabled layers, Alert filters, active tool, and selected record.</small>
+        <details class="map-create" open>
+          <summary>Saved Map Views</summary>
+          <div class="map-form">
+            <label>View name<input id="saved-map-view-name" maxlength="60" placeholder="Morning overview"></label>
+            <button id="save-map-view" class="secondary-button" type="button">Save Current View</button>
+            <label>Saved views<select id="saved-map-views"><option value="">No saved views yet</option></select></label>
+            <div class="map-saved-actions"><button id="open-saved-map-view" class="map-mini-button" type="button">Open</button><button id="delete-saved-map-view" class="map-mini-button danger-lite" type="button">Delete</button></div>
+            <small id="saved-map-view-status" class="map-share-status" aria-live="polite">Saved only in this browser.</small>
+          </div>
+        </details>
+        <button id="build-current-view-brief" class="secondary-button map-full-button" type="button">Build Current View Brief</button>
+        <div id="current-view-brief" class="map-help-card map-current-brief" aria-live="polite"><strong>Current View Brief</strong><small>Uses only source-backed records already loaded in the visible map area.</small></div>
         <button id="pick-watch-point" class="secondary-button map-full-button" type="button">Pick Watch Point</button>
         <a class="secondary-button button-link map-full-button" href="/flood">Flood Intelligence</a>
         <a class="secondary-button button-link map-full-button" href="/issues">Open Work Items</a>
@@ -185,6 +197,7 @@ const regionBounds=[
   [{{ bounds.maxy if bounds else 40.783 }},{{ bounds.maxx if bounds else -74.008 }}]
 ];
 const MAP_SHARE_VERSION='1';
+const SAVED_MAP_VIEWS_KEY='cmos.map.savedViews.v1';
 const mapShareParams=new URLSearchParams(window.location.search);
 const sharedMapView=mapShareParams.get('map_view')===MAP_SHARE_VERSION;
 const map=L.map('city-map',{preferCanvas:true,zoomControl:true});
@@ -447,12 +460,22 @@ function operationalMapUrl(){
   if(selectedMapFeature?.id){params.set('selected_layer',selectedMapFeature.key);params.set('selected_id',selectedMapFeature.id);}
   return url.toString();
 }
+function savedMapViews(){try{const views=JSON.parse(localStorage.getItem(SAVED_MAP_VIEWS_KEY)||'[]');return Array.isArray(views)?views.filter(view=>view&&typeof view.name==='string'&&typeof view.url==='string'):[];}catch(error){return[];}}
+function renderSavedMapViews(selected=0){const select=document.getElementById('saved-map-views'),views=savedMapViews();if(!select)return;select.replaceChildren();if(!views.length){const option=document.createElement('option');option.value='';option.textContent='No saved views yet';select.appendChild(option);return;}views.forEach((view,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=view.name;select.appendChild(option);});select.value=String(Math.min(selected,views.length-1));}
+function savedViewStatus(message){const el=document.getElementById('saved-map-view-status');if(el)el.textContent=message;status(message);}
+function saveCurrentMapView(){const input=document.getElementById('saved-map-view-name'),name=input?.value.trim();if(!name){savedViewStatus('Enter a name for this map view.');input?.focus();return;}const views=savedMapViews().filter(view=>view.name.toLowerCase()!==name.toLowerCase());views.unshift({name,url:operationalMapUrl(),saved_at:new Date().toISOString()});try{localStorage.setItem(SAVED_MAP_VIEWS_KEY,JSON.stringify(views.slice(0,20)));renderSavedMapViews();if(input)input.value='';savedViewStatus(name+' saved in this browser.');}catch(error){savedViewStatus('This browser could not save the map view.');}}
+function selectedSavedMapView(){const select=document.getElementById('saved-map-views'),index=Number(select?.value);return Number.isInteger(index)?savedMapViews()[index]:null;}
+function openSavedMapView(){const view=selectedSavedMapView();if(!view){savedViewStatus('Choose a saved map view first.');return;}try{const url=new URL(view.url,window.location.origin);if(url.origin!==window.location.origin||url.pathname!=='/map'||url.searchParams.get('map_view')!==MAP_SHARE_VERSION)throw new Error('invalid saved view');window.location.assign(url);}catch(error){savedViewStatus('That saved map view is invalid. Delete it and save it again.');}}
+function deleteSavedMapView(){const select=document.getElementById('saved-map-views'),index=Number(select?.value),views=savedMapViews();if(!Number.isInteger(index)||!views[index]){savedViewStatus('Choose a saved map view first.');return;}const removed=views.splice(index,1)[0];localStorage.setItem(SAVED_MAP_VIEWS_KEY,JSON.stringify(views));renderSavedMapViews(Math.max(0,index-1));savedViewStatus(removed.name+' deleted.');}
+function layerFeaturesInView(group){const bounds=map.getBounds(),features=[];if(!group?.eachLayer)return features;group.eachLayer(layer=>{let visible=false;if(layer.getLatLng)visible=bounds.contains(layer.getLatLng());else if(layer.getBounds){const layerBounds=layer.getBounds();visible=layerBounds.isValid()&&bounds.intersects(layerBounds);}if(visible&&layer.feature)features.push(layer.feature);});return features;}
+function buildCurrentViewBrief(){const brief=document.getElementById('current-view-brief'),enabled=[];document.querySelectorAll('.system-layer-toggle:checked').forEach(el=>enabled.push({key:el.dataset.key,name:el.dataset.name||el.dataset.key}));document.querySelectorAll('.custom-layer-toggle:checked').forEach(el=>enabled.push({key:'custom-'+el.dataset.id,name:el.dataset.name||'Custom layer'}));const rows=enabled.map(item=>({...item,features:layerFeaturesInView(groups[item.key])})).filter(item=>item.features.length);const total=rows.reduce((sum,item)=>sum+item.features.length,0),alerts=rows.find(item=>item.key==='alerts')?.features||[],work=rows.find(item=>item.key==='operations')?.features||[],watches=rows.find(item=>item.key==='watchlist')?.features||[],events=rows.filter(item=>['event-intelligence','managed-events'].includes(item.key)).reduce((all,item)=>all.concat(item.features),[]),urgent=alerts.filter(feature=>Number(mergedProperties(feature).priority||0)>=4).length;const lines=[total+' loaded record'+(total===1?'':'s')+' across '+rows.length+' visible layer'+(rows.length===1?'':'s')+'.'];if(alerts.length)lines.push(alerts.length+' Alert'+(alerts.length===1?'':'s')+(urgent?' · '+urgent+' priority P4/P5':''));if(watches.length)lines.push(watches.length+' active Watch'+(watches.length===1?'':'es'));if(work.length)lines.push(work.length+' open Work Item'+(work.length===1?'':'s'));if(events.length)lines.push(events.length+' event'+(events.length===1?'':'s'));rows.filter(item=>!['alerts','watchlist','operations','event-intelligence','managed-events'].includes(item.key)).forEach(item=>lines.push(item.name+' · '+item.features.length));brief.replaceChildren();const title=document.createElement('strong');title.textContent='Current View Brief';brief.appendChild(title);lines.forEach(line=>{const row=document.createElement('small');row.textContent=line;brief.appendChild(row);});const note=document.createElement('small');note.textContent='Loaded data only · built '+refreshClock();brief.appendChild(note);status('Current View Brief updated');}
 async function copyOperationalMapLink(){
   const link=operationalMapUrl(),message=document.getElementById('map-share-status');
   try{if(!navigator.clipboard?.writeText)throw new Error('clipboard unavailable');await navigator.clipboard.writeText(link);if(message)message.textContent='Operational map link copied.';status('Operational map link copied');}
   catch(error){window.prompt('Copy this operational map link',link);if(message)message.textContent='Operational map link is ready to copy.';}
 }
 document.getElementById('copy-map-link')?.addEventListener('click',copyOperationalMapLink);
+document.getElementById('save-map-view')?.addEventListener('click',saveCurrentMapView);document.getElementById('open-saved-map-view')?.addEventListener('click',openSavedMapView);document.getElementById('delete-saved-map-view')?.addEventListener('click',deleteSavedMapView);document.getElementById('build-current-view-brief')?.addEventListener('click',buildCurrentViewBrief);renderSavedMapViews();
 document.getElementById('pick-watch-point')?.addEventListener('click',()=>{locationPickerActive=true;status('Click the map to select a Watch Location');map.getContainer().style.cursor='crosshair';map.once('click',ev=>{locationPickerActive=false;map.getContainer().style.cursor='';const params=new URLSearchParams({display_name:'Map location watch',latitude:ev.latlng.lat,longitude:ev.latlng.lng,location_kind:'MAP_POINT',setup_mode:'LOCATION'});const history=new URLSearchParams({lat:ev.latlng.lat,lon:ev.latlng.lng,radius_ft:5280,hours:24});removeLayer('watch-preview');const previewArea=L.circle(ev.latlng,{radius:5280*0.3048,color:'#c792ea',weight:2,fillColor:'#c792ea',fillOpacity:.12,interactive:false});const previewCenter=watchCenterMarker(ev.latlng);groups['watch-preview']=L.featureGroup([previewArea,previewCenter]).addTo(map);const popup=document.createElement('div');popup.className='map-popup';const coords=document.createElement('strong');coords.textContent=ev.latlng.lat.toFixed(6)+', '+ev.latlng.lng.toFixed(6);const actions=document.createElement('div');actions.className='map-layer-actions';const watch=document.createElement('a');watch.className='map-mini-button';watch.textContent='Create One-Mile Watch';watch.href='/watchlist?'+params;const nearby=document.createElement('a');nearby.className='map-mini-button';nearby.textContent='Nearby Alert History';nearby.href='/api/spatial-watch-point/nearby-history?'+history;actions.append(watch,nearby);popup.append(coords,actions);showSelectedLocation(ev.latlng);L.popup().setLatLng(ev.latlng).setContent(popup).openOn(map);status('One-mile Watch preview · center marked');});});
 
 document.querySelectorAll('.map-tab').forEach(button=>button.addEventListener('click',()=>activateMapPanel(button.dataset.panel)));
@@ -483,7 +506,15 @@ document.querySelectorAll('.zoom-custom-layer').forEach(button=>button.addEventL
 const importSelect=document.getElementById('import-layer-select'),importForm=document.getElementById('map-import-form');function syncImportAction(){if(importSelect&&importForm)importForm.action='/map/layer/'+importSelect.value+'/upload';}importSelect?.addEventListener('change',syncImportAction);syncImportAction();
 const typeSelect=document.getElementById('new-layer-type'),xyzField=document.getElementById('xyz-url-field');function syncLayerForm(){if(xyzField&&typeSelect)xyzField.hidden=typeSelect.value!=='XYZ';}typeSelect?.addEventListener('change',syncLayerForm);syncLayerForm();
 
-const drawLayerSelect=document.getElementById('draw-layer-select');if(drawLayerSelect&&window.L.Control.Draw){const drawControl=new L.Control.Draw({position:'topleft',edit:false,draw:{circle:false,circlemarker:false,rectangle:true,marker:true,polyline:true,polygon:true}});map.addControl(drawControl);map.on(L.Draw.Event.DRAWSTART,()=>{drawingActive=true;});map.on(L.Draw.Event.DRAWSTOP,()=>{drawingActive=false;});map.on(L.Draw.Event.CREATED,async ev=>{drawingActive=false;const layerId=drawLayerSelect.value;if(!layerId){status('Choose a custom layer first');return;}const feature=ev.layer.toGeoJSON();status('Saving drawing...');const res=await fetch('/map/layer/'+layerId+'/feature',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geometry:feature.geometry,properties:{source:'web-draw'}})});if(!res.ok){status('Could not save drawing');return;}const toggle=document.querySelector('.custom-layer-toggle[data-id="'+layerId+'"]');if(toggle){toggle.checked=true;await syncCustomLayer(toggle,true);}status('Drawing saved');});}
+function formatMapDistance(meters){const feet=meters*3.28084;return feet>=5280?(feet/5280).toFixed(2)+' mi':Math.round(feet).toLocaleString()+' ft';}
+function formatMapArea(squareMeters){const squareFeet=squareMeters*10.7639;return squareFeet>=43560?(squareFeet/43560).toFixed(2)+' acres':Math.round(squareFeet).toLocaleString()+' sq ft';}
+function drawingPoints(layer){const latlngs=layer.getLatLngs?.()||[];return Array.isArray(latlngs[0])?latlngs[0]:latlngs;}
+function pathDistance(points,closed=false){let meters=0;for(let index=1;index<points.length;index+=1)meters+=map.distance(points[index-1],points[index]);if(closed&&points.length>2)meters+=map.distance(points.at(-1),points[0]);return meters;}
+function measurementText(layer,type){if(type==='marker'){const point=layer.getLatLng();return'Point · '+point.lat.toFixed(6)+', '+point.lng.toFixed(6);}const points=drawingPoints(layer);if(type==='polyline')return'Distance · '+formatMapDistance(pathDistance(points));const area=L.GeometryUtil.geodesicArea(points);return'Area · '+formatMapArea(area)+' · perimeter '+formatMapDistance(pathDistance(points,true));}
+function showMeasurement(layer,type){removeLayer('measurement');const message=measurementText(layer,type);groups.measurement=L.featureGroup([layer]).addTo(map);layer.bindTooltip(message,{permanent:true,direction:'center',className:'map-measure-label'}).openTooltip();const result=document.getElementById('map-measure-result');if(result)result.textContent=message;status(message);}
+function clearMeasurement(){removeLayer('measurement');const result=document.getElementById('map-measure-result');if(result)result.textContent='Choose a point, line, rectangle or polygon from the map. Lines show distance; shapes show area and perimeter.';status('Measurement cleared');}
+const drawLayerSelect=document.getElementById('draw-layer-select');if(drawLayerSelect&&window.L.Control.Draw){const drawControl=new L.Control.Draw({position:'topleft',edit:false,draw:{circle:false,circlemarker:false,rectangle:true,marker:true,polyline:true,polygon:true}});map.addControl(drawControl);map.on(L.Draw.Event.DRAWSTART,()=>{drawingActive=true;});map.on(L.Draw.Event.DRAWSTOP,()=>{drawingActive=false;});map.on(L.Draw.Event.CREATED,async ev=>{drawingActive=false;const layerId=drawLayerSelect.value;if(!layerId){showMeasurement(ev.layer,ev.layerType);return;}const feature=ev.layer.toGeoJSON();status('Saving drawing...');const res=await fetch('/map/layer/'+layerId+'/feature',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geometry:feature.geometry,properties:{source:'web-draw'}})});if(!res.ok){status('Could not save drawing');return;}const toggle=document.querySelector('.custom-layer-toggle[data-id="'+layerId+'"]');if(toggle){toggle.checked=true;await syncCustomLayer(toggle,true);}status('Drawing saved');});}
+document.getElementById('clear-map-measurement')?.addEventListener('click',clearMeasurement);
 </script>
 </body>
 </html>
