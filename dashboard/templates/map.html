@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
-  <link rel="stylesheet" href="/static/map.css?v=20260921-7">
+  <link rel="stylesheet" href="/static/map.css?v=20260921-8">
   <link rel="stylesheet" href="/static/map_status.css?v=20260909-1">
 </head>
 <body>
@@ -63,29 +63,10 @@
             <label class="map-check"><input type="checkbox" data-area-record="operations" checked> Work Items</label>
             <label class="map-check"><input type="checkbox" data-area-record="watchlist" checked> Watches</label>
           </div>
-          <label>Show alerts from
-            <select id="alert-window">
-              <option value="6h">Last 6 hours</option>
-              <option value="12h" selected>Last 12 hours</option>
-              <option value="24h">Last 24 hours</option>
-              <option value="7d">Last week</option>
-              <option value="30d">Last 30 days</option>
-              <option value="all">All mapped history</option>
-            </select>
-          </label>
-          <details open>
-            <summary class="map-history-link" style="cursor:pointer">Alert source, category, priority, and status</summary>
-            <div class="map-alert-filter-grid">
-              <label>Source<select id="alert-map-source"><option value="">All sources</option>{% for item in alert_sources %}<option value="{{ item.source }}">{{ item.source }}</option>{% endfor %}</select></label>
-              <label>Category<select id="alert-map-category"><option value="">All categories</option>{% for item in alert_categories %}<option value="{{ item.category }}">{{ item.category }}</option>{% endfor %}</select></label>
-            </div>
-            <label>Minimum priority<select id="alert-map-priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
-            <label class="map-check"><input id="alert-map-active" type="checkbox"> Current unresolved only</label>
-          </details>
           <button id="search-visible-records" class="map-mini-button" type="button">Search Visible Area</button>
           <a href="/alerts?window=all&amp;state=all" class="map-history-link">Search all alerts</a>
           <a href="/search" class="map-history-link">Search all operational records</a>
-          <small>Search follows the current map view. The Alert time choice only controls what is displayed. Alert history is kept.</small>
+          <small>Search follows the current map view. Alert display filters are under Layers. Alert history is kept.</small>
         </div>
       </section>
 
@@ -98,6 +79,30 @@
             <span><strong>{{ layer.name }}</strong><small>City Manager OS</small><small class="map-layer-runtime" data-layer-runtime="{{ layer.key }}">Not loaded</small></span>
           </label>
           {% endfor %}
+        </div>
+
+        <div class="map-alert-controls">
+          <strong>Alert Layer Filters</strong>
+          <label>Show alerts from
+            <select id="alert-window">
+              <option value="6h">Last 6 hours</option>
+              <option value="12h" selected>Last 12 hours</option>
+              <option value="24h">Last 24 hours</option>
+              <option value="7d">Last week</option>
+              <option value="30d">Last 30 days</option>
+              <option value="all">All mapped history</option>
+            </select>
+          </label>
+          <details open>
+            <summary class="map-history-link" style="cursor:pointer">Source, category, priority, and status</summary>
+            <div class="map-alert-filter-grid">
+              <label>Source<select id="alert-map-source"><option value="">All sources</option>{% for item in alert_sources %}<option value="{{ item.source }}">{{ item.source }}</option>{% endfor %}</select></label>
+              <label>Category<select id="alert-map-category"><option value="">All categories</option>{% for item in alert_categories %}<option value="{{ item.category }}">{{ item.category|replace('_',' ') }}</option>{% endfor %}</select></label>
+            </div>
+            <label>Minimum priority<select id="alert-map-priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
+            <label class="map-check"><input id="alert-map-active" type="checkbox"> Current unresolved only</label>
+          </details>
+          <small>Changing a filter refreshes the Alerts layer immediately. Category uses the category supplied by each source, including BNN. The Alert time choice only controls what is displayed. Alert history is kept.</small>
         </div>
 
         <div class="map-section-title map-subhead"><h3>Your Layers</h3><span class="count-pill">{{ custom_layers|length }}</span></div>
@@ -218,6 +223,8 @@ const selectedLayer=document.getElementById('map-selected-layer');
 const selectedDetails=document.getElementById('map-selected-details');
 let selectedMapFeature=null;
 let locationPickerActive=false;
+let alertLocationPick=null;
+let alertLocationEditor=null;
 let drawingActive=false;
 function status(msg){statusEl.textContent=msg;}
 function safeText(v){if(v===null||v===undefined||v==='')return'—';if(Array.isArray(v))return v.map(safeText).join(', ');if(typeof v==='object'){try{return JSON.stringify(v);}catch(error){return'Additional details';}}return String(v);}
@@ -274,7 +281,7 @@ function spatialActions(feature,layer,key){
   else if(layer.getBounds){const bounds=layer.getBounds();if(bounds.isValid())center=bounds.getCenter();}
   const wrap=document.createElement('div');wrap.className='map-layer-actions';
   const label=merged.title||merged.display_name||merged.name||merged.label||merged.canonical_name||merged.fulladdr||merged.prop_loc||merged.mapped_address||'Map selection';
-  if(key==='alerts'&&merged.alert_id){wrap.appendChild(actionLink('Track This Alert','/issues?'+new URLSearchParams({from_alert:merged.alert_id})));wrap.appendChild(actionLink('Create Watch From Alert','/watchlist?'+new URLSearchParams({from_alert:merged.alert_id})));wrap.appendChild(actionLink('Open Full Alert','/alerts?'+new URLSearchParams({q:merged.alert_id,window:'all',state:'all'})));const impact=document.createElement('button');impact.type='button';impact.className='map-mini-button';impact.textContent='Show Impact Area';impact.addEventListener('click',()=>showImpactArea(merged.alert_id));wrap.appendChild(impact);}
+  if(key==='alerts'&&merged.alert_id){wrap.appendChild(actionLink('Track This Alert','/issues?'+new URLSearchParams({from_alert:merged.alert_id})));wrap.appendChild(actionLink('Create Watch From Alert','/watchlist?'+new URLSearchParams({from_alert:merged.alert_id})));wrap.appendChild(actionLink('Open Full Alert','/alerts?'+new URLSearchParams({q:merged.alert_id,window:'all',state:'all'})));const impact=document.createElement('button');impact.type='button';impact.className='map-mini-button';impact.textContent='Show Impact Area';impact.addEventListener('click',()=>showImpactArea(merged.alert_id));wrap.appendChild(impact);const correct=document.createElement('button');correct.type='button';correct.className='map-mini-button';correct.textContent='Correct Alert Location';correct.addEventListener('click',()=>startAlertLocationEditor(feature,layer));wrap.appendChild(correct);}
   else if(key==='watchlist'&&merged.watch_id){wrap.appendChild(actionLink('Open Watch','/watchlist?'+new URLSearchParams({q:merged.watch_id})));}
   else{
     let locationKind='',locationId='';
@@ -317,9 +324,9 @@ function selectedFeatureContext(feature,layer,key,layerName){
   card.append(heading,facts,nearbyHeading,note,list);
   return card;
 }
-function showSelectedFeature(feature,layer,key,layerName){selectedMapFeature={key,id:featureIdentity(feature,key)};selectedTitle.textContent=featureTitle(feature,key,layerName);selectedLayer.textContent=layerName;selectedDetails.replaceChildren(selectedFeatureContext(feature,layer,key,layerName),featureContent(feature,layer,key));status(layerName+' selected');}
+function showSelectedFeature(feature,layer,key,layerName){const id=featureIdentity(feature,key);if(alertLocationEditor&&(selectedMapFeature?.key!==key||selectedMapFeature?.id!==id))clearAlertLocationEditor();selectedMapFeature={key,id};selectedTitle.textContent=featureTitle(feature,key,layerName);selectedLayer.textContent=layerName;selectedDetails.replaceChildren(selectedFeatureContext(feature,layer,key,layerName),featureContent(feature,layer,key));status(layerName+' selected');}
 function locationContent(latlng){const popup=document.createElement('div');popup.className='map-popup';const row=document.createElement('div');const strong=document.createElement('strong');strong.textContent='Coordinates: ';const span=document.createElement('span');span.textContent=latlng.lat.toFixed(6)+', '+latlng.lng.toFixed(6);row.append(strong,span);const actions=document.createElement('div');actions.className='map-layer-actions';actions.appendChild(actionLink('Create One-Mile Watch','/watchlist?'+new URLSearchParams({display_name:'Map location watch',latitude:latlng.lat,longitude:latlng.lng,location_kind:'MAP_POINT',setup_mode:'LOCATION'})));popup.append(row,actions);return popup;}
-function showSelectedLocation(latlng){selectedMapFeature=null;selectedTitle.textContent='Map location';selectedLayer.textContent='Selected coordinates';selectedDetails.replaceChildren(locationContent(latlng));status('Map location selected');}
+function showSelectedLocation(latlng){if(alertLocationEditor)clearAlertLocationEditor();selectedMapFeature=null;selectedTitle.textContent='Map location';selectedLayer.textContent='Selected coordinates';selectedDetails.replaceChildren(locationContent(latlng));status('Map location selected');}
 function refreshFeatureOrder(){
   const customKeys=Object.keys(groups).filter(key=>key.startsWith('custom-')&&groups[key] instanceof L.GeoJSON);
   const ordered=['flood','parcels',...customKeys,'spatial-references','watchlist','watch-centers','addresses','event-intelligence','managed-events','transit-intelligence','operations','impact-preview','alerts','search'];
@@ -389,6 +396,64 @@ async function loadGeo(key,endpoint,color,viewport=false,layerName=key,force=fal
 function removeLayer(key){loadVersions[key]=(loadVersions[key]||0)+1;layerLoads[key]?.controller.abort();delete layerLoads[key];delete loadedSignatures[key];delete layerMetrics[key];if(groups[key]){map.removeLayer(groups[key]);groups[key]=null;}if(key==='watchlist'&&groups['watch-centers']){map.removeLayer(groups['watch-centers']);groups['watch-centers']=null;}layerRuntime(key,'Not loaded');}
 async function showImpactArea(alertId){const requested=window.prompt('Impact buffer in feet','500');if(requested===null)return;const radius=Math.max(1,Math.min(Number(requested)||500,26400));status('Loading impact area...');const res=await fetch('/api/alerts/'+encodeURIComponent(alertId)+'/impact-buffer.geojson?radius_ft='+radius,{headers:{Accept:'application/geo+json'}});if(!res.ok){status('Impact area unavailable');return;}const data=await res.json();removeLayer('impact-preview');groups['impact-preview']=L.geoJSON(data,{style:{color:'#d64545',weight:3,fillColor:'#d64545',fillOpacity:.16,interactive:false}}).addTo(map);refreshFeatureOrder();const bounds=groups['impact-preview'].getBounds();if(bounds.isValid())map.fitBounds(bounds,{padding:[30,30],maxZoom:18});status('Impact area · '+radius.toLocaleString()+' ft');}
 
+function parseMapCoordinates(value){
+  let text=String(value||'').trim();
+  try{text=decodeURIComponent(text);}catch(error){/* Keep the pasted text unchanged. */}
+  const at=text.match(/@\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/),pair=at||text.match(/(?:^|[^\d.])(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)(?:[^\d.]|$)/);
+  if(!pair)return null;
+  const latitude=Number(pair[1]),longitude=Number(pair[2]);
+  return Number.isFinite(latitude)&&Number.isFinite(longitude)&&Math.abs(latitude)<=90&&Math.abs(longitude)<=180?L.latLng(latitude,longitude):null;
+}
+function clearAlertLocationEditor(){
+  alertLocationPick=null;
+  map.getContainer().style.cursor='';
+  removeLayer('alert-location-editor');
+  if(alertLocationEditor?.isConnected)alertLocationEditor.remove();
+  alertLocationEditor=null;
+}
+function startAlertLocationEditor(feature,layer){
+  clearAlertLocationEditor();
+  const props=mergedProperties(feature),alertId=String(props.alert_id||''),current=layerCenter(layer);
+  if(!alertId||!current){status('This alert does not have a point that can be edited.');return;}
+  const editor=document.createElement('section');editor.className='map-location-editor map-form';
+  const heading=document.createElement('strong');heading.textContent='Correct Alert Location';
+  const help=document.createElement('small');help.textContent='Paste one latitude, longitude pair from Google Maps, paste a Google Maps link, click the map, or drag the preview marker.';
+  const coordinateLabel=document.createElement('label');coordinateLabel.textContent='Coordinates or Google Maps link';
+  const coordinateInput=document.createElement('input');coordinateInput.type='text';coordinateInput.autocomplete='off';coordinateInput.placeholder='40.765123, -74.021456';coordinateInput.value=current.lat.toFixed(6)+', '+current.lng.toFixed(6);coordinateLabel.appendChild(coordinateInput);
+  const nameLabel=document.createElement('label');nameLabel.textContent='Location label or address';
+  const nameInput=document.createElement('input');nameInput.type='text';nameInput.maxLength=300;nameInput.placeholder='Optional override. Blank uses nearest local address';nameLabel.appendChild(nameInput);
+  const reasonLabel=document.createElement('label');reasonLabel.textContent='Correction note';
+  const reasonInput=document.createElement('input');reasonInput.type='text';reasonInput.maxLength=500;reasonInput.placeholder='Why this point is more accurate';reasonLabel.appendChild(reasonInput);
+  const message=document.createElement('small');message.className='map-location-editor-status';message.setAttribute('aria-live','polite');message.textContent='The marker is a preview until you save.';
+  const actions=document.createElement('div');actions.className='map-layer-actions';
+  const preview=document.createElement('button'),pick=document.createElement('button'),save=document.createElement('button'),cancel=document.createElement('button');
+  [preview,pick,save,cancel].forEach(button=>{button.type='button';button.className='map-mini-button';});
+  preview.textContent='Preview Coordinates';pick.textContent='Pick on Map';save.textContent='Save Correction';cancel.textContent='Cancel';
+  actions.append(preview,pick,save,cancel);editor.append(heading,help,coordinateLabel,nameLabel,reasonLabel,actions,message);selectedDetails.appendChild(editor);alertLocationEditor=editor;
+  function setMarker(latlng,pan=false){
+    removeLayer('alert-location-editor');
+    const marker=L.marker(latlng,{draggable:true,bubblingMouseEvents:false,autoPan:true}).bindTooltip('Drag to correct alert location',{permanent:false,direction:'top'});
+    marker.on('dragend',()=>{const point=marker.getLatLng();coordinateInput.value=point.lat.toFixed(6)+', '+point.lng.toFixed(6);message.textContent='Preview marker moved. Save to apply the correction.';});
+    groups['alert-location-editor']=L.featureGroup([marker]).addTo(map);marker.openTooltip();if(pan)map.panTo(latlng);
+  }
+  function previewValue(pan=true){const latlng=parseMapCoordinates(coordinateInput.value);if(!latlng){message.textContent='Enter latitude first, then longitude, or paste a Google Maps link.';coordinateInput.focus();return null;}coordinateInput.value=latlng.lat.toFixed(6)+', '+latlng.lng.toFixed(6);setMarker(latlng,pan);message.textContent='Preview ready. Drag the marker or save this point.';return latlng;}
+  setMarker(current);
+  preview.addEventListener('click',()=>previewValue());
+  pick.addEventListener('click',()=>{alertLocationPick=latlng=>{coordinateInput.value=latlng.lat.toFixed(6)+', '+latlng.lng.toFixed(6);setMarker(latlng);message.textContent='Map point selected. Drag the marker or save this point.';};map.closePopup();map.getContainer().style.cursor='crosshair';message.textContent='Click the map where this alert belongs.';status('Click the map to correct '+alertId);});
+  cancel.addEventListener('click',()=>{clearAlertLocationEditor();status('Alert location correction canceled');});
+  save.addEventListener('click',async()=>{
+    const latlng=previewValue(false);if(!latlng)return;
+    save.disabled=true;message.textContent='Saving verified alert location...';status('Saving alert location...');
+    try{
+      const res=await fetch('/map/alerts/'+encodeURIComponent(alertId)+'/location',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({coordinates:coordinateInput.value,label:nameInput.value.trim(),reason:reasonInput.value.trim()})});
+      const data=await res.json().catch(()=>({}));if(!res.ok)throw new Error(data.detail||'Alert location could not be saved.');
+      clearAlertLocationEditor();await refreshAlertLayer(true);map.setView(latlng,Math.max(map.getZoom(),16));
+      const confirmation=document.createElement('div');confirmation.className='map-help-card';confirmation.textContent='Location corrected to '+latlng.lat.toFixed(6)+', '+latlng.lng.toFixed(6)+'. '+(data.spatial_rematch==='QUEUED'?'Spatial Watch recheck queued.':'Saved; this alert is outside the live rematch window.');selectedDetails.appendChild(confirmation);status('Alert location corrected');
+    }catch(error){save.disabled=false;message.textContent=error.message;status(error.message);}
+  });
+  coordinateInput.focus();coordinateInput.select();status('Edit coordinates, pick the map, or drag the marker');
+}
+
 async function syncSystemLayer(el,force=false){if(!el.checked){removeLayer(el.dataset.key);return null;}return loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,el.dataset.viewport==='1',el.dataset.name||el.dataset.key,force);}
 document.querySelectorAll('.system-layer-toggle').forEach(el=>{el.addEventListener('change',()=>syncSystemLayer(el).catch(e=>status(e.message)));});
 const OSM_TILE_HOST='tile.openstreetmap.org';
@@ -448,7 +513,7 @@ function restoreMapControls(){
   activateMapPanel(mapShareParams.get('tab')||'search');
 }
 function alertEndpoint(){const params=new URLSearchParams({window:document.getElementById('alert-window')?.value||'12h',min_priority:document.getElementById('alert-map-priority')?.value||'1'});const q=document.getElementById('alert-map-query')?.value.trim(),source=document.getElementById('alert-map-source')?.value,category=document.getElementById('alert-map-category')?.value;if(q)params.set('q',q);if(source)params.set('source',source);if(category)params.set('category',category);if(document.getElementById('alert-map-active')?.checked)params.set('active_only','true');return '/map/system/alerts.geojson?'+params;}
-async function refreshAlertLayer(){if(!alertToggle)return;alertToggle.dataset.endpoint=alertEndpoint();alertToggle.checked=true;try{await loadGeo('alerts',alertToggle.dataset.endpoint,alertToggle.dataset.color||null,true,alertToggle.dataset.name||'Alerts');}catch(e){status(e.message);}}
+async function refreshAlertLayer(force=false){if(!alertToggle)return;alertToggle.dataset.endpoint=alertEndpoint();alertToggle.checked=true;try{await loadGeo('alerts',alertToggle.dataset.endpoint,alertToggle.dataset.color||null,true,alertToggle.dataset.name||'Alerts',force);}catch(e){status(e.message);}}
 function areaEndpoint(toggle,query){if(toggle.dataset.key==='alerts')return alertEndpoint();const url=new URL(toggle.dataset.baseEndpoint,window.location.href);if(query)url.searchParams.set('q',query);return url.pathname+url.search;}
 async function searchVisibleRecords(){
   const query=document.getElementById('alert-map-query')?.value.trim()||'';
@@ -465,13 +530,13 @@ async function searchVisibleRecords(){
 }
 document.getElementById('search-visible-records')?.addEventListener('click',searchVisibleRecords);
 document.getElementById('alert-map-query')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();searchVisibleRecords();}});
-document.getElementById('alert-window')?.addEventListener('change',refreshAlertLayer);
+['alert-window','alert-map-source','alert-map-category','alert-map-priority','alert-map-active'].forEach(id=>document.getElementById(id)?.addEventListener('change',refreshAlertLayer));
 restoreMapControls();
 if(alertToggle)alertToggle.dataset.endpoint=alertEndpoint();
 async function initialLoad(){const jobs=[...document.querySelectorAll('.custom-layer-toggle:checked')].map(el=>syncCustomLayer(el));jobs.push(...[...document.querySelectorAll('.system-layer-toggle:checked')].map(el=>syncSystemLayer(el)));const results=await Promise.allSettled(jobs),failed=results.filter(result=>result.status==='rejected').length;status(failed?'Map ready · '+failed+' layer'+(failed===1?'':'s')+' unavailable':'Map ready');}
 initialLoad();
 let viewportTimer=null;map.on('moveend',()=>{clearTimeout(viewportTimer);if(map._popup)return;viewportTimer=setTimeout(async()=>{if(map._popup)return;const jobs=[...document.querySelectorAll('.system-layer-toggle:checked')].filter(el=>el.dataset.viewport==='1').map(el=>syncSystemLayer(el));const results=await Promise.allSettled(jobs),failed=results.filter(result=>result.status==='rejected').length;if(failed)status(failed+' visible layer refresh'+(failed===1?'':'es')+' failed · previous data kept');},600);});
-map.on('click',ev=>{if(locationPickerActive||drawingActive)return;showSelectedLocation(ev.latlng);L.popup({maxWidth:420}).setLatLng(ev.latlng).setContent(locationContent(ev.latlng)).openOn(map);});
+map.on('click',ev=>{if(alertLocationPick){const choose=alertLocationPick;alertLocationPick=null;map.getContainer().style.cursor='';choose(ev.latlng);return;}if(locationPickerActive||drawingActive)return;showSelectedLocation(ev.latlng);L.popup({maxWidth:420}).setLatLng(ev.latlng).setContent(locationContent(ev.latlng)).openOn(map);});
 
 function fitRegion(){map.fitBounds(regionBounds,{padding:[20,20]});}
 document.getElementById('fit-town')?.addEventListener('click',fitRegion);document.getElementById('fit-town-tools')?.addEventListener('click',fitRegion);

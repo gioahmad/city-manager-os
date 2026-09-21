@@ -1,10 +1,16 @@
 from pathlib import Path
+import asyncio
+import json
+import os
+import sys
 
+import pytest
 from jinja2 import Environment, FileSystemLoader
 
 
 DASHBOARD_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = DASHBOARD_ROOT / "templates"
+sys.path.insert(0, str(DASHBOARD_ROOT))
 
 
 def test_navigation_is_task_grouped_without_removing_destinations():
@@ -89,6 +95,175 @@ def test_operational_map_link_round_trips_existing_map_state():
     assert ".map-share-status" in styles
 
 
+def test_alert_category_filter_lives_with_layers_and_refreshes_the_existing_layer():
+    template = (TEMPLATES / "map.html").read_text()
+    source = (DASHBOARD_ROOT / "map_app.py").read_text()
+    search_panel = template.split('data-panel-name="search"', 1)[1].split(
+        'data-panel-name="layers"', 1
+    )[0]
+    layers_panel = template.split('data-panel-name="layers"', 1)[1].split(
+        'data-panel-name="import"', 1
+    )[0]
+
+    assert 'id="alert-map-category"' not in search_panel
+    assert 'id="alert-map-category"' in layers_panel
+    assert "Category uses the category supplied by each source, including BNN." in layers_panel
+    assert "['alert-window','alert-map-source','alert-map-category','alert-map-priority','alert-map-active'].forEach" in template
+    assert "if(category)params.set('category',category)" in template
+    assert "upper(a.category)=upper(%s)" in source
+    assert "WHEN a.geom IS NULL" in source
+
+
+def test_alert_location_correction_accepts_one_coordinate_pair_or_google_maps_link(monkeypatch):
+    monkeypatch.chdir(DASHBOARD_ROOT)
+    os.environ.setdefault("DB_PASSWORD", "test")
+    from fastapi import HTTPException
+    from map_app import _coordinate_pair
+
+    assert _coordinate_pair("40.765123, -74.021456") == (40.765123, -74.021456)
+    assert _coordinate_pair(
+        "https://www.google.com/maps/place/Valley/@40.965353,-74.072017,17z"
+    ) == (40.965353, -74.072017)
+    assert _coordinate_pair("https://maps.google.com/?q=40.765123%2C-74.021456") == (
+        40.765123,
+        -74.021456,
+    )
+    with pytest.raises(HTTPException, match="latitude, longitude"):
+        _coordinate_pair("40.765123")
+    with pytest.raises(HTTPException, match="outside valid"):
+        _coordinate_pair("140.765123, -274.021456")
+
+
+def test_alert_location_correction_reuses_map_alert_and_resolution_systems():
+    template = (TEMPLATES / "map.html").read_text()
+    source = (DASHBOARD_ROOT / "map_app.py").read_text()
+    styles = (DASHBOARD_ROOT / "static" / "map.css").read_text()
+
+    assert '@app.post("/map/alerts/{alert_id}/location")' in source
+    assert "FOR UPDATE OF a" in source
+    assert "MANUAL_COORDINATE_CORRECTION" in source
+    assert '"location_corrections": corrections' in source
+    assert '"location_corrections": resolution_corrections' in source
+    assert "ST_SetSRID(ST_MakePoint(%s,%s),4326)" in source
+    assert "FROM gis_addresses ga CROSS JOIN point" in source
+    assert "ST_DWithin(ga.geom::geography,point.geom::geography,500)" in source
+    assert "match_type IN ('PROXIMITY','LOCATION_TOPIC')" in source
+    assert '"spatial_rematch_version": "manual-location-pending-v1"' in source
+    assert "CREATE TABLE" not in source
+
+    assert "Correct Alert Location" in template
+    assert "Coordinates or Google Maps link" in template
+    assert "draggable:true" in template
+    assert "Pick on Map" in template
+    assert "Save Correction" in template
+    assert "'/map/alerts/'+encodeURIComponent(alertId)+'/location'" in template
+    assert "await refreshAlertLayer(true)" in template
+    assert ".map-location-editor" in styles
+    assert "/static/map.css?v=20260921-8" in template
+
+
+def test_alert_location_correction_executes_one_atomic_existing_table_update(monkeypatch):
+    monkeypatch.chdir(DASHBOARD_ROOT)
+    os.environ.setdefault("DB_PASSWORD", "test")
+    import map_app
+    from starlette.requests import Request
+
+    class Cursor:
+        rowcount = 0
+
+        def __init__(self):
+            self.queries = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, params):
+            assert query.count("%s") == len(params)
+            self.queries.append((query, params))
+            self.rowcount = 2 if "DELETE FROM alert_watch_matches" in query else 1
+
+        def fetchone(self):
+            return {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "alert_id": "BNN:test",
+                "title": "BNN incident",
+                "location": {"label": "Old location"},
+                "metadata": {},
+                "municipality": "Weehawken",
+                "county": "Hudson",
+                "state": "NJ",
+                "resolved_label": "Old location",
+                "prior_match_type": "LOCAL_NEAREST_ADDRESS",
+                "prior_resolution_provenance": {},
+                "prior_latitude": 40.76,
+                "prior_longitude": -74.03,
+                "rematch_eligible": True,
+            }
+
+    class Connection:
+        def __init__(self):
+            self.cursor_value = Cursor()
+            self.commits = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def cursor(self):
+            return self.cursor_value
+
+        def commit(self):
+            self.commits += 1
+
+    connection = Connection()
+    monkeypatch.setattr(map_app, "db_conn", lambda: connection)
+    body = json.dumps(
+        {
+            "coordinates": "40.765123, -74.021456",
+            "label": "Verified location",
+            "reason": "Checked against incident map",
+        }
+    ).encode()
+
+    async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/map/alerts/BNN:test/location",
+            "headers": [(b"content-type", b"application/json")],
+            "query_string": b"",
+            "scheme": "http",
+            "server": ("test", 80),
+            "client": ("test", 1),
+        },
+        receive,
+    )
+    request.state.cmos_user = "operator"
+    request.state.cmos_role = "SUPERVISOR"
+
+    response = asyncio.run(map_app.map_alert_location_correct("BNN:test", request))
+    result = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert result["latitude"] == 40.765123
+    assert result["longitude"] == -74.021456
+    assert result["spatial_rematch"] == "QUEUED"
+    assert result["cleared_spatial_matches"] == 2
+    assert connection.commits == 1
+    sql = "\n".join(query for query, _ in connection.cursor_value.queries)
+    assert "UPDATE alerts" in sql
+    assert "INSERT INTO geo_entity_resolutions" in sql
+    assert "DELETE FROM alert_watch_matches" in sql
+
+
 def test_map_sharing_adds_no_server_side_state_or_parallel_map():
     source = (DASHBOARD_ROOT / "map_app.py").read_text()
     template = (TEMPLATES / "map.html").read_text()
@@ -156,7 +331,7 @@ def test_selected_features_show_cross_layer_context_from_loaded_map_data():
     assert "fetch('/map/context" not in template
     assert ".map-context-facts" in styles
     assert ".map-context-record" in styles
-    assert "/static/map.css?v=20260921-7" in template
+    assert "/static/map.css?v=20260921-8" in template
 
 
 def test_map_template_compiles_after_browser_native_tools():
