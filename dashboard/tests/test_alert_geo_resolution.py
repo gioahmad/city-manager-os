@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from geo_resolver import (
     _address_variants,
     _cache_key,
+    _resolve_address,
     _save_cache,
     _save_entity_resolution,
     LocationCandidate,
@@ -33,6 +34,33 @@ class _Connection:
         return _Cursor()
 
 
+class _AddressCursor:
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def execute(self, query, params):
+        assert query.count("%s") == len(params)
+        self.calls.append((query, params))
+
+    def fetchall(self):
+        return self.rows
+
+
+class _AddressConnection:
+    def __init__(self, rows):
+        self.cursor_value = _AddressCursor(rows)
+
+    def cursor(self):
+        return self.cursor_value
+
+
 def test_embedded_bnn_address_is_extracted():
     candidates = extract_location_candidates(
         {
@@ -48,6 +76,32 @@ def test_embedded_bnn_address_is_extracted():
 def test_common_street_suffixes_expand_without_remote_lookup():
     variants = {normalize_text(item) for item in _address_variants("4100 Park Ave")}
     assert "4100 PARK AVENUE" in variants
+
+
+def test_address_variants_and_municipality_fallback_use_one_ordered_query():
+    connection = _AddressConnection(
+        [(1, "4100 Park Avenue", "Weehawken", "07086", "parcel", -74.02, 40.77, "A", True)]
+    )
+    candidate = LocationCandidate("4100 Park Ave", "4100 PARK AVE", "address", "location.address", 85)
+
+    result = _resolve_address(connection, candidate, "Weehawken")
+
+    assert len(connection.cursor_value.calls) == 1
+    query, params = connection.cursor_value.calls[0]
+    assert query.count("WITH ORDINALITY") == 2
+    assert "ORDER BY variant_order,scope_order" in query
+    assert params == (_address_variants(candidate.text), ["Weehawken", ""])
+    assert result["label"] == "4100 Park Avenue"
+    assert result["confidence"] == 0.98
+
+
+def test_worker_and_resolver_publish_runtime_measurements():
+    root = Path(__file__).resolve().parents[1]
+    resolver = root.joinpath("geo_resolver.py").read_text()
+    worker = root.joinpath("integration_worker.py").read_text()
+    assert 'summary["duration_ms"]' in resolver
+    assert "cycle_started = time.perf_counter()" in worker
+    assert "engine cycle complete duration_ms=" in worker
 
 
 def test_coordinate_is_part_of_cache_identity():

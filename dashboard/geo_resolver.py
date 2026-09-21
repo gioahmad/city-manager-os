@@ -322,40 +322,61 @@ def _address_variants(text: str) -> list[str]:
 
 
 def _resolve_address(conn, candidate: LocationCandidate, municipality: str) -> dict[str, Any] | None:
-    rows: list[Any] = []
-    matched_with_municipality = False
-    for variant in _address_variants(candidate.text):
-        scopes = [municipality, ""] if municipality else [""]
-        for scope in scopes:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT objectid,fulladdr,post_comm,post_code,pcl_guid,
-                           ST_X(geom) AS longitude,ST_Y(geom) AS latitude,status
-                    FROM gis_addresses
-                    WHERE lower(fulladdr)=lower(%s)
-                      AND geom IS NOT NULL
-                      AND (
-                          nullif(trim(%s),'') IS NULL
-                          OR lower(trim(coalesce(post_comm,'')))=lower(trim(%s))
-                          OR lower(trim(coalesce(inc_muni,'')))=lower(trim(%s))
-                      )
-                    ORDER BY CASE WHEN status='A' THEN 0 ELSE 1 END,
-                             CASE WHEN primarypt='Y' THEN 0 ELSE 1 END,
-                             objectid
-                    LIMIT 25
-                    """,
-                    (variant, scope, scope, scope),
-                )
-                rows = cur.fetchall()
-            if rows:
-                matched_with_municipality = bool(scope)
-                break
-        if rows:
-            break
+    variants = _address_variants(candidate.text)
+    scopes = [municipality, ""] if municipality else [""]
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH variants AS (
+              SELECT variant,variant_order
+              FROM unnest(%s::text[]) WITH ORDINALITY AS item(variant,variant_order)
+            ),
+            scopes AS (
+              SELECT scope,scope_order
+              FROM unnest(%s::text[]) WITH ORDINALITY AS item(scope,scope_order)
+            ),
+            ranked AS (
+              SELECT a.objectid,a.fulladdr,a.post_comm,a.post_code,a.pcl_guid,
+                     ST_X(a.geom) AS longitude,ST_Y(a.geom) AS latitude,a.status,
+                     v.variant_order,s.scope_order,
+                     nullif(trim(s.scope),'') IS NOT NULL AS matched_with_municipality,
+                     row_number() OVER (
+                       PARTITION BY v.variant_order,s.scope_order
+                       ORDER BY CASE WHEN a.status='A' THEN 0 ELSE 1 END,
+                                CASE WHEN a.primarypt='Y' THEN 0 ELSE 1 END,
+                                a.objectid
+                     ) AS candidate_order
+              FROM variants v
+              CROSS JOIN scopes s
+              JOIN gis_addresses a
+                ON lower(a.fulladdr)=lower(v.variant)
+               AND a.geom IS NOT NULL
+               AND (
+                 nullif(trim(s.scope),'') IS NULL
+                 OR lower(trim(coalesce(a.post_comm,'')))=lower(trim(s.scope))
+                 OR lower(trim(coalesce(a.inc_muni,'')))=lower(trim(s.scope))
+               )
+            ),
+            winner AS (
+              SELECT variant_order,scope_order
+              FROM ranked
+              ORDER BY variant_order,scope_order
+              LIMIT 1
+            )
+            SELECT objectid,fulladdr,post_comm,post_code,pcl_guid,
+                   longitude,latitude,status,matched_with_municipality
+            FROM ranked
+            JOIN winner USING (variant_order,scope_order)
+            WHERE candidate_order <= 25
+            ORDER BY candidate_order
+            """,
+            (variants, scopes),
+        )
+        rows = cur.fetchall()
     if not rows:
         return None
 
+    matched_with_municipality = bool(_row_value(rows[0], "matched_with_municipality", 8))
     parcels = {str(_row_value(row, "pcl_guid", 4) or "") for row in rows}
     parcels.discard("")
     communities = {str(_row_value(row, "post_comm", 2) or "") for row in rows}
@@ -721,13 +742,19 @@ def process_pending_alerts(
     force: bool = False,
 ) -> dict[str, Any]:
     """Resolve a bounded alert batch without creating a second ingestion path."""
+    started = time.perf_counter()
     limit = max(1, min(int(limit), 10000))
     since_days = max(1, min(int(since_days), 3650))
     with conn.cursor() as cur:
         cur.execute("SELECT pg_try_advisory_lock(hashtext('CMOS_ALERT_GEO_RESOLVER')) AS locked")
         locked = bool(_row_value(cur.fetchone(), "locked", 0))
     if not locked:
-        return {"locked": True, "selected": 0, "processed": 0}
+        return {
+            "locked": True,
+            "selected": 0,
+            "processed": 0,
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+        }
 
     summary: dict[str, Any] = {
         "locked": False,
@@ -849,6 +876,7 @@ def process_pending_alerts(
                 summary["errors"] += 1
                 print(f"alert geo resolution failed alert={row.get('alert_id')}: {exc}", flush=True)
 
+        summary["duration_ms"] = int((time.perf_counter() - started) * 1000)
         with conn.cursor() as cur:
             cur.execute(
                 """

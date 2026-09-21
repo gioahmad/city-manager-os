@@ -43,8 +43,9 @@ assert_line "$configured_time" "full_e2e=no"
 
 geo="$($HARNESS plan --files dashboard/geo_resolver.py dashboard/integration_worker.py dashboard/tests/test_alert_geo_resolution.py)"
 assert_line "$geo" "services=citymanager-dashboard,citymanager-integration-engine"
+assert_line "$geo" "probes=/api/watchlist/health,/map/gis/status,/map/system/alerts.geojson?days=30&min_priority=1"
 assert_line "$geo" "tests=tests/test_alert_geo_resolution.py,tests/test_event_source_pack.py,tests/test_gis_import.py,tests/test_source_onboarding.py"
-assert_line "$geo" "full_e2e=yes"
+assert_line "$geo" "full_e2e=no"
 
 schema="$($HARNESS plan --files deploy/postgis/init/028_geo_resolution.sql)"
 assert_line "$schema" "build=no"
