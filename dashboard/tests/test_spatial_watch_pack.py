@@ -177,6 +177,10 @@ def test_matcher_installer_verifies_location_plus_topic_as_and():
     installer = _repository_file("deploy/n8n/install_spatial_watch_matcher.sh").read_text()
     assert "location_plus_topic=AND" in installer
     assert "municipality_plus_topic=AND" in installer
+    assert "'watch.spatial_match_type'" in installer
+    assert "row.spatial_match_type" not in installer
+    assert "'municipalityMatch'" in installer
+    assert "municipalityLocationMatch" not in installer
     assert "Location plus topic matched outside the Location" in installer
     assert "Location plus topic matched without the topic" in installer
 
