@@ -13,6 +13,7 @@ from schedule_app import app
 from app import db_conn, execute, query_all, query_one, templates
 from gis_import import MAX_UPLOAD_BYTES, read_import
 from geo_resolver import resolve_payload
+from operations_app import ALERT_WINDOWS
 
 
 SYSTEM_LAYERS = [
@@ -27,7 +28,6 @@ SYSTEM_LAYERS = [
     {"key": "managed-events", "name": "Managed Events", "endpoint": "/map/system/managed-events.geojson", "default_visible": False, "point": True},
     {"key": "transit-intelligence", "name": "Transit Intelligence", "endpoint": "/map/system/transit.geojson", "default_visible": False, "point": True},
 ]
-
 
 def _layer_key(name: str) -> str:
     slug = re.sub(r"[^A-Z0-9]+", "_", name.upper()).strip("_")[:40] or "LAYER"
@@ -405,26 +405,31 @@ def map_alerts_geojson(
     bbox: str | None = None,
     hours: int | None = 12,
     days: int | None = None,
+    window: str = "",
     min_priority: int = 1,
     active_only: bool = False,
     q: str = "",
     source: str = "",
     category: str = "",
 ):
-    # `days` remains accepted for older bookmarked/API URLs. The normal map experience
-    # uses the bounded 6-hour to 1-week `hours` contract.
-    if days is not None:
+    # Keep the older `hours` and `days` URLs working while the map uses the same
+    # named history windows as the full Alert search page.
+    if window:
+        window_hours = ALERT_WINDOWS.get(window.strip().lower(), 12)
+    elif days is not None:
         window_hours = max(24, min(int(days), 365) * 24)
     else:
         window_hours = max(1, min(int(hours or 12), 168))
     min_priority = max(1, min(min_priority, 5))
     box = _bbox(bbox)
-    params: list[Any] = [window_hours, min_priority]
+    params: list[Any] = [min_priority]
     where = [
-        "a.received_at >= now()-(%s * interval '1 hour')",
         "a.priority >= %s",
         "coalesce(a.geom,r.geom) IS NOT NULL",
     ]
+    if window_hours is not None:
+        where.insert(0, "a.received_at >= now()-(%s * interval '1 hour')")
+        params.insert(0, window_hours)
     if source.strip():
         where.append("upper(a.source)=upper(%s)")
         params.append(source.strip())
@@ -447,7 +452,7 @@ def map_alerts_geojson(
     rows = query_all(
         f"""
         SELECT a.id,a.alert_id,a.source,a.category,a.subtype,a.status,a.event_action,
-               a.title,left(a.message,2000) AS message,a.priority,a.county,a.municipality,
+               a.title,left(a.message,600) AS message,a.priority,a.county,a.municipality,
                coalesce(wm.matched_watches,'No Watch matched') AS matched_watches,
                coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address',''),r.resolved_label) AS mapped_address,
                a.observed_at,a.received_at,a.click_url,
