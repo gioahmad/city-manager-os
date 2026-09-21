@@ -125,12 +125,12 @@ workflow=(payload if isinstance(payload,list) else [payload])[0]
 nodes={node.get('name'):node for node in workflow.get('nodes') or []}
 code=(nodes['Match + Resolve Recipients'].get('parameters') or {})['jsCode']
 script=f'''const run=new Function('$','$input',{json.dumps(code)});
-const alert={{alert_id:'CMOS56:CONTRACT',priority:4,source:'SYSTEM_TEST',category:'TEST',municipality:'WEEHAWKEN',search_text:'PARK AVENUE ROAD CLOSURE'}};
+const alert={{alert_id:'CMOS56:CONTRACT',priority:4,source:'SYSTEM_TEST',category:'TEST',municipality:'WEEHAWKEN',title:'PARK AVENUE ROAD CLOSURE',message:''}};
 const recipient={{subscriber_uuid:'56000000-0000-0000-0000-000000000099',subscriber_id:'CMOS56_TEST',name:'Contract',ntfy_topic:'contract'}};
 const row={{watch_item_uuid:'56000000-0000-0000-0000-000000000098',watch_id:'CMOS56_DEDUP',display_name:'Contract',watch_type:'CORRIDOR',search_term:'PARK AVENUE',aliases:[],match_mode:'CONTAINS',match_field:'search_text',min_priority:1,source_filter:[],alert_category_filter:[],spatial_match_type:'PROXIMITY',spatial_match_reason:'trusted geometry inside corridor buffer',spatial_distance_ft:125,recipients:[recipient,recipient]}};
 const evaluate=(caseAlert,caseRow)=>run(()=>({{first:()=>({{json:caseAlert}})}}),{{all:()=>[{{json:caseRow}}]}})[0].json;
 const output=evaluate(alert,row);
-if(output.match_count!==1)throw new Error('text plus spatial produced duplicate watch matches');
+if(output.match_count!==1)throw new Error(`expected one spatial Watch match, got ${{output.match_count}}: ${{JSON.stringify(output)}}`);
 if(output.matches[0].match_mode!=='PROXIMITY')throw new Error('spatial match did not take precedence');
 if(output.recipient_count!==1||output.delivery_payloads.length!==1)throw new Error('recipient delivery was not deduplicated');
 if(output.matched_watch_ids.length!==1)throw new Error('watch ID was duplicated');
@@ -141,7 +141,7 @@ const inside=evaluate(alert,locationTopic);
 if(inside.match_count!==1||inside.matches[0].match_mode!=='LOCATION_TOPIC')throw new Error('Location plus topic did not require and record both conditions');
 const outside=evaluate(alert,{{...locationTopic,spatial_match_type:null,spatial_match_reason:null}});
 if(outside.match_count!==0)throw new Error('Location plus topic matched outside the Location');
-const wrongTopic=evaluate({{...alert,search_text:'PARK AVENUE WATER MAIN'}},locationTopic);
+const wrongTopic=evaluate({{...alert,title:'PARK AVENUE WATER MAIN'}},locationTopic);
 if(wrongTopic.match_count!==0)throw new Error('Location plus topic matched without the topic');
 const municipality=evaluate(alert,{{...locationTopic,nearby_enabled:false,municipality:'Weehawken',spatial_match_type:null,spatial_match_reason:null}});
 if(municipality.match_count!==1)throw new Error('municipality plus topic did not match both conditions');
