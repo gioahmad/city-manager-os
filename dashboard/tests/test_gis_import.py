@@ -67,7 +67,9 @@ def test_mapping_center_exposes_statewide_refresh_status():
     assert "LIKE 'stg_nj_%%'" in app_source
     assert "ILIKE '%%stg_nj_%%'" in app_source
     assert "Searches New Jersey NG911 addresses" in template
-    assert "setInterval(loadGisStatus,30000)" in template
+    assert "function scheduleGisStatus(active=false)" in template
+    assert "setTimeout(loadGisStatus,active?30000:300000)" in template
+    assert "finally{scheduleGisStatus(active);}" in template
 
 
 def test_mapping_center_exposes_alert_geography():

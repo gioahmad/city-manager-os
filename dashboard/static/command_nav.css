@@ -20,7 +20,7 @@
     white-space:nowrap;
   }
   .desktop-nav a,
-  .desktop-nav .nav-admin>summary{
+  .desktop-nav .nav-group>summary{
     position:relative;
     display:flex!important;
     align-items:center;
@@ -38,26 +38,29 @@
     list-style:none;
     transition:color .14s ease,background .14s ease,border-color .14s ease;
   }
-  .desktop-nav .nav-admin>summary::-webkit-details-marker{display:none}
+  .desktop-nav .nav-group>summary::-webkit-details-marker{display:none}
   .desktop-nav a:hover,
-  .desktop-nav .nav-admin>summary:hover{
+  .desktop-nav .nav-group>summary:hover{
     color:#eef5fb;
     background:#121e2a;
   }
   .desktop-nav a.active,
-  .desktop-nav .nav-admin.active>summary,
-  .desktop-nav .nav-admin[open]>summary{
+  .desktop-nav .nav-group.active>summary,
+  .desktop-nav .nav-group[open]>summary{
     color:#eef5fb;
     background:#121e2a;
     border-bottom-color:#57b8ff;
   }
-  .desktop-nav .nav-admin{position:relative;margin-left:auto}
-  .desktop-nav .nav-admin>summary:after{content:'▾';font-size:10px;margin-left:7px;color:#7f96aa}
-  .desktop-nav .nav-admin-menu{
+  .desktop-nav .nav-group{position:relative}
+  .desktop-nav .nav-control{margin-left:auto}
+  .desktop-nav .nav-group>summary:after{content:'▾';font-size:10px;margin-left:7px;color:#7f96aa}
+  .desktop-nav .nav-group-menu{
     position:absolute;
     right:0;
     top:calc(100% + 5px);
-    width:230px;
+    width:250px;
+    max-height:calc(100vh - 64px);
+    overflow-y:auto;
     padding:7px;
     display:grid;
     gap:2px;
@@ -67,7 +70,7 @@
     box-shadow:0 14px 30px rgba(0,0,0,.35);
     z-index:1000;
   }
-  .desktop-nav .nav-admin-menu a{
+  .desktop-nav .nav-group-menu a{
     min-height:34px;
     padding:0 10px;
     border:0;
@@ -86,5 +89,10 @@
 
 @media (min-width:1200px){
   .desktop-nav a,
-  .desktop-nav .nav-admin>summary{font-size:13.5px;padding-left:14px;padding-right:14px}
+  .desktop-nav .nav-group>summary{font-size:13.5px;padding-left:14px;padding-right:14px}
+}
+
+@media (max-width:840px){
+  .mobile-menu{max-height:calc(100vh - 96px);overflow-y:auto}
+  .mobile-menu .nav-menu-label{grid-column:1/-1;padding:7px 4px 0;color:#718395;font-size:9px;font-weight:850;letter-spacing:.08em}
 }
