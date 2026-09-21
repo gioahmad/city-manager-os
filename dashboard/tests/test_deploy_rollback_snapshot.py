@@ -39,3 +39,39 @@ def test_unrecoverable_service_image_uses_pre_release_application_image():
     run.assert_called_once_with(
         ["docker", "image", "tag", "sha256:fallback", "rollback:engine"]
     )
+
+
+def test_focused_test_runtime_mounts_deployment_harness():
+    plan = MODULE.Plan(files=[], tests={"tests/test_deploy_rollback_snapshot.py"})
+
+    with patch.object(MODULE, "run") as run:
+        MODULE.build_and_test(plan)
+
+    assert f"{MODULE.ROOT / 'deploy'}:/deploy:ro" in run.call_args.args[0]
+
+
+def test_rollback_prefers_recoverable_running_image_over_latest():
+    def inspect(command, text):
+        if command[1] == "inspect":
+            return {
+                "citymanager-dashboard": "sha256:running",
+                "citymanager-integration-engine": "sha256:missing",
+            }[command[2]]
+        return "sha256:latest"
+
+    with (
+        patch.object(MODULE.subprocess, "check_output", side_effect=inspect),
+        patch.object(MODULE, "_image_exists", side_effect=lambda image: image == "sha256:running"),
+        patch.object(MODULE, "run") as run,
+    ):
+        MODULE.rollback_state({"citymanager-dashboard", "citymanager-integration-engine"})
+
+    run.assert_any_call(
+        [
+            "docker",
+            "image",
+            "tag",
+            "sha256:running",
+            "dashboard-citymanager-dashboard:cmos-deploy-rollback-latest",
+        ]
+    )

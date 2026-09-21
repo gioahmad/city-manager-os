@@ -384,6 +384,7 @@ def build_and_test(plan: Plan) -> None:
         run([
             *compose,
             "run", "--rm", "--no-deps", "-T",
+            "-v", f"{ROOT / 'deploy'}:/deploy:ro",
             "-v", f"{ROOT / 'dashboard'}:/src:ro",
             "-w", "/src",
             "-e", "PYTHONPATH=/src:/app",
@@ -483,8 +484,9 @@ def rollback_state(services: set[str]) -> tuple[dict[str, str], str]:
         ["docker", "image", "inspect", "dashboard-citymanager-dashboard:latest", "--format", "{{.Id}}"],
         text=True,
     ).strip()
+    fallback = next((image for image in images.values() if _image_exists(image)), latest)
     preserved_latest = "dashboard-citymanager-dashboard:cmos-deploy-rollback-latest"
-    run(["docker", "image", "tag", latest, preserved_latest])
+    run(["docker", "image", "tag", fallback, preserved_latest])
 
     preserved = {}
     for service, image in images.items():
