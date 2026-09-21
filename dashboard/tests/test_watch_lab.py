@@ -123,6 +123,35 @@ console.log('WATCH_MATCHER_CONTRACT=PASS');
     assert "WATCH_MATCHER_CONTRACT=PASS" in completed.stdout
 
 
+def test_workflow_adapter_rebuilds_search_text_from_standard_alert_fields():
+    if not shutil.which("node"):
+        raise SkipTest("Node is not installed in this focused test environment")
+    workflow = _repository_file("workflows/live/CORE_Watchlist_Matcher_live.json")
+    script = r"""
+const fs = require('fs');
+const payload = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+const workflow = Array.isArray(payload) ? payload[0] : payload;
+const code = workflow.nodes.find(node => node.name === 'Match + Resolve Recipients').parameters.jsCode;
+const run = new Function('$', '$input', code);
+const alert = {alert_id:'CONTRACT',priority:4,source:'SYSTEM_TEST',category:'TEST',municipality:'WEEHAWKEN',title:'PARK AVENUE ROAD CLOSURE',message:''};
+const recipient = {subscriber_id:'OPS',ntfy_topic:'ops'};
+const row = {watch_id:'CONTRACT',watch_type:'CORRIDOR',search_term:'PARK AVENUE',aliases:[],match_mode:'CONTAINS',match_field:'search_text',min_priority:1,source_filter:[],alert_category_filter:[],spatial_match_type:'PROXIMITY',spatial_match_reason:'inside',recipients:[recipient,recipient]};
+const evaluate = (caseAlert, caseRow) => run(() => ({first: () => ({json:caseAlert})}), {all: () => [{json:caseRow}]})[0].json;
+const matched = evaluate(alert, row);
+if (matched.match_count !== 1 || matched.recipient_count !== 1) throw new Error(JSON.stringify(matched));
+const wrongTopic = evaluate({...alert,title:'PARK AVENUE WATER MAIN'}, {...row,watch_type:'LOCATION_TOPIC',search_term:'ROAD CLOSURE'});
+if (wrongTopic.match_count !== 0) throw new Error(JSON.stringify(wrongTopic));
+console.log('WATCH_ADAPTER_CONTRACT=PASS');
+"""
+    completed = subprocess.run(
+        ["node", "-e", script, str(workflow)],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    assert "WATCH_ADAPTER_CONTRACT=PASS" in completed.stdout
+
+
 def test_sync_script_has_no_second_matcher_implementation():
     sync = _repository_file("deploy/n8n/sync_watch_matcher.py").read_text()
     assert 'MATCHER_SOURCE = ROOT / "dashboard/static/watch_matcher.js"' in sync
