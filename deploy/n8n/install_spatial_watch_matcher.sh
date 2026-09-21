@@ -107,8 +107,8 @@ if not code.startswith(canonical + '\n\n'):
 required_query=('gis_active_spatial_watch_matches','supplied_alert_geom','spatial_match_reason','queryReplacement')
 if not all(value in (query + json.dumps(load.get('parameters') or {})) for value in required_query):
     raise SystemExit('spatial loader contract missing')
-required_code=('row.spatial_match_type','result.match_type || row.match_mode',
-               'locationPlusTopic','LOCATION_TOPIC','municipalityLocationMatch')
+required_code=('watch.spatial_match_type','result.match_type || row.match_mode',
+               'locationPlusTopic','LOCATION_TOPIC','municipalityMatch')
 if not all(value in code for value in required_code):
     raise SystemExit('spatial deduplication contract missing')
 workflow['active']=False
@@ -184,8 +184,8 @@ if 'supplied_alert_geom' not in query:
     raise SystemExit('published loader does not preserve exact Standard Alert coordinates')
 if 'queryReplacement' not in options:
     raise SystemExit('published loader does not bind the normalized alert safely')
-required=('row.spatial_match_type','result.match_type || row.match_mode',
-          'locationPlusTopic','LOCATION_TOPIC','municipalityLocationMatch')
+required=('watch.spatial_match_type','result.match_type || row.match_mode',
+          'locationPlusTopic','LOCATION_TOPIC','municipalityMatch')
 if not all(value in code for value in required):
     raise SystemExit('published matcher is missing spatial or Location-plus-topic behavior')
 print('MATCHER active=1 published=1 postgis_spatial=YES location_plus_topic=AND deduplication=YES')
