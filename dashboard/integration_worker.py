@@ -19,6 +19,7 @@ def main() -> None:
     geo_limit = max(1, min(int(os.getenv("ALERT_GEO_BATCH_SIZE", "50")), 500))
     log(f"integration engine starting interval={interval}s")
     while True:
+        cycle_started = time.perf_counter()
         try:
             pseg = run_due_pseg()
             if not pseg.get("skipped"):
@@ -63,10 +64,13 @@ def main() -> None:
                     "alert geo complete "
                     f"selected={geo.get('selected', 0)} processed={geo.get('processed', 0)} "
                     f"precise={geo.get('precise', 0)} approximate={geo.get('approximate', 0)} "
-                    f"unresolved={geo.get('unresolved', 0)} errors={geo.get('errors', 0)}"
+                    f"unresolved={geo.get('unresolved', 0)} errors={geo.get('errors', 0)} "
+                    f"duration_ms={geo.get('duration_ms', 0)}"
                 )
         except Exception as exc:
             log(f"engine cycle error: {exc}")
+        duration_ms = int((time.perf_counter() - cycle_started) * 1000)
+        log(f"engine cycle complete duration_ms={duration_ms} interval_seconds={interval}")
         time.sleep(interval)
 
 

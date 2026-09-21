@@ -139,7 +139,6 @@ def classify(files: list[str]) -> Plan:
 
         if path == "dashboard/integration_worker.py":
             add_dashboard(plan, "citymanager-integration-engine")
-            plan.full_e2e = True
             plan.reasons.add("integration worker runtime")
             add_test(
                 plan,
@@ -151,9 +150,14 @@ def classify(files: list[str]) -> Plan:
 
         if path == "dashboard/geo_resolver.py":
             add_dashboard(plan, "citymanager-dashboard", "citymanager-integration-engine")
-            plan.full_e2e = True
             plan.reasons.add("shared local geo resolver runtime")
             add_test(plan, "test_alert_geo_resolution.py", "test_gis_import.py")
+            add_probe(
+                plan,
+                "/api/watchlist/health",
+                "/map/gis/status",
+                "/map/system/alerts.geojson?days=30&min_priority=1",
+            )
             continue
 
         if path in {
