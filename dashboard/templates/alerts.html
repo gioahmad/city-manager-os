@@ -112,12 +112,13 @@
       {% endif %}
       <div class="data-list alert-search-results">
         {% for a in alerts %}
+        {% set has_map_location = a.map_latitude is defined and a.map_latitude is not none %}
         <article class="data-row priority-{{ a.priority }}">
           <div class="data-main">
             <label class="alert-bulk-select"><input type="checkbox" name="alert_ids" value="{{ a.alert_uuid }}" data-alert-select> Select this alert</label>
             <div class="data-title"><span class="priority-chip p{{ a.priority }}">P{{ a.priority }}</span><strong>{{ a.title }}</strong></div>
             <div class="meta">{{ a.source }} · {{ a.category }} · {{ a.subtype }}{% if a.municipality %} · {{ a.municipality }}{% endif %}</div>
-            {% if a.location_label %}<div class="alert-location"><strong>Location:</strong> {{ a.location_label }}</div>{% endif %}
+            <div class="alert-location"><strong>Location:</strong> {{ a.location_label or 'Not mapped yet' }} <span class="alert-map-state{% if not has_map_location %} missing{% endif %}">{{ a.map_status or 'Location not mapped' }}</span></div>
             <div class="alert-why">
               <strong>Why you received this</strong>
               <span><b>Matched Watches:</b> {{ a.matched_watches }}</span>
@@ -153,6 +154,9 @@
           <div class="data-side">
             <span class="status {{ (a.status or 'unknown')|lower }}">{{ a.status }}</span>
             <time>{{ a.received_at.strftime('%m/%d/%Y %I:%M %p') if a.received_at else '' }}</time>
+            {% if has_map_location %}<a class="secondary-button alert-map-button" href="{{ a.map_url }}">View on Map</a>
+            {% elif can_correct_alert_locations %}<a class="secondary-button alert-map-button" href="{{ a.map_url }}">Place on Map</a>
+            {% else %}<span class="alert-map-unavailable">Location not mapped</span>{% endif %}
             {% if a.track_alert_url %}<a class="text-link" href="{{ a.track_alert_url }}">Track This Alert</a>{% endif %}
             {% if a.click_url %}<a class="text-link" href="{{ a.click_url }}" target="_blank" rel="noopener">Open source</a>{% endif %}
           </div>

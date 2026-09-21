@@ -339,6 +339,7 @@ function restoreSharedSelection(key,group,layerName){
   group.eachLayer(layer=>{if(!selected&&featureIdentity(layer.feature,key)===pendingSharedSelection.id)selected=layer;});
   if(!selected)return;
   showSelectedFeature(selected.feature,selected,key,layerName);
+  selected.openPopup?.();
   pendingSharedSelection=null;
 }
 function geoOptions(key,color,layerName){return{
@@ -411,20 +412,20 @@ function clearAlertLocationEditor(){
   if(alertLocationEditor?.isConnected)alertLocationEditor.remove();
   alertLocationEditor=null;
 }
-function startAlertLocationEditor(feature,layer){
+function startAlertLocationEditor(feature={},layer=null){
   clearAlertLocationEditor();
   const props=mergedProperties(feature),alertId=String(props.alert_id||''),current=layerCenter(layer);
-  if(!alertId||!current){status('This alert does not have a point that can be edited.');return;}
+  if(!alertId){status('This alert cannot be identified.');return;}
   const editor=document.createElement('section');editor.className='map-location-editor map-form';
   const heading=document.createElement('strong');heading.textContent='Correct Alert Location';
   const help=document.createElement('small');help.textContent='Paste one latitude, longitude pair from Google Maps, paste a Google Maps link, click the map, or drag the preview marker.';
   const coordinateLabel=document.createElement('label');coordinateLabel.textContent='Coordinates or Google Maps link';
-  const coordinateInput=document.createElement('input');coordinateInput.type='text';coordinateInput.autocomplete='off';coordinateInput.placeholder='40.765123, -74.021456';coordinateInput.value=current.lat.toFixed(6)+', '+current.lng.toFixed(6);coordinateLabel.appendChild(coordinateInput);
+  const coordinateInput=document.createElement('input');coordinateInput.type='text';coordinateInput.autocomplete='off';coordinateInput.placeholder='40.765123, -74.021456';coordinateInput.value=current?current.lat.toFixed(6)+', '+current.lng.toFixed(6):'';coordinateLabel.appendChild(coordinateInput);
   const nameLabel=document.createElement('label');nameLabel.textContent='Location label or address';
   const nameInput=document.createElement('input');nameInput.type='text';nameInput.maxLength=300;nameInput.placeholder='Optional override. Blank uses nearest local address';nameLabel.appendChild(nameInput);
   const reasonLabel=document.createElement('label');reasonLabel.textContent='Correction note';
   const reasonInput=document.createElement('input');reasonInput.type='text';reasonInput.maxLength=500;reasonInput.placeholder='Why this point is more accurate';reasonLabel.appendChild(reasonInput);
-  const message=document.createElement('small');message.className='map-location-editor-status';message.setAttribute('aria-live','polite');message.textContent='The marker is a preview until you save.';
+  const message=document.createElement('small');message.className='map-location-editor-status';message.setAttribute('aria-live','polite');message.textContent=current?'The marker is a preview until you save.':'Paste coordinates or choose Pick on Map. Nothing changes until you save.';
   const actions=document.createElement('div');actions.className='map-layer-actions';
   const preview=document.createElement('button'),pick=document.createElement('button'),save=document.createElement('button'),cancel=document.createElement('button');
   [preview,pick,save,cancel].forEach(button=>{button.type='button';button.className='map-mini-button';});
@@ -437,7 +438,7 @@ function startAlertLocationEditor(feature,layer){
     groups['alert-location-editor']=L.featureGroup([marker]).addTo(map);marker.openTooltip();if(pan)map.panTo(latlng);
   }
   function previewValue(pan=true){const latlng=parseMapCoordinates(coordinateInput.value);if(!latlng){message.textContent='Enter latitude first, then longitude, or paste a Google Maps link.';coordinateInput.focus();return null;}coordinateInput.value=latlng.lat.toFixed(6)+', '+latlng.lng.toFixed(6);setMarker(latlng,pan);message.textContent='Preview ready. Drag the marker or save this point.';return latlng;}
-  setMarker(current);
+  if(current)setMarker(current);
   preview.addEventListener('click',()=>previewValue());
   pick.addEventListener('click',()=>{alertLocationPick=latlng=>{coordinateInput.value=latlng.lat.toFixed(6)+', '+latlng.lng.toFixed(6);setMarker(latlng);message.textContent='Map point selected. Drag the marker or save this point.';};map.closePopup();map.getContainer().style.cursor='crosshair';message.textContent='Click the map where this alert belongs.';status('Click the map to correct '+alertId);});
   cancel.addEventListener('click',()=>{clearAlertLocationEditor();status('Alert location correction canceled');});
@@ -447,7 +448,7 @@ function startAlertLocationEditor(feature,layer){
     try{
       const res=await fetch('/map/alerts/'+encodeURIComponent(alertId)+'/location',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({coordinates:coordinateInput.value,label:nameInput.value.trim(),reason:reasonInput.value.trim()})});
       const data=await res.json().catch(()=>({}));if(!res.ok)throw new Error(data.detail||'Alert location could not be saved.');
-      clearAlertLocationEditor();await refreshAlertLayer(true);map.setView(latlng,Math.max(map.getZoom(),16));
+      clearAlertLocationEditor();map.setView(latlng,Math.max(map.getZoom(),16));await refreshAlertLayer(true);
       const confirmation=document.createElement('div');confirmation.className='map-help-card';confirmation.textContent='Location corrected to '+latlng.lat.toFixed(6)+', '+latlng.lng.toFixed(6)+'. '+(data.spatial_rematch==='QUEUED'?'Spatial Watch recheck queued.':'Saved; this alert is outside the live rematch window.');selectedDetails.appendChild(confirmation);status('Alert location corrected');
     }catch(error){save.disabled=false;message.textContent=error.message;status(error.message);}
   });
@@ -500,6 +501,7 @@ function restoreMapControls(){
   if(!sharedMapView)return;
   const layerValue=mapShareParams.get('layers');
   if(layerValue!==null){const enabled=new Set(layerValue.split(',').filter(Boolean));document.querySelectorAll('.system-layer-toggle').forEach(el=>{el.checked=enabled.has(el.dataset.key);});document.querySelectorAll('.custom-layer-toggle').forEach(el=>{el.checked=enabled.has('custom-'+el.dataset.id);});}
+  else if(mapShareParams.get('focus')==='alert'){document.querySelectorAll('.system-layer-toggle').forEach(el=>{el.checked=el.dataset.key==='alerts';});document.querySelectorAll('.custom-layer-toggle').forEach(el=>{if(el.dataset.type!=='XYZ')el.checked=false;});}
   const recordsValue=mapShareParams.get('records');
   if(recordsValue!==null){const enabled=new Set(recordsValue.split(',').filter(Boolean));document.querySelectorAll('[data-area-record]').forEach(el=>{el.checked=enabled.has(el.dataset.areaRecord);});}
   const values={
@@ -534,7 +536,8 @@ document.getElementById('alert-map-query')?.addEventListener('keydown',event=>{i
 restoreMapControls();
 if(alertToggle)alertToggle.dataset.endpoint=alertEndpoint();
 async function initialLoad(){const jobs=[...document.querySelectorAll('.custom-layer-toggle:checked')].map(el=>syncCustomLayer(el));jobs.push(...[...document.querySelectorAll('.system-layer-toggle:checked')].map(el=>syncSystemLayer(el)));const results=await Promise.allSettled(jobs),failed=results.filter(result=>result.status==='rejected').length;status(failed?'Map ready · '+failed+' layer'+(failed===1?'':'s')+' unavailable':'Map ready');}
-initialLoad();
+async function openRequestedAlertEditor(){const alertId=sharedMapView?String(mapShareParams.get('edit_alert')||'').trim():'';if(!alertId)return;selectedMapFeature={key:'alerts',id:alertId};selectedTitle.textContent=alertId;selectedLayer.textContent='Unmapped Alert';selectedDetails.replaceChildren();startAlertLocationEditor({properties:{alert_id:alertId}});}
+initialLoad().then(openRequestedAlertEditor);
 let viewportTimer=null;map.on('moveend',()=>{clearTimeout(viewportTimer);if(map._popup)return;viewportTimer=setTimeout(async()=>{if(map._popup)return;const jobs=[...document.querySelectorAll('.system-layer-toggle:checked')].filter(el=>el.dataset.viewport==='1').map(el=>syncSystemLayer(el));const results=await Promise.allSettled(jobs),failed=results.filter(result=>result.status==='rejected').length;if(failed)status(failed+' visible layer refresh'+(failed===1?'':'es')+' failed · previous data kept');},600);});
 map.on('click',ev=>{if(alertLocationPick){const choose=alertLocationPick;alertLocationPick=null;map.getContainer().style.cursor='';choose(ev.latlng);return;}if(locationPickerActive||drawingActive)return;showSelectedLocation(ev.latlng);L.popup({maxWidth:420}).setLatLng(ev.latlng).setContent(locationContent(ev.latlng)).openOn(map);});
 

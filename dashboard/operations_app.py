@@ -92,6 +92,35 @@ def alert_keyword_choices(alert: dict, limit: int = 12) -> list[str]:
         add(value)
     return choices[: max(1, min(limit, 20))]
 
+
+def alert_map_url(alert: dict) -> str:
+    """Open one Alert in Mapping Center, or its placement tool when unmapped."""
+    alert_reference = str(alert.get("alert_id") or "").strip()
+    if not alert_reference:
+        return ""
+    params = {
+        "map_view": "1",
+        "focus": "alert",
+        "tab": "layers",
+        "window": "all",
+        "area_q": alert_reference,
+    }
+    latitude = alert.get("map_latitude")
+    longitude = alert.get("map_longitude")
+    if latitude is not None and longitude is not None:
+        params.update(
+            {
+                "lat": f"{float(latitude):.6f}",
+                "lng": f"{float(longitude):.6f}",
+                "zoom": "17",
+                "selected_layer": "alerts",
+                "selected_id": alert_reference,
+            }
+        )
+    else:
+        params["edit_alert"] = alert_reference
+    return f"/map?{urlencode(params)}"
+
 MODULES = [
     {"key": "PSEG", "name": "Utilities", "description": "Electric utility outages and restorations"},
     {"key": "FIRE", "name": "Fire Intelligence", "description": "Fire and public-safety incident intelligence"},
@@ -433,10 +462,20 @@ def alerts_page(
         SELECT a.id AS alert_uuid,a.alert_id,a.source,a.category,a.subtype,a.status,a.event_action,
                a.title,a.message,a.priority,a.county,a.municipality,a.received_at,a.updated_at,
                a.observed_at,a.click_url,a.tags,
-               coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address','')) AS location_label,
+               coalesce(
+                 CASE WHEN r.match_type='MANUAL_COORDINATE_CORRECTION' THEN r.resolved_label END,
+                 nullif(a.location->>'label',''),nullif(a.location->>'address',''),r.resolved_label
+               ) AS location_label,
+               ST_Y(coalesce(a.geom,r.geom)) AS map_latitude,
+               ST_X(coalesce(a.geom,r.geom)) AS map_longitude,
+               r.match_type AS location_match_type,r.spatial_precision,
+               r.confidence AS location_confidence,
+               (a.geom IS NULL AND r.geom IS NOT NULL) AS map_approximate,
                coalesce(wm.matched_watches,'No Watch matched') AS matched_watches,
                coalesce(wm.watch_evidence,'[]'::jsonb) AS watch_evidence
         FROM alerts a
+        LEFT JOIN geo_entity_resolutions r
+          ON r.entity_type='ALERT' AND r.entity_id=a.id::text AND r.status='RESOLVED'
         LEFT JOIN LATERAL (
           SELECT string_agg(m.display_name,', ' ORDER BY m.display_name) AS matched_watches,
                  jsonb_agg(
@@ -502,6 +541,14 @@ def alerts_page(
             if alert_reference
             else ""
         )
+        alert["map_url"] = alert_map_url(alert)
+        alert["map_status"] = (
+            "Approximate location"
+            if alert.get("map_approximate")
+            else "Mapped location"
+            if alert.get("map_latitude") is not None
+            else "Location not mapped"
+        )
     sources = query_all("SELECT source,count(*) AS total FROM alerts GROUP BY source ORDER BY source")
     categories = query_all("SELECT category,count(*) AS total FROM alerts GROUP BY category ORDER BY category")
     municipalities = query_all(
@@ -544,6 +591,8 @@ def alerts_page(
             "error": error,
             "can_delete_alerts": not getattr(request.state, "cmos_role", None)
             or getattr(request.state, "cmos_role", None) == "EXECUTIVE",
+            "can_correct_alert_locations": getattr(request.state, "cmos_role", None)
+            != "READ_ONLY",
             "page": "alerts",
         },
     )
