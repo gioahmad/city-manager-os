@@ -153,6 +153,14 @@ def test_alert_map_restores_full_history_choices_without_destructive_actions():
     assert "Type DELETE to permanently delete the selected alerts" in alerts_source
 
 
+def test_map_area_record_checkboxes_keep_their_text_inside_the_panel():
+    map_template = (DASHBOARD_ROOT / "templates/map.html").read_text()
+    map_styles = (DASHBOARD_ROOT / "static/map.css").read_text()
+    assert '.map-alert-controls input:not([type="checkbox"]),.map-alert-controls select' in map_styles
+    assert ".map-check input{width:auto}" in map_styles
+    assert "/static/map.css?v=20260921-4" in map_template
+
+
 def test_mapping_center_deduplicates_cancels_and_reports_layer_refreshes():
     map_source = (DASHBOARD_ROOT / "map_app.py").read_text()
     template = (DASHBOARD_ROOT / "templates/map.html").read_text()
