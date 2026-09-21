@@ -15,23 +15,27 @@ SPEC.loader.exec_module(MODULE)
 
 def test_existing_service_image_is_tagged_for_rollback():
     with patch.object(MODULE, "_image_exists", return_value=True), patch.object(MODULE, "run") as run:
-        MODULE._preserve_service_image("citymanager-dashboard", "sha256:present", "rollback:dashboard")
+        MODULE._preserve_service_image(
+            "citymanager-dashboard",
+            "sha256:present",
+            "rollback:dashboard",
+            "sha256:fallback",
+        )
 
     run.assert_called_once_with(
         ["docker", "image", "tag", "sha256:present", "rollback:dashboard"]
     )
 
 
-def test_pruned_service_image_falls_back_to_running_container_snapshot():
+def test_unrecoverable_service_image_uses_pre_release_application_image():
     with patch.object(MODULE, "_image_exists", return_value=False), patch.object(MODULE, "run") as run:
-        MODULE._preserve_service_image("citymanager-integration-engine", "sha256:pruned", "rollback:engine")
+        MODULE._preserve_service_image(
+            "citymanager-integration-engine",
+            "sha256:pruned",
+            "rollback:engine",
+            "sha256:fallback",
+        )
 
     run.assert_called_once_with(
-        [
-            "docker",
-            "commit",
-            "--pause=false",
-            "citymanager-integration-engine",
-            "rollback:engine",
-        ]
+        ["docker", "image", "tag", "sha256:fallback", "rollback:engine"]
     )

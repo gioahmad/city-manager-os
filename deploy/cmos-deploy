@@ -461,16 +461,15 @@ def _image_exists(image: str) -> bool:
     ).returncode == 0
 
 
-def _preserve_service_image(service: str, image: str, tag: str) -> None:
-    if _image_exists(image):
-        run(["docker", "image", "tag", image, tag])
-        return
-    print(
-        f"ROLLBACK SNAPSHOT: {service} original image {image} is unavailable; "
-        "committing the running container",
-        flush=True,
-    )
-    run(["docker", "commit", "--pause=false", service, tag])
+def _preserve_service_image(service: str, image: str, tag: str, fallback: str) -> None:
+    if not _image_exists(image):
+        print(
+            f"ROLLBACK SNAPSHOT: {service} original image {image} is unrecoverable; "
+            "using the pre-release application image",
+            flush=True,
+        )
+        image = fallback
+    run(["docker", "image", "tag", image, tag])
 
 
 def rollback_state(services: set[str]) -> tuple[dict[str, str], str]:
@@ -484,15 +483,15 @@ def rollback_state(services: set[str]) -> tuple[dict[str, str], str]:
         ["docker", "image", "inspect", "dashboard-citymanager-dashboard:latest", "--format", "{{.Id}}"],
         text=True,
     ).strip()
+    preserved_latest = "dashboard-citymanager-dashboard:cmos-deploy-rollback-latest"
+    run(["docker", "image", "tag", latest, preserved_latest])
 
     preserved = {}
     for service, image in images.items():
         tag = f"dashboard-citymanager-dashboard:cmos-deploy-rollback-{service}"
-        _preserve_service_image(service, image, tag)
+        _preserve_service_image(service, image, tag, preserved_latest)
         preserved[service] = tag
 
-    preserved_latest = "dashboard-citymanager-dashboard:cmos-deploy-rollback-latest"
-    run(["docker", "image", "tag", latest, preserved_latest])
     return preserved, preserved_latest
 
 
