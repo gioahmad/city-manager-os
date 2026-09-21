@@ -17,7 +17,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping
 
-RESOLVER_VERSION = 4
+RESOLVER_VERSION = 5
 MAX_CANDIDATE_LENGTH = 300
 MAX_CANDIDATES = 40
 MIN_PRECISE_CONFIDENCE = 0.75
@@ -25,12 +25,12 @@ MAX_INTERSECTION_DISTANCE_FEET = 1320.0
 
 _SPACE_RE = re.compile(r"\s+")
 _ADDRESS_RE = re.compile(r"^\s*\d+[A-Z]?(?:-\d+[A-Z]?)?\s+.+", re.I)
-_INTERSECTION_RE = re.compile(r"^\s*(.+?)\s+(?:&|@|AT|AND)\s+(.+?)\s*$", re.I)
 _REFERENCE_RE = re.compile(r"^(?:BK|BX|MN|QN|SI)-\d{3,6}$", re.I)
+_ROUTE_RE = re.compile(r"\b(?:I|US|NJ|RT|RTE|ROUTE)\s*-?\s*(\d+[A-Z]?)\b", re.I)
 _STREET_WORD_RE = re.compile(
     r"\b(?:AVE(?:NUE)?|BLVD|BOULEVARD|CIR(?:CLE)?|CT|COURT|DR(?:IVE)?|HWY|HIGHWAY|"
     r"LN|LANE|PKWY|PARKWAY|PL|PLACE|PLZ|PLAZA|RD|ROAD|ST|STREET|TER|TERRACE|"
-    r"TPKE|TURNPIKE|WAY|EXPY|EXPRESSWAY)\b",
+    r"TPKE|TURNPIKE|PIKE|RT|RTE|ROUTE|WAY|EXPY|EXPRESSWAY)\b",
     re.I,
 )
 _CORRIDOR_RE = re.compile(r"\b(?:BRIDGE|TUNNEL|ROUTE|HIGHWAY|PARKWAY|TURNPIKE|EXPRESSWAY)\b", re.I)
@@ -55,7 +55,8 @@ _EMBEDDED_ADDRESS_RE = re.compile(
     r"(?:[NSEW]\s+)?(?:[A-Z0-9'\-]+\s+){0,7}"
     r"(?:AVE(?:NUE)?|BLVD|BOULEVARD|CIR(?:CLE)?|CT|COURT|DR(?:IVE)?|"
     r"HWY|HIGHWAY|LN|LANE|PKWY|PARKWAY|PL|PLACE|PLZ|PLAZA|RD|ROAD|"
-    r"ST|STREET|TER|TERRACE|TPKE|TURNPIKE|WAY|EXPY|EXPRESSWAY)\b",
+    r"ST|STREET|TER|TERRACE|TPKE|TURNPIKE|PIKE|RTE|ROUTE|WAY|"
+    r"EXPY|EXPRESSWAY|BROADWAY)\b",
     re.I,
 )
 _LOCALITY_STATE_RE = re.compile(
@@ -79,6 +80,7 @@ _SUFFIX_VARIANTS = {
     "ST": "STREET",
     "TER": "TERRACE",
     "TPKE": "TURNPIKE",
+    "RTE": "ROUTE",
     "EXPY": "EXPRESSWAY",
 }
 
@@ -140,14 +142,13 @@ def classify_text(value: str, source_path: str = "") -> str | None:
     if _REFERENCE_RE.fullmatch(text):
         return "reference"
 
-    match = _INTERSECTION_RE.match(text)
-    if match and all(len(part.strip()) >= 2 for part in match.groups()):
+    if _intersection_parts(text):
         return "intersection"
     if _ADDRESS_RE.match(text) and (_STREET_WORD_RE.search(text) or len(text.split()) >= 2):
         return "address"
     if _FACILITY_RE.search(text):
         return "facility"
-    if _CORRIDOR_RE.search(text) or _STREET_WORD_RE.search(text):
+    if _ROUTE_RE.search(text) or _CORRIDOR_RE.search(text) or _STREET_WORD_RE.search(text):
         return "corridor"
 
     path = source_path.lower()
@@ -177,7 +178,8 @@ def extract_location_candidates(payload: Mapping[str, Any]) -> list[LocationCand
         values: list[tuple[str, str]] = []
         kind = classify_text(raw, path)
         if kind:
-            values.append((raw, kind))
+            parts = _intersection_parts(raw) if kind == "intersection" else None
+            values.append((f"{parts[0]} & {parts[1]}" if parts else raw, kind))
         for match in _EMBEDDED_ADDRESS_RE.finditer(normalize_text(raw)):
             values.append((match.group(0), "address"))
         for value, value_kind in values:
@@ -235,6 +237,97 @@ def _municipality_hint(payload: Mapping[str, Any]) -> str:
             if locality and not any(char.isdigit() for char in locality) and not _STREET_WORD_RE.search(locality):
                 return locality
     return ""
+
+
+def _municipality_hints(payload: Mapping[str, Any]) -> list[str]:
+    """Extract bounded locality guesses, then let local GIS validate them."""
+    hints: list[str] = []
+
+    def add(value: str) -> None:
+        text = normalize_text(value)
+        text = re.sub(r"^(?:CITY|TOWN|TOWNSHIP|TWP|BOROUGH|VILLAGE)\s+OF\s+", "", text)
+        text = re.sub(r"\s+(?:TOWN|TOWNSHIP|TWP|BOROUGH|VILLAGE)$", "", text)
+        text = re.sub(r"\s+(?:NJ|NEW JERSEY)(?:\s+\d{5}(?:-\d{4})?)?$", "", text)
+        text = text.strip(" -/")
+        if (
+            not text
+            or text in {"NJ", "NEW JERSEY"}
+            or any(char.isdigit() for char in text)
+            or len(text.split()) > 5
+            or text.endswith(" COUNTY")
+            or _STREET_WORD_RE.search(text)
+            or _CORRIDOR_RE.search(text)
+        ):
+            return
+        if text not in hints:
+            hints.append(text)
+
+    state_hint = _municipality_hint(payload)
+    if state_hint:
+        add(state_hint)
+
+    for path, raw in _walk_strings(payload):
+        path_name = path.rsplit(".", 1)[-1].lower()
+        if path_name in {"municipality", "city", "borough", "post_comm"}:
+            add(raw)
+
+        normalized = normalize_text(raw)
+        spans = [match.span() for match in _EMBEDDED_ADDRESS_RE.finditer(normalized)]
+        for start, end in spans:
+            add(normalized[:start])
+            add(normalized[end:])
+
+        if (
+            "NJ" in normalized.split()
+            or spans
+            or _intersection_parts(normalized)
+            or any(token in path.lower() for token in ("location", "place", "municipality", "borough", "city"))
+        ):
+            for part in re.split(r"[,;/|:]", raw):
+                add(part)
+    return hints[:20]
+
+
+def _local_municipality_hint(conn, payload: Mapping[str, Any]) -> str:
+    hints = _municipality_hints(payload)
+    if not hints:
+        return ""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH hints AS (
+              SELECT hint,hint_order
+              FROM unnest(%s::text[]) WITH ORDINALITY AS item(hint,hint_order)
+            )
+            SELECT coalesce(a.label,p.label) AS label
+            FROM hints h
+            LEFT JOIN LATERAL (
+              SELECT post_comm AS label
+              FROM gis_addresses
+              WHERE nullif(post_comm,'') IS NOT NULL
+                AND lower(post_comm)=lower(h.hint)
+                AND geom IS NOT NULL
+              ORDER BY CASE WHEN status='A' THEN 0 ELSE 1 END,objectid
+              LIMIT 1
+            ) a ON true
+            LEFT JOIN LATERAL (
+              SELECT mun_name AS label
+              FROM gis_parcels
+              WHERE a.label IS NULL
+                AND nullif(mun_name,'') IS NOT NULL
+                AND lower(mun_name)=lower(h.hint)
+                AND geom IS NOT NULL
+              ORDER BY objectid
+              LIMIT 1
+            ) p ON true
+            WHERE coalesce(a.label,p.label) IS NOT NULL
+            ORDER BY h.hint_order
+            LIMIT 1
+            """,
+            (hints,),
+        )
+        row = cur.fetchone()
+    return str(_row_value(row, "label", 0) or "") if row else ""
 
 
 def _row_value(row: Any, key: str, position: int) -> Any:
@@ -361,6 +454,12 @@ def _street_variants(text: str, municipality: str = "") -> list[str]:
     if not value:
         return []
 
+    route = _ROUTE_RE.search(value)
+    route_variants: list[str] = []
+    if route:
+        number = route.group(1).upper()
+        route_variants = [f"RT {number}", f"RTE {number}", f"ROUTE {number}", f"NJ {number}"]
+
     words = value.split()
     suffix_positions = [
         index for index, word in enumerate(words)
@@ -368,7 +467,8 @@ def _street_variants(text: str, municipality: str = "") -> list[str]:
     ]
     if suffix_positions:
         end = suffix_positions[-1]
-        bases = [" ".join(words[start:end + 1]) for start in range(max(0, end - 5), end)]
+        street_end = end + 1 if end + 1 < len(words) and words[end + 1] in {"E", "W", "N", "S", "EAST", "WEST", "NORTH", "SOUTH"} else end
+        bases = [" ".join(words[start:street_end + 1]) for start in range(max(0, end - 5), end + 1)]
     else:
         bases = [value]
 
@@ -377,15 +477,21 @@ def _street_variants(text: str, municipality: str = "") -> list[str]:
         if len(base.split()) < 2 and not _CORRIDOR_RE.search(base):
             continue
         variants.extend(normalize_text(item) for item in _address_variants(base))
-    return list(dict.fromkeys(item for item in variants if item))
+    return list(dict.fromkeys(item for item in [*route_variants, *variants] if item))
 
 
 def _intersection_parts(text: str, municipality: str = "") -> tuple[str, str] | None:
-    match = _INTERSECTION_RE.match(_without_locality(text, municipality))
-    if not match:
-        return None
-    first, second = (part.strip() for part in match.groups())
-    return (first, second) if first and second else None
+    value = _without_locality(text, municipality)
+    connectors = list(re.finditer(r"\s+(?:&|@|AT|AND|/|X)\s+", value, re.I))
+    for connector in reversed(connectors):
+        first = value[:connector.start()].strip()
+        second = value[connector.end():].strip()
+        first_variants = _street_variants(first)
+        second_variants = _street_variants(second)
+        if first_variants and second_variants:
+            shortest = lambda variants: min(variants, key=lambda item: (len(item.split()), len(item)))
+            return shortest(first_variants), shortest(second_variants)
+    return None
 
 
 def _address_number(text: str) -> int | None:
@@ -838,8 +944,10 @@ def resolve_payload(
     approximate_coordinate = bool(metadata.get("location_approximate"))
     candidates = extract_location_candidates(payload)
     municipality = _context_value(payload, {"municipality", "city", "borough", "post_comm"})
+    if not municipality:
+        municipality = _local_municipality_hint(conn, payload)
     context = {
-        "municipality": municipality or _municipality_hint(payload),
+        "municipality": municipality,
         "county": _context_value(payload, {"county"}),
         "state": _context_value(payload, {"state", "state_code"}),
         "source": _context_value(payload, {"source"}),
@@ -898,44 +1006,46 @@ def resolve_payload(
                 if ambiguous_address is None:
                     ambiguous_address = (matched, candidate)
         if not result:
-            candidate = next((item for item in candidates if item.kind == "intersection"), None)
-            matched = _resolve_intersection(conn, candidate, context["municipality"]) if candidate else None
-            if matched:
-                result = matched
-                result["county"] = context["county"] or None
-                result["state"] = context["state"] or "NJ"
-                result["provenance"] = {
-                    "source_path": candidate.source_path,
-                    "source_text": candidate.text,
-                    "resolver_version": RESOLVER_VERSION,
-                    "runtime_source": "LOCAL_POSTGIS",
-                    "approximate": True,
-                }
+            for candidate in (item for item in candidates if item.kind == "intersection"):
+                matched = _resolve_intersection(conn, candidate, context["municipality"])
+                if matched:
+                    result = matched
+                    result["county"] = context["county"] or None
+                    result["state"] = context["state"] or "NJ"
+                    result["provenance"] = {
+                        "source_path": candidate.source_path,
+                        "source_text": candidate.text,
+                        "resolver_version": RESOLVER_VERSION,
+                        "runtime_source": "LOCAL_POSTGIS",
+                        "approximate": True,
+                    }
+                    break
         if not result:
-            candidate = next(
-                (item for item in candidates if item.kind in {"address", "corridor"}),
-                None,
-            )
-            if candidate is None:
+            street_candidates = [
+                item for item in candidates if item.kind in {"address", "corridor"}
+            ]
+            if not street_candidates:
                 intersection = next((item for item in candidates if item.kind == "intersection"), None)
                 parts = _intersection_parts(intersection.text, context["municipality"]) if intersection else None
                 if intersection and parts:
-                    candidate = LocationCandidate(
+                    street_candidates.append(LocationCandidate(
                         parts[0], normalize_text(parts[0]), "corridor", intersection.source_path,
                         intersection.score,
-                    )
-            matched = _resolve_street(conn, candidate, context["municipality"]) if candidate else None
-            if matched:
-                result = matched
-                result["county"] = context["county"] or None
-                result["state"] = context["state"] or "NJ"
-                result["provenance"] = {
-                    "source_path": candidate.source_path,
-                    "source_text": candidate.text,
-                    "resolver_version": RESOLVER_VERSION,
-                    "runtime_source": "LOCAL_POSTGIS",
-                    "approximate": True,
-                }
+                    ))
+            for candidate in street_candidates:
+                matched = _resolve_street(conn, candidate, context["municipality"])
+                if matched:
+                    result = matched
+                    result["county"] = context["county"] or None
+                    result["state"] = context["state"] or "NJ"
+                    result["provenance"] = {
+                        "source_path": candidate.source_path,
+                        "source_text": candidate.text,
+                        "resolver_version": RESOLVER_VERSION,
+                        "runtime_source": "LOCAL_POSTGIS",
+                        "approximate": True,
+                    }
+                    break
         if not result:
             place = _resolve_place(
                 conn,
@@ -1059,6 +1169,9 @@ def audit_alerts(
     precision_counts: Counter[str] = Counter()
     examples: dict[str, list[dict[str, Any]]] = {}
     errors: list[dict[str, str]] = []
+    mapped_count = 0
+    unresolved_with_candidates = 0
+    no_location_evidence = 0
     for index, row in enumerate(rows, 1):
         try:
             result = resolve_payload(conn, _alert_payload(row), use_cache=False, persist=False)
@@ -1068,6 +1181,17 @@ def audit_alerts(
             status_counts[status] += 1
             match_counts[match_type] += 1
             precision_counts[precision] += 1
+            mapped = (
+                status == "RESOLVED"
+                and result.get("longitude") is not None
+                and result.get("latitude") is not None
+            )
+            if mapped:
+                mapped_count += 1
+            elif result.get("candidates"):
+                unresolved_with_candidates += 1
+            else:
+                no_location_evidence += 1
             bucket = examples.setdefault(match_type, [])
             if len(bucket) < 5:
                 location = _as_dict(row.get("location"))
@@ -1098,6 +1222,9 @@ def audit_alerts(
         "status_counts": dict(status_counts),
         "match_type_counts": dict(match_counts),
         "spatial_precision_counts": dict(precision_counts),
+        "mapped_count": mapped_count,
+        "unresolved_with_candidates": unresolved_with_candidates,
+        "no_location_evidence": no_location_evidence,
         "examples": examples,
         "errors": errors[:20],
         "error_count": len(errors),

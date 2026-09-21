@@ -88,7 +88,7 @@ def test_mapping_center_exposes_alert_geography():
     template = (root / "templates" / "map.html").read_text()
     assert '"key": "alerts"' in app_source
     assert '@app.get("/map/system/alerts.geojson")' in app_source
-    assert "FROM alert_geo_coverage" in app_source
+    assert "CASE WHEN r.status='RESOLVED' THEN r.geom END" in app_source
     assert "geo_entity_resolutions" in app_source
     assert "Alerts mapped" in template
     assert "spatial_precision" in template

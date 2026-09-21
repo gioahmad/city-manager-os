@@ -108,11 +108,52 @@ def test_alert_category_filter_lives_with_layers_and_refreshes_the_existing_laye
 
     assert 'id="alert-map-category"' not in search_panel
     assert 'id="alert-map-category"' in layers_panel
+    assert 'id="apply-alert-filters"' in layers_panel
+    assert 'id="reset-alert-filters"' in layers_panel
+    assert 'id="alert-filter-status"' in layers_panel
     assert "Category uses the category supplied by each source, including BNN." in layers_panel
     assert "['alert-window','alert-map-source','alert-map-category','alert-map-priority','alert-map-active'].forEach" in template
+    assert "addEventListener('change',()=>refreshAlertLayer(true))" in template
+    assert "showAppliedAlertCount(count)" in template
+    assert "No mapped alerts match " in template
     assert "if(category)params.set('category',category)" in template
     assert "upper(a.category)=upper(%s)" in source
     assert "WHEN a.geom IS NULL" in source
+
+
+def test_alert_layer_endpoint_applies_every_display_filter(monkeypatch):
+    monkeypatch.chdir(DASHBOARD_ROOT)
+    os.environ.setdefault("DB_PASSWORD", "test")
+    import map_app
+
+    captured = {}
+
+    def fake_query_all(sql, params=()):
+        captured["sql"] = sql
+        captured["params"] = params
+        return []
+
+    monkeypatch.setattr(map_app, "query_all", fake_query_all)
+    response = map_app.map_alerts_geojson(
+        bbox="-75,40,-73,42",
+        window="30d",
+        min_priority=4,
+        active_only=True,
+        q="bridge",
+        source="BNN",
+        category="FIRE",
+    )
+
+    assert response.status_code == 200
+    assert json.loads(response.body)["features"] == []
+    assert "a.received_at >= now()-(%s * interval '1 hour')" in captured["sql"]
+    assert "upper(a.source)=upper(%s)" in captured["sql"]
+    assert "upper(a.category)=upper(%s)" in captured["sql"]
+    assert "a.status <> 'RESOLVED'" in captured["sql"]
+    assert "ST_Intersects(coalesce(a.geom,r.geom)" in captured["sql"]
+    assert captured["params"][:4] == (720, 4, "BNN", "FIRE")
+    assert captured["params"][4:11] == ("%bridge%",) * 7
+    assert captured["params"][-4:] == (-75.0, 40.0, -73.0, 42.0)
 
 
 def test_alert_location_correction_accepts_one_coordinate_pair_or_google_maps_link(monkeypatch):
@@ -160,7 +201,7 @@ def test_alert_location_correction_reuses_map_alert_and_resolution_systems():
     assert "'/map/alerts/'+encodeURIComponent(alertId)+'/location'" in template
     assert "await refreshAlertLayer(true)" in template
     assert ".map-location-editor" in styles
-    assert "/static/map.css?v=20260921-8" in template
+    assert "/static/map.css?v=20260921-9" in template
 
 
 def test_alert_location_correction_executes_one_atomic_existing_table_update(monkeypatch):
@@ -332,7 +373,7 @@ def test_selected_features_show_cross_layer_context_from_loaded_map_data():
     assert "fetch('/map/context" not in template
     assert ".map-context-facts" in styles
     assert ".map-context-record" in styles
-    assert "/static/map.css?v=20260921-8" in template
+    assert "/static/map.css?v=20260921-9" in template
 
 
 def test_map_template_compiles_after_browser_native_tools():

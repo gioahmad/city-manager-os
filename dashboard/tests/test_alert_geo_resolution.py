@@ -7,14 +7,18 @@ import geo_resolver
 from geo_resolver import (
     _address_variants,
     _cache_key,
+    _local_municipality_hint,
     _municipality_hint,
+    _municipality_hints,
     _resolve_address,
     _resolve_intersection,
     _resolve_street,
     _save_cache,
     _save_entity_resolution,
+    _street_variants,
     audit_alerts,
     LocationCandidate,
+    RESOLVER_VERSION,
     extract_location_candidates,
     normalize_text,
 )
@@ -103,6 +107,48 @@ def test_bnn_free_text_locality_is_used_when_city_field_is_missing():
     assert _municipality_hint(
         {"source": "BNN", "message": "Fire at Park Ave & 49th St, Weehawken NJ"}
     ) == "Weehawken"
+
+
+def test_bnn_location_formats_extract_address_intersection_and_locality():
+    cases = {
+        "North Bergen, 7611 Broadway": ("NORTH BERGEN", "7611 BROADWAY", "address"),
+        "4100 Park Ave Weehawken": ("WEEHAWKEN", "4100 PARK AVE", "address"),
+        "Working Fire at Park Ave / 49th St, Weehawken": (
+            "WEEHAWKEN", "PARK AVE & 49TH ST", "intersection"
+        ),
+    }
+    for location, (municipality, candidate_text, candidate_kind) in cases.items():
+        payload = {"source": "BNN", "location": {"address": location}, "message": location}
+        assert municipality in _municipality_hints(payload)
+        candidates = extract_location_candidates(payload)
+        assert any(
+            item.normalized == candidate_text and item.kind == candidate_kind
+            for item in candidates
+        )
+
+    assert "BOULEVARD EAST" in _street_variants(
+        "400 block Boulevard East", "Weehawken"
+    )
+    assert "ROUTE 3" in _street_variants("Route 3 EB", "Secaucus")
+    route_intersection = extract_location_candidates(
+        {"source": "BNN", "location": {"address": "Route 3 X Paterson Plank Rd, Secaucus"}}
+    )
+    assert any(item.kind == "intersection" for item in route_intersection)
+
+
+def test_bnn_locality_guesses_are_validated_against_existing_local_gis():
+    connection = _AddressConnection([("North Bergen",)])
+    result = _local_municipality_hint(
+        connection,
+        {"source": "BNN", "location": {"address": "7611 Broadway, North Bergen"}},
+    )
+
+    assert result == "North Bergen"
+    query, params = connection.cursor_value.calls[0]
+    assert "FROM unnest(%s::text[]) WITH ORDINALITY" in query
+    assert "FROM gis_addresses" in query
+    assert "FROM gis_parcels" in query
+    assert params == (["NORTH BERGEN"],)
 
 
 def test_failed_address_uses_closest_real_ng911_address_before_city():
@@ -302,6 +348,9 @@ def test_read_only_bnn_audit_rechecks_every_existing_alert_without_persisting(mo
     assert summary["complete"] is True
     assert summary["error_count"] == 0
     assert summary["match_type_counts"] == {"LOCAL_NEAREST_ADDRESS": 2}
+    assert summary["mapped_count"] == 2
+    assert summary["unresolved_with_candidates"] == 0
+    assert summary["no_location_evidence"] == 0
     assert all(options == {"use_cache": False, "persist": False} for _, options in calls)
     assert connection.commits == 0
     query, params = connection.cursor_value.calls[0]
@@ -388,6 +437,23 @@ def test_worker_contract_stays_inside_existing_alerts_and_resolver():
     assert "a.geom IS NULL" in source
     assert "r.spatial_precision IN ('ADDRESS_POINT','SUPPLIED_COORDINATE')" in source
     assert "a.geom IS NULL AND coalesce(r.resolver_version,0) < %s" in source
+    assert RESOLVER_VERSION == 5
+
+
+def test_bnn_recovery_release_requires_target_mapping_and_real_coverage_gain():
+    release = Path(__file__).resolve().parents[2].joinpath(
+        "deploy/releases/bnn-map-recovery.sh"
+    ).read_text()
+
+    assert "BNN:d1468ab2" in release
+    assert 'cur.execute("SET TRANSACTION READ ONLY")' in release
+    assert "use_cache=False,persist=False" in release
+    assert 'result.get("status")!="RESOLVED"' in release
+    assert "backfill --limit 10000 --since-days 3650 --source BNN" in release
+    assert "--force" not in release
+    assert 'after["target_mapped"] is True' in release
+    assert 'int(after["mapped"])>int(before["mapped"])' in release
+    assert "full_e2e=NOT_RUN notifications=NONE" in release
 
 
 def test_entity_resolution_sql_parameter_contract():
@@ -449,3 +515,15 @@ def test_map_alert_geojson_serializes_numeric_confidence_and_escapes_like():
     assert "elif isinstance(value, Decimal):" in source
     assert "props[key] = float(value)" in source
     assert "LIKE 'NJOGIS_%%'" in source
+
+
+def test_map_status_counts_only_geometry_the_map_can_really_display():
+    source = Path(__file__).resolve().parents[1].joinpath("map_app.py").read_text()
+    status_query = source.split("def map_gis_status():", 1)[1].split(
+        '@app.post("/map/resolve")', 1
+    )[0]
+
+    assert "FROM alert_geo_coverage" not in status_query
+    assert "r.status='RESOLVED' AND r.geom IS NOT NULL" in status_query
+    assert "CASE WHEN r.status='RESOLVED' THEN r.geom END" in status_query
+    assert "r.status='AMBIGUOUS'" in status_query

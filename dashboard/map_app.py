@@ -311,10 +311,27 @@ def map_gis_status():
     )
     coverage = query_all(
         """
-        SELECT source,total,precise,approximate,visible,ambiguous,unresolved,pending,
-               visible_percent,average_confidence,last_resolution_at
-        FROM alert_geo_coverage
-        ORDER BY total DESC,source
+        SELECT a.source,count(*) AS total,
+               count(*) FILTER (WHERE a.geom IS NOT NULL) AS precise,
+               count(*) FILTER (
+                 WHERE a.geom IS NULL AND r.status='RESOLVED' AND r.geom IS NOT NULL
+               ) AS approximate,
+               count(*) FILTER (
+                 WHERE coalesce(a.geom,CASE WHEN r.status='RESOLVED' THEN r.geom END) IS NOT NULL
+               ) AS visible,
+               count(*) FILTER (WHERE r.status='AMBIGUOUS') AS ambiguous,
+               count(*) FILTER (WHERE r.status='UNRESOLVED') AS unresolved,
+               count(*) FILTER (WHERE r.id IS NULL) AS pending,
+               round(100.0*count(*) FILTER (
+                 WHERE coalesce(a.geom,CASE WHEN r.status='RESOLVED' THEN r.geom END) IS NOT NULL
+               )/nullif(count(*),0),2) AS visible_percent,
+               round(avg(r.confidence),4) AS average_confidence,
+               max(r.updated_at) AS last_resolution_at
+        FROM alerts a
+        LEFT JOIN geo_entity_resolutions r
+          ON r.entity_type='ALERT' AND r.entity_id=a.id::text
+        GROUP BY a.source
+        ORDER BY total DESC,a.source
         """
     )
     return JSONResponse(_json_safe({"run": latest, "datasets": datasets, "copy": copy, "alert_coverage": coverage}))

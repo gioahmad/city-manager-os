@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
-  <link rel="stylesheet" href="/static/map.css?v=20260921-8">
+  <link rel="stylesheet" href="/static/map.css?v=20260921-9">
   <link rel="stylesheet" href="/static/map_status.css?v=20260909-1">
 </head>
 <body>
@@ -102,6 +102,11 @@
             <label>Minimum priority<select id="alert-map-priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
             <label class="map-check"><input id="alert-map-active" type="checkbox"> Current unresolved only</label>
           </details>
+          <div class="map-layer-actions">
+            <button id="apply-alert-filters" class="map-mini-button" type="button">Apply Filters</button>
+            <button id="reset-alert-filters" class="map-mini-button" type="button">Reset</button>
+          </div>
+          <small id="alert-filter-status" class="map-alert-filter-status" aria-live="polite">Loading mapped alerts for this map area...</small>
           <small>Changing a filter refreshes the Alerts layer immediately. Category uses the category supplied by each source, including BNN. The Alert time choice only controls what is displayed. Alert history is kept.</small>
         </div>
 
@@ -380,6 +385,7 @@ async function loadGeo(key,endpoint,color,viewport=false,layerName=key,force=fal
       const count=data.features?.length||0,elapsed=Math.round(performance.now()-started),size=Math.max(1,Math.round(raw.length/1024));
       layerMetrics[key]=compactNumber(count)+' features · '+elapsed+' ms · ~'+compactNumber(size)+' KB · refreshed '+refreshClock();
       layerRuntime(key,layerMetrics[key]);
+      if(key==='alerts')showAppliedAlertCount(count);
       status(layerName+' · '+count+' features');
       return groups[key];
     }catch(error){
@@ -515,7 +521,11 @@ function restoreMapControls(){
   activateMapPanel(mapShareParams.get('tab')||'search');
 }
 function alertEndpoint(){const params=new URLSearchParams({window:document.getElementById('alert-window')?.value||'12h',min_priority:document.getElementById('alert-map-priority')?.value||'1'});const q=document.getElementById('alert-map-query')?.value.trim(),source=document.getElementById('alert-map-source')?.value,category=document.getElementById('alert-map-category')?.value;if(q)params.set('q',q);if(source)params.set('source',source);if(category)params.set('category',category);if(document.getElementById('alert-map-active')?.checked)params.set('active_only','true');return '/map/system/alerts.geojson?'+params;}
-async function refreshAlertLayer(force=false){if(!alertToggle)return;alertToggle.dataset.endpoint=alertEndpoint();alertToggle.checked=true;try{await loadGeo('alerts',alertToggle.dataset.endpoint,alertToggle.dataset.color||null,true,alertToggle.dataset.name||'Alerts',force);}catch(e){status(e.message);}}
+function alertFilterLabel(){const windowSelect=document.getElementById('alert-window'),sourceSelect=document.getElementById('alert-map-source'),categorySelect=document.getElementById('alert-map-category'),priority=document.getElementById('alert-map-priority')?.value||'1',parts=[windowSelect?.selectedOptions[0]?.textContent||'Last 12 hours'];if(sourceSelect?.value)parts.push('source '+sourceSelect.selectedOptions[0].textContent);if(categorySelect?.value)parts.push('category '+categorySelect.selectedOptions[0].textContent);if(priority!=='1')parts.push('P'+priority+' or higher');if(document.getElementById('alert-map-active')?.checked)parts.push('current unresolved only');return parts.join(' · ');}
+function showAlertFilterStatus(message,loading=false){const output=document.getElementById('alert-filter-status');if(!output)return;output.textContent=message;output.classList.toggle('loading',loading);output.setAttribute('aria-busy',loading?'true':'false');}
+function showAppliedAlertCount(count){showAlertFilterStatus(count?count.toLocaleString()+' mapped alert'+(count===1?'':'s')+' shown · '+alertFilterLabel():'No mapped alerts match '+alertFilterLabel().toLowerCase()+' in this map area.');}
+function resetAlertFilters(){const defaults={'alert-window':'12h','alert-map-source':'','alert-map-category':'','alert-map-priority':'1'};Object.entries(defaults).forEach(([id,value])=>{const el=document.getElementById(id);if(el)el.value=value;});const active=document.getElementById('alert-map-active');if(active)active.checked=false;refreshAlertLayer(true);}
+async function refreshAlertLayer(force=false){if(!alertToggle)return;const endpoint=alertEndpoint();alertToggle.dataset.endpoint=endpoint;alertToggle.checked=true;showAlertFilterStatus('Applying '+alertFilterLabel()+'...',true);try{const group=await loadGeo('alerts',endpoint,alertToggle.dataset.color||null,true,alertToggle.dataset.name||'Alerts',Boolean(force));if(alertToggle.dataset.endpoint!==endpoint)return;showAppliedAlertCount(group?.getLayers?.().length||0);}catch(e){showAlertFilterStatus('Alert filters could not be applied. '+e.message);status(e.message);}}
 function areaEndpoint(toggle,query){if(toggle.dataset.key==='alerts')return alertEndpoint();const url=new URL(toggle.dataset.baseEndpoint,window.location.href);if(query)url.searchParams.set('q',query);return url.pathname+url.search;}
 async function searchVisibleRecords(){
   const query=document.getElementById('alert-map-query')?.value.trim()||'';
@@ -532,7 +542,9 @@ async function searchVisibleRecords(){
 }
 document.getElementById('search-visible-records')?.addEventListener('click',searchVisibleRecords);
 document.getElementById('alert-map-query')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();searchVisibleRecords();}});
-['alert-window','alert-map-source','alert-map-category','alert-map-priority','alert-map-active'].forEach(id=>document.getElementById(id)?.addEventListener('change',refreshAlertLayer));
+['alert-window','alert-map-source','alert-map-category','alert-map-priority','alert-map-active'].forEach(id=>document.getElementById(id)?.addEventListener('change',()=>refreshAlertLayer(true)));
+document.getElementById('apply-alert-filters')?.addEventListener('click',()=>refreshAlertLayer(true));
+document.getElementById('reset-alert-filters')?.addEventListener('click',resetAlertFilters);
 restoreMapControls();
 if(alertToggle)alertToggle.dataset.endpoint=alertEndpoint();
 async function initialLoad(){const jobs=[...document.querySelectorAll('.custom-layer-toggle:checked')].map(el=>syncCustomLayer(el));jobs.push(...[...document.querySelectorAll('.system-layer-toggle:checked')].map(el=>syncSystemLayer(el)));const results=await Promise.allSettled(jobs),failed=results.filter(result=>result.status==='rejected').length;status(failed?'Map ready · '+failed+' layer'+(failed===1?'':'s')+' unavailable':'Map ready');}
