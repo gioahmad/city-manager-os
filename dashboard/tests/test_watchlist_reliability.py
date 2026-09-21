@@ -119,6 +119,7 @@ def test_alert_spatial_endpoints_use_the_mapping_center_point():
 def test_alert_map_restores_full_history_choices_without_destructive_actions():
     map_source = (DASHBOARD_ROOT / "map_app.py").read_text()
     map_template = (DASHBOARD_ROOT / "templates/map.html").read_text()
+    map_styles = (DASHBOARD_ROOT / "static/map.css").read_text()
     alerts_source = (DASHBOARD_ROOT / "operations_app.py").read_text()
     alerts_template = (DASHBOARD_ROOT / "templates/alerts.html").read_text()
     assert '"endpoint": "/map/system/alerts.geojson?hours=12"' in map_source
@@ -139,6 +140,9 @@ def test_alert_map_restores_full_history_choices_without_destructive_actions():
     assert "Search all alerts" in map_template
     assert "Search all operational records" in map_template
     assert "only controls what is displayed. Alert history is kept" in map_template
+    assert "grid-template-columns:repeat(2,minmax(0,1fr))" in map_styles
+    assert "@media(max-width:1050px){.map-alert-filter-grid{grid-template-columns:1fr}}" in map_styles
+    assert ".map-alert-controls>*{min-width:0}" in map_styles
     assert '"all": None' in alerts_source
     assert "a.location::text ILIKE" in alerts_source
     assert "array_to_string(a.tags,' ') ILIKE" in alerts_source
