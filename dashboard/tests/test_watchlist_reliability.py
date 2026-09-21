@@ -116,17 +116,28 @@ def test_alert_spatial_endpoints_use_the_mapping_center_point():
     assert map_source.count("r.entity_id=a.id::text AND r.status='RESOLVED'") >= 1
 
 
-def test_alert_map_shelf_life_and_global_search_are_bounded_and_non_destructive():
+def test_alert_map_restores_full_history_choices_without_destructive_actions():
     map_source = (DASHBOARD_ROOT / "map_app.py").read_text()
     map_template = (DASHBOARD_ROOT / "templates/map.html").read_text()
     alerts_source = (DASHBOARD_ROOT / "operations_app.py").read_text()
     alerts_template = (DASHBOARD_ROOT / "templates/alerts.html").read_text()
     assert '"endpoint": "/map/system/alerts.geojson?hours=12"' in map_source
     assert "min(int(hours or 12), 168)" in map_source
+    assert "from operations_app import ALERT_WINDOWS" in map_source
+    assert '"30d": 720' in alerts_source
+    assert '"all": None' in alerts_source
+    assert "if window_hours is not None:" in map_source
     assert "a.received_at >= now()-(%s * interval '1 hour')" in map_source
-    for value in ('value="6"', 'value="12"', 'value="24"', 'value="168"'):
+    for value in ('value="6h"', 'value="12h"', 'value="24h"', 'value="7d"', 'value="30d"', 'value="all"'):
         assert value in map_template
+    visible_controls = map_template.split('<details open>', 1)[0]
+    assert 'id="alert-window"' in visible_controls
+    assert "<details open>" in map_template
+    assert "All mapped history" in map_template
+    assert "addEventListener('change',refreshAlertLayer)" in map_template
     assert "Search Visible Area" in map_template
+    assert "Search all alerts" in map_template
+    assert "Search all operational records" in map_template
     assert "only controls what is displayed. Alert history is kept" in map_template
     assert '"all": None' in alerts_source
     assert "a.location::text ILIKE" in alerts_source
@@ -136,6 +147,29 @@ def test_alert_map_shelf_life_and_global_search_are_bounded_and_non_destructive(
     assert "DELETE FROM alerts" not in map_source
     assert '@app.post("/alerts/bulk-action")' in alerts_source
     assert "Type DELETE to permanently delete the selected alerts" in alerts_source
+
+
+def test_mapping_center_deduplicates_cancels_and_reports_layer_refreshes():
+    map_source = (DASHBOARD_ROOT / "map_app.py").read_text()
+    template = (DASHBOARD_ROOT / "templates/map.html").read_text()
+
+    assert "const layerLoads={};" in template
+    assert "const loadedSignatures={};" in template
+    assert "const layerMetrics={};" in template
+    assert "loadedSignatures[key]===signature" in template
+    assert "layerLoads[key]?.signature===signature" in template
+    assert template.index("layerLoads[key]?.signature===signature") < template.index("loadedSignatures[key]===signature")
+    assert "new AbortController()" in template
+    assert "signal:controller.signal" in template
+    assert "previous data kept" in template
+    assert "refreshed '+refreshClock()" in template
+    assert "syncSystemLayer(toggle,true)" in template
+    assert "Promise.allSettled(jobs)" in template
+    assert "},600);" in template
+    assert "setInterval(loadGisStatus,30000)" not in template
+    assert "gisStatusTimer=setTimeout(loadGisStatus,active?30000:300000)" in template
+    assert 'data-layer-runtime="{{ layer.key }}"' in template
+    assert "left(a.message,600) AS message" in map_source
 
 
 def test_alert_can_start_an_editable_watch_draft_without_writing_data():

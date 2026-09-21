@@ -137,6 +137,14 @@ SEARCH_SECTION_ORDER = (
 )
 ALERT_BULK_LIMIT = 100
 ALERT_FILTERED_BULK_LIMIT = 5000
+ALERT_WINDOWS = {
+    "6h": 6,
+    "12h": 12,
+    "24h": 24,
+    "7d": 168,
+    "30d": 720,
+    "all": None,
+}
 
 
 def _alert_filter(
@@ -152,9 +160,8 @@ def _alert_filter(
     """Build the one Alert search contract used by the page and bulk actions."""
     where = []
     params = []
-    windows = {"6h": 6, "12h": 12, "24h": 24, "7d": 168, "30d": 720, "all": None}
-    window = window if window in windows else "7d"
-    window_hours = windows[window]
+    window = window if window in ALERT_WINDOWS else "7d"
+    window_hours = ALERT_WINDOWS[window]
     if window_hours is not None:
         where.append("a.received_at>=now()-(%s * interval '1 hour')")
         params.append(window_hours)
