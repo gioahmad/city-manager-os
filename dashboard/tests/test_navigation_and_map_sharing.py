@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import sys
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from jinja2 import Environment, FileSystemLoader
@@ -337,3 +338,43 @@ def test_selected_features_show_cross_layer_context_from_loaded_map_data():
 def test_map_template_compiles_after_browser_native_tools():
     environment = Environment(loader=FileSystemLoader(TEMPLATES))
     environment.get_template("map.html")
+
+
+def test_alert_history_opens_or_places_one_alert_in_the_existing_map(monkeypatch):
+    monkeypatch.chdir(DASHBOARD_ROOT)
+    os.environ.setdefault("DB_PASSWORD", "test")
+    import operations_app
+
+    mapped = parse_qs(
+        urlparse(
+            operations_app.alert_map_url(
+                {
+                    "alert_id": "BNN:123",
+                    "map_latitude": 40.765123,
+                    "map_longitude": -74.021456,
+                }
+            )
+        ).query
+    )
+    assert mapped["focus"] == ["alert"]
+    assert mapped["area_q"] == ["BNN:123"]
+    assert mapped["selected_layer"] == ["alerts"]
+    assert mapped["selected_id"] == ["BNN:123"]
+    assert mapped["lat"] == ["40.765123"]
+    assert mapped["lng"] == ["-74.021456"]
+
+    unmapped = parse_qs(
+        urlparse(operations_app.alert_map_url({"alert_id": "BNN:missing"})).query
+    )
+    assert unmapped["edit_alert"] == ["BNN:missing"]
+    assert "selected_id" not in unmapped
+
+    source = (DASHBOARD_ROOT / "operations_app.py").read_text()
+    alerts = (TEMPLATES / "alerts.html").read_text()
+    mapping = (TEMPLATES / "map.html").read_text()
+    assert "ST_Y(coalesce(a.geom,r.geom)) AS map_latitude" in source
+    assert "View on Map" in alerts
+    assert "Place on Map" in alerts
+    assert "openRequestedAlertEditor" in mapping
+    assert "if(current)setMarker(current)" in mapping
+    assert "map.setView(latlng,Math.max(map.getZoom(),16));await refreshAlertLayer(true)" in mapping
