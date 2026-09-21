@@ -632,11 +632,11 @@ def map_layer_archive(layer_id: uuid.UUID):
 
 
 @app.post("/map/layer/{layer_id}/upload")
-async def map_layer_upload(layer_id: uuid.UUID, file: UploadFile = File(...), mode: str = Form("append")):
+def map_layer_upload(layer_id: uuid.UUID, file: UploadFile = File(...), mode: str = Form("append")):
     layer = query_one("SELECT id,layer_type FROM map_layers WHERE id=%s AND active=true", (layer_id,))
     if not layer or layer["layer_type"] != "CUSTOM_GEOJSON":
         raise HTTPException(status_code=404)
-    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    raw = file.file.read(MAX_UPLOAD_BYTES + 1)
     try:
         features, import_type = read_import(file.filename or "", raw)
     except ValueError as exc:

@@ -56,6 +56,16 @@ def test_dispatch_rejects_unknown_format():
         raise AssertionError("Unknown import format should fail")
 
 
+def test_gis_upload_uses_fastapi_sync_threadpool():
+    source = Path(__file__).resolve().parents[1].joinpath("map_app.py").read_text()
+    route = source.split('@app.post("/map/layer/{layer_id}/upload")', 1)[1].split(
+        '@app.post("/map/layer/{layer_id}/feature")', 1
+    )[0]
+    assert "def map_layer_upload" in route
+    assert "async def map_layer_upload" not in route
+    assert "file.file.read(MAX_UPLOAD_BYTES + 1)" in route
+
+
 def test_mapping_center_exposes_statewide_refresh_status():
     root = Path(__file__).resolve().parents[1]
     app_source = (root / "map_app.py").read_text()
