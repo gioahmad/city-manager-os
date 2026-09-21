@@ -860,9 +860,9 @@ def watch_lab_evaluate(
           WHERE a.alert_id=%s
           LIMIT 1
         ), prepared AS (
-          SELECT w.*,a.id AS alert_uuid,a.alert_id,a.source,a.category,a.subtype,a.status,
+          SELECT w.*,a.id AS alert_uuid,a.alert_id,a.source,a.category AS alert_category,a.subtype,a.status,
                  a.event_action,a.title,a.message,a.priority,a.county AS alert_county,
-                 a.municipality AS alert_municipality,a.location,a.tags,a.click_url,
+                 a.municipality AS alert_municipality,a.location,a.tags AS alert_tags,a.click_url,
                  a.source_url,a.received_at,a.geom AS stored_alert_geom,
                  a.resolver_status,a.resolver_match_type,a.resolver_confidence,
                  a.resolver_spatial_precision,a.resolved_label,a.resolver_geom,
@@ -896,8 +896,8 @@ def watch_lab_evaluate(
           FROM prepared p
         )
         SELECT
-          e.alert_uuid::text,e.alert_id,e.source,e.category,e.subtype,e.status,e.event_action,
-          e.title,e.message,e.priority,e.alert_county,e.alert_municipality,e.location,e.tags,
+          e.alert_uuid::text,e.alert_id,e.source,e.alert_category AS category,e.subtype,e.status,e.event_action,
+          e.title,e.message,e.priority,e.alert_county,e.alert_municipality,e.location,e.alert_tags AS tags,
           e.click_url,e.source_url,e.received_at,e.resolver_status,e.resolver_match_type,
           e.resolver_confidence,e.resolver_spatial_precision,e.resolved_label,
           ST_X(e.effective_alert_geom) AS effective_longitude,
