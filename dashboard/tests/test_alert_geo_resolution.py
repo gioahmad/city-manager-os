@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import geo_resolver
 from geo_resolver import (
     _address_variants,
+    _alert_payload,
     _cache_key,
     _local_municipality_hint,
     _municipality_hint,
@@ -181,6 +182,18 @@ def test_bnn_incident_field_can_supply_a_validated_municipality():
         {"metadata": {"bnn_source_payload": {"incident": "East Orange"}}}
     )
     assert "EAST ORANGE" in hints
+
+
+def test_prior_generated_resolution_is_not_reused_as_source_evidence():
+    payload = _alert_payload({
+        "metadata": {
+            "bnn_source_payload": {"description": "72 E Park St"},
+            "geo_resolution": {"resolved_label": "150 Park Street"},
+        },
+        "location": {},
+    })
+    assert "geo_resolution" not in payload["metadata"]
+    assert payload["metadata"]["bnn_source_payload"]["description"] == "72 E Park St"
 
 
 def test_nj_only_resolver_rejects_explicit_new_york_state():
@@ -494,7 +507,7 @@ def test_worker_contract_stays_inside_existing_alerts_and_resolver():
     assert "r.spatial_precision IN ('ADDRESS_POINT','SUPPLIED_COORDINATE')" in source
     assert "a.geom IS NULL AND coalesce(r.resolver_version,0) < %s" in source
     assert "a.alert_id=ANY(%s::text[])" in source
-    assert RESOLVER_VERSION == 7
+    assert RESOLVER_VERSION == 8
 
 
 def test_bnn_recovery_release_requires_target_mapping_and_real_coverage_gain():
