@@ -16,8 +16,12 @@ def log(message: str) -> None:
 
 def main() -> None:
     interval = max(30, int(os.getenv("INTEGRATION_ENGINE_INTERVAL_SECONDS", "60")))
-    geo_limit = max(1, min(int(os.getenv("ALERT_GEO_BATCH_SIZE", "50")), 500))
-    log(f"integration engine starting interval={interval}s")
+    geo_limit = max(1, min(int(os.getenv("ALERT_GEO_BATCH_SIZE", "5")), 500))
+    geo_since_days = max(1, min(int(os.getenv("ALERT_GEO_SINCE_DAYS", "3650")), 3650))
+    log(
+        f"integration engine starting interval={interval}s "
+        f"geo_batch={geo_limit} geo_since_days={geo_since_days}"
+    )
     while True:
         cycle_started = time.perf_counter()
         try:
@@ -58,7 +62,11 @@ def main() -> None:
                 log(f"transit stale clear complete observations={stale_transit}")
             mark_stale_events()
             with db_conn() as conn:
-                geo = process_pending_alerts(conn, limit=geo_limit, since_days=30)
+                geo = process_pending_alerts(
+                    conn,
+                    limit=geo_limit,
+                    since_days=geo_since_days,
+                )
             if geo.get("selected") or geo.get("errors"):
                 log(
                     "alert geo complete "

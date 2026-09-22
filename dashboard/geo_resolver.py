@@ -17,7 +17,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping
 
-RESOLVER_VERSION = 5
+RESOLVER_VERSION = 6
 MAX_CANDIDATE_LENGTH = 300
 MAX_CANDIDATES = 40
 MIN_PRECISE_CONFIDENCE = 0.75
@@ -137,14 +137,19 @@ def classify_text(value: str, source_path: str = "") -> str | None:
     text = normalize_text(value)
     if not text or len(text) < 3 or len(text) > MAX_CANDIDATE_LENGTH:
         return None
-    if text.startswith(("HTTP://", "HTTPS://")) or _NOISE_RE.fullmatch(text):
+    noise_text = re.sub(r"^[A-Z][A-Z0-9_]{1,24}\s*-\s*", "", text)
+    if text.startswith(("HTTP://", "HTTPS://")) or _NOISE_RE.fullmatch(noise_text):
         return None
     if _REFERENCE_RE.fullmatch(text):
         return "reference"
 
     if _intersection_parts(text):
         return "intersection"
-    if _ADDRESS_RE.match(text) and (_STREET_WORD_RE.search(text) or len(text.split()) >= 2):
+    address_words = text.split()[1:]
+    if _ADDRESS_RE.match(text) and (
+        _STREET_WORD_RE.search(text)
+        or any(len(re.sub(r"[^A-Z]", "", word)) >= 3 for word in address_words)
+    ):
         return "address"
     if _FACILITY_RE.search(text):
         return "facility"
@@ -175,18 +180,22 @@ def extract_location_candidates(payload: Mapping[str, Any]) -> list[LocationCand
     """Extract ranked candidates from every field, including nested source data."""
     selected: dict[tuple[str, str], LocationCandidate] = {}
     for path, raw in _walk_strings(payload):
-        values: list[tuple[str, str]] = []
-        kind = classify_text(raw, path)
-        if kind:
-            parts = _intersection_parts(raw) if kind == "intersection" else None
-            values.append((f"{parts[0]} & {parts[1]}" if parts else raw, kind))
+        values: list[tuple[str, str, str]] = []
+        fragments = [raw]
+        if "|" in raw or "\n" in raw:
+            fragments = [part.strip() for part in re.split(r"[|\r\n]+", raw) if part.strip()]
+        for fragment in fragments:
+            kind = classify_text(fragment, path)
+            if kind:
+                parts = _intersection_parts(fragment) if kind == "intersection" else None
+                values.append((f"{parts[0]} & {parts[1]}" if parts else fragment, kind, fragment))
         for match in _EMBEDDED_ADDRESS_RE.finditer(normalize_text(raw)):
-            values.append((match.group(0), "address"))
-        for value, value_kind in values:
+            values.append((match.group(0), "address", raw))
+        for value, value_kind, original in values:
             text = _SPACE_RE.sub(" ", value.strip()).strip(" ,.;:")
             normalized = normalize_text(text)
             score = _KIND_WEIGHTS[value_kind] + _path_weight(path)
-            if text != raw.strip():
+            if text != original.strip():
                 score += 8
             candidate = LocationCandidate(text, normalized, value_kind, path, score)
             key = (normalized, value_kind)
@@ -1024,12 +1033,12 @@ def resolve_payload(
             street_candidates = [
                 item for item in candidates if item.kind in {"address", "corridor"}
             ]
-            if not street_candidates:
-                intersection = next((item for item in candidates if item.kind == "intersection"), None)
-                parts = _intersection_parts(intersection.text, context["municipality"]) if intersection else None
-                if intersection and parts:
-                    street_candidates.append(LocationCandidate(
-                        parts[0], normalize_text(parts[0]), "corridor", intersection.source_path,
+            intersection = next((item for item in candidates if item.kind == "intersection"), None)
+            parts = _intersection_parts(intersection.text, context["municipality"]) if intersection else None
+            if intersection and parts:
+                for street in reversed(parts):
+                    street_candidates.insert(0, LocationCandidate(
+                        street, normalize_text(street), "corridor", intersection.source_path,
                         intersection.score,
                     ))
             for candidate in street_candidates:
@@ -1238,6 +1247,7 @@ def process_pending_alerts(
     limit: int = 50,
     since_days: int = 30,
     sources: list[str] | None = None,
+    alert_ids: list[str] | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
     """Resolve a bounded alert batch without creating a second ingestion path."""
@@ -1278,6 +1288,7 @@ def process_pending_alerts(
                   ON r.entity_type='ALERT' AND r.entity_id=a.id::text
                 WHERE a.received_at >= now()-(%s * interval '1 day')
                   AND (%s::text[] IS NULL OR a.source=ANY(%s::text[]))
+                  AND (%s::text[] IS NULL OR a.alert_id=ANY(%s::text[]))
                   AND (
                     %s
                     OR r.id IS NULL
@@ -1294,14 +1305,14 @@ def process_pending_alerts(
                 LIMIT %s
                 """,
                 (
-                    since_days, sources, sources, force, RESOLVER_VERSION,
+                    since_days, sources, sources, alert_ids, alert_ids, force, RESOLVER_VERSION,
                     MIN_PRECISE_CONFIDENCE, limit,
                 ),
             )
             rows = cur.fetchall()
         summary["selected"] = len(rows)
 
-        for row in rows:
+        for index, row in enumerate(rows, 1):
             try:
                 result = resolve_payload(
                     conn,
@@ -1378,6 +1389,11 @@ def process_pending_alerts(
                 conn.rollback()
                 summary["errors"] += 1
                 print(f"alert geo resolution failed alert={row.get('alert_id')}: {exc}", flush=True)
+            print(
+                f"GEO BACKFILL progress={index}/{len(rows)} alert={row.get('alert_id')}",
+                file=sys.stderr,
+                flush=True,
+            )
 
         summary["duration_ms"] = int((time.perf_counter() - started) * 1000)
         with conn.cursor() as cur:
@@ -1432,6 +1448,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--since-days", type=int)
     parser.add_argument("--source", action="append", dest="sources")
+    parser.add_argument("--alert-id", action="append", dest="alert_ids")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     with _connect() as conn:
@@ -1453,6 +1470,7 @@ def main() -> int:
                 limit=args.limit or 5000,
                 since_days=args.since_days or 3650,
                 sources=args.sources,
+                alert_ids=args.alert_ids,
                 force=args.force,
             )
             if not summary.get("locked"):
