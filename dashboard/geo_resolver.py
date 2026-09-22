@@ -1301,7 +1301,7 @@ def process_pending_alerts(
                     )
                     OR a.updated_at > r.updated_at + interval '5 minutes'
                   )
-                ORDER BY a.priority DESC,a.received_at DESC,a.id
+                ORDER BY a.received_at DESC,a.priority DESC,a.id
                 LIMIT %s
                 """,
                 (

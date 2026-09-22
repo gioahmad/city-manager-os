@@ -126,7 +126,7 @@ BACKFILL_RAW="$("${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python \
   backfill --limit 1 --since-days 3650 --source BNN --alert-id "$ALERT_ID")"
 BACKFILL="$(printf '%s\n' "$BACKFILL_RAW" | tail -n 1)"
 printf 'BNN_BACKFILL_SUMMARY=%s\n' "$BACKFILL"
-python - "$BACKFILL" "$BEFORE" <<'PY'
+python3 - "$BACKFILL" "$BEFORE" <<'PY'
 import json,sys
 summary=json.loads(sys.argv[1])
 before=json.loads(sys.argv[2])
@@ -142,7 +142,7 @@ resume_integration_engine || fail "integration worker did not restart"
 
 AFTER="$(coverage)"
 printf 'BNN_COVERAGE_AFTER=%s\n' "$AFTER"
-python - "$BEFORE" "$AFTER" "$ALERT_ID" <<'PY'
+python3 - "$BEFORE" "$AFTER" "$ALERT_ID" <<'PY'
 import json,sys
 before,after=map(json.loads,sys.argv[1:3])
 alert_id=sys.argv[3]

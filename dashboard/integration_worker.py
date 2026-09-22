@@ -17,7 +17,7 @@ def log(message: str) -> None:
 def main() -> None:
     interval = max(30, int(os.getenv("INTEGRATION_ENGINE_INTERVAL_SECONDS", "60")))
     geo_limit = max(1, min(int(os.getenv("ALERT_GEO_BATCH_SIZE", "5")), 500))
-    geo_since_days = max(1, min(int(os.getenv("ALERT_GEO_SINCE_DAYS", "3650")), 3650))
+    geo_since_days = max(1, min(int(os.getenv("ALERT_GEO_SINCE_DAYS", "2")), 3650))
     log(
         f"integration engine starting interval={interval}s "
         f"geo_batch={geo_limit} geo_since_days={geo_since_days}"
