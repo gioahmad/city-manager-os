@@ -454,6 +454,8 @@ def test_bnn_ingestion_preserves_all_source_fields_for_location_resolution():
     assert "body.cross_streets" in source
     assert "body.borough" in source
     assert "bnn_source_payload: body" in source
+    assert "refreshed existing central source" in source
+    assert "already centralized — skipped" not in source
 
 
 def test_coordinate_is_part_of_cache_identity():
