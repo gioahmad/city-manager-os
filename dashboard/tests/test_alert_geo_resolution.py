@@ -435,7 +435,7 @@ def test_address_variants_and_municipality_fallback_use_one_ordered_query():
     assert result["confidence"] == 0.98
 
 
-def test_worker_and_resolver_publish_runtime_measurements():
+def test_worker_prioritizes_live_alerts_over_historical_backfill():
     root = Path(__file__).resolve().parents[1]
     resolver = root.joinpath("geo_resolver.py").read_text()
     worker = root.joinpath("integration_worker.py").read_text()
@@ -443,7 +443,17 @@ def test_worker_and_resolver_publish_runtime_measurements():
     assert "cycle_started = time.perf_counter()" in worker
     assert "engine cycle complete duration_ms=" in worker
     assert 'ALERT_GEO_BATCH_SIZE", "5"' in worker
-    assert 'ALERT_GEO_SINCE_DAYS", "3650"' in worker
+    assert 'ALERT_GEO_SINCE_DAYS", "2"' in worker
+    assert "ORDER BY a.received_at DESC,a.priority DESC,a.id" in resolver
+    assert "ORDER BY a.priority DESC,a.received_at DESC,a.id" not in resolver
+
+
+def test_bnn_ingestion_preserves_all_source_fields_for_location_resolution():
+    source = Path(__file__).resolve().parents[2].joinpath("deploy/cmos-source").read_text()
+    assert "body.incident_location" in source
+    assert "body.cross_streets" in source
+    assert "body.borough" in source
+    assert "bnn_source_payload: body" in source
 
 
 def test_coordinate_is_part_of_cache_identity():
@@ -483,6 +493,8 @@ def test_bnn_recovery_release_requires_target_mapping_and_real_coverage_gain():
     assert 'int(after["mapped"])>int(before["mapped"])' in release
     assert "audit --source BNN" not in release
     assert "backlog=BACKGROUND_BATCHED" in release
+    assert release.count("\npython3 - ") == 2
+    assert "\npython - " not in release
     assert "full_e2e=NOT_RUN notifications=NONE" in release
 
 
