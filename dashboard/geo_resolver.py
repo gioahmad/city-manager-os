@@ -17,7 +17,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping
 
-RESOLVER_VERSION = 6
+RESOLVER_VERSION = 7
 MAX_CANDIDATE_LENGTH = 300
 MAX_CANDIDATES = 40
 MIN_PRECISE_CONFIDENCE = 0.75
@@ -85,6 +85,14 @@ _SUFFIX_VARIANTS = {
 }
 
 _PLACE_CACHE: dict[tuple[str, str, str], dict[str, Any] | None] = {}
+
+_US_STATE_CODES = {
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
+    "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS",
+    "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
+    "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
+    "WI", "WY", "DC",
+}
 
 _PATH_WEIGHTS = {
     "address": 35,
@@ -277,7 +285,9 @@ def _municipality_hints(payload: Mapping[str, Any]) -> list[str]:
 
     for path, raw in _walk_strings(payload):
         path_name = path.rsplit(".", 1)[-1].lower()
-        if path_name in {"municipality", "city", "borough", "post_comm"}:
+        if path_name in {"municipality", "city", "borough", "post_comm"} or path.lower().endswith(
+            "bnn_source_payload.incident"
+        ):
             add(raw)
 
         normalized = normalize_text(raw)
@@ -295,6 +305,11 @@ def _municipality_hints(payload: Mapping[str, Any]) -> list[str]:
             for part in re.split(r"[,;/|:]", raw):
                 add(part)
     return hints[:20]
+
+
+def _outside_local_state_coverage(value: str) -> bool:
+    codes = set(normalize_text(value).replace("/", " ").split()) & _US_STATE_CODES
+    return bool(codes) and "NJ" not in codes
 
 
 def _local_municipality_hint(conn, payload: Mapping[str, Any]) -> str:
@@ -995,8 +1010,25 @@ def resolve_payload(
         }
     else:
         result = {}
+        if _outside_local_state_coverage(context["state"]):
+            result = {
+                "status": "UNRESOLVED",
+                "match_type": None,
+                "confidence": 0.0,
+                "label": None,
+                "municipality": context["municipality"] or None,
+                "county": context["county"] or None,
+                "state": context["state"] or None,
+                "provenance": {
+                    "resolver_version": RESOLVER_VERSION,
+                    "runtime_source": "LOCAL_POSTGIS",
+                    "reason": "State is outside the installed NJ address dataset",
+                },
+            }
         ambiguous_address: tuple[dict[str, Any], LocationCandidate] | None = None
         for candidate in candidates:
+            if result:
+                break
             if candidate.kind != "address":
                 continue
             matched = _resolve_address(conn, candidate, context["municipality"])

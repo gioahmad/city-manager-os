@@ -181,15 +181,27 @@ return $input.all().map((item) => {
   const firstText = (...values) => String(
     values.find((value) => value !== undefined && value !== null && String(value).trim()) || ''
   ).trim();
+  const looksSpatial = (value) => {
+    const text = String(value || '').trim();
+    return /^\d{1,6}[A-Z]?(?:-\d{1,6}[A-Z]?)?\s+.+/i.test(text) ||
+      /\s(?:&|@|\/|AT|AND|X)\s/i.test(text);
+  };
+  const describedLocation = [
+    body.description,
+    body.description1,
+    body.description2,
+    body.description3
+  ].find(looksSpatial);
   const location = firstText(
-    body.location,
     body.address,
     body.incident_location,
     body.incidentLocation,
     body.location_name,
     body.locationName,
     body.cross_streets,
-    body.crossStreets
+    body.crossStreets,
+    describedLocation,
+    body.location
   );
   const municipality = firstText(
     body.municipality,
@@ -199,6 +211,7 @@ return $input.all().map((item) => {
     body.townFull
   );
   const county = firstText(body.county, body.county_name, body.countyName);
+  const state = firstText(body.state, body.state_code, body.stateCode);
   const message = String(
     body.formatted_message ||
     body.message ||
@@ -241,7 +254,7 @@ return $input.all().map((item) => {
     location: {
       label: location,
       address: location,
-      state: '',
+      state,
       zip: '',
       latitude: null,
       longitude: null,

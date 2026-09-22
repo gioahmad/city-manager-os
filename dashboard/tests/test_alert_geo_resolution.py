@@ -10,6 +10,7 @@ from geo_resolver import (
     _local_municipality_hint,
     _municipality_hint,
     _municipality_hints,
+    _outside_local_state_coverage,
     _resolve_address,
     _resolve_intersection,
     _resolve_street,
@@ -173,6 +174,20 @@ def test_bnn_locality_guesses_are_validated_against_existing_local_gis():
     assert "FROM gis_addresses" in query
     assert "FROM gis_parcels" in query
     assert params == (["NORTH BERGEN"],)
+
+
+def test_bnn_incident_field_can_supply_a_validated_municipality():
+    hints = _municipality_hints(
+        {"metadata": {"bnn_source_payload": {"incident": "East Orange"}}}
+    )
+    assert "EAST ORANGE" in hints
+
+
+def test_nj_only_resolver_rejects_explicit_new_york_state():
+    assert not _outside_local_state_coverage("U/D NJ")
+    assert _outside_local_state_coverage("NY")
+    assert _outside_local_state_coverage("U/D NY")
+    assert not _outside_local_state_coverage("")
 
 
 def test_failed_address_uses_closest_real_ng911_address_before_city():
@@ -453,6 +468,9 @@ def test_bnn_ingestion_preserves_all_source_fields_for_location_resolution():
     assert "body.incident_location" in source
     assert "body.cross_streets" in source
     assert "body.borough" in source
+    assert "body.description" in source
+    assert "describedLocation" in source
+    assert "body.state" in source
     assert "bnn_source_payload: body" in source
     assert "refreshed existing central source" in source
     assert "already centralized — skipped" not in source
