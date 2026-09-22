@@ -113,40 +113,32 @@ PY
 )" || { printf 'BNN_TARGET_DRY_RUN=%s\n' "$DRY_RUN"; fail "target alert did not pass read-only preflight"; }
 printf 'BNN_TARGET_DRY_RUN=%s\n' "$DRY_RUN"
 
-log "Applying the focused dashboard and integration-engine release"
+log "Applying the focused resolver and integration-worker release"
 "$REPO/deploy/cmos-deploy" apply --base "$BASE" --target "$TARGET"
 
-log "Stopping the integration worker for an exclusive resolver maintenance window"
+log "Stopping the integration worker for one targeted resolver write"
 INTEGRATION_STOPPED=1
 "${COMPOSE[@]}" stop -t 30 "$INTEGRATION_SERVICE"
 
-log "Reprocessing previously unmapped BNN alerts through resolver v5"
+log "Persisting ${ALERT_ID} before the historical background catch-up"
 BACKFILL_RAW="$("${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python \
   "$INTEGRATION_SERVICE" /app/geo_resolver.py \
-  backfill --limit 10000 --since-days 3650 --source BNN)"
+  backfill --limit 1 --since-days 3650 --source BNN --alert-id "$ALERT_ID")"
 BACKFILL="$(printf '%s\n' "$BACKFILL_RAW" | tail -n 1)"
 printf 'BNN_BACKFILL_SUMMARY=%s\n' "$BACKFILL"
-python - "$BACKFILL" <<'PY'
+python - "$BACKFILL" "$BEFORE" <<'PY'
 import json,sys
 summary=json.loads(sys.argv[1])
+before=json.loads(sys.argv[2])
 assert summary.get("locked") is False, summary
 assert int(summary.get("errors") or 0)==0, summary
-assert int(summary.get("processed") or 0)==int(summary.get("selected") or 0), summary
+selected=int(summary.get("selected") or 0)
+assert selected in (0,1), summary
+assert int(summary.get("processed") or 0)==selected, summary
+assert selected==1 or before.get("target_mapped") is True, (summary,before)
 PY
 
-log "Auditing every stored BNN alert without writes"
-AUDIT="$("${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python \
-  "$INTEGRATION_SERVICE" /app/geo_resolver.py audit --source BNN)"
-printf 'BNN_AUDIT_SUMMARY=%s\n' "$AUDIT"
-python - "$AUDIT" <<'PY'
-import json,sys
-summary=json.loads(sys.argv[1])
-assert summary.get("mode")=="READ_ONLY", summary
-assert summary.get("complete") is True, summary
-assert int(summary.get("error_count") or 0)==0, summary
-assert int(summary.get("selected") or 0)==int(summary.get("total_available") or 0), summary
-assert int(summary.get("mapped_count") or 0)>0, summary
-PY
+resume_integration_engine || fail "integration worker did not restart"
 
 AFTER="$(coverage)"
 printf 'BNN_COVERAGE_AFTER=%s\n' "$AFTER"
@@ -154,13 +146,12 @@ python - "$BEFORE" "$AFTER" "$ALERT_ID" <<'PY'
 import json,sys
 before,after=map(json.loads,sys.argv[1:3])
 alert_id=sys.argv[3]
-assert int(after["total"])==int(before["total"]), (before,after)
 assert int(after["mapped"])>=int(before["mapped"]), (before,after)
 assert after["target_mapped"] is True, {"alert_id":alert_id,"coverage":after}
 if not before["target_mapped"]:
     assert int(after["mapped"])>int(before["mapped"]), (before,after)
 PY
 
-resume_integration_engine || fail "integration worker did not restart"
 trap - EXIT
-log "BNN MAP RECOVERY: PASS target=${ALERT_ID} full_e2e=NOT_RUN notifications=NONE"
+log "Historical Alert catch-up continues in bounded integration-worker batches"
+log "BNN MAP RECOVERY: PASS target=${ALERT_ID} backlog=BACKGROUND_BATCHED full_e2e=NOT_RUN notifications=NONE"

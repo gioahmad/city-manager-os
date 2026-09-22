@@ -136,6 +136,30 @@ def test_bnn_location_formats_extract_address_intersection_and_locality():
     assert any(item.kind == "intersection" for item in route_intersection)
 
 
+def test_bnn_pipe_message_keeps_local_intersection_and_rejects_noise():
+    candidates = extract_location_candidates(
+        {
+            "source": "BNN",
+            "title": "BNN - MVA Local / Traffic Alert",
+            "message": (
+                "09/21/2026 5:28 PM | NJ | Bergen | River Vale | "
+                "Mva Local / Traffic Alert | Interglen Ave & Westwood Ave | "
+                "MVA with airbag deployment. EMS for a leg injury. | nj179"
+            ),
+            "raw_payload": {"schema_version": "1.0"},
+        }
+    )
+
+    assert any(
+        item.kind == "intersection"
+        and item.normalized == "INTERGLEN AVE & WESTWOOD AVE"
+        for item in candidates
+    )
+    assert not any(item.normalized == "INTERGLEN AVE & RT 179" for item in candidates)
+    assert not any(item.normalized == "BNN - MVA LOCAL & TRAFFIC ALERT" for item in candidates)
+    assert not any(item.normalized == "1 0" for item in candidates)
+
+
 def test_bnn_locality_guesses_are_validated_against_existing_local_gis():
     connection = _AddressConnection([("North Bergen",)])
     result = _local_municipality_hint(
@@ -418,6 +442,8 @@ def test_worker_and_resolver_publish_runtime_measurements():
     assert 'summary["duration_ms"]' in resolver
     assert "cycle_started = time.perf_counter()" in worker
     assert "engine cycle complete duration_ms=" in worker
+    assert 'ALERT_GEO_BATCH_SIZE", "5"' in worker
+    assert 'ALERT_GEO_SINCE_DAYS", "3650"' in worker
 
 
 def test_coordinate_is_part_of_cache_identity():
@@ -437,7 +463,8 @@ def test_worker_contract_stays_inside_existing_alerts_and_resolver():
     assert "a.geom IS NULL" in source
     assert "r.spatial_precision IN ('ADDRESS_POINT','SUPPLIED_COORDINATE')" in source
     assert "a.geom IS NULL AND coalesce(r.resolver_version,0) < %s" in source
-    assert RESOLVER_VERSION == 5
+    assert "a.alert_id=ANY(%s::text[])" in source
+    assert RESOLVER_VERSION == 6
 
 
 def test_bnn_recovery_release_requires_target_mapping_and_real_coverage_gain():
@@ -449,26 +476,30 @@ def test_bnn_recovery_release_requires_target_mapping_and_real_coverage_gain():
     assert 'cur.execute("SET TRANSACTION READ ONLY")' in release
     assert "use_cache=False,persist=False" in release
     assert 'result.get("status")!="RESOLVED"' in release
-    assert "backfill --limit 10000 --since-days 3650 --source BNN" in release
+    assert 'backfill --limit 1 --since-days 3650 --source BNN --alert-id "$ALERT_ID"' in release
     assert "--force" not in release
+    assert 'selected==1 or before.get("target_mapped") is True' in release
     assert 'after["target_mapped"] is True' in release
     assert 'int(after["mapped"])>int(before["mapped"])' in release
+    assert "audit --source BNN" not in release
+    assert "backlog=BACKGROUND_BATCHED" in release
     assert "full_e2e=NOT_RUN notifications=NONE" in release
 
 
-def test_bnn_recovery_uses_an_exclusive_worker_window_and_always_restarts_it():
+def test_bnn_recovery_bounds_worker_pause_and_always_restarts_it():
     release = Path(__file__).resolve().parents[2].joinpath(
         "deploy/releases/bnn-map-recovery.sh"
     ).read_text()
 
     stop = release.index('stop -t 30 "$INTEGRATION_SERVICE"')
-    backfill = release.index("backfill --limit 10000 --since-days 3650 --source BNN")
-    audit = release.index("/app/geo_resolver.py audit --source BNN")
+    backfill = release.index(
+        'backfill --limit 1 --since-days 3650 --source BNN --alert-id "$ALERT_ID"'
+    )
     restart = release.rindex('resume_integration_engine || fail')
 
     assert "trap cleanup EXIT" in release
     assert 'run --rm --no-deps -T --entrypoint python' in release
-    assert stop < backfill < audit < restart
+    assert stop < backfill < restart
 
 
 def test_entity_resolution_sql_parameter_contract():
