@@ -178,7 +178,27 @@ return $input.all().map((item) => {
   const j = item.json || {};
   const body = j.body || {};
 
-  const location = String(body.location || '').trim();
+  const firstText = (...values) => String(
+    values.find((value) => value !== undefined && value !== null && String(value).trim()) || ''
+  ).trim();
+  const location = firstText(
+    body.location,
+    body.address,
+    body.incident_location,
+    body.incidentLocation,
+    body.location_name,
+    body.locationName,
+    body.cross_streets,
+    body.crossStreets
+  );
+  const municipality = firstText(
+    body.municipality,
+    body.city,
+    body.town,
+    body.borough,
+    body.townFull
+  );
+  const county = firstText(body.county, body.county_name, body.countyName);
   const message = String(
     body.formatted_message ||
     body.message ||
@@ -216,8 +236,8 @@ return $input.all().map((item) => {
     title,
     message: message || 'BNN incident received.',
     priority,
-    county: '',
-    municipality: '',
+    county,
+    municipality,
     location: {
       label: location,
       address: location,
@@ -238,13 +258,14 @@ return $input.all().map((item) => {
     received_at: now,
     expires_at: null,
     metadata: {
-      original_location: location
+      original_location: location,
+      bnn_source_payload: body
     }
   };
 
   alert.search_text = [
     alert.source, alert.category, alert.subtype,
-    location, alert.title, alert.message,
+    county, municipality, location, alert.title, alert.message,
     ...alert.tags
   ].filter(Boolean).join(' ');
 
