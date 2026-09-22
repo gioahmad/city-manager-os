@@ -410,8 +410,43 @@ def patch_source(key, cfg):
     names = {n.get("name") for n in nodes}
 
     if cfg["build"] in names:
-        print(f"{key.upper()}: already centralized — skipped")
-        return False
+        build = next(node for node in nodes if node.get("name") == cfg["build"])
+        current_js = (build.get("parameters") or {}).get("jsCode") or ""
+        if current_js == cfg["js"]:
+            print(f"{key.upper()}: already current — skipped")
+            return False
+        build.setdefault("parameters", {})["jsCode"] = cfg["js"]
+        nodes_json = json.dumps(nodes, separators=(",", ":"))
+        now = (
+            datetime.now(timezone.utc)
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z")
+        )
+        cur.execute(
+            'UPDATE workflow_entity '
+            'SET nodes=?,versionCounter=COALESCE(versionCounter,0)+1,updatedAt=? '
+            'WHERE id=?',
+            (nodes_json, now, cfg["workflow_id"]),
+        )
+        old_version = row["activeVersionId"] or row["versionId"]
+        if old_version and table_exists("workflow_history"):
+            history_columns = {column["name"] for column in columns("workflow_history")}
+            workflow_column = next(
+                (name for name in ("workflowId", "workflow_id") if name in history_columns),
+                None,
+            )
+            version_column = next(
+                (name for name in ("versionId", "version_id") if name in history_columns),
+                None,
+            )
+            if workflow_column and version_column:
+                cur.execute(
+                    f'UPDATE workflow_history SET nodes=? '
+                    f'WHERE "{workflow_column}"=? AND "{version_column}"=?',
+                    (nodes_json, cfg["workflow_id"], old_version),
+                )
+        print(f"{key.upper()}: refreshed existing central source")
+        return True
 
     node_map = {n["name"]: n for n in nodes}
 
