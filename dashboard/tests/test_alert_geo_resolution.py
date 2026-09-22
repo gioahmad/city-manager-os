@@ -494,7 +494,7 @@ def test_worker_contract_stays_inside_existing_alerts_and_resolver():
     assert "r.spatial_precision IN ('ADDRESS_POINT','SUPPLIED_COORDINATE')" in source
     assert "a.geom IS NULL AND coalesce(r.resolver_version,0) < %s" in source
     assert "a.alert_id=ANY(%s::text[])" in source
-    assert RESOLVER_VERSION == 6
+    assert RESOLVER_VERSION == 7
 
 
 def test_bnn_recovery_release_requires_target_mapping_and_real_coverage_gain():
