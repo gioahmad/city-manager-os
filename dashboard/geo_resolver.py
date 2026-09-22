@@ -17,7 +17,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping
 
-RESOLVER_VERSION = 7
+RESOLVER_VERSION = 8
 MAX_CANDIDATE_LENGTH = 300
 MAX_CANDIDATES = 40
 MIN_PRECISE_CONFIDENCE = 0.75
@@ -1154,6 +1154,8 @@ def _as_dict(value: Any) -> dict[str, Any]:
 
 def _alert_payload(row: Mapping[str, Any]) -> dict[str, Any]:
     location = _as_dict(row.get("location"))
+    metadata = _as_dict(row.get("metadata"))
+    metadata.pop("geo_resolution", None)
     if row.get("longitude") is not None and row.get("latitude") is not None:
         location.setdefault("longitude", row["longitude"])
         location.setdefault("latitude", row["latitude"])
@@ -1164,7 +1166,7 @@ def _alert_payload(row: Mapping[str, Any]) -> dict[str, Any]:
         "title": row.get("title"),
         "message": row.get("message"),
         "location": location,
-        "metadata": _as_dict(row.get("metadata")),
+        "metadata": metadata,
         "raw_payload": _as_dict(row.get("raw_payload")),
     }
 
