@@ -98,5 +98,6 @@ rc=$?
 set -e
 [ "$rc" -eq 2 ]
 assert_line "$unknown" "unknown=unexplained/runtime.bin"
+grep -Fq 'f"{ROOT / '\''workflows'\''}:/workflows:ro"' "$HARNESS"
 
 printf 'CMOS CHANGE-AWARE CLASSIFICATION TESTS: PASS\n'
