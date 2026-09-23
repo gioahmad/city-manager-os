@@ -9,6 +9,7 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
+from psycopg import sql
 from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -234,6 +235,98 @@ def admin_tools(request: Request):
         request=request,
         name="admin_tools.html",
         context={"counts": counts, "page": "admin-tools"},
+    )
+
+
+def _database_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        text = json.dumps(value, default=str, sort_keys=True)
+    elif isinstance(value, (bytes, bytearray, memoryview)):
+        text = f"[{len(value)} bytes]"
+    else:
+        text = str(value)
+    return text if len(text) <= 500 else text[:497] + "..."
+
+
+@app.get("/database", response_class=HTMLResponse)
+def database_viewer(request: Request, table: str = "", q: str = "", page: int = 1):
+    role = str(getattr(request.state, "cmos_role", "") or "").upper()
+    if role and role != "EXECUTIVE":
+        raise HTTPException(status_code=403, detail="Executive access required.")
+
+    tables = query_all(
+        """
+        SELECT c.relname AS table_name,
+               CASE WHEN c.reltuples < 0 THEN NULL ELSE c.reltuples::bigint END AS estimated_rows,
+               pg_size_pretty(pg_total_relation_size(c.oid)) AS size
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public' AND c.relkind='r'
+          AND c.relname <> 'spatial_ref_sys'
+          AND has_table_privilege(c.oid,'SELECT')
+        ORDER BY c.relname
+        """
+    )
+    table_names = {row["table_name"] for row in tables}
+    selected = table if table in table_names else ("alerts" if "alerts" in table_names else next(iter(table_names), ""))
+    needle = q.strip().lower()[:80]
+    visible_tables = [row for row in tables if not needle or needle in row["table_name"].lower()]
+    for row in visible_tables:
+        row["url"] = "/database?" + urllib.parse.urlencode({"table": row["table_name"], "q": q.strip()[:80]})
+
+    columns: list[str] = []
+    rows: list[list[str]] = []
+    page = max(1, min(page, 10000))
+    has_more = False
+    if selected:
+        columns = [
+            row["column_name"]
+            for row in query_all(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema='public' AND table_name=%s
+                  AND column_name !~* '(password|secret|credential|token|pin_hash)'
+                ORDER BY ordinal_position
+                """,
+                (selected,),
+            )
+        ]
+        if columns:
+            with db_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SET TRANSACTION READ ONLY")
+                    cur.execute("SET LOCAL statement_timeout='5s'")
+                    cur.execute(
+                        sql.SQL("SELECT {} FROM {} ORDER BY ctid DESC LIMIT %s OFFSET %s").format(
+                            sql.SQL(",").join(map(sql.Identifier, columns)),
+                            sql.Identifier(selected),
+                        ),
+                        (51, (page - 1) * 50),
+                    )
+                    result = cur.fetchall()
+            has_more = len(result) > 50
+            rows = [[_database_cell(row.get(column)) for column in columns] for row in result[:50]]
+
+    base_query = {"table": selected, "q": q.strip()[:80]}
+    previous_url = "/database?" + urllib.parse.urlencode({**base_query, "page": page - 1}) if page > 1 else ""
+    next_url = "/database?" + urllib.parse.urlencode({**base_query, "page": page + 1}) if has_more else ""
+    return templates.TemplateResponse(
+        request=request,
+        name="database.html",
+        context={
+            "tables": visible_tables,
+            "selected": selected,
+            "columns": columns,
+            "rows": rows,
+            "q": q.strip()[:80],
+            "page_number": page,
+            "previous_url": previous_url,
+            "next_url": next_url,
+            "page": "database",
+        },
     )
 
 

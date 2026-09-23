@@ -23,7 +23,7 @@ ALL_SERVICES = {
 DASHBOARD_PROBES_BY_FILE = {
     "executive_workflow_app.py": ("/inbox", "/my-day", "/what-changed"),
     "flood_app.py": ("/flood",),
-    "integrations_app.py": ("/admin-tools", "/event-intelligence", "/integrations"),
+    "integrations_app.py": ("/admin-tools", "/database", "/event-intelligence", "/integrations"),
     "issues_app.py": ("/issues",),
     "operations_app.py": ("/alerts", "/search", "/source-health"),
     "operations_occurrence_controls.py": ("/operations-routines",),

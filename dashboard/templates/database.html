@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Database Viewer · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .database-layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:16px}.database-list{max-height:70vh;overflow:auto}.database-link{display:flex;justify-content:space-between;gap:8px;padding:9px 10px;border-bottom:1px solid #e5ebef;text-decoration:none;color:inherit}.database-link.active{background:#eef7fc;font-weight:800}.database-table{overflow:auto;max-height:70vh}.database-table table{white-space:nowrap}.database-table td{max-width:420px;overflow:hidden;text-overflow:ellipsis}.database-pagination{display:flex;justify-content:space-between;align-items:center;margin-top:12px}@media(max-width:850px){.database-layout{grid-template-columns:1fr}.database-list{max-height:260px}}
+  </style>
+</head>
+<body>
+<header class="topbar"><div class="brand"><div class="eyebrow">CONTROL CENTER</div><div class="brand-row"><h1>Database Viewer</h1><span class="private-badge">READ ONLY</span></div><div class="tagline">See what City Manager OS is storing without writing SQL</div></div></header>
+{% include "nav.html" %}
+<main>
+  <section class="database-layout">
+    <aside class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">TABLES</div><h2>Database</h2></div><span class="count-pill">{{ tables|length }}</span></div>
+      <div class="panel-body">
+        <form method="get" action="/database"><input type="hidden" name="table" value="{{ selected }}"><label>Find a table<input name="q" value="{{ q }}" placeholder="alerts, watches, GIS..."></label></form>
+      </div>
+      <div class="database-list">
+        {% for item in tables %}<a class="database-link {% if item.table_name == selected %}active{% endif %}" href="{{ item.url }}"><span>{{ item.table_name }}</span><small>{{ item.estimated_rows if item.estimated_rows is not none else '?' }} · {{ item.size }}</small></a>{% else %}<div class="panel-body muted">No tables match.</div>{% endfor %}
+      </div>
+    </aside>
+    <section class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">ROWS</div><h2>{{ selected or 'Choose a table' }}</h2></div><span class="count-pill">{{ rows|length }}</span></div>
+      <div class="panel-body database-table">
+        {% if columns %}<table><thead><tr>{% for column in columns %}<th>{{ column }}</th>{% endfor %}</tr></thead><tbody>{% for row in rows %}<tr>{% for value in row %}<td title="{{ value }}">{{ value }}</td>{% endfor %}</tr>{% else %}<tr><td colspan="{{ columns|length }}">No rows on this page.</td></tr>{% endfor %}</tbody></table>{% else %}<div class="empty-state small">Choose a table to view its rows.</div>{% endif %}
+      </div>
+      <div class="panel-body database-pagination"><span>{% if previous_url %}<a class="secondary-button" href="{{ previous_url }}">Previous</a>{% endif %}</span><strong>Page {{ page_number }}</strong><span>{% if next_url %}<a class="secondary-button" href="{{ next_url }}">Next</a>{% endif %}</span></div>
+    </section>
+  </section>
+  <footer><span>City Manager OS</span><span>Read-only database visibility</span></footer>
+</main>
+</body>
+</html>

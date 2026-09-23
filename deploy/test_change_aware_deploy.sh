@@ -33,12 +33,12 @@ assert_line "$integration" "full_e2e=yes"
 
 integrations_ui="$($HARNESS plan --files dashboard/integrations_app.py)"
 assert_line "$integrations_ui" "services=citymanager-dashboard"
-assert_line "$integrations_ui" "probes=/admin-tools,/event-intelligence,/integrations"
+assert_line "$integrations_ui" "probes=/admin-tools,/database,/event-intelligence,/integrations"
 assert_line "$integrations_ui" "full_e2e=no"
 
 configured_time="$($HARNESS plan --files dashboard/executive_workflow_app.py dashboard/flood_app.py dashboard/integrations_app.py dashboard/issues_app.py dashboard/operations_app.py dashboard/operations_occurrence_controls.py dashboard/operations_routines_app.py dashboard/schedule_app.py dashboard/today_board_app.py dashboard/transit_app.py)"
 assert_line "$configured_time" "services=citymanager-dashboard"
-assert_line "$configured_time" "probes=/admin-tools,/alerts,/event-intelligence,/flood,/inbox,/integrations,/issues,/my-day,/operations-routines,/schedule,/search,/source-health,/staff-admin,/today-board,/transit,/what-changed"
+assert_line "$configured_time" "probes=/admin-tools,/alerts,/database,/event-intelligence,/flood,/inbox,/integrations,/issues,/my-day,/operations-routines,/schedule,/search,/source-health,/staff-admin,/today-board,/transit,/what-changed"
 assert_line "$configured_time" "full_e2e=no"
 
 geo="$($HARNESS plan --files dashboard/geo_resolver.py dashboard/integration_worker.py dashboard/tests/test_alert_geo_resolution.py)"
