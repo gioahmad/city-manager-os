@@ -319,15 +319,6 @@ def alert_map_url(alert: dict) -> str:
         params["edit_alert"] = alert_reference
     return f"/map?{urlencode(params)}"
 
-MODULES = [
-    {"key": "PSEG", "name": "Utilities", "description": "Electric utility outages and restorations"},
-    {"key": "FIRE", "name": "Fire Intelligence", "description": "Fire and public-safety incident intelligence"},
-    {"key": "WEATHER", "name": "Weather / Flood", "description": "Weather, flood, tide and warning intelligence"},
-    {"key": "TRAFFIC", "name": "Traffic", "description": "Road closures, incidents and construction impacts"},
-    {"key": "TRANSIT", "name": "Transit", "description": "NJ Transit, PATH and regional transit disruptions"},
-    {"key": "EVENTS", "name": "Events", "description": "Regional events and operational impacts"},
-]
-
 SEARCH_SCOPES = {
     "all": "Everything",
     "alerts": "Alerts",
@@ -1672,7 +1663,7 @@ def _global_result_url(row, q):
     if result_type == "ROUTINE":
         return "/operations-routines"
     if result_type == "RULE_GROUP":
-        return f"/rules?{query}"
+        return f"/watchlist?{query}"
     if result_type == "MAP_LAYER":
         return f"/map?{query}"
     if result_type == "FLOOD_OBSERVATION":
@@ -1715,38 +1706,6 @@ def global_search_page(request: Request, q: str = "", scope: str = "all"):
             "page": "search",
         },
     )
-
-
-@app.get("/modules", response_class=HTMLResponse)
-def modules_page(request: Request):
-    health_rows = query_all("SELECT * FROM source_health ORDER BY source_id")
-    health = {str(row["source_id"]).upper(): row for row in health_rows}
-    alert_rows = query_all(
-        """
-        SELECT upper(source) AS source_id,
-               count(*) AS total_alerts,
-               count(*) FILTER (WHERE status <> 'RESOLVED' AND (expires_at IS NULL OR expires_at > now())) AS active_alerts,
-               max(received_at) AS last_alert_at
-        FROM alerts
-        GROUP BY upper(source)
-        """
-    )
-    alert_stats = {str(row["source_id"]).upper(): row for row in alert_rows}
-    modules = []
-    for item in MODULES:
-        key = item["key"]
-        h = health.get(key)
-        a = alert_stats.get(key)
-        modules.append({
-            **item,
-            "status": h.get("status") if h else ("DATA" if a else "NOT CONNECTED"),
-            "last_success_at": h.get("last_success_at") if h else None,
-            "last_event_at": h.get("last_event_at") if h else (a.get("last_alert_at") if a else None),
-            "last_error": h.get("last_error") if h else None,
-            "active_alerts": a.get("active_alerts") if a else 0,
-            "total_alerts": a.get("total_alerts") if a else 0,
-        })
-    return templates.TemplateResponse(request=request, name="modules.html", context={"modules": modules, "page": "modules"})
 
 
 @app.get("/source-health", response_class=HTMLResponse)
@@ -2132,60 +2091,15 @@ def subscriber_watches_update(
     )
 
 
-@app.get("/routing", response_class=HTMLResponse)
-def routing_page(request: Request, msg: str = ""):
-    routes = query_all(
-        """
-        SELECT wir.id, wir.active,
-               w.watch_id, w.display_name AS watch_name, w.watch_type,
-               s.subscriber_id, s.name AS subscriber_name, s.ntfy_topic
-        FROM watch_item_recipients wir
-        JOIN watch_items w ON w.id = wir.watch_item_id
-        JOIN subscribers s ON s.id = wir.subscriber_id
-        ORDER BY wir.active DESC, w.display_name, s.name
-        LIMIT 500
-        """
-    )
-    watch_items = query_all("SELECT id, watch_id, display_name FROM watch_items WHERE active ORDER BY display_name")
-    subscribers = query_all("SELECT id, subscriber_id, name, ntfy_topic FROM subscribers WHERE active ORDER BY name")
-    counts = query_one(
-        """
-        SELECT count(*) AS total,
-               count(*) FILTER (WHERE active) AS active,
-               count(*) FILTER (WHERE NOT active) AS inactive
-        FROM watch_item_recipients
-        """
-    )
-    return templates.TemplateResponse(request=request, name="routing.html", context={"routes": routes, "watch_items": watch_items, "subscribers": subscribers, "counts": counts, "msg": msg, "page": "routing"})
-
-
-@app.post("/routing/create")
-def routing_create(watch_item_id: uuid.UUID = Form(...), subscriber_id: uuid.UUID = Form(...)):
-    with db_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO watch_item_recipients (watch_item_id,subscriber_id,active)
-            VALUES (%s,%s,true)
-            ON CONFLICT (watch_item_id,subscriber_id) DO UPDATE SET active=true
-            """,
-            (watch_item_id, subscriber_id),
-        )
-        require_watch_recipients(cur, [watch_item_id])
-        conn.commit()
-    return RedirectResponse(url="/routing?msg=Delivery+connection+activated", status_code=303)
-
-
-@app.post("/routing/{route_id}/toggle")
-def routing_toggle(route_id: uuid.UUID):
-    with db_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            """UPDATE watch_item_recipients SET active=NOT active
-               WHERE id=%s RETURNING active,watch_item_id""",
-            (route_id,),
-        )
-        route = cur.fetchone()
-        if not route:
-            raise HTTPException(404, "Delivery connection not found")
-        require_watch_recipients(cur, [route["watch_item_id"]])
-        conn.commit()
-    return RedirectResponse(url="/routing?msg=Delivery+connection+status+changed", status_code=303)
+@app.get("/modules")
+@app.get("/rules")
+@app.get("/routing")
+@app.get("/alert-admin")
+def legacy_control_center_redirect(request: Request):
+    target = {
+        "/modules": "/admin-tools",
+        "/rules": "/watchlist",
+        "/routing": "/subscribers",
+        "/alert-admin": "/watchlist",
+    }[request.url.path]
+    return RedirectResponse(url=target, status_code=308)

@@ -6,7 +6,6 @@ from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from operations_app import app, operations_home
-import rules_app  # registers Rules Center routes
 import staff_admin_app  # registers Staff Admin routes
 from app import execute, query_all, query_one, templates
 from attention_engine import annotate_issue_rows

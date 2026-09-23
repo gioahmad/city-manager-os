@@ -38,11 +38,11 @@ for p in \
   / \
   /schedule \
   /alerts \
-  /modules \
+  /admin-tools \
   /issues \
   /watchlist \
   /subscribers \
-  /routing \
+  /contacts \
   /source-health \
   /deliveries
   do
