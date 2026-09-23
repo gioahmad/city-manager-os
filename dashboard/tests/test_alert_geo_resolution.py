@@ -541,7 +541,9 @@ def test_nyc_refresh_is_official_atomic_and_bounded_to_five_boroughs():
     ).read_text()
     assert "uf93-f8nk" in source
     assert "MIN_ADDRESSES=900000" in source
-    assert "boroughcode::text IN ('1','2','3','4','5')" in source
+    assert '"address point id"::text AS addresspointid' in source
+    assert '"borough code" IN (\'1\',\'2\',\'3\',\'4\',\'5\')' in source
+    assert "ADD UNIQUE(addresspointid)" not in source
     assert "246 90 ST" in source
     assert "BEGIN;" in source and "ALTER TABLE gis_nyc_addresses_build RENAME" in source
 
