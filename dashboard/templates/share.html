@@ -46,12 +46,17 @@
   </article>
 
   <article class="panel" style="margin-top:16px">
-    <div class="panel-head"><div><div class="panel-kicker">SMSGATE</div><h2>Credential area</h2></div><span class="status {{ 'active' if smsgate_configured else 'waiting' }}">{{ 'Ready' if smsgate_configured else 'Needs setup' }}</span></div>
+    <div class="panel-head"><div><div class="panel-kicker">SMSGATE</div><h2>Settings</h2></div><span class="status {{ 'active' if smsgate_configured else 'waiting' }}">{{ 'Ready' if smsgate_configured else 'Needs setup' }}</span></div>
     <div class="panel-body">
-      <p>{{ 'Credentials are loaded securely from the server and are never displayed in the browser.' if smsgate_configured else 'Add the following values to dashboard/.env, then recreate the dashboard container.' }}</p>
-      <pre>CMOS_SMSGATE_URL=https://api.sms-gate.app/3rdparty/v1/message
-CMOS_SMSGATE_USERNAME=
-CMOS_SMSGATE_PASSWORD=</pre>
+      {% if can_manage_smsgate %}
+      <form class="watch-form" method="post" action="/share/settings">
+        <label>SMSGate URL<input name="url" type="url" value="{{ smsgate_url }}" required></label>
+        <label>Username<input name="username" value="{{ smsgate_username }}" autocomplete="username" required></label>
+        <label>Password<input name="password" type="password" autocomplete="new-password" placeholder="{{ 'Leave blank to keep the saved password' if smsgate_configured else 'Enter SMSGate password' }}"></label>
+        <div class="hint">The password is stored privately on the server and is never displayed here.</div>
+        <div class="form-actions"><button class="secondary-button" type="submit">Save SMSGate Settings</button></div>
+      </form>
+      {% else %}<p>Only an Executive account can change SMSGate credentials.</p>{% endif %}
     </div>
   </article>
   <footer><span>City Manager OS</span><span>Email · device SMS · SMSGate</span></footer>
