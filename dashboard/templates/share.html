@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Share · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">WRITE ONCE · SEND YOUR WAY</div>
+    <div class="brand-row"><h1>Share</h1><span class="private-badge">PRIVATE</span></div>
+    <div class="tagline">Send any City Manager OS message through email, your device, or SMSGate</div>
+  </div>
+</header>
+{% include "nav.html" %}
+<main>
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+  {% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+  <article class="panel">
+    <div class="panel-head"><div><div class="panel-kicker">GLOBAL SHARE</div><h2>Prepare message</h2></div></div>
+    <div class="panel-body">
+      <form class="watch-form" method="post" action="/share/smsgate" data-global-share>
+        <div class="form-grid two-col">
+          <label>Email recipient(s)
+            <input name="emails" value="{{ emails }}" placeholder="name@example.com, another@example.com">
+          </label>
+          <label>Phone number(s)
+            <input name="phones" value="{{ phones }}" placeholder="+12015551234" inputmode="tel">
+            <span class="hint">Separate multiple SMSGate numbers with commas or new lines.</span>
+          </label>
+        </div>
+        <label>Email subject
+          <input name="subject" value="{{ subject }}" placeholder="Alert update">
+        </label>
+        <label>Message
+          <textarea name="message" rows="10" maxlength="4000" required placeholder="Write or paste anything you want to send.">{{ message }}</textarea>
+        </label>
+        <div class="form-actions">
+          <button class="secondary-button" type="button" data-share-email>Open Email</button>
+          <button class="secondary-button" type="button" data-share-sms>Open SMS</button>
+          <button class="primary-button" type="submit" {% if not smsgate_configured %}disabled{% endif %}>Send with SMSGate</button>
+        </div>
+      </form>
+    </div>
+  </article>
+
+  <article class="panel" style="margin-top:16px">
+    <div class="panel-head"><div><div class="panel-kicker">SMSGATE</div><h2>Credential area</h2></div><span class="status {{ 'active' if smsgate_configured else 'waiting' }}">{{ 'Ready' if smsgate_configured else 'Needs setup' }}</span></div>
+    <div class="panel-body">
+      <p>{{ 'Credentials are loaded securely from the server and are never displayed in the browser.' if smsgate_configured else 'Add the following values to dashboard/.env, then recreate the dashboard container.' }}</p>
+      <pre>CMOS_SMSGATE_URL=https://api.sms-gate.app/3rdparty/v1/message
+CMOS_SMSGATE_USERNAME=
+CMOS_SMSGATE_PASSWORD=</pre>
+    </div>
+  </article>
+  <footer><span>City Manager OS</span><span>Email · device SMS · SMSGate</span></footer>
+</main>
+<script>
+(() => {
+  const form = document.querySelector('[data-global-share]');
+  const field = (name) => form.elements.namedItem(name).value.trim();
+  form.querySelector('[data-share-email]').addEventListener('click', () => {
+    window.location.href = `mailto:${encodeURIComponent(field('emails'))}?subject=${encodeURIComponent(field('subject') || 'City Manager OS')}&body=${encodeURIComponent(field('message'))}`;
+  });
+  form.querySelector('[data-share-sms]').addEventListener('click', () => {
+    const body = encodeURIComponent(field('message'));
+    const numbers = field('phones').split(/[,;\n]+/).map((value) => value.trim()).filter(Boolean).join(',');
+    window.location.href = /iPad|iPhone|iPod/.test(navigator.userAgent)
+      ? `sms:${numbers}&body=${body}`
+      : `sms:${numbers}?body=${body}`;
+  });
+})();
+</script>
+</body>
+</html>
