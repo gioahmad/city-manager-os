@@ -393,6 +393,7 @@ def build_and_test(plan: Plan) -> None:
             "run", "--rm", "--no-deps", "-T",
             "-v", f"{ROOT / 'deploy'}:/deploy:ro",
             "-v", f"{ROOT / 'dashboard'}:/src:ro",
+            "-v", f"{ROOT / 'workflows'}:/workflows:ro",
             "-w", "/src",
             "-e", "PYTHONPATH=/src:/app",
             "--entrypoint", "pytest",
