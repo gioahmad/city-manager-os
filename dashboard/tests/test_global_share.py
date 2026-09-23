@@ -38,6 +38,46 @@ def test_global_share_uses_native_clients_and_smsgate_contract(monkeypatch):
     template = (DASHBOARD_ROOT / "templates" / "share.html").read_text()
     nav = (DASHBOARD_ROOT / "templates" / "nav.html").read_text()
     assert "mailto:" in template and "sms:" in template
-    assert template.count("CMOS_SMSGATE_PASSWORD=") == 1
+    assert template.count('type="password"') == 1
     assert nav.count('href="/share"') == 2
     assert "CMOS_SMSGATE_USERNAME" in Path(operations_app.__file__).read_text()
+
+
+def test_smsgate_web_settings_are_private_and_alerts_are_shareable(monkeypatch, tmp_path):
+    config_file = tmp_path / "smsgate.json"
+    monkeypatch.setenv("CMOS_SMSGATE_CONFIG_FILE", str(config_file))
+    operations_app._save_smsgate_settings(
+        "https://gateway.example/message", "new-user", "new-secret"
+    )
+
+    assert operations_app._smsgate_settings() == {
+        "url": "https://gateway.example/message",
+        "username": "new-user",
+        "password": "new-secret",
+    }
+    assert config_file.stat().st_mode & 0o777 == 0o600
+    share_template = (DASHBOARD_ROOT / "templates" / "share.html").read_text()
+    alerts_template = (DASHBOARD_ROOT / "templates" / "alerts.html").read_text()
+    map_template = (DASHBOARD_ROOT / "templates" / "map.html").read_text()
+    assert "new-secret" not in share_template
+    assert "Share This Alert" in alerts_template
+    assert "Share This Alert" in map_template
+
+    monkeypatch.setattr(
+        operations_app,
+        "query_one",
+        lambda *_args, **_kwargs: {
+            "title": "Road closed",
+            "message": "Use another route",
+            "source": "BNN",
+            "category": "TRAFFIC",
+            "alert_id": "BNN:test",
+            "received_at": None,
+            "click_url": "https://example.test/alert",
+            "location_label": "150 Park Street",
+        },
+    )
+    subject, message = operations_app._alert_share_content("BNN:test")
+    assert subject == "Alert: Road closed"
+    assert "Location: 150 Park Street" in message
+    assert "Reference: BNN:test" in message

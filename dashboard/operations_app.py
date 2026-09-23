@@ -4,7 +4,8 @@ import os
 import re
 import uuid
 from datetime import datetime
-from urllib.parse import urlencode
+from pathlib import Path
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -16,6 +17,56 @@ from integration_runtime import apply_literal_auth, perform_http_request, redact
 LOGGER = logging.getLogger(__name__)
 
 SMSGATE_DEFAULT_URL = "https://api.sms-gate.app/3rdparty/v1/message"
+
+
+def _smsgate_config_path() -> Path:
+    configured = os.getenv("CMOS_SMSGATE_CONFIG_FILE", "").strip()
+    if configured:
+        return Path(configured)
+    default_dir = os.getenv("TRANSIT_TOKEN_CACHE_DIR", "/tmp/cmos-private-config")
+    return Path(default_dir) / "smsgate.json"
+
+
+def _smsgate_settings() -> dict[str, str]:
+    settings = {
+        "url": os.getenv("CMOS_SMSGATE_URL", SMSGATE_DEFAULT_URL).strip(),
+        "username": os.getenv("CMOS_SMSGATE_USERNAME", "").strip(),
+        "password": os.getenv("CMOS_SMSGATE_PASSWORD", ""),
+    }
+    try:
+        saved = json.loads(_smsgate_config_path().read_text())
+        if not isinstance(saved, dict):
+            raise ValueError("SMSGate settings must be an object")
+        settings.update({key: str(saved[key]) for key in settings if saved.get(key) is not None})
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, TypeError):
+        LOGGER.warning("Could not read saved SMSGate settings", exc_info=True)
+    return settings
+
+
+def _save_smsgate_settings(url: str, username: str, password: str) -> None:
+    current = _smsgate_settings()
+    values = {
+        "url": url.strip()[:1000],
+        "username": username.strip()[:200],
+        "password": password[:500] or current["password"],
+    }
+    parsed = urlsplit(values["url"])
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Enter a valid HTTP or HTTPS SMSGate URL")
+    if parsed.username or parsed.password:
+        raise ValueError("Do not put credentials in the SMSGate URL")
+    if not values["username"] or not values["password"]:
+        raise ValueError("SMSGate username and password are required")
+    path = _smsgate_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w") as handle:
+        json.dump(values, handle)
+    os.replace(temporary, path)
+    os.chmod(path, 0o600)
 
 
 def _phone_numbers(value: str) -> list[str]:
@@ -36,9 +87,10 @@ def _phone_numbers(value: str) -> list[str]:
 
 
 def _send_smsgate(phone_numbers: str, message: str):
-    url = os.getenv("CMOS_SMSGATE_URL", SMSGATE_DEFAULT_URL).strip()
-    username = os.getenv("CMOS_SMSGATE_USERNAME", "").strip()
-    password = os.getenv("CMOS_SMSGATE_PASSWORD", "")
+    settings = _smsgate_settings()
+    url = settings["url"]
+    username = settings["username"]
+    password = settings["password"]
     if not url or not username or not password:
         raise ValueError("SMSGate credentials are not configured")
     message = message.strip()
@@ -67,6 +119,37 @@ def _send_smsgate(phone_numbers: str, message: str):
         detail = result.error or result.body_text[:300] or "SMSGate rejected the request"
         raise ValueError(redact_text(detail, secrets))
     return result
+
+
+def _alert_share_content(alert_reference: str) -> tuple[str, str]:
+    alert = query_one(
+        """
+        SELECT title,message,source,category,alert_id,received_at,click_url,
+               coalesce(nullif(location->>'label',''),nullif(location->>'address',''),
+                        nullif(municipality,''),'Not mapped') AS location_label
+        FROM alerts
+        WHERE alert_id=%s
+        ORDER BY received_at DESC
+        LIMIT 1
+        """,
+        (alert_reference,),
+    )
+    if not alert:
+        raise ValueError("That alert could not be found")
+    subject = f"Alert: {alert.get('title') or alert_reference}"
+    detail = str(alert.get("message") or "").strip()
+    if len(detail) > 3000:
+        detail = detail[:2997] + "..."
+    lines = [str(alert.get("title") or "Alert"), detail]
+    lines.extend([
+        f"Location: {alert.get('location_label')}",
+        f"Source: {alert.get('source')} · {alert.get('category')}",
+        f"Received: {alert['received_at'].strftime('%m/%d/%Y %I:%M %p') if alert.get('received_at') else 'Unknown'}",
+        f"Reference: {alert.get('alert_id')}",
+    ])
+    if alert.get("click_url"):
+        lines.append(str(alert["click_url"]))
+    return subject[:200], "\n".join(line for line in lines if line)[:4000]
 
 
 def require_watch_recipients(cur, watch_item_ids) -> None:
@@ -480,6 +563,7 @@ def operations_home(request: Request):
 @app.get("/share", response_class=HTMLResponse)
 def share_page(
     request: Request,
+    alert: str = "",
     subject: str = "",
     message: str = "",
     phones: str = "",
@@ -487,6 +571,13 @@ def share_page(
     msg: str = "",
     error: str = "",
 ):
+    if alert and not message:
+        try:
+            subject, message = _alert_share_content(alert.strip()[:300])
+        except ValueError as exc:
+            error = str(exc)
+    settings = _smsgate_settings()
+    can_manage = getattr(request.state, "cmos_role", None) in {None, "EXECUTIVE"}
     return templates.TemplateResponse(
         request=request,
         name="share.html",
@@ -497,11 +588,10 @@ def share_page(
             "emails": emails,
             "msg": msg,
             "error": error,
-            "smsgate_configured": bool(
-                os.getenv("CMOS_SMSGATE_URL", SMSGATE_DEFAULT_URL).strip()
-                and os.getenv("CMOS_SMSGATE_USERNAME", "").strip()
-                and os.getenv("CMOS_SMSGATE_PASSWORD", "")
-            ),
+            "smsgate_configured": bool(settings["url"] and settings["username"] and settings["password"]),
+            "smsgate_url": settings["url"],
+            "smsgate_username": settings["username"],
+            "can_manage_smsgate": can_manage,
             "page": "share",
         },
     )
@@ -528,6 +618,23 @@ def share_smsgate(
         )
     query = urlencode({"msg": f"SMSGate accepted the message (HTTP {result.status_code})"})
     return RedirectResponse(f"/share?{query}", status_code=303)
+
+
+@app.post("/share/settings")
+def share_smsgate_settings(
+    request: Request,
+    url: str = Form(...),
+    username: str = Form(...),
+    password: str = Form(""),
+):
+    role = getattr(request.state, "cmos_role", None)
+    if role and role != "EXECUTIVE":
+        raise HTTPException(status_code=403, detail="Executive access required")
+    try:
+        _save_smsgate_settings(url, username, password)
+    except ValueError as exc:
+        return share_page(request, error=str(exc))
+    return RedirectResponse("/share?msg=SMSGate+settings+saved", status_code=303)
 
 
 @app.get("/alerts", response_class=HTMLResponse)
@@ -650,6 +757,7 @@ def alerts_page(
             if alert_reference
             else ""
         )
+        alert["share_url"] = f"/share?{urlencode({'alert': alert_reference})}" if alert_reference else ""
         alert["map_url"] = alert_map_url(alert)
         alert["map_status"] = (
             "Approximate location"
