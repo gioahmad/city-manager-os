@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS gis_nyc_addresses (
   objectid bigint PRIMARY KEY,
-  addresspointid text NOT NULL UNIQUE,
+  addresspointid text NOT NULL,
   fulladdr text NOT NULL,
   post_comm text NOT NULL,
   post_code text,
