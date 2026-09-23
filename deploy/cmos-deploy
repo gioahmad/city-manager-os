@@ -25,7 +25,7 @@ DASHBOARD_PROBES_BY_FILE = {
     "flood_app.py": ("/flood",),
     "integrations_app.py": ("/admin-tools", "/database", "/event-intelligence", "/integrations"),
     "issues_app.py": ("/issues",),
-    "operations_app.py": ("/alerts", "/search", "/share", "/source-health"),
+    "operations_app.py": ("/alerts", "/contacts", "/search", "/share", "/source-health"),
     "operations_occurrence_controls.py": ("/operations-routines",),
     "operations_routines_app.py": ("/operations-routines", "/staff-admin"),
     "schedule_app.py": ("/schedule",),
@@ -204,6 +204,8 @@ def classify(files: list[str]) -> Plan:
                 add_test(plan, "test_today_board.py")
             elif "executive" in name or name in {"quick_capture_global.html", "issues.html", "my_day.html"}:
                 add_test(plan, "test_executive_workflow.py", "test_attention_engine.py")
+            elif name in {"contacts.html", "nav.html", "share.html", "share_dialog.html"}:
+                add_test(plan, "test_contact_directory_share.py", "test_global_share.py")
             continue
 
         if path.startswith("dashboard/") and path.endswith(".py"):
@@ -228,6 +230,8 @@ def classify(files: list[str]) -> Plan:
             elif name == "spatial_watch_app.py":
                 add_test(plan, "test_spatial_watch_pack.py", "test_watch_lab.py", "test_watchlist_reliability.py")
                 add_probe(plan, "/watchlist", "/api/spatial-watch/release", "/api/watchlist/health")
+            elif name == "operations_app.py":
+                add_test(plan, "test_attention_engine.py", "test_contact_directory_share.py", "test_global_share.py")
             else:
                 add_test(plan, "test_attention_engine.py")
             continue

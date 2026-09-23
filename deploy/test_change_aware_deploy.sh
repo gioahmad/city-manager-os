@@ -38,8 +38,14 @@ assert_line "$integrations_ui" "full_e2e=no"
 
 configured_time="$($HARNESS plan --files dashboard/executive_workflow_app.py dashboard/flood_app.py dashboard/integrations_app.py dashboard/issues_app.py dashboard/operations_app.py dashboard/operations_occurrence_controls.py dashboard/operations_routines_app.py dashboard/schedule_app.py dashboard/today_board_app.py dashboard/transit_app.py)"
 assert_line "$configured_time" "services=citymanager-dashboard"
-assert_line "$configured_time" "probes=/admin-tools,/alerts,/database,/event-intelligence,/flood,/inbox,/integrations,/issues,/my-day,/operations-routines,/schedule,/search,/source-health,/staff-admin,/today-board,/transit,/what-changed"
+assert_line "$configured_time" "probes=/admin-tools,/alerts,/contacts,/database,/event-intelligence,/flood,/inbox,/integrations,/issues,/my-day,/operations-routines,/schedule,/search,/share,/source-health,/staff-admin,/today-board,/transit,/what-changed"
 assert_line "$configured_time" "full_e2e=no"
+
+contacts="$($HARNESS plan --files dashboard/operations_app.py dashboard/templates/contacts.html dashboard/templates/share_dialog.html dashboard/tests/test_contact_directory_share.py)"
+assert_line "$contacts" "services=citymanager-dashboard"
+assert_line "$contacts" "probes=/alerts,/contacts,/search,/share,/source-health"
+assert_line "$contacts" "tests=tests/test_attention_engine.py,tests/test_contact_directory_share.py,tests/test_global_share.py"
+assert_line "$contacts" "full_e2e=no"
 
 geo="$($HARNESS plan --files dashboard/geo_resolver.py dashboard/integration_worker.py dashboard/tests/test_alert_geo_resolution.py)"
 assert_line "$geo" "services=citymanager-dashboard,citymanager-integration-engine"

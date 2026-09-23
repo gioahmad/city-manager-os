@@ -1,0 +1,53 @@
+<style>
+.share-dialog{width:min(760px,calc(100vw - 24px));max-height:92vh;border:1px solid #35506a;border-radius:14px;background:#0f1924;color:#edf5fb;padding:0;box-shadow:0 24px 70px rgba(0,0,0,.55)}
+.share-dialog::backdrop{background:rgba(4,9,14,.72)}.share-dialog-head{display:flex;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid #263b4d}.share-dialog-body{padding:16px 18px;display:grid;gap:12px;overflow:auto}.share-dialog-close{border:1px solid #35506a;background:#152535;color:#e7f1f8;border-radius:8px;padding:7px 10px;cursor:pointer}.share-dialog-contacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;max-height:190px;overflow:auto;border:1px solid #2a4053;border-radius:9px;padding:9px}.share-contact{display:flex;align-items:flex-start;gap:8px;padding:8px;border-radius:7px;background:#111f2c}.share-contact small{display:block;color:#9db2c2}.share-dialog-status{min-height:20px;color:#a9c4d8}.share-dialog-status.error{color:#ffaaa3}@media(max-width:700px){.share-dialog-contacts{grid-template-columns:1fr}}
+</style>
+<dialog class="share-dialog" id="share-dialog" aria-labelledby="share-dialog-title">
+  <div class="share-dialog-head"><div><div class="panel-kicker">SHARE ALERT</div><h2 id="share-dialog-title">Send without leaving this page</h2></div><button type="button" class="share-dialog-close" data-share-close>Close</button></div>
+  <form class="share-dialog-body watch-form" method="post" action="/share/smsgate" data-share-dialog-form>
+    <input type="hidden" name="modal" value="1">
+    <label>Choose contacts<input type="search" data-contact-search placeholder="Search contacts"></label>
+    <div class="share-dialog-contacts" data-share-contacts><span class="hint">Loading contacts...</span></div>
+    <div class="form-grid two-col">
+      <label>Additional email(s)<input name="emails" placeholder="name@example.com"></label>
+      <label>Additional phone(s)<input name="phones" inputmode="tel" placeholder="201-555-1234"><span class="hint">+1 is added to ten-digit U.S. numbers.</span></label>
+    </div>
+    <label>Subject<input name="subject"></label>
+    <label>Message<textarea name="message" rows="9" maxlength="4000" required></textarea></label>
+    <div class="share-dialog-status" data-share-status></div>
+    <div class="form-actions">
+      <button class="secondary-button" type="button" data-dialog-email>Open Email</button>
+      <button class="secondary-button" type="button" data-dialog-sms>Open SMS</button>
+      <button class="primary-button" type="submit" data-dialog-smsgate>Send with SMSGate</button>
+    </div>
+  </form>
+</dialog>
+<script>
+(()=>{
+  const dialog=document.getElementById('share-dialog'),form=dialog?.querySelector('[data-share-dialog-form]');
+  if(!dialog||!form)return;
+  const contacts=dialog.querySelector('[data-share-contacts]'),status=dialog.querySelector('[data-share-status]'),search=dialog.querySelector('[data-contact-search]');
+  const field=name=>form.elements.namedItem(name).value.trim();
+  const selected=kind=>[...contacts.querySelectorAll('input:checked')].flatMap(box=>(box.dataset[kind]||'').split(',')).filter(Boolean);
+  const unique=values=>[...new Set(values.map(value=>value.trim()).filter(Boolean))];
+  const manual=(name,kind)=>unique([...field(name).split(/[,;\n]+/),...selected(kind)]);
+  const setStatus=(message,error=false)=>{status.textContent=message;status.classList.toggle('error',error);};
+  const show=async alert=>{
+    form.reset();contacts.innerHTML='<span class="hint">Loading contacts...</span>';setStatus('Loading alert...');dialog.showModal();
+    try{
+      const response=await fetch('/api/share/context?'+new URLSearchParams({alert}));
+      const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.message||'Could not load this alert');
+      form.elements.subject.value=data.subject;form.elements.message.value=data.message;contacts.replaceChildren();
+      data.contacts.forEach(contact=>{const label=document.createElement('label');label.className='share-contact';const box=document.createElement('input');box.type='checkbox';box.name='contact_ids';box.value=contact.id;box.dataset.phones=(contact.phones||[]).join(',');box.dataset.emails=(contact.emails||[]).join(',');const text=document.createElement('span');const name=document.createElement('strong');name.textContent=contact.name;const detail=document.createElement('small');detail.textContent=[contact.organization,contact.contact_type,(contact.phones||[])[0],(contact.emails||[])[0]].filter(Boolean).join(' · ');text.append(name,detail);label.append(box,text);contacts.append(label);});
+      if(!data.contacts.length)contacts.innerHTML='<span class="hint">No contacts with a phone or email yet. Add them in Contacts.</span>';
+      form.querySelector('[data-dialog-smsgate]').disabled=!data.smsgate_configured;setStatus('Choose contacts or enter another recipient.');
+    }catch(error){setStatus(error.message,true);}
+  };
+  document.addEventListener('click',event=>{const link=event.target.closest('a[href^="/share?"]');if(!link)return;const url=new URL(link.href,location.origin),alert=url.searchParams.get('alert');if(!alert)return;event.preventDefault();show(alert);});
+  dialog.querySelector('[data-share-close]').addEventListener('click',()=>dialog.close());dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close();});
+  search.addEventListener('input',()=>{const needle=search.value.trim().toLowerCase();contacts.querySelectorAll('.share-contact').forEach(row=>{row.hidden=Boolean(needle&&!row.textContent.toLowerCase().includes(needle));});});
+  form.querySelector('[data-dialog-email]').addEventListener('click',()=>{const recipients=manual('emails','emails');if(!recipients.length){setStatus('Choose a contact with an email or enter an email address.',true);return;}location.href=`mailto:${encodeURIComponent(recipients.join(','))}?subject=${encodeURIComponent(field('subject')||'City Manager OS')}&body=${encodeURIComponent(field('message'))}`;});
+  form.querySelector('[data-dialog-sms]').addEventListener('click',()=>{const numbers=manual('phones','phones');if(!numbers.length){setStatus('Choose a contact with a phone or enter a phone number.',true);return;}const body=encodeURIComponent(field('message')),separator=/iPad|iPhone|iPod/.test(navigator.userAgent)?'&':'?';location.href=`sms:${numbers.join(',')}${separator}body=${body}`;});
+  form.addEventListener('submit',async event=>{event.preventDefault();setStatus('Sending...');const button=form.querySelector('[data-dialog-smsgate]');button.disabled=true;try{const response=await fetch(form.action,{method:'POST',body:new FormData(form)}),data=await response.json();if(!response.ok||!data.ok)throw new Error(data.message||'SMSGate could not send the message');setStatus(data.message);form.querySelectorAll('input[type="checkbox"]').forEach(box=>{box.checked=false;});}catch(error){setStatus(error.message,true);}finally{button.disabled=false;}});
+})();
+</script>

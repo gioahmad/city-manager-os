@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 from fastapi import Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from issues_app import app
 from app import db_conn, execute, query_all, query_one, templates
@@ -18,6 +18,8 @@ LOGGER = logging.getLogger(__name__)
 
 SMSGATE_DEFAULT_URL = "https://api.sms-gate.app/3rdparty/v1/messages"
 SMSGATE_OLD_CLOUD_URL = "https://api.sms-gate.app/3rdparty/v1/message"
+CONTACT_TYPES = ("RESIDENT", "STAFF", "VENDOR", "OFFICIAL", "OTHER")
+CONTACT_VISIBILITIES = ("ALL", "EXECUTIVE", "PRIVATE")
 
 
 def _normalize_smsgate_url(url: str) -> str:
@@ -82,6 +84,10 @@ def _phone_numbers(value: str) -> list[str]:
         number = re.sub(r"[\s().-]", "", raw.strip())
         if not number:
             continue
+        if re.fullmatch(r"\d{10}", number):
+            number = f"+1{number}"
+        elif re.fullmatch(r"1\d{10}", number):
+            number = f"+{number}"
         if not re.fullmatch(r"\+?[1-9]\d{6,14}", number):
             raise ValueError(f"Invalid phone number: {raw.strip()}")
         if number not in numbers:
@@ -91,6 +97,47 @@ def _phone_numbers(value: str) -> list[str]:
     if len(numbers) > 25:
         raise ValueError("Send to no more than 25 phone numbers at once")
     return numbers
+
+
+def _contact_values(value: str) -> list[str]:
+    return list(dict.fromkeys(part.strip() for part in re.split(r"[,;\n]+", value) if part.strip()))
+
+
+def _contact_phones(value: str) -> list[str]:
+    return _phone_numbers(value) if value.strip() else []
+
+
+def _contact_emails(value: str) -> list[str]:
+    emails = [email.lower() for email in _contact_values(value)]
+    if any(not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) for email in emails):
+        raise ValueError("Enter valid email addresses")
+    return emails
+
+
+def _contact_scope(request: Request, alias: str = "c") -> tuple[str, list[str]]:
+    role = str(getattr(request.state, "cmos_role", None) or "EXECUTIVE").upper()
+    username = str(getattr(request.state, "cmos_user", None) or "local")
+    if role == "EXECUTIVE":
+        return "TRUE", []
+    return (
+        f"({alias}.visibility='ALL' OR ({alias}.visibility='PRIVATE' AND {alias}.owner_username=%s))",
+        [username],
+    )
+
+
+def _share_contacts(request: Request) -> list[dict]:
+    scope, params = _contact_scope(request)
+    return query_all(
+        f"""
+        SELECT id::text AS id,name,contact_type,organization,phones,emails
+        FROM contacts c
+        WHERE c.active AND {scope}
+          AND (cardinality(c.phones)>0 OR cardinality(c.emails)>0)
+        ORDER BY c.name
+        LIMIT 500
+        """,
+        params,
+    )
 
 
 def _send_smsgate(phone_numbers: str, message: str):
@@ -598,6 +645,7 @@ def share_page(
             "message": message,
             "phones": phones,
             "emails": emails,
+            "contacts": _share_contacts(request),
             "msg": msg,
             "error": error,
             "smsgate_configured": bool(settings["url"] and settings["username"] and settings["password"]),
@@ -609,17 +657,47 @@ def share_page(
     )
 
 
+@app.get("/api/share/context")
+def share_context(request: Request, alert: str = ""):
+    try:
+        subject, message = _alert_share_content(alert.strip()[:300]) if alert else ("", "")
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "message": str(exc)}, status_code=404)
+    settings = _smsgate_settings()
+    return JSONResponse({
+        "ok": True,
+        "subject": subject,
+        "message": message,
+        "smsgate_configured": bool(settings["url"] and settings["username"] and settings["password"]),
+        "contacts": _share_contacts(request),
+    })
+
+
 @app.post("/share/smsgate")
 def share_smsgate(
     request: Request,
-    phones: str = Form(...),
+    phones: str = Form(""),
     message: str = Form(...),
     subject: str = Form(""),
     emails: str = Form(""),
+    contact_ids: list[uuid.UUID] = Form([]),
+    modal: str = Form(""),
 ):
     try:
-        result = _send_smsgate(phones, message)
+        selected_ids = list(dict.fromkeys(contact_ids))[:100]
+        contact_phones = []
+        if selected_ids:
+            scope, params = _contact_scope(request)
+            rows = query_all(
+                f"SELECT id,phones FROM contacts c WHERE c.active AND c.id=ANY(%s::uuid[]) AND {scope}",
+                [selected_ids, *params],
+            )
+            contact_phones = [phone for row in rows for phone in (row.get("phones") or [])]
+            selected_ids = [row["id"] for row in rows]
+        result = _send_smsgate(",".join([phones, *contact_phones]), message)
     except ValueError as exc:
+        if modal:
+            return JSONResponse({"ok": False, "message": str(exc)}, status_code=400)
         return share_page(
             request,
             subject=subject,
@@ -628,7 +706,21 @@ def share_smsgate(
             emails=emails,
             error=str(exc),
         )
-    query = urlencode({"msg": f"SMSGate accepted the message (HTTP {result.status_code})"})
+    if selected_ids:
+        actor = str(getattr(request.state, "cmos_user", None) or "local")[:120]
+        with db_conn() as conn, conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO contact_activity(contact_id,activity_type,summary,actor)
+                VALUES(%s,'SMSGATE_SENT',%s,%s)
+                """,
+                [(contact_id, subject.strip()[:200] or message.strip()[:200], actor) for contact_id in selected_ids],
+            )
+            conn.commit()
+    success = f"SMSGate accepted the message (HTTP {result.status_code})"
+    if modal:
+        return JSONResponse({"ok": True, "message": success})
+    query = urlencode({"msg": success})
     return RedirectResponse(f"/share?{query}", status_code=303)
 
 
@@ -647,6 +739,199 @@ def share_smsgate_settings(
     except ValueError as exc:
         return share_page(request, error=str(exc))
     return RedirectResponse("/share?msg=SMSGate+settings+saved", status_code=303)
+
+
+def _contact_form_values(
+    name: str,
+    contact_type: str,
+    organization: str,
+    title: str,
+    phones: str,
+    emails: str,
+    address: str,
+    tags: str,
+    notes: str,
+    visibility: str,
+) -> tuple:
+    name = name.strip()[:200]
+    contact_type = contact_type.strip().upper()
+    visibility = visibility.strip().upper()
+    if not name:
+        raise ValueError("Contact name is required")
+    if contact_type not in CONTACT_TYPES:
+        raise ValueError("Choose a valid contact type")
+    if visibility not in CONTACT_VISIBILITIES:
+        raise ValueError("Choose a valid access level")
+    return (
+        name,
+        contact_type,
+        organization.strip()[:200] or None,
+        title.strip()[:200] or None,
+        _contact_phones(phones),
+        _contact_emails(emails),
+        address.strip()[:1000] or None,
+        [tag[:80] for tag in _contact_values(tags)[:30]],
+        notes.strip()[:5000] or None,
+        visibility,
+    )
+
+
+@app.get("/contacts", response_class=HTMLResponse)
+def contacts_page(
+    request: Request,
+    q: str = "",
+    contact_type: str = "ALL",
+    state: str = "active",
+    msg: str = "",
+    error: str = "",
+):
+    scope, params = _contact_scope(request)
+    where = [scope]
+    q = q.strip()[:160]
+    if q:
+        needle = f"%{q}%"
+        where.append(
+            "(c.name ILIKE %s OR coalesce(c.organization,'') ILIKE %s OR "
+            "coalesce(c.title,'') ILIKE %s OR coalesce(c.address,'') ILIKE %s OR "
+            "array_to_string(c.tags,' ') ILIKE %s OR array_to_string(c.phones,' ') ILIKE %s OR "
+            "array_to_string(c.emails,' ') ILIKE %s)"
+        )
+        params.extend([needle] * 7)
+    contact_type = contact_type.strip().upper()
+    if contact_type in CONTACT_TYPES:
+        where.append("c.contact_type=%s")
+        params.append(contact_type)
+    else:
+        contact_type = "ALL"
+    if state == "active":
+        where.append("c.active")
+    elif state == "inactive":
+        where.append("NOT c.active")
+    else:
+        state = "all"
+    rows = query_all(
+        f"""
+        SELECT c.*,
+               s.id AS subscriber_uuid,s.subscriber_id,s.ntfy_topic,s.active AS subscriber_active,
+               (SELECT count(*) FROM contact_activity ca WHERE ca.contact_id=c.id) AS activity_count,
+               (SELECT count(*) FROM issue_contacts ic WHERE ic.contact_id=c.id) AS issue_count,
+               coalesce((
+                 SELECT jsonb_agg(to_jsonb(activity) ORDER BY activity.created_at DESC)
+                 FROM (
+                   SELECT ca.activity_type,ca.summary,ca.actor,ca.created_at
+                   FROM contact_activity ca WHERE ca.contact_id=c.id
+                   ORDER BY ca.created_at DESC LIMIT 10
+                 ) activity
+               ),'[]'::jsonb) AS recent_activity,
+               coalesce((
+                 SELECT jsonb_agg(jsonb_build_object('id',i.id,'title',i.title,'status',i.status) ORDER BY i.updated_at DESC)
+                 FROM issue_contacts ic JOIN issues i ON i.id=ic.issue_id
+                 WHERE ic.contact_id=c.id
+               ),'[]'::jsonb) AS linked_issues
+        FROM contacts c
+        LEFT JOIN subscribers s ON s.contact_id=c.id
+        WHERE {' AND '.join(where)}
+        ORDER BY c.active DESC,c.name
+        LIMIT 500
+        """,
+        params,
+    )
+    count_scope, count_params = _contact_scope(request)
+    counts = query_one(
+        f"SELECT count(*) AS total,count(*) FILTER (WHERE active) AS active FROM contacts c WHERE {count_scope}",
+        count_params,
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="contacts.html",
+        context={
+            "rows": rows,
+            "counts": counts,
+            "contact_types": CONTACT_TYPES,
+            "q": q,
+            "selected_type": contact_type,
+            "state": state,
+            "msg": msg,
+            "error": error,
+            "page": "contacts",
+        },
+    )
+
+
+@app.post("/contacts/create")
+def contact_create(
+    request: Request,
+    name: str = Form(...),
+    contact_type: str = Form("OTHER"),
+    organization: str = Form(""),
+    title: str = Form(""),
+    phones: str = Form(""),
+    emails: str = Form(""),
+    address: str = Form(""),
+    tags: str = Form(""),
+    notes: str = Form(""),
+    visibility: str = Form("ALL"),
+):
+    if getattr(request.state, "cmos_role", None) == "READ_ONLY":
+        raise HTTPException(403, "Read-only access")
+    try:
+        values = _contact_form_values(
+            name, contact_type, organization, title, phones, emails, address, tags, notes, visibility
+        )
+    except ValueError as exc:
+        return RedirectResponse(f"/contacts?{urlencode({'error': str(exc)})}", status_code=303)
+    owner = str(getattr(request.state, "cmos_user", None) or "local")[:120]
+    contact_id = f"C_{re.sub(r'[^A-Z0-9]+', '_', values[0].upper()).strip('_')[:24]}_{uuid.uuid4().hex[:6].upper()}"
+    execute(
+        """
+        INSERT INTO contacts(
+          contact_id,name,contact_type,organization,title,phones,emails,address,tags,notes,
+          visibility,owner_username
+        ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """,
+        (contact_id, *values, owner),
+    )
+    return RedirectResponse("/contacts?msg=Contact+created", status_code=303)
+
+
+@app.post("/contacts/{contact_uuid}/update")
+def contact_update(
+    contact_uuid: uuid.UUID,
+    request: Request,
+    name: str = Form(...),
+    contact_type: str = Form("OTHER"),
+    organization: str = Form(""),
+    title: str = Form(""),
+    phones: str = Form(""),
+    emails: str = Form(""),
+    address: str = Form(""),
+    tags: str = Form(""),
+    notes: str = Form(""),
+    visibility: str = Form("ALL"),
+    active: str | None = Form(None),
+):
+    if getattr(request.state, "cmos_role", None) == "READ_ONLY":
+        raise HTTPException(403, "Read-only access")
+    try:
+        values = _contact_form_values(
+            name, contact_type, organization, title, phones, emails, address, tags, notes, visibility
+        )
+    except ValueError as exc:
+        return RedirectResponse(f"/contacts?{urlencode({'error': str(exc)})}", status_code=303)
+    scope, params = _contact_scope(request)
+    updated = query_one(
+        f"""
+        UPDATE contacts c SET
+          name=%s,contact_type=%s,organization=%s,title=%s,phones=%s,emails=%s,address=%s,
+          tags=%s,notes=%s,visibility=%s,active=%s,updated_at=now()
+        WHERE c.id=%s AND {scope}
+        RETURNING c.id
+        """,
+        [*values, active is not None, contact_uuid, *params],
+    )
+    if not updated:
+        raise HTTPException(404, "Contact not found")
+    return RedirectResponse("/contacts?msg=Contact+updated", status_code=303)
 
 
 @app.get("/alerts", response_class=HTMLResponse)
