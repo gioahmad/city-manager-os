@@ -10,6 +10,7 @@
     <a href="/map" class="{% if request.url.path.startswith('/map') or request.url.path.startswith('/flood') %}active{% endif %}">Map</a>
     <a href="/alerts" class="{% if request.url.path.startswith('/alerts') %}active{% endif %}">Alerts</a>
     <a href="/search" class="{% if request.url.path.startswith('/search') %}active{% endif %}">Search</a>
+    <a href="/share" class="{% if request.url.path.startswith('/share') %}active{% endif %}">Share</a>
 
     <details class="nav-group nav-operations {% if request.url.path.startswith('/staff-admin') or request.url.path.startswith('/operations-routines') or request.url.path.startswith('/schedule') or request.url.path.startswith('/event-intelligence') or request.url.path.startswith('/today-board') or request.url.path.startswith('/transit') %}active{% endif %}">
       <summary>Operations</summary>
@@ -64,6 +65,7 @@
       <span class="nav-menu-label">DAILY</span>
       <a href="/inbox">Inbox</a>
       <a href="/alerts">Alerts</a>
+      <a href="/share">Share</a>
       <a href="/staff-admin">Staff Operations</a>
       <a href="/schedule">Events Center</a>
       <a href="/event-intelligence">Event Intelligence</a>

@@ -1,4 +1,6 @@
+import json
 import logging
+import os
 import re
 import uuid
 from datetime import datetime
@@ -9,8 +11,62 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from issues_app import app
 from app import db_conn, execute, query_all, query_one, templates
+from integration_runtime import apply_literal_auth, perform_http_request, redact_text
 
 LOGGER = logging.getLogger(__name__)
+
+SMSGATE_DEFAULT_URL = "https://api.sms-gate.app/3rdparty/v1/message"
+
+
+def _phone_numbers(value: str) -> list[str]:
+    numbers = []
+    for raw in re.split(r"[,;\n]+", value):
+        number = re.sub(r"[\s().-]", "", raw.strip())
+        if not number:
+            continue
+        if not re.fullmatch(r"\+?[1-9]\d{6,14}", number):
+            raise ValueError(f"Invalid phone number: {raw.strip()}")
+        if number not in numbers:
+            numbers.append(number)
+    if not numbers:
+        raise ValueError("Enter at least one phone number")
+    if len(numbers) > 25:
+        raise ValueError("Send to no more than 25 phone numbers at once")
+    return numbers
+
+
+def _send_smsgate(phone_numbers: str, message: str):
+    url = os.getenv("CMOS_SMSGATE_URL", SMSGATE_DEFAULT_URL).strip()
+    username = os.getenv("CMOS_SMSGATE_USERNAME", "").strip()
+    password = os.getenv("CMOS_SMSGATE_PASSWORD", "")
+    if not url or not username or not password:
+        raise ValueError("SMSGate credentials are not configured")
+    message = message.strip()
+    if not message:
+        raise ValueError("Enter a message")
+    if len(message) > 4000:
+        raise ValueError("Message must be 4,000 characters or fewer")
+    headers = {"Content-Type": "application/json"}
+    secrets = apply_literal_auth(
+        "BASIC", headers, {}, username=username, password=password
+    )
+    result = perform_http_request(
+        method="POST",
+        url=url,
+        headers=headers,
+        body=json.dumps({
+            "textMessage": {"text": message},
+            "phoneNumbers": _phone_numbers(phone_numbers),
+        }),
+        timeout_seconds=20,
+        max_response_bytes=100_000,
+        allow_redirects=False,
+        allow_private=True,
+    )
+    if not result.ok:
+        detail = result.error or result.body_text[:300] or "SMSGate rejected the request"
+        raise ValueError(redact_text(detail, secrets))
+    return result
 
 
 def require_watch_recipients(cur, watch_item_ids) -> None:
@@ -419,6 +475,59 @@ def operations_home(request: Request):
             "page": "overview",
         },
     )
+
+
+@app.get("/share", response_class=HTMLResponse)
+def share_page(
+    request: Request,
+    subject: str = "",
+    message: str = "",
+    phones: str = "",
+    emails: str = "",
+    msg: str = "",
+    error: str = "",
+):
+    return templates.TemplateResponse(
+        request=request,
+        name="share.html",
+        context={
+            "subject": subject,
+            "message": message,
+            "phones": phones,
+            "emails": emails,
+            "msg": msg,
+            "error": error,
+            "smsgate_configured": bool(
+                os.getenv("CMOS_SMSGATE_URL", SMSGATE_DEFAULT_URL).strip()
+                and os.getenv("CMOS_SMSGATE_USERNAME", "").strip()
+                and os.getenv("CMOS_SMSGATE_PASSWORD", "")
+            ),
+            "page": "share",
+        },
+    )
+
+
+@app.post("/share/smsgate")
+def share_smsgate(
+    request: Request,
+    phones: str = Form(...),
+    message: str = Form(...),
+    subject: str = Form(""),
+    emails: str = Form(""),
+):
+    try:
+        result = _send_smsgate(phones, message)
+    except ValueError as exc:
+        return share_page(
+            request,
+            subject=subject,
+            message=message,
+            phones=phones,
+            emails=emails,
+            error=str(exc),
+        )
+    query = urlencode({"msg": f"SMSGate accepted the message (HTTP {result.status_code})"})
+    return RedirectResponse(f"/share?{query}", status_code=303)
 
 
 @app.get("/alerts", response_class=HTMLResponse)
