@@ -21,13 +21,24 @@
     <div class="panel-head"><div><div class="panel-kicker">GLOBAL SHARE</div><h2>Prepare message</h2></div></div>
     <div class="panel-body">
       <form class="watch-form" method="post" action="/share/smsgate" data-global-share>
+        <fieldset class="recipient-picker">
+          <legend>Choose contacts</legend>
+          <div class="recipient-watch-options">
+          {% for contact in contacts %}
+            <label class="checkbox-row">
+              <input type="checkbox" name="contact_ids" value="{{ contact.id }}" data-phones="{{ contact.phones|join(',') }}" data-emails="{{ contact.emails|join(',') }}">
+              <span><strong>{{ contact.name }}</strong><small>{{ contact.organization or contact.contact_type|title }}{% if contact.phones %} · {{ contact.phones[0] }}{% endif %}{% if contact.emails %} · {{ contact.emails[0] }}{% endif %}</small></span>
+            </label>
+          {% else %}<span>No saved contacts yet. <a href="/contacts">Add a Contact</a>.</span>{% endfor %}
+          </div>
+        </fieldset>
         <div class="form-grid two-col">
           <label>Email recipient(s)
             <input name="emails" value="{{ emails }}" placeholder="name@example.com, another@example.com">
           </label>
           <label>Phone number(s)
-            <input name="phones" value="{{ phones }}" placeholder="+12015551234" inputmode="tel">
-            <span class="hint">Separate multiple SMSGate numbers with commas or new lines.</span>
+            <input name="phones" value="{{ phones }}" placeholder="201-555-1234" inputmode="tel">
+            <span class="hint">Separate multiple numbers with commas or new lines. +1 is added to ten-digit U.S. numbers.</span>
           </label>
         </div>
         <label>Email subject
@@ -66,12 +77,14 @@
 (() => {
   const form = document.querySelector('[data-global-share]');
   const field = (name) => form.elements.namedItem(name).value.trim();
+  const selected = (kind) => [...form.querySelectorAll('input[name="contact_ids"]:checked')].flatMap((box) => (box.dataset[kind] || '').split(',')).filter(Boolean);
+  const recipients = (name, kind) => [...new Set([...field(name).split(/[,;\n]+/), ...selected(kind)].map((value) => value.trim()).filter(Boolean))];
   form.querySelector('[data-share-email]').addEventListener('click', () => {
-    window.location.href = `mailto:${encodeURIComponent(field('emails'))}?subject=${encodeURIComponent(field('subject') || 'City Manager OS')}&body=${encodeURIComponent(field('message'))}`;
+    window.location.href = `mailto:${encodeURIComponent(recipients('emails', 'emails').join(','))}?subject=${encodeURIComponent(field('subject') || 'City Manager OS')}&body=${encodeURIComponent(field('message'))}`;
   });
   form.querySelector('[data-share-sms]').addEventListener('click', () => {
     const body = encodeURIComponent(field('message'));
-    const numbers = field('phones').split(/[,;\n]+/).map((value) => value.trim()).filter(Boolean).join(',');
+    const numbers = recipients('phones', 'phones').join(',');
     window.location.href = /iPad|iPhone|iPod/.test(navigator.userAgent)
       ? `sms:${numbers}&body=${body}`
       : `sms:${numbers}?body=${body}`;

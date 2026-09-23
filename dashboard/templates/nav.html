@@ -27,7 +27,7 @@
       </div>
     </details>
 
-    <details class="nav-group nav-control {% if request.url.path == '/' or request.url.path.startswith('/modules') or request.url.path.startswith('/admin-tools') or request.url.path.startswith('/database') or request.url.path.startswith('/rules') or request.url.path.startswith('/watchlist') or request.url.path.startswith('/subscribers') or request.url.path.startswith('/routing') or request.url.path.startswith('/integrations') or request.url.path.startswith('/api-lab') or request.url.path.startswith('/source-health') or request.url.path.startswith('/deliveries') or request.url.path.startswith('/alert-admin') or request.url.path.startswith('/spatial-reference') or request.url.path.startswith('/what-changed') %}active{% endif %}">
+    <details class="nav-group nav-control {% if request.url.path == '/' or request.url.path.startswith('/modules') or request.url.path.startswith('/admin-tools') or request.url.path.startswith('/database') or request.url.path.startswith('/rules') or request.url.path.startswith('/watchlist') or request.url.path.startswith('/subscribers') or request.url.path.startswith('/contacts') or request.url.path.startswith('/routing') or request.url.path.startswith('/integrations') or request.url.path.startswith('/api-lab') or request.url.path.startswith('/source-health') or request.url.path.startswith('/deliveries') or request.url.path.startswith('/alert-admin') or request.url.path.startswith('/spatial-reference') or request.url.path.startswith('/what-changed') %}active{% endif %}">
       <summary>Control Center</summary>
       <div class="nav-group-menu">
         <span class="nav-menu-label">SYSTEM</span>
@@ -39,6 +39,7 @@
         <a href="/watchlist">Watches</a>
         <a href="/rules">Rules Center</a>
         <a href="/subscribers">Recipients</a>
+        <a href="/contacts">Contacts</a>
         <a href="/routing">Advanced Delivery Rules</a>
         <span class="nav-menu-label">DATA + HEALTH</span>
         <a href="/integrations">Integrations Center</a>
@@ -76,6 +77,7 @@
       <a href="/watchlist">Watches</a>
       <a href="/rules">Rules Center</a>
       <a href="/subscribers">Recipients</a>
+      <a href="/contacts">Contacts</a>
       <a href="/routing">Delivery Rules</a>
       <span class="nav-menu-label">CONTROL CENTER</span>
       <a href="/">Overview</a>
@@ -95,3 +97,4 @@
 </nav>
 
 {% include "quick_capture_global.html" %}
+{% include "share_dialog.html" %}
