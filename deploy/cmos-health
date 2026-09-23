@@ -274,7 +274,7 @@ health = query_one(
       (SELECT count(*) FROM routed r WHERE NOT EXISTS (
         SELECT 1 FROM deliveries d
         WHERE d.alert_id=r.alert_uuid AND d.subscriber_id=r.subscriber_uuid
-          AND d.matched_watch_ids ? r.watch_id
+          AND d.status='SENT'
       )) AS missing_notifications,
       (SELECT count(DISTINCT d.id) FROM deliveries d
         WHERE d.created_at>=now()-interval '24 hours' AND d.status='SENT'

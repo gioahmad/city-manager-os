@@ -80,6 +80,7 @@ def test_permanent_health_check_proves_spatial_match_and_notification_path():
     assert "missing_matcher_results" in health
     assert "missing_persisted_matches" in health
     assert "missing_notifications" in health
+    assert "d.alert_id=r.alert_uuid AND d.subscriber_id=r.subscriber_uuid\n          AND d.status='SENT'" in health
     assert "spatial_notifications_failed_24h" in health
     assert "now()-interval '5 minutes'" in health
     assert "SPATIAL WATCH HEALTH FAILED" in health
