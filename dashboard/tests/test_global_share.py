@@ -13,7 +13,7 @@ import operations_app
 from integration_runtime import FetchResult
 
 
-def test_global_share_uses_native_clients_and_smsgate_contract(monkeypatch):
+def test_global_share_uses_native_clients_and_smsgate_contract(monkeypatch, tmp_path):
     captured = {}
 
     def fake_request(**kwargs):
@@ -23,6 +23,7 @@ def test_global_share_uses_native_clients_and_smsgate_contract(monkeypatch):
     monkeypatch.setenv("CMOS_SMSGATE_URL", "https://gateway.example/message")
     monkeypatch.setenv("CMOS_SMSGATE_USERNAME", "gateway-user")
     monkeypatch.setenv("CMOS_SMSGATE_PASSWORD", "gateway-password")
+    monkeypatch.setenv("CMOS_SMSGATE_CONFIG_FILE", str(tmp_path / "smsgate.json"))
     monkeypatch.setattr(operations_app, "perform_http_request", fake_request)
 
     result = operations_app._send_smsgate("+1 (201) 555-1234", "Road closed")
