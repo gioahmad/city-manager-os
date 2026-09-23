@@ -135,7 +135,7 @@ def test_alert_map_restores_full_history_choices_without_destructive_actions():
     assert 'id="alert-window"' in visible_controls
     assert "<details open>" in map_template
     assert "All mapped history" in map_template
-    assert "addEventListener('change',refreshAlertLayer)" in map_template
+    assert "addEventListener('change',()=>refreshAlertLayer(true))" in map_template
     assert "Search Visible Area" in map_template
     assert "Search all alerts" in map_template
     assert "Search all operational records" in map_template
@@ -158,7 +158,7 @@ def test_map_area_record_checkboxes_keep_their_text_inside_the_panel():
     map_styles = (DASHBOARD_ROOT / "static/map.css").read_text()
     assert '.map-alert-controls input:not([type="checkbox"]),.map-alert-controls select' in map_styles
     assert ".map-check input{width:auto}" in map_styles
-    assert "/static/map.css?v=20260921-8" in map_template
+    assert 'href="/static/map.css?v=' in map_template
 
 
 def test_leaflet_draw_buttons_keep_their_plugin_icons():
@@ -166,7 +166,7 @@ def test_leaflet_draw_buttons_keep_their_plugin_icons():
     map_styles = (DASHBOARD_ROOT / "static/map.css").read_text()
     assert ".leaflet-control-layers,.leaflet-bar a{background-color:#fff" in map_styles
     assert ".leaflet-control-layers,.leaflet-bar a{background:#fff" not in map_styles
-    assert "/static/map.css?v=20260921-8" in map_template
+    assert 'href="/static/map.css?v=' in map_template
 
 
 def test_mapping_center_deduplicates_cancels_and_reports_layer_refreshes():

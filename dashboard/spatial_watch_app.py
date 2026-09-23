@@ -120,17 +120,6 @@ def _distance_label(value) -> str:
     return f"{feet:,.0f} feet"
 
 
-def _remove_route(path: str, method: str) -> None:
-    app.router.routes = [
-        route
-        for route in app.router.routes
-        if not (
-            getattr(route, "path", None) == path
-            and method in (getattr(route, "methods", set()) or set())
-        )
-    ]
-
-
 def _parse_local(value: str):
     value = value.strip()
     if not value:
@@ -734,16 +723,6 @@ def _watch_state(row: dict) -> tuple[str, str, str]:
     if not last_match:
         return "Watching", "active", "No stored alert has met this watch's Location, topic, priority, and optional filters yet."
     return "Watching", "active", "The watch is on. Its latest Match and Notification evidence are shown below."
-
-
-for route_path, route_method in (
-    ("/watchlist", "GET"),
-    ("/watchlist/create", "POST"),
-    ("/watchlist/{item_id}/update", "POST"),
-    ("/watchlist/{item_id}/toggle", "POST"),
-    ("/watchlist/{item_id}/delete", "POST"),
-):
-    _remove_route(route_path, route_method)
 
 
 @app.get("/api/spatial-watch/release")

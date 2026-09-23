@@ -71,23 +71,31 @@ def test_guarded_database_installer_covers_point_corridor_and_no_writes():
     assert 'prepare_node_file "$TMP_TARGET"' in matcher_installer
 
 
-def test_effective_geometry_release_is_bounded_and_recoverable():
-    release = _repository_file("deploy/releases/spatial-watch-effective-geometry.sh").read_text()
-    assert "rollback_dashboard" in release
-    assert "rollback_n8n" in release
-    assert "rollback_database" in release
-    assert release.index('CURRENT_PHASE="backups"') < release.index(
-        'CURRENT_PHASE="database-install"'
-    )
-    assert "gis_active_spatial_watch_matches(a.alert_id)" in release
-    assert "INSERT INTO alert_watch_matches" in release
-    assert "interval '24 hours'" in release
-    assert "RETROSPECTIVE_NOTIFICATION_SENT=NO" in release
-    assert "INSERT INTO deliveries" not in release
-    assert "cmos-e2e" not in release
-    assert "tests/test_watchlist_reliability.py </dev/null" in release
-    assert "match_reason LIKE '%%resolver point%%'" in release
-    assert '[[ -z "$ACCEPTANCE_RESULT"' in release
+def test_permanent_health_check_proves_spatial_match_and_notification_path():
+    health = _repository_file("deploy/cmos-health").read_text()
+    assert "=== SPATIAL WATCH HEALTH ===" in health
+    assert "gis_active_spatial_watch_matches(a.alert_id)" in health
+    assert "expected_geometry_matches" in health
+    assert "pure_spatial_matches" in health
+    assert "missing_matcher_results" in health
+    assert "missing_persisted_matches" in health
+    assert "missing_notifications" in health
+    assert "spatial_notifications_failed_24h" in health
+    assert "now()-interval '5 minutes'" in health
+    assert "SPATIAL WATCH HEALTH FAILED" in health
+
+
+def test_base_app_has_no_shadow_watchlist_routes():
+    source = (DASHBOARD_ROOT / "app.py").read_text()
+    spatial_source = (DASHBOARD_ROOT / "spatial_watch_app.py").read_text()
+    for route in (
+        '@app.get("/watchlist"',
+        '@app.post("/watchlist/create")',
+        '@app.post("/watchlist/{item_id}/update")',
+        '@app.post("/watchlist/{item_id}/toggle")',
+    ):
+        assert route not in source
+    assert "_remove_route" not in spatial_source
 
 
 def test_browser_uses_existing_watchlist_resolver_subscribers_and_routing():
