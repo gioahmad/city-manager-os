@@ -137,6 +137,13 @@ def classify(files: list[str]) -> Plan:
             add_test(plan, "test_attention_engine.py")
             continue
 
+        if path == "deploy/gis/refresh_nyc_addresses.sh":
+            plan.external.add("postgis-nyc-address-import")
+            plan.backup_required = True
+            plan.reasons.add("guarded NYC address import tooling")
+            add_test(plan, "test_alert_geo_resolution.py")
+            continue
+
         if path == "dashboard/integration_worker.py":
             add_dashboard(plan, "citymanager-integration-engine")
             plan.reasons.add("integration worker runtime")
@@ -595,7 +602,7 @@ def main() -> int:
         return 0
 
     if plan.backup_required and plan.external.intersection(
-        {"postgis-migration", "postgis-statewide-import", "infrastructure-compose"}
+        {"postgis-migration", "postgis-statewide-import", "postgis-nyc-address-import", "infrastructure-compose"}
     ):
         run([str(ROOT / "deploy" / "postgis" / "verify-backup.sh")])
     try:

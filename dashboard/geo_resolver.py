@@ -17,7 +17,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping
 
-RESOLVER_VERSION = 8
+RESOLVER_VERSION = 9
 MAX_CANDIDATE_LENGTH = 300
 MAX_CANDIDATES = 40
 MIN_PRECISE_CONFIDENCE = 0.75
@@ -61,7 +61,7 @@ _EMBEDDED_ADDRESS_RE = re.compile(
 )
 _LOCALITY_STATE_RE = re.compile(
     r"(?:^|[,;/|]\s*)([A-Z][A-Z .'-]{1,48}?)\s*,?\s+"
-    r"(?:NJ|NEW JERSEY)(?:\s+\d{5}(?:-\d{4})?)?\b",
+    r"(?:NJ|NEW JERSEY|NY|NEW YORK)(?:\s+\d{5}(?:-\d{4})?)?\b",
     re.I,
 )
 
@@ -93,6 +93,24 @@ _US_STATE_CODES = {
     "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
     "WI", "WY", "DC",
 }
+
+_NYC_BOROUGHS = {
+    "BK": "Brooklyn", "BROOKLYN": "Brooklyn", "KINGS": "Brooklyn", "KINGS COUNTY": "Brooklyn",
+    "BX": "Bronx", "BRONX": "Bronx", "BRONX COUNTY": "Bronx",
+    "MN": "Manhattan", "MANHATTAN": "Manhattan", "NEW YORK": "Manhattan", "NEW YORK COUNTY": "Manhattan",
+    "QN": "Queens", "QUEENS": "Queens", "QUEENS COUNTY": "Queens",
+    "SI": "Staten Island", "STATEN ISLAND": "Staten Island", "RICHMOND": "Staten Island", "RICHMOND COUNTY": "Staten Island",
+}
+
+_RESOLVER_ADDRESSES_SQL = """
+SELECT objectid::text AS objectid,fulladdr,post_comm,post_code,pcl_guid,geom,
+       status,primarypt,inc_muni,'NJ'::text AS state
+FROM gis_addresses
+UNION ALL
+SELECT 'NYC:' || objectid::text,fulladdr,post_comm,post_code,pcl_guid,geom,
+       status,primarypt,inc_muni,'NY'::text AS state
+FROM gis_nyc_addresses
+"""
 
 _PATH_WEIGHTS = {
     "address": 35,
@@ -247,7 +265,7 @@ def _context_value(payload: Mapping[str, Any], names: set[str]) -> str:
 
 
 def _municipality_hint(payload: Mapping[str, Any]) -> str:
-    """Read a New Jersey locality from free text when a source omits its city field."""
+    """Read a covered locality from free text when a source omits its city field."""
     for _path, value in _walk_strings(payload):
         for match in _LOCALITY_STATE_RE.finditer(value):
             locality = _SPACE_RE.sub(" ", match.group(1)).strip(" ,.;:-")
@@ -264,7 +282,7 @@ def _municipality_hints(payload: Mapping[str, Any]) -> list[str]:
         text = normalize_text(value)
         text = re.sub(r"^(?:CITY|TOWN|TOWNSHIP|TWP|BOROUGH|VILLAGE)\s+OF\s+", "", text)
         text = re.sub(r"\s+(?:TOWN|TOWNSHIP|TWP|BOROUGH|VILLAGE)$", "", text)
-        text = re.sub(r"\s+(?:NJ|NEW JERSEY)(?:\s+\d{5}(?:-\d{4})?)?$", "", text)
+        text = re.sub(r"\s+(?:NJ|NEW JERSEY|NY|NEW YORK)(?:\s+\d{5}(?:-\d{4})?)?$", "", text)
         text = text.strip(" -/")
         if (
             not text
@@ -297,7 +315,7 @@ def _municipality_hints(payload: Mapping[str, Any]) -> list[str]:
             add(normalized[end:])
 
         if (
-            "NJ" in normalized.split()
+            {"NJ", "NY"} & set(normalized.split())
             or spans
             or _intersection_parts(normalized)
             or any(token in path.lower() for token in ("location", "place", "municipality", "borough", "city"))
@@ -309,7 +327,20 @@ def _municipality_hints(payload: Mapping[str, Any]) -> list[str]:
 
 def _outside_local_state_coverage(value: str) -> bool:
     codes = set(normalize_text(value).replace("/", " ").split()) & _US_STATE_CODES
-    return bool(codes) and "NJ" not in codes
+    return bool(codes) and not codes.intersection({"NJ", "NY"})
+
+
+def _nyc_borough(value: str) -> str:
+    return _NYC_BOROUGHS.get(normalize_text(value), "")
+
+
+def _state_scope(value: str, municipality: str = "", county: str = "") -> str:
+    codes = set(normalize_text(value).replace("/", " ").split()) & _US_STATE_CODES
+    if "NY" in codes or _nyc_borough(municipality) or _nyc_borough(county):
+        return "NY"
+    if codes and "NJ" not in codes:
+        return sorted(codes)[0]
+    return "NJ"
 
 
 def _local_municipality_hint(conn, payload: Mapping[str, Any]) -> str:
@@ -317,9 +348,11 @@ def _local_municipality_hint(conn, payload: Mapping[str, Any]) -> str:
     if not hints:
         return ""
     with conn.cursor() as cur:
+        hints = [_nyc_borough(hint) or hint for hint in hints]
         cur.execute(
-            """
-            WITH hints AS (
+            f"""
+            WITH resolver_addresses AS ({_RESOLVER_ADDRESSES_SQL}),
+            hints AS (
               SELECT hint,hint_order
               FROM unnest(%s::text[]) WITH ORDINALITY AS item(hint,hint_order)
             )
@@ -327,7 +360,7 @@ def _local_municipality_hint(conn, payload: Mapping[str, Any]) -> str:
             FROM hints h
             LEFT JOIN LATERAL (
               SELECT post_comm AS label
-              FROM gis_addresses
+              FROM resolver_addresses
               WHERE nullif(post_comm,'') IS NOT NULL
                 AND lower(post_comm)=lower(h.hint)
                 AND geom IS NOT NULL
@@ -436,13 +469,17 @@ def _address_variants(text: str) -> list[str]:
     if without_unit and without_unit.lower() != value.lower():
         variants.append(without_unit)
     without_place = re.sub(
-        r",?\s+[A-Z][A-Z .'-]+,?\s+(?:NJ|NEW JERSEY)(?:\s+\d{5}(?:-\d{4})?)?$",
+        r",?\s+[A-Z][A-Z .'-]+,?\s+(?:NJ|NEW JERSEY|NY|NEW YORK)(?:\s+\d{5}(?:-\d{4})?)?$",
         "",
         value,
         flags=re.I,
     ).strip(" ,")
     if without_place:
         variants.append(without_place)
+    for current in list(variants):
+        without_ordinal = re.sub(r"\b(\d+)(?:ST|ND|RD|TH)\b", r"\1", current, flags=re.I)
+        if without_ordinal.lower() != current.lower():
+            variants.append(without_ordinal)
     for current in list(variants):
         words = current.split()
         if words:
@@ -461,11 +498,11 @@ def _without_locality(text: str, municipality: str) -> str:
     locality = normalize_text(municipality)
     if locality:
         value = re.sub(
-            rf"^{re.escape(locality)}\s+(?:NJ|NEW JERSEY)(?:\s+\d{{5}}(?:-\d{{4}})?)?\s*-?\s*",
+            rf"^{re.escape(locality)}\s+(?:NJ|NEW JERSEY|NY|NEW YORK)(?:\s+\d{{5}}(?:-\d{{4}})?)?\s*-?\s*",
             "",
             value,
         ).strip()
-    value = re.sub(r"\s+(?:NJ|NEW JERSEY)(?:\s+\d{5}(?:-\d{4})?)?$", "", value).strip()
+    value = re.sub(r"\s+(?:NJ|NEW JERSEY|NY|NEW YORK)(?:\s+\d{5}(?:-\d{4})?)?$", "", value).strip()
     if locality:
         value = re.sub(rf"\s+{re.escape(locality)}$", "", value).strip()
     return value
@@ -513,8 +550,17 @@ def _intersection_parts(text: str, municipality: str = "") -> tuple[str, str] | 
         first_variants = _street_variants(first)
         second_variants = _street_variants(second)
         if first_variants and second_variants:
-            shortest = lambda variants: min(variants, key=lambda item: (len(item.split()), len(item)))
-            return shortest(first_variants), shortest(second_variants)
+            def shortest(variants: list[str], original: str) -> str:
+                ordinal = bool(re.search(r"\b\d+(?:ST|ND|RD|TH)\b", original, re.I))
+                return min(
+                    variants,
+                    key=lambda item: (
+                        bool(re.search(r"\b\d+(?:ST|ND|RD|TH)\b", item, re.I)) != ordinal,
+                        len(item.split()),
+                        len(item),
+                    ),
+                )
+            return shortest(first_variants, first), shortest(second_variants, second)
     return None
 
 
@@ -523,7 +569,7 @@ def _address_number(text: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _resolve_street(conn, candidate: LocationCandidate, municipality: str) -> dict[str, Any] | None:
+def _resolve_street(conn, candidate: LocationCandidate, municipality: str, state: str = "NJ") -> dict[str, Any] | None:
     if not municipality:
         return None
     variants = _street_variants(candidate.text, municipality)
@@ -532,8 +578,9 @@ def _resolve_street(conn, candidate: LocationCandidate, municipality: str) -> di
     requested_number = _address_number(candidate.text)
     with conn.cursor() as cur:
         cur.execute(
-            """
-            WITH input AS (
+            f"""
+            WITH resolver_addresses AS ({_RESOLVER_ADDRESSES_SQL}),
+            input AS (
               SELECT %s::integer AS requested_number
             ),
             street_points AS (
@@ -541,9 +588,10 @@ def _resolve_street(conn, candidate: LocationCandidate, municipality: str) -> di
                      CASE WHEN trim(a.fulladdr) ~ '^[0-9]+'
                           THEN substring(trim(a.fulladdr) from '^([0-9]+)')::integer END
                        AS address_number
-              FROM gis_addresses a
+              FROM resolver_addresses a
               WHERE a.geom IS NOT NULL
                 AND coalesce(a.status,'A')='A'
+                AND a.state=%s
                 AND lower(a.post_comm)=lower(%s)
                 AND upper(regexp_replace(trim(a.fulladdr),'^[0-9A-Z-]+[[:space:]]+','','i'))
                       =ANY(%s::text[])
@@ -569,7 +617,7 @@ def _resolve_street(conn, candidate: LocationCandidate, municipality: str) -> di
               p.geom <-> c.geom,p.objectid
             LIMIT 1
             """,
-            (requested_number, municipality, variants),
+            (requested_number, state, municipality, variants),
         )
         row = cur.fetchone()
     if not row:
@@ -597,7 +645,7 @@ def _resolve_street(conn, candidate: LocationCandidate, municipality: str) -> di
     }
 
 
-def _resolve_intersection(conn, candidate: LocationCandidate, municipality: str) -> dict[str, Any] | None:
+def _resolve_intersection(conn, candidate: LocationCandidate, municipality: str, state: str = "NJ") -> dict[str, Any] | None:
     if not municipality:
         return None
     parts = _intersection_parts(candidate.text, municipality)
@@ -610,21 +658,24 @@ def _resolve_intersection(conn, candidate: LocationCandidate, municipality: str)
         return None
     with conn.cursor() as cur:
         cur.execute(
-            """
-            WITH first_points AS (
+            f"""
+            WITH resolver_addresses AS ({_RESOLVER_ADDRESSES_SQL}),
+            first_points AS (
               SELECT a.objectid,a.fulladdr,a.post_comm,a.post_code,a.pcl_guid,a.geom
-              FROM gis_addresses a
+              FROM resolver_addresses a
               WHERE a.geom IS NOT NULL
                 AND coalesce(a.status,'A')='A'
+                AND a.state=%s
                 AND lower(a.post_comm)=lower(%s)
                 AND upper(regexp_replace(trim(a.fulladdr),'^[0-9A-Z-]+[[:space:]]+','','i'))
                       =ANY(%s::text[])
             ),
             second_points AS (
               SELECT a.fulladdr,a.geom
-              FROM gis_addresses a
+              FROM resolver_addresses a
               WHERE a.geom IS NOT NULL
                 AND coalesce(a.status,'A')='A'
+                AND a.state=%s
                 AND lower(a.post_comm)=lower(%s)
                 AND upper(regexp_replace(trim(a.fulladdr),'^[0-9A-Z-]+[[:space:]]+','','i'))
                       =ANY(%s::text[])
@@ -651,7 +702,7 @@ def _resolve_intersection(conn, candidate: LocationCandidate, municipality: str)
                    (SELECT count(*) FROM second_points) AS second_count
             FROM closest
             """,
-            (municipality, first_variants, municipality, second_variants),
+            (state, municipality, first_variants, state, municipality, second_variants),
         )
         row = cur.fetchone()
     if not row:
@@ -679,13 +730,14 @@ def _resolve_intersection(conn, candidate: LocationCandidate, municipality: str)
     }
 
 
-def _resolve_address(conn, candidate: LocationCandidate, municipality: str) -> dict[str, Any] | None:
+def _resolve_address(conn, candidate: LocationCandidate, municipality: str, state: str = "NJ") -> dict[str, Any] | None:
     variants = _address_variants(candidate.text)
     scopes = [municipality, ""] if municipality else [""]
     with conn.cursor() as cur:
         cur.execute(
-            """
-            WITH variants AS (
+            f"""
+            WITH resolver_addresses AS ({_RESOLVER_ADDRESSES_SQL}),
+            variants AS (
               SELECT variant,variant_order
               FROM unnest(%s::text[]) WITH ORDINALITY AS item(variant,variant_order)
             ),
@@ -706,9 +758,10 @@ def _resolve_address(conn, candidate: LocationCandidate, municipality: str) -> d
                      ) AS candidate_order
               FROM variants v
               CROSS JOIN scopes s
-              JOIN gis_addresses a
+              JOIN resolver_addresses a
                 ON lower(a.fulladdr)=lower(v.variant)
                AND a.geom IS NOT NULL
+               AND a.state=%s
                AND (
                  nullif(trim(s.scope),'') IS NULL
                  OR lower(trim(coalesce(a.post_comm,'')))=lower(trim(s.scope))
@@ -728,7 +781,7 @@ def _resolve_address(conn, candidate: LocationCandidate, municipality: str) -> d
             WHERE candidate_order <= 25
             ORDER BY candidate_order
             """,
-            (variants, scopes),
+            (variants, scopes, state),
         )
         rows = cur.fetchall()
     if not rows:
@@ -762,21 +815,24 @@ def _resolve_place(
     municipality: str,
     county: str,
     dataset_key: str,
+    state: str = "NJ",
 ) -> dict[str, Any] | None:
-    place_key = (normalize_text(municipality), normalize_text(county), dataset_key)
+    place_key = (normalize_text(municipality), normalize_text(county), f"{state}:{dataset_key}")
     if place_key in _PLACE_CACHE:
         cached = _PLACE_CACHE[place_key]
         return dict(cached) if cached else None
     if municipality:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
+                WITH resolver_addresses AS ({_RESOLVER_ADDRESSES_SQL})
                 SELECT coalesce(nullif(trim(post_comm),''),nullif(trim(inc_muni),'')) AS label,
                        ST_X(ST_Centroid(ST_Extent(geom)::geometry)) AS longitude,
                        ST_Y(ST_Centroid(ST_Extent(geom)::geometry)) AS latitude,
                        count(*) AS address_count
-                FROM gis_addresses
+                FROM resolver_addresses
                 WHERE geom IS NOT NULL
+                  AND state=%s
                   AND (
                     lower(trim(coalesce(post_comm,'')))=lower(trim(%s))
                     OR lower(trim(coalesce(inc_muni,'')))=lower(trim(%s))
@@ -785,7 +841,7 @@ def _resolve_place(
                 ORDER BY count(*) DESC
                 LIMIT 1
                 """,
-                (municipality, municipality),
+                (state, municipality, municipality),
             )
             row = cur.fetchone()
         if row:
@@ -796,7 +852,7 @@ def _resolve_place(
                 "label": _row_value(row, "label", 0) or municipality,
                 "municipality": municipality,
                 "county": county or None,
-                "state": "NJ",
+                "state": state,
                 "longitude": _row_value(row, "longitude", 1),
                 "latitude": _row_value(row, "latitude", 2),
                 "candidate_count": _row_value(row, "address_count", 3),
@@ -804,7 +860,7 @@ def _resolve_place(
             }
             _PLACE_CACHE[place_key] = result
             return dict(result)
-    if county:
+    if county and state == "NJ":
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -970,10 +1026,16 @@ def resolve_payload(
     municipality = _context_value(payload, {"municipality", "city", "borough", "post_comm"})
     if not municipality:
         municipality = _local_municipality_hint(conn, payload)
+    county = _context_value(payload, {"county"})
+    state = _state_scope(
+        _context_value(payload, {"state", "state_code"}), municipality, county
+    )
+    if state == "NY":
+        municipality = _nyc_borough(municipality) or _nyc_borough(county) or municipality
     context = {
         "municipality": municipality,
-        "county": _context_value(payload, {"county"}),
-        "state": _context_value(payload, {"state", "state_code"}),
+        "county": county,
+        "state": state,
         "source": _context_value(payload, {"source"}),
         "coordinate_policy": "APPROXIMATE_PROVIDER_AREA" if approximate_coordinate else "PRECISE",
     }
@@ -1022,7 +1084,7 @@ def resolve_payload(
                 "provenance": {
                     "resolver_version": RESOLVER_VERSION,
                     "runtime_source": "LOCAL_POSTGIS",
-                    "reason": "State is outside the installed NJ address dataset",
+                    "reason": "State is outside the installed NJ and NYC address datasets",
                 },
             }
         ambiguous_address: tuple[dict[str, Any], LocationCandidate] | None = None
@@ -1031,7 +1093,7 @@ def resolve_payload(
                 break
             if candidate.kind != "address":
                 continue
-            matched = _resolve_address(conn, candidate, context["municipality"])
+            matched = _resolve_address(conn, candidate, context["municipality"], context["state"])
             if matched:
                 if matched["status"] == "RESOLVED":
                     result = matched
@@ -1048,7 +1110,9 @@ def resolve_payload(
                     ambiguous_address = (matched, candidate)
         if not result:
             for candidate in (item for item in candidates if item.kind == "intersection"):
-                matched = _resolve_intersection(conn, candidate, context["municipality"])
+                matched = _resolve_intersection(
+                    conn, candidate, context["municipality"], context["state"]
+                )
                 if matched:
                     result = matched
                     result["county"] = context["county"] or None
@@ -1074,7 +1138,9 @@ def resolve_payload(
                         intersection.score,
                     ))
             for candidate in street_candidates:
-                matched = _resolve_street(conn, candidate, context["municipality"])
+                matched = _resolve_street(
+                    conn, candidate, context["municipality"], context["state"]
+                )
                 if matched:
                     result = matched
                     result["county"] = context["county"] or None
@@ -1093,6 +1159,7 @@ def resolve_payload(
                 context["municipality"],
                 context["county"],
                 json.dumps(versions, sort_keys=True, default=str),
+                context["state"],
             )
             if place:
                 result = place

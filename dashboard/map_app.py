@@ -295,7 +295,8 @@ def map_gis_status():
         """
         SELECT dataset_id,dataset_name,row_count,status,imported_at
         FROM gis_dataset_versions
-        WHERE dataset_id LIKE 'NJOGIS_%%' AND status='ACTIVE'
+        WHERE (dataset_id LIKE 'NJOGIS_%%' OR dataset_id='NYC_ADDRESSPOINT')
+          AND status='ACTIVE'
         ORDER BY dataset_id
         """
     )
@@ -305,7 +306,9 @@ def map_gis_status():
                p.bytes_processed,now()-a.query_start AS elapsed,a.wait_event_type,a.wait_event
         FROM pg_stat_progress_copy p JOIN pg_stat_activity a ON a.pid=p.pid
         WHERE p.relid::regclass::text LIKE 'stg_nj_%%'
+           OR p.relid::regclass::text LIKE 'stg_nyc_%%'
            OR a.query ILIKE '%%stg_nj_%%'
+           OR a.query ILIKE '%%stg_nyc_%%'
         ORDER BY a.query_start LIMIT 1
         """
     )
