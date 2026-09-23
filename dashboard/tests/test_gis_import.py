@@ -74,9 +74,12 @@ def test_mapping_center_exposes_statewide_refresh_status():
     assert "FROM gis_refresh_runs" in app_source
     assert "FROM pg_stat_progress_copy" in app_source
     assert "LIKE 'NJOGIS_%%'" in app_source
+    assert "dataset_id='NYC_ADDRESSPOINT'" in app_source
     assert "LIKE 'stg_nj_%%'" in app_source
     assert "ILIKE '%%stg_nj_%%'" in app_source
-    assert "Searches New Jersey NG911 addresses" in template
+    assert "LIKE 'stg_nyc_%%'" in app_source
+    assert "ILIKE '%%stg_nyc_%%'" in app_source
+    assert "Searches New Jersey NG911 and NYC address points" in template
     assert "function scheduleGisStatus(active=false)" in template
     assert "setTimeout(loadGisStatus,active?30000:300000)" in template
     assert "finally{scheduleGisStatus(active);}" in template

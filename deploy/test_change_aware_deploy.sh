@@ -84,6 +84,14 @@ assert_line "$lifecycle" "backup_required=yes"
 assert_line "$lifecycle" "external=postgis-statewide-import"
 assert_line "$lifecycle" "full_e2e=no"
 
+nyc="$($HARNESS plan --files deploy/gis/refresh_nyc_addresses.sh)"
+assert_line "$nyc" "build=no"
+assert_line "$nyc" "services=none"
+assert_line "$nyc" "backup_required=yes"
+assert_line "$nyc" "external=postgis-nyc-address-import"
+assert_line "$nyc" "tests=tests/test_alert_geo_resolution.py"
+assert_line "$nyc" "full_e2e=no"
+
 set +e
 unknown="$($HARNESS plan --files unexplained/runtime.bin 2>&1)"
 rc=$?

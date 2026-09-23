@@ -11,12 +11,14 @@ from geo_resolver import (
     _local_municipality_hint,
     _municipality_hint,
     _municipality_hints,
+    _nyc_borough,
     _outside_local_state_coverage,
     _resolve_address,
     _resolve_intersection,
     _resolve_street,
     _save_cache,
     _save_entity_resolution,
+    _state_scope,
     _street_variants,
     audit_alerts,
     LocationCandidate,
@@ -173,6 +175,7 @@ def test_bnn_locality_guesses_are_validated_against_existing_local_gis():
     query, params = connection.cursor_value.calls[0]
     assert "FROM unnest(%s::text[]) WITH ORDINALITY" in query
     assert "FROM gis_addresses" in query
+    assert "FROM gis_nyc_addresses" in query
     assert "FROM gis_parcels" in query
     assert params == (["NORTH BERGEN"],)
 
@@ -196,11 +199,15 @@ def test_prior_generated_resolution_is_not_reused_as_source_evidence():
     assert payload["metadata"]["bnn_source_payload"]["description"] == "72 E Park St"
 
 
-def test_nj_only_resolver_rejects_explicit_new_york_state():
+def test_resolver_accepts_nyc_and_rejects_uninstalled_states():
     assert not _outside_local_state_coverage("U/D NJ")
-    assert _outside_local_state_coverage("NY")
-    assert _outside_local_state_coverage("U/D NY")
+    assert not _outside_local_state_coverage("NY")
+    assert not _outside_local_state_coverage("U/D NY")
+    assert _outside_local_state_coverage("PA")
     assert not _outside_local_state_coverage("")
+    assert _nyc_borough("BK") == "Brooklyn"
+    assert _nyc_borough("Kings County") == "Brooklyn"
+    assert _state_scope("U/D NY", "BK") == "NY"
 
 
 def test_failed_address_uses_closest_real_ng911_address_before_city():
@@ -223,8 +230,9 @@ def test_failed_address_uses_closest_real_ng911_address_before_city():
     assert "p.geom <-> c.geom" in query
     assert "lower(a.post_comm)=lower(%s)" in query
     assert params[0] == 4100
-    assert params[1] == "Weehawken"
-    assert "PARK AVE" in params[2]
+    assert params[1] == "NJ"
+    assert params[2] == "Weehawken"
+    assert "PARK AVE" in params[3]
 
 
 def test_intersection_fallback_uses_closest_local_address_pair():
@@ -268,7 +276,7 @@ def test_resolution_prefers_intersection_before_street_and_city(monkeypatch):
     monkeypatch.setattr(
         geo_resolver,
         "_resolve_intersection",
-        lambda _conn, _candidate, _municipality: events.append("intersection") or {
+        lambda _conn, _candidate, _municipality, _state: events.append("intersection") or {
             "status": "RESOLVED",
             "match_type": "LOCAL_NEAREST_INTERSECTION_ADDRESS",
             "confidence": 0.70,
@@ -458,7 +466,7 @@ def test_address_variants_and_municipality_fallback_use_one_ordered_query():
     query, params = connection.cursor_value.calls[0]
     assert query.count("WITH ORDINALITY") == 2
     assert "ORDER BY variant_order,scope_order" in query
-    assert params == (_address_variants(candidate.text), ["Weehawken", ""])
+    assert params == (_address_variants(candidate.text), ["Weehawken", ""], "NJ")
     assert result["label"] == "4100 Park Avenue"
     assert result["confidence"] == 0.98
 
@@ -507,7 +515,35 @@ def test_worker_contract_stays_inside_existing_alerts_and_resolver():
     assert "r.spatial_precision IN ('ADDRESS_POINT','SUPPLIED_COORDINATE')" in source
     assert "a.geom IS NULL AND coalesce(r.resolver_version,0) < %s" in source
     assert "a.alert_id=ANY(%s::text[])" in source
-    assert RESOLVER_VERSION == 8
+    assert RESOLVER_VERSION == 9
+
+
+def test_nyc_exact_address_is_state_scoped_and_keeps_queens_hyphens():
+    connection = _AddressConnection(
+        [("NYC:1379384", "246 90 ST", "Brooklyn", "11209", "3154502", -74.03347, 40.62087, "A", True)]
+    )
+    candidate = LocationCandidate("246 90th Street", "246 90TH STREET", "address", "location.address", 85)
+
+    result = _resolve_address(connection, candidate, "Brooklyn", "NY")
+
+    query, params = connection.cursor_value.calls[0]
+    assert "FROM gis_nyc_addresses" in query
+    assert "a.state=%s" in query
+    assert params[-1] == "NY"
+    assert result["label"] == "246 90 ST"
+    assert "246 90 ST" in {normalize_text(item) for item in _address_variants(candidate.text)}
+    assert _address_variants("31-00 47th Ave, Queens NY")[0].startswith("31-00")
+
+
+def test_nyc_refresh_is_official_atomic_and_bounded_to_five_boroughs():
+    source = Path(__file__).resolve().parents[2].joinpath(
+        "deploy/gis/refresh_nyc_addresses.sh"
+    ).read_text()
+    assert "uf93-f8nk" in source
+    assert "MIN_ADDRESSES=900000" in source
+    assert "boroughcode::text IN ('1','2','3','4','5')" in source
+    assert "246 90 ST" in source
+    assert "BEGIN;" in source and "ALTER TABLE gis_nyc_addresses_build RENAME" in source
 
 
 def test_bnn_recovery_release_requires_target_mapping_and_real_coverage_gain():
