@@ -32,6 +32,8 @@ def test_global_share_uses_native_clients_and_smsgate_contract(monkeypatch):
     assert result.status_code == 202
     assert payload == {"textMessage": {"text": "Road closed"}, "phoneNumbers": ["+12015551234"]}
     assert captured["headers"]["Authorization"] == f"Basic {expected_auth}"
+    assert captured["headers"]["Accept"] == "application/json"
+    assert captured["headers"]["User-Agent"] == "CityManagerOS/1.0"
     assert captured["allow_redirects"] is False
     assert captured["allow_private"] is True
 
