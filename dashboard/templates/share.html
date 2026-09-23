@@ -50,6 +50,7 @@
     <div class="panel-body">
       {% if can_manage_smsgate %}
       <form class="watch-form" method="post" action="/share/settings">
+        <div class="hint"><strong>Authentication:</strong> Legacy Basic username and password</div>
         <label>SMSGate URL<input name="url" type="url" value="{{ smsgate_url }}" required></label>
         <label>Username<input name="username" value="{{ smsgate_username }}" autocomplete="username" required></label>
         <label>Password<input name="password" type="password" autocomplete="new-password" placeholder="{{ 'Leave blank to keep the saved password' if smsgate_configured else 'Enter SMSGate password' }}"></label>

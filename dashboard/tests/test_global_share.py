@@ -41,6 +41,12 @@ def test_global_share_uses_native_clients_and_smsgate_contract(monkeypatch):
     assert template.count('type="password"') == 1
     assert nav.count('href="/share"') == 2
     assert "CMOS_SMSGATE_USERNAME" in Path(operations_app.__file__).read_text()
+    assert operations_app._normalize_smsgate_url(
+        "https://api.sms-gate.app/3rdparty/v1/message"
+    ) == "https://api.sms-gate.app/3rdparty/v1/messages"
+    assert operations_app._normalize_smsgate_url(
+        "http://192.168.1.20:8080/message"
+    ) == "http://192.168.1.20:8080/message"
 
 
 def test_smsgate_web_settings_are_private_and_alerts_are_shareable(monkeypatch, tmp_path):
