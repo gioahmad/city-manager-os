@@ -187,6 +187,136 @@ ORDER BY x.source;
 SQL
 
 echo
+echo "=== SPATIAL WATCH HEALTH ==="
+
+docker exec -i citymanager-dashboard python - <<'PY'
+import json
+
+from app import query_one
+
+health = query_one(
+    """
+    WITH mapped AS (
+      SELECT a.id,a.alert_id,a.source,a.category,a.priority,
+             coalesce(a.geom,r.geom) AS geom
+      FROM alerts a
+      LEFT JOIN geo_entity_resolutions r
+        ON r.entity_type='ALERT' AND r.entity_id=a.id::text AND r.status='RESOLVED'
+      WHERE a.received_at>=now()-interval '6 hours'
+        AND a.received_at<=now()-interval '5 minutes'
+        AND a.status<>'RESOLVED'
+        AND (a.expires_at IS NULL OR a.expires_at>now())
+        AND coalesce(a.geom,r.geom) IS NOT NULL
+    ), active_watches AS (
+      SELECT w.*
+      FROM watch_items w
+      WHERE w.active AND w.nearby_enabled
+        AND (w.starts_at IS NULL OR w.starts_at<=now())
+        AND (w.expires_at IS NULL OR w.expires_at>now())
+    ), expected AS (
+      SELECT a.id AS alert_uuid,a.alert_id,w.id AS watch_uuid,w.watch_id
+      FROM mapped a
+      JOIN active_watches w
+        ON w.spatial_geom IS NOT NULL
+       AND coalesce(w.spatial_target_geom,w.geom) IS NOT NULL
+       AND a.priority>=w.min_priority
+       AND (coalesce(cardinality(w.source_filter),0)=0 OR EXISTS (
+         SELECT 1 FROM unnest(w.source_filter) value
+         WHERE upper(btrim(value))=upper(btrim(a.source))
+       ))
+       AND (coalesce(cardinality(w.alert_category_filter),0)=0 OR EXISTS (
+         SELECT 1 FROM unnest(w.alert_category_filter) value
+         WHERE upper(btrim(value))=upper(btrim(a.category))
+       ))
+       AND CASE upper(coalesce(w.spatial_scope,'RADIUS'))
+         WHEN 'RADIUS' THEN ST_DWithin(
+           a.geom::geography,
+           coalesce(w.spatial_target_geom,w.geom)::geography,
+           w.radius_ft*0.3048
+         )
+         ELSE ST_Intersects(a.geom,w.spatial_geom)
+       END
+    ), matcher AS (
+      SELECT a.id AS alert_uuid,a.alert_id,w.id AS watch_uuid,w.watch_id,w.watch_type
+      FROM mapped a
+      CROSS JOIN LATERAL gis_active_spatial_watch_matches(a.alert_id) match
+      JOIN active_watches w ON w.id=match.watch_item_id
+    ), pure_spatial AS (
+      SELECT * FROM matcher WHERE upper(coalesce(watch_type,''))<>'LOCATION_TOPIC'
+    ), routed AS (
+      SELECT m.*,s.id AS subscriber_uuid
+      FROM pure_spatial m
+      JOIN watch_item_recipients route ON route.watch_item_id=m.watch_uuid AND route.active
+      JOIN subscribers s ON s.id=route.subscriber_id AND s.active
+    )
+    SELECT
+      (SELECT count(*) FROM mapped) AS mapped_alerts_6h,
+      (SELECT count(*) FROM active_watches) AS active_spatial_watches,
+      (SELECT count(*) FROM active_watches
+        WHERE spatial_geom IS NULL OR coalesce(spatial_target_geom,geom) IS NULL
+      ) AS missing_watch_geometry,
+      (SELECT count(*) FROM active_watches w WHERE NOT EXISTS (
+        SELECT 1 FROM watch_item_recipients route
+        JOIN subscribers s ON s.id=route.subscriber_id AND s.active
+        WHERE route.watch_item_id=w.id AND route.active
+      )) AS unrouted_spatial_watches,
+      (SELECT count(*) FROM expected) AS expected_geometry_matches,
+      (SELECT count(*) FROM matcher) AS matcher_geometry_matches,
+      (SELECT count(*) FROM pure_spatial) AS pure_spatial_matches,
+      (SELECT count(*) FROM expected e WHERE NOT EXISTS (
+        SELECT 1 FROM matcher m
+        WHERE m.alert_uuid=e.alert_uuid AND m.watch_uuid=e.watch_uuid
+      )) AS missing_matcher_results,
+      (SELECT count(*) FROM pure_spatial m WHERE NOT EXISTS (
+        SELECT 1 FROM alert_watch_matches stored
+        WHERE stored.alert_id=m.alert_uuid AND stored.watch_item_id=m.watch_uuid
+      )) AS missing_persisted_matches,
+      (SELECT count(*) FROM routed r WHERE NOT EXISTS (
+        SELECT 1 FROM deliveries d
+        WHERE d.alert_id=r.alert_uuid AND d.subscriber_id=r.subscriber_uuid
+          AND d.matched_watch_ids ? r.watch_id
+      )) AS missing_notifications,
+      (SELECT count(DISTINCT d.id) FROM deliveries d
+        WHERE d.created_at>=now()-interval '24 hours' AND d.status='SENT'
+          AND EXISTS (SELECT 1 FROM watch_items w
+            WHERE w.nearby_enabled AND d.matched_watch_ids ? w.watch_id)
+      ) AS spatial_notifications_sent_24h,
+      (SELECT count(DISTINCT d.id) FROM deliveries d
+        WHERE d.created_at>=now()-interval '24 hours' AND d.status='FAILED'
+          AND EXISTS (SELECT 1 FROM watch_items w
+            WHERE w.nearby_enabled AND d.matched_watch_ids ? w.watch_id)
+      ) AS spatial_notifications_failed_24h,
+      (SELECT max(stored.matched_at) FROM alert_watch_matches stored
+        JOIN watch_items w ON w.id=stored.watch_item_id WHERE w.nearby_enabled
+      ) AS last_spatial_match,
+      (SELECT max(d.sent_at) FROM deliveries d WHERE d.status='SENT'
+        AND EXISTS (SELECT 1 FROM watch_items w
+          WHERE w.nearby_enabled AND d.matched_watch_ids ? w.watch_id)
+      ) AS last_spatial_notification
+    """
+)
+
+blocking = {
+    key: int(health.get(key) or 0)
+    for key in (
+        "missing_watch_geometry",
+        "unrouted_spatial_watches",
+        "missing_matcher_results",
+        "missing_persisted_matches",
+        "missing_notifications",
+        "spatial_notifications_failed_24h",
+    )
+}
+problems = {key: value for key, value in blocking.items() if value}
+health["status"] = "FAIL" if problems else (
+    "PASS" if int(health.get("pure_spatial_matches") or 0) else "IDLE"
+)
+print(json.dumps(health, default=str, sort_keys=True))
+if problems:
+    raise SystemExit(f"SPATIAL WATCH HEALTH FAILED: {problems}")
+PY
+
+echo
 docker ps --filter name=n8n --format 'n8n: {{.Status}}'
 
 echo

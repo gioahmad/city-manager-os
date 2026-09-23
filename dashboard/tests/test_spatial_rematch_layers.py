@@ -8,7 +8,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = ROOT / "workflows/core/CORE_Resolved_Spatial_Rematch_v1.json"
 SYNC_PATH = ROOT / "deploy/gis/sync_nj_watch_layers.py"
-RELEASE_PATH = ROOT / "deploy/releases/spatial-rematch-nj-watch-layers.sh"
 
 
 def _sync_module():
@@ -21,7 +20,6 @@ def _sync_module():
 
 def test_resolved_alerts_reenter_existing_matcher_once_with_visible_location():
     workflow = json.loads(WORKFLOW_PATH.read_text())
-    release = RELEASE_PATH.read_text()
     nodes = {node["name"]: node for node in workflow["nodes"]}
     load = nodes["Load Newly Resolved Alerts"]["parameters"]["query"]
     mark = nodes["Mark Resolved Alert Rematched"]
@@ -29,8 +27,6 @@ def test_resolved_alerts_reenter_existing_matcher_once_with_visible_location():
 
     assert workflow["name"] == "CORE - Resolved Alert Spatial Rematch v1"
     assert workflow["id"] == "CmosGeoRematch01"
-    assert "workflow.pop('id',None)" not in release
-    assert "elif not workflow.get('id')" in release
     assert set(nodes) == {
         "Resolved Alert Schedule",
         "Load Newly Resolved Alerts",

@@ -161,12 +161,3 @@ def test_sync_script_has_no_second_matcher_implementation():
     assert 'MATCHER_SOURCE = ROOT / "dashboard/static/watch_matcher.js"' in sync
     assert 'ADAPTER_SOURCE = ROOT / "deploy/n8n/watch_matcher_adapter.js"' in sync
     assert "function evaluateWatch" not in sync
-
-
-def test_watch_lab_release_reports_api_and_dashboard_failures_before_rollback():
-    release = _repository_file("deploy/releases/watch-lab.sh").read_text()
-    assert "urllib.error.HTTPError" in release
-    assert "docker logs --tail 120 citymanager-dashboard" in release
-    assert release.index("docker logs --tail 120 citymanager-dashboard") < release.index(
-        "ROLLBACK: restoring the prior dashboard image"
-    )

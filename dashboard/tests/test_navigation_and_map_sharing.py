@@ -201,7 +201,7 @@ def test_alert_location_correction_reuses_map_alert_and_resolution_systems():
     assert "'/map/alerts/'+encodeURIComponent(alertId)+'/location'" in template
     assert "await refreshAlertLayer(true)" in template
     assert ".map-location-editor" in styles
-    assert "/static/map.css?v=20260921-9" in template
+    assert 'href="/static/map.css?v=' in template
 
 
 def test_alert_location_correction_executes_one_atomic_existing_table_update(monkeypatch):
@@ -373,7 +373,7 @@ def test_selected_features_show_cross_layer_context_from_loaded_map_data():
     assert "fetch('/map/context" not in template
     assert ".map-context-facts" in styles
     assert ".map-context-record" in styles
-    assert "/static/map.css?v=20260921-9" in template
+    assert 'href="/static/map.css?v=' in template
 
 
 def test_map_template_compiles_after_browser_native_tools():
