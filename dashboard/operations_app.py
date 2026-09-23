@@ -105,7 +105,11 @@ def _send_smsgate(phone_numbers: str, message: str):
         raise ValueError("Enter a message")
     if len(message) > 4000:
         raise ValueError("Message must be 4,000 characters or fewer")
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "CityManagerOS/1.0",
+    }
     secrets = apply_literal_auth(
         "BASIC", headers, {}, username=username, password=password
     )
