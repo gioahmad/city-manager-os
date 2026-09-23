@@ -16,7 +16,13 @@ from integration_runtime import apply_literal_auth, perform_http_request, redact
 
 LOGGER = logging.getLogger(__name__)
 
-SMSGATE_DEFAULT_URL = "https://api.sms-gate.app/3rdparty/v1/message"
+SMSGATE_DEFAULT_URL = "https://api.sms-gate.app/3rdparty/v1/messages"
+SMSGATE_OLD_CLOUD_URL = "https://api.sms-gate.app/3rdparty/v1/message"
+
+
+def _normalize_smsgate_url(url: str) -> str:
+    url = url.strip()
+    return SMSGATE_DEFAULT_URL if url.rstrip("/") == SMSGATE_OLD_CLOUD_URL else url
 
 
 def _smsgate_config_path() -> Path:
@@ -42,13 +48,14 @@ def _smsgate_settings() -> dict[str, str]:
         pass
     except (OSError, ValueError, TypeError):
         LOGGER.warning("Could not read saved SMSGate settings", exc_info=True)
+    settings["url"] = _normalize_smsgate_url(settings["url"])
     return settings
 
 
 def _save_smsgate_settings(url: str, username: str, password: str) -> None:
     current = _smsgate_settings()
     values = {
-        "url": url.strip()[:1000],
+        "url": _normalize_smsgate_url(url[:1000]),
         "username": username.strip()[:200],
         "password": password[:500] or current["password"],
     }
@@ -116,7 +123,8 @@ def _send_smsgate(phone_numbers: str, message: str):
         allow_private=True,
     )
     if not result.ok:
-        detail = result.error or result.body_text[:300] or "SMSGate rejected the request"
+        detail = " · ".join(part for part in (result.error, result.body_text[:300]) if part)
+        detail = detail or "SMSGate rejected the request"
         raise ValueError(redact_text(detail, secrets))
     return result
 
