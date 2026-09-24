@@ -11,6 +11,7 @@ EMPLOYEE_ID="E2E$(date '+%m%d%H%M%S')"
 TEST_PIN="4827"
 COOKIE_JAR="/tmp/${RUN_ID}.cookies"
 TEST_PNG="/tmp/${RUN_ID}.png"
+DASH_HEADER_FILE="/tmp/${RUN_ID}.dashboard-header"
 BACKUP_DIR="/var/backups/city-manager-os/e2e/${RUN_ID}"
 UPLOAD_ROOT="/var/lib/city-manager-os/staff_uploads"
 HARNESS_ACTIVE=0
@@ -20,6 +21,30 @@ PASS_COUNT=0
 log(){ printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 pass(){ PASS_COUNT=$((PASS_COUNT+1)); printf 'PASS  %s\n' "$*"; }
 fail(){ printf 'FAIL  %s\n' "$*" >&2; exit 1; }
+
+CMOS_E2E_AUTOMATION_TOKEN="${CMOS_E2E_AUTOMATION_TOKEN:-}"
+if [[ -z "$CMOS_E2E_AUTOMATION_TOKEN" && -f "$REPO/dashboard/.env" ]]; then
+  CMOS_E2E_AUTOMATION_TOKEN="$(python3 - "$REPO/dashboard/.env" <<'PY'
+from pathlib import Path
+import sys
+
+for line in Path(sys.argv[1]).read_text().splitlines():
+    if line.startswith("CMOS_AUTOMATION_TOKEN="):
+        print(line.split("=", 1)[1].strip())
+        break
+PY
+)"
+fi
+export CMOS_E2E_AUTOMATION_TOKEN
+DASH_CURL_ARGS=()
+if [[ -n "$CMOS_E2E_AUTOMATION_TOKEN" ]]; then
+  umask 077
+  printf 'X-CMOS-Automation-Key: %s\n' "$CMOS_E2E_AUTOMATION_TOKEN" >"$DASH_HEADER_FILE"
+  trap 'rm -f "$DASH_HEADER_FILE"' EXIT
+  DASH_CURL_ARGS=(-H "@$DASH_HEADER_FILE")
+elif [[ -n "${CMOS_E2E_EXPECTED_HEAD:-}" ]]; then
+  fail "Candidate E2E requires CMOS_AUTOMATION_TOKEN"
+fi
 
 dbq(){
   local sql="$1"
@@ -110,7 +135,7 @@ cleanup_synthetic(){
     DELETE FROM staff_employees WHERE employee_id='${EMPLOYEE_ID}';
   " 2>/dev/null || true
 
-  rm -f "$COOKIE_JAR" "$TEST_PNG"
+  rm -f "$COOKIE_JAR" "$TEST_PNG" "$DASH_HEADER_FILE"
   CLEANED=1
   set -e
 }
@@ -136,8 +161,17 @@ log "This test creates only clearly tagged synthetic records and one SYSTEM TEST
 [[ "$(git branch --show-current)" == "main" ]] || fail "Production checkout must be on main"
 [[ -z "$(git status --porcelain)" ]] || fail "Repository must be clean"
 git fetch -q origin main || fail "Could not fetch origin/main"
-[[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || fail "Local main does not match origin/main"
-pass "Repository is clean and matches origin/main"
+if [[ -n "${CMOS_E2E_EXPECTED_HEAD:-}" ]]; then
+  [[ "$(git rev-parse HEAD)" == "$CMOS_E2E_EXPECTED_HEAD" ]] \
+    || fail "Local HEAD does not match the expected deployment candidate"
+  git merge-base --is-ancestor origin/main "$CMOS_E2E_EXPECTED_HEAD" \
+    || fail "Deployment candidate is not based on origin/main"
+  pass "Repository is clean and candidate commit is based on origin/main"
+else
+  [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] \
+    || fail "Local main does not match origin/main"
+  pass "Repository is clean and matches origin/main"
+fi
 
 for c in citymanager-postgis citymanager-dashboard citymanager-staff citymanager-ops-engine n8n ntfy; do
   [[ "$(docker inspect "$c" --format '{{.State.Status}}' 2>/dev/null || true)" == "running" ]] \
@@ -145,7 +179,7 @@ for c in citymanager-postgis citymanager-dashboard citymanager-staff citymanager
 done
 pass "Required production containers are running"
 
-curl -fsS "$DASH_URL/health" >/dev/null || fail "Private dashboard health failed"
+curl -fsS "${DASH_CURL_ARGS[@]}" "$DASH_URL/health" >/dev/null || fail "Private dashboard health failed"
 curl -fsS "$STAFF_URL/health" >/dev/null || fail "Employee portal health failed"
 pass "Dashboard and employee web apps are reachable"
 
@@ -289,7 +323,7 @@ LIMIT 1;
 [[ -n "$REF" ]] || fail "Could not resolve managed location/work type"
 IFS='|' read -r LOCATION_ID WORK_TYPE_ID <<<"$REF"
 
-curl -fsS -o /dev/null -X POST "$DASH_URL/staff-admin/employee/create" \
+curl -fsS "${DASH_CURL_ARGS[@]}" -o /dev/null -X POST "$DASH_URL/staff-admin/employee/create" \
   --data-urlencode "employee_id=$EMPLOYEE_ID" \
   --data-urlencode "full_name=CMOS E2E Test Employee" \
   --data-urlencode "department=E2E TEST" \
@@ -318,7 +352,7 @@ EMP_ISSUE_ID="$(dbq "SELECT id FROM issues WHERE source='EMPLOYEE_PORTAL' AND su
 [[ "$(dbq "SELECT count(*) FROM issue_checklist_items WHERE issue_id='${EMP_ISSUE_ID}';")" -gt 0 ]] || fail "Checklist was not generated"
 pass "Employee report created existing issues record with photo + checklist"
 
-curl -fsS -o /dev/null -X POST "$DASH_URL/staff-admin/issue/${EMP_ISSUE_ID}/assign" \
+curl -fsS "${DASH_CURL_ARGS[@]}" -o /dev/null -X POST "$DASH_URL/staff-admin/issue/${EMP_ISSUE_ID}/assign" \
   --data-urlencode "employee_uuid=$EMP_UUID" --data-urlencode "return_to=/staff-admin"
 [[ "$(dbq "SELECT count(*) FROM issues WHERE id='${EMP_ISSUE_ID}' AND assigned_employee_id='${EMP_UUID}';")" == "1" ]] || fail "Supervisor assignment failed"
 pass "Supervisor assignment updated the same Command Center issue"
@@ -350,7 +384,7 @@ PHOTO_CODE="$(curl -sS -o /dev/null -b "$COOKIE_JAR" -w '%{http_code}' "$STAFF_U
 [[ "$PHOTO_CODE" == "200" ]] || fail "Protected employee photo endpoint failed (HTTP $PHOTO_CODE)"
 pass "Completion held for verification and protected photo is viewable"
 
-curl -fsS -o /dev/null -X POST "$DASH_URL/staff-admin/issue/${EMP_ISSUE_ID}/verify" \
+curl -fsS "${DASH_CURL_ARGS[@]}" -o /dev/null -X POST "$DASH_URL/staff-admin/issue/${EMP_ISSUE_ID}/verify" \
   --data-urlencode "note=$RUN_ID supervisor verification" --data-urlencode "return_to=/staff-admin"
 VERIFY_STATE="$(dbq "SELECT status||'|'||verification_pending::text||'|'||(verified_at IS NOT NULL)::text FROM issues WHERE id='${EMP_ISSUE_ID}';")"
 [[ "$VERIFY_STATE" == "RESOLVED|false|true" || "$VERIFY_STATE" == "RESOLVED|f|t" ]] || fail "Supervisor verification did not resolve issue ($VERIFY_STATE)"
@@ -365,7 +399,7 @@ DOW="$(TZ=America/New_York date '+%u')"
 WORK_NAME="$RUN_ID WORK ROUTINE"
 AWARE_NAME="$RUN_ID AWARENESS ROUTINE"
 
-curl -fsS -o /dev/null -X POST "$DASH_URL/operations-routines/create" \
+curl -fsS "${DASH_CURL_ARGS[@]}" -o /dev/null -X POST "$DASH_URL/operations-routines/create" \
   --data-urlencode "name=$WORK_NAME" \
   --data-urlencode "routine_kind=WORK" \
   --data-urlencode "department=E2E TEST" \
@@ -399,7 +433,7 @@ ROUTINE_TICKET_CODE="$(curl -sS -o /dev/null -b "$COOKIE_JAR" -w '%{http_code}' 
 [[ "$ROUTINE_TICKET_CODE" == "200" ]] || fail "Routine-generated employee ticket is not visible in employee portal"
 pass "WORK routine generated linked employee work with checklist and portal visibility"
 
-curl -fsS -o /dev/null -X POST "$DASH_URL/operations-routines/create" \
+curl -fsS "${DASH_CURL_ARGS[@]}" -o /dev/null -X POST "$DASH_URL/operations-routines/create" \
   --data-urlencode "name=$AWARE_NAME" \
   --data-urlencode "routine_kind=AWARENESS" \
   --data-urlencode "department=E2E TEST" \
@@ -489,16 +523,20 @@ SELECT count(*) FROM sample s CROSS JOIN LATERAL gis_flood_risk_for_point(s.lat,
 [[ "$FLOOD_COUNT" -gt 0 ]] || fail "Flood risk lookup did not return FEMA zone"
 
 # Verify the same vicinity is renderable through live Mapping Center system layers.
-docker exec -i citymanager-dashboard python - "$SAMPLE_LAT" "$SAMPLE_LON" <<'PY'
-import json,sys,urllib.parse,urllib.request
+docker exec -e CMOS_E2E_AUTOMATION_TOKEN -i citymanager-dashboard python - "$SAMPLE_LAT" "$SAMPLE_LON" <<'PY'
+import json,os,sys,urllib.parse,urllib.request
+opener=urllib.request.build_opener()
+token=os.environ.get("CMOS_E2E_AUTOMATION_TOKEN", "").strip()
+if token:
+    opener.addheaders=[("X-CMOS-Automation-Key",token)]
 lat=float(sys.argv[1]); lon=float(sys.argv[2])
 bbox=f"{lon-0.002},{lat-0.002},{lon+0.002},{lat+0.002}"
 for layer in ('addresses','parcels'):
     url='http://127.0.0.1:8000/map/system/'+layer+'.geojson?bbox='+urllib.parse.quote(bbox,safe=',.-')
-    with urllib.request.urlopen(url,timeout=30) as r:
+    with opener.open(url,timeout=30) as r:
         data=json.load(r)
     assert data.get('type')=='FeatureCollection' and len(data.get('features',[]))>0, (layer,len(data.get('features',[])))
-with urllib.request.urlopen('http://127.0.0.1:8000/map/system/flood.geojson',timeout=30) as r:
+with opener.open('http://127.0.0.1:8000/map/system/flood.geojson',timeout=30) as r:
     flood=json.load(r)
 assert flood.get('type')=='FeatureCollection' and len(flood.get('features',[]))>0
 print('MAP_LAYERS_OK')

@@ -68,7 +68,7 @@
         <td>{{ row.normalized_address or row.municipality or 'Mapped geometry' }}{% if row.state %}<br><small>{{ row.state }}</small>{% endif %}</td>
         <td>{{ row.source_provider }}{% if row.authoritative %}<br><small>Authoritative</small>{% endif %}</td>
         <td>{% if row.parcel_objectid %}<a href="/spatial-reference/{{ row.entity_id }}">#{{ row.parcel_objectid }}</a>{% else %}Not linked{% endif %}</td>
-        <td>{% if row.watch_item_id %}<a href="/alert-admin">{{ 'Active' if row.watch_active else 'Inactive' }}</a>{% else %}<a href="/spatial-reference/{{ row.entity_id }}">Watch This</a>{% endif %}</td>
+        <td>{% if row.watch_item_id %}<a href="/watchlist">{{ 'Active' if row.watch_active else 'Inactive' }}</a>{% else %}<a href="/spatial-reference/{{ row.entity_id }}">Watch This</a>{% endif %}</td>
       </tr>{% else %}<tr><td colspan="6">No references match this search.</td></tr>{% endfor %}
     </tbody></table></div>
   </section>

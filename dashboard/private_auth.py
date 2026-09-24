@@ -26,13 +26,9 @@ _ADMIN_WRITE_PREFIXES = (
     "/api-lab",
     "/source-health",
     "/deliveries",
-    "/routing",
     "/subscribers",
     "/watchlist",
-    "/rules",
     "/today-board",
-    "/alert-admin",
-    "/modules",
     "/admin-tools",
 )
 

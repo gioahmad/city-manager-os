@@ -14,7 +14,6 @@ COPY operations_app.py .
 COPY schedule_app.py .
 COPY attention_engine.py .
 COPY waiting_actions_app.py .
-COPY rules_app.py .
 COPY employee_app.py .
 COPY employee_public_app.py .
 COPY staff_admin_app.py .
@@ -24,7 +23,6 @@ COPY today_board_app.py .
 COPY executive_workflow_app.py .
 COPY operations_occurrence_controls.py .
 COPY operations_engine.py .
-COPY operations_engine_windowed.py .
 COPY flood_app.py .
 COPY gis_import.py .
 COPY map_app.py .
@@ -40,7 +38,6 @@ COPY source_onboarding.py .
 COPY transit_runtime.py .
 COPY transit_engine.py .
 COPY transit_app.py .
-COPY alert_admin_v2.py .
 COPY integration_worker.py .
 COPY private_auth.py .
 COPY phase3_app.py .

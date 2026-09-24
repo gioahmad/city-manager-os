@@ -127,10 +127,7 @@ def classify(files: list[str]) -> Plan:
             )
             continue
 
-        if path in {
-            "dashboard/operations_engine.py",
-            "dashboard/operations_engine_windowed.py",
-        }:
+        if path == "dashboard/operations_engine.py":
             add_dashboard(plan, "citymanager-ops-engine")
             plan.full_e2e = True
             plan.reasons.add("operations engine runtime")
@@ -535,7 +532,7 @@ def deploy(plan: Plan, target: str) -> None:
         run([str(ROOT / "deploy" / "cmos-health")])
 
     if plan.full_e2e:
-        run(["env", f"CMOS_E2E_EXPECTED_HEAD={target}", str(ROOT / "deploy" / "cmos-e2e-secure")])
+        run(["env", f"CMOS_E2E_EXPECTED_HEAD={target}", str(ROOT / "deploy" / "cmos-e2e-acceptance")])
         run([str(ROOT / "deploy" / "cmos-health")])
 
 

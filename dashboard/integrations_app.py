@@ -17,14 +17,11 @@ from schedule_app import app
 from app import (
     db_conn,
     execute,
-    make_watch_id,
     query_all,
     query_one,
     templates,
-    validate_watch,
 )
 from integration_engine import load_integration, run_integration
-from operations_app import require_watch_recipients
 from transit_engine import is_transit_adapter, run_transit_integration
 from integration_runtime import (
     apply_literal_auth,
@@ -328,78 +325,6 @@ def database_viewer(request: Request, table: str = "", q: str = "", page: int = 
             "page": "database",
         },
     )
-
-
-@app.get("/alert-admin", response_class=HTMLResponse)
-def alert_admin(request: Request, msg: str = ""):
-    watches = query_all(
-        """
-        SELECT w.id,w.watch_id,w.active,w.watch_type,w.display_name,w.search_term,w.match_mode,
-               w.match_field,w.min_priority,w.municipality,w.address,w.notes,
-               COALESCE(jsonb_agg(jsonb_build_object(
-                 'route_id',wir.id::text,'route_active',wir.active,'subscriber_id',s.id::text,
-                 'subscriber_key',s.subscriber_id,'name',s.name,'ntfy_topic',s.ntfy_topic
-               ) ORDER BY s.name) FILTER (WHERE s.id IS NOT NULL),'[]'::jsonb) AS recipients
-        FROM watch_items w
-        LEFT JOIN watch_item_recipients wir ON wir.watch_item_id=w.id
-        LEFT JOIN subscribers s ON s.id=wir.subscriber_id
-        GROUP BY w.id
-        ORDER BY w.active DESC,w.display_name
-        LIMIT 300
-        """
-    )
-    subscribers = query_all(
-        """SELECT id,subscriber_id,name,active,ntfy_topic,notes
-             FROM subscribers ORDER BY active DESC,name"""
-    )
-    counts = query_one(
-        """
-        SELECT
-          (SELECT count(*) FROM watch_items WHERE active) AS watches,
-          (SELECT count(*) FROM subscribers WHERE active) AS subscribers,
-          (SELECT count(*) FROM watch_item_recipients WHERE active) AS routes
-        """
-    )
-    return templates.TemplateResponse(
-        request=request,name="alert_admin.html",
-        context={"watches":watches,"subscribers":subscribers,"counts":counts,"msg":msg,"page":"alert-admin"},
-    )
-
-
-@app.post("/alert-admin/watch")
-def alert_admin_create_watch(
-    display_name: str = Form(...), search_term: str = Form(...), watch_type: str = Form("PHRASE"),
-    match_mode: str = Form("CONTAINS"), match_field: str = Form(""), min_priority: int = Form(1),
-    municipality: str = Form(""), address: str = Form(""), notes: str = Form(""),
-    subscriber_ids: list[uuid.UUID] = Form([]),
-):
-    display_name=display_name.strip(); search_term=search_term.strip(); match_mode=match_mode.upper().strip()
-    if not display_name or not search_term:
-        raise HTTPException(400,"Display name and search term are required")
-    validate_watch(match_mode,match_field,min_priority)
-    watch_id=make_watch_id(display_name)
-    with db_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO watch_items(
-              watch_id,active,watch_type,display_name,search_term,match_mode,match_field,min_priority,
-              municipality,address,notes
-            ) VALUES(%s,true,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
-            """,
-            (watch_id,watch_type.strip().upper(),display_name,search_term,match_mode,match_field.strip() or None,
-             min_priority,municipality.strip() or None,address.strip() or None,notes.strip() or None),
-        )
-        watch_uuid=cur.fetchone()["id"]
-        for subscriber_id in subscriber_ids:
-            cur.execute(
-                """INSERT INTO watch_item_recipients(watch_item_id,subscriber_id,active)
-                   VALUES(%s,%s,true)
-                   ON CONFLICT(watch_item_id,subscriber_id) DO UPDATE SET active=true""",
-                (watch_uuid,subscriber_id),
-            )
-        require_watch_recipients(cur, [watch_uuid])
-        conn.commit()
-    return RedirectResponse("/alert-admin?msg=Watch+created+and+routing+saved",status_code=303)
 
 
 @app.get("/integrations", response_class=HTMLResponse)

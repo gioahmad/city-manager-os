@@ -39,15 +39,16 @@ def test_navigation_is_task_grouped_without_removing_destinations():
         "/today-board/setup",
         "/transit",
         "/watchlist",
-        "/rules",
         "/subscribers",
-        "/routing",
         "/spatial-reference",
         "/source-health",
         "/deliveries",
         "/api-lab",
     ):
         assert f'href="{route}"' in nav
+
+    for retired_route in ("/modules", "/rules", "/routing", "/alert-admin"):
+        assert f'href="{retired_route}"' not in nav
 
     assert ".desktop-nav .nav-control{margin-left:auto}" in styles
     assert ".mobile-menu{max-height:calc(100vh - 96px);overflow-y:auto}" in styles

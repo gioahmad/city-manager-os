@@ -226,11 +226,11 @@ Do not proceed if required containers, routing, or source state is unexpectedly 
 
 ## 11. Controlled E2E acceptance
 
-When private dashboard authentication is enabled use:
+Run the controlled acceptance test with or without private dashboard authentication:
 
 ```bash
 cd /opt/city-manager-os
-./deploy/cmos-e2e-secure
+./deploy/cmos-e2e-acceptance
 ```
 
 The automation token is read from the protected local dashboard `.env` and is not printed.
@@ -327,5 +327,5 @@ After any real disaster recovery, do not declare City Manager OS restored until:
 3. private dashboard authentication works
 4. employee portal works
 5. `cmos-health` is clean
-6. `cmos-e2e-secure` passes
+6. `cmos-e2e-acceptance` passes
 7. synthetic test data is cleaned

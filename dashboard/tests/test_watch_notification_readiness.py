@@ -60,10 +60,8 @@ def test_standard_watch_activation_and_repair_share_existing_routing_tables():
 
 def test_every_browser_watch_activation_path_uses_the_same_guard():
     expected = {
-        "alert_admin_v2.py": 2,
-        "integrations_app.py": 1,
-        "operations_app.py": 5,
-        "rules_app.py": 3,
+        "operations_app.py": 3,
+        "spatial_watch_app.py": 4,
         "spatial_reference_app.py": 1,
     }
     for filename, minimum in expected.items():

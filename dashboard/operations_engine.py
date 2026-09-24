@@ -97,14 +97,37 @@ def _scheduled_at(service_date, scheduled_time):
 
 
 def ensure_runs(cur, service_date):
+    # Preserve historical or linked work while removing untouched occurrences
+    # that no longer match the active recurrence definition.
+    cur.execute(
+        """
+        DELETE FROM operations_routine_runs rr
+        USING operations_routines r
+        WHERE rr.routine_id=r.id
+          AND rr.service_date=%s
+          AND rr.issue_id IS NULL
+          AND rr.acknowledged_at IS NULL
+          AND rr.exception_note IS NULL
+          AND (
+            r.active=false
+            OR NOT (extract(isodow from rr.service_date)::smallint = ANY(r.days_of_week))
+            OR (r.starts_on IS NOT NULL AND rr.service_date < r.starts_on)
+            OR (r.ends_on IS NOT NULL AND rr.service_date > r.ends_on)
+          )
+        """,
+        (service_date,),
+    )
+
     cur.execute(
         """
         SELECT id, scheduled_time, grace_minutes
         FROM operations_routines
         WHERE active=true
           AND extract(isodow from %s::date)::smallint = ANY(days_of_week)
+          AND (starts_on IS NULL OR starts_on <= %s::date)
+          AND (ends_on IS NULL OR ends_on >= %s::date)
         """,
-        (service_date,),
+        (service_date, service_date, service_date),
     )
     created = 0
     for routine in cur.fetchall():
