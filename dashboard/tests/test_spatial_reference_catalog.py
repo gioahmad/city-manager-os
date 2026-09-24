@@ -1,9 +1,12 @@
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import SkipTest
+import sys
 
 
 DASHBOARD_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = DASHBOARD_ROOT.parent
+sys.path.insert(0, str(DASHBOARD_ROOT))
 
 
 def _deployment_file(relative_path):
@@ -70,6 +73,53 @@ def test_catalog_routes_and_normal_watch_promotion():
     assert "INSERT INTO deliveries" not in source
     assert "INSERT INTO alerts" not in source
     assert "requests.post" not in source
+
+
+def test_catalog_searches_location_fields_and_offers_practical_filters():
+    source = (DASHBOARD_ROOT / "spatial_reference_app.py").read_text()
+    template = (DASHBOARD_ROOT / "templates/spatial_reference.html").read_text()
+    route = source.split('def spatial_reference_index(', 1)[1].split(
+        '@app.get("/spatial-reference/{entity_id}"', 1
+    )[0]
+
+    for field in (
+        "normalized_address", "municipality", "county", "postal_code",
+        "entity_subtype", "source_provider", "parcel_id", "parcel_objectid",
+    ):
+        assert field in route
+    assert "w.id IS NOT NULL" in route
+    assert "w.id IS NULL" in route
+    assert "r.active=(%s='ACTIVE')" in route
+    assert 'name="municipality"' in template
+    assert 'name="watch_state"' in template
+    assert 'name="status"' in template
+    assert "{{ rows|length }} found" in template
+    assert 'href="/spatial-reference">Clear' in template
+
+
+def test_catalog_filter_query_has_matching_parameters(monkeypatch):
+    import spatial_reference_app
+
+    def query_all(sql, params=()):
+        assert sql.count("%s") == len(params)
+        return []
+
+    monkeypatch.setattr(spatial_reference_app, "query_all", query_all)
+    monkeypatch.setattr(spatial_reference_app, "query_one", lambda sql: {})
+    monkeypatch.setattr(
+        spatial_reference_app,
+        "templates",
+        SimpleNamespace(TemplateResponse=lambda **kwargs: kwargs["context"]),
+    )
+
+    context = spatial_reference_app.spatial_reference_index(
+        object(), q=" Park ", municipality="Weehawken",
+        watch_state="invalid", status="invalid",
+    )
+    assert context["q"] == "Park"
+    assert context["municipality"] == "Weehawken"
+    assert context["watch_state"] == ""
+    assert context["status"] == ""
 
 
 def test_composition_and_mapping_layer():
