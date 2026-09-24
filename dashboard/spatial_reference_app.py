@@ -89,9 +89,24 @@ def spatial_reference_release():
 
 
 @app.get("/spatial-reference", response_class=HTMLResponse)
-def spatial_reference_index(request: Request, q: str = "", entity_type: str = "", msg: str = ""):
-    q = q.strip()
+def spatial_reference_index(
+    request: Request,
+    q: str = "",
+    entity_type: str = "",
+    municipality: str = "",
+    watch_state: str = "",
+    status: str = "",
+    msg: str = "",
+):
+    q = q.strip()[:120]
     entity_type = entity_type.strip().upper()
+    municipality = municipality.strip()[:120]
+    watch_state = watch_state.strip().upper()
+    status = status.strip().upper()
+    if watch_state not in {"", "WATCHED", "UNWATCHED"}:
+        watch_state = ""
+    if status not in {"", "ACTIVE", "INACTIVE"}:
+        status = ""
     needle = f"%{q}%"
     rows = query_all(
         """
@@ -103,12 +118,23 @@ def spatial_reference_index(request: Request, q: str = "", entity_type: str = ""
         FROM spatial_reference_entities r
         LEFT JOIN watch_items w ON w.spatial_reference_entity_id=r.entity_id
         WHERE (%s='' OR r.entity_type=%s)
+          AND (%s='' OR upper(coalesce(r.municipality,''))=upper(%s))
+          AND (%s='' OR (%s='WATCHED' AND w.id IS NOT NULL) OR (%s='UNWATCHED' AND w.id IS NULL))
+          AND (%s='' OR r.active=(%s='ACTIVE'))
           AND (%s='' OR r.canonical_name ILIKE %s OR coalesce(r.normalized_address,'') ILIKE %s
+               OR coalesce(r.municipality,'') ILIKE %s OR coalesce(r.county,'') ILIKE %s
+               OR coalesce(r.postal_code,'') ILIKE %s OR coalesce(r.entity_subtype,'') ILIKE %s
+               OR coalesce(r.source_provider,'') ILIKE %s OR coalesce(r.parcel_id,'') ILIKE %s
+               OR coalesce(r.parcel_objectid::text,'') ILIKE %s
                OR EXISTS (SELECT 1 FROM unnest(r.aliases) a WHERE a ILIKE %s))
         ORDER BY r.active DESC,r.importance_tier,r.canonical_name
         LIMIT 250
         """,
-        (entity_type, entity_type, q, needle, needle, needle),
+        (
+            entity_type, entity_type, municipality, municipality,
+            watch_state, watch_state, watch_state, status, status,
+            q, needle, needle, needle, needle, needle, needle, needle, needle, needle, needle,
+        ),
     )
     counts = query_one(
         """SELECT count(*) AS total,count(*) FILTER (WHERE active) AS active,
@@ -123,11 +149,22 @@ def spatial_reference_index(request: Request, q: str = "", entity_type: str = ""
                   max(refreshed_at) AS last_refreshed_at
            FROM spatial_reference_entities GROUP BY source_provider ORDER BY source_provider"""
     )
+    municipalities = query_all(
+        """SELECT municipality,count(*) AS total
+           FROM spatial_reference_entities
+           WHERE nullif(trim(municipality),'') IS NOT NULL
+           GROUP BY municipality ORDER BY municipality"""
+    )
     return templates.TemplateResponse(
         request=request,
         name="spatial_reference.html",
-        context={"rows": rows, "counts": counts, "sources": sources, "q": q, "entity_type": entity_type,
-                 "entity_types": ENTITY_TYPES, "source_kinds": SOURCE_KINDS, "msg": msg},
+        context={
+            "rows": rows, "counts": counts, "sources": sources, "q": q,
+            "entity_type": entity_type, "municipality": municipality,
+            "watch_state": watch_state, "status": status,
+            "municipalities": municipalities, "entity_types": ENTITY_TYPES,
+            "source_kinds": SOURCE_KINDS, "msg": msg,
+        },
     )
 
 

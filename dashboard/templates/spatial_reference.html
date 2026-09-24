@@ -20,12 +20,15 @@
   </section>
 
   <section class="panel">
-    <div class="panel-head"><div><div class="panel-kicker">CATALOG SEARCH</div><h2>Find a reference</h2></div></div>
+    <div class="panel-head"><div><div class="panel-kicker">CATALOG SEARCH</div><h2>Find a reference</h2></div><span class="count-pill">{{ rows|length }} found</span></div>
     <div class="panel-body">
       <form method="get" action="/spatial-reference" class="form-grid three-col">
-        <label>Search<input name="q" value="{{ q }}" placeholder="Name, alias or address"></label>
+        <label>Search<input type="search" name="q" value="{{ q }}" placeholder="Name, address, town, alias, parcel or source" autofocus></label>
         <label>Type<select name="entity_type"><option value="">All types</option>{% for value in entity_types %}<option value="{{ value }}" {% if entity_type == value %}selected{% endif %}>{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label>
-        <label>&nbsp;<button type="submit">Search</button></label>
+        <label>Municipality<select name="municipality"><option value="">All municipalities</option>{% for item in municipalities %}<option value="{{ item.municipality }}" {% if municipality == item.municipality %}selected{% endif %}>{{ item.municipality }} ({{ item.total }})</option>{% endfor %}</select></label>
+        <label>Watch status<select name="watch_state"><option value="">All references</option><option value="WATCHED" {% if watch_state == 'WATCHED' %}selected{% endif %}>Has a Watch</option><option value="UNWATCHED" {% if watch_state == 'UNWATCHED' %}selected{% endif %}>No Watch yet</option></select></label>
+        <label>Catalog status<select name="status"><option value="">Active and inactive</option><option value="ACTIVE" {% if status == 'ACTIVE' %}selected{% endif %}>Active only</option><option value="INACTIVE" {% if status == 'INACTIVE' %}selected{% endif %}>Inactive only</option></select></label>
+        <label>&nbsp;<span class="form-actions"><button type="submit">Apply Filters</button> <a class="button secondary" href="/spatial-reference">Clear</a></span></label>
       </form>
     </div>
   </section>
@@ -69,7 +72,7 @@
         <td>{{ row.source_provider }}{% if row.authoritative %}<br><small>Authoritative</small>{% endif %}</td>
         <td>{% if row.parcel_objectid %}<a href="/spatial-reference/{{ row.entity_id }}">#{{ row.parcel_objectid }}</a>{% else %}Not linked{% endif %}</td>
         <td>{% if row.watch_item_id %}<a href="/watchlist">{{ 'Active' if row.watch_active else 'Inactive' }}</a>{% else %}<a href="/spatial-reference/{{ row.entity_id }}">Watch This</a>{% endif %}</td>
-      </tr>{% else %}<tr><td colspan="6">No references match this search.</td></tr>{% endfor %}
+      </tr>{% else %}<tr><td colspan="6">No references match these filters. <a href="/spatial-reference">Clear filters</a></td></tr>{% endfor %}
     </tbody></table></div>
   </section>
 </main>
