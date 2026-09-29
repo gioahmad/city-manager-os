@@ -21,6 +21,7 @@ COPY operations_routines_app.py .
 COPY today_board_engine.py .
 COPY today_board_app.py .
 COPY executive_workflow_app.py .
+COPY brain_app.py .
 COPY operations_occurrence_controls.py .
 COPY operations_engine.py .
 COPY flood_app.py .

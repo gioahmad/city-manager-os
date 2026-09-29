@@ -310,7 +310,10 @@ def configure_private_auth(app) -> None:
             response = await call_next(request)
             return response
 
-        if path.startswith("/static/") or path in _PUBLIC_PATHS:
+        if path.startswith("/static/") or path in _PUBLIC_PATHS or (
+            path == "/brain/webhooks/sms" and request.method == "POST"
+        ):
+            # This one intake route verifies the SMSGate HMAC itself, never a session.
             response = await call_next(request)
         else:
             account: Account | None = None
