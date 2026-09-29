@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#111827">
+  <title>Brain · City Manager OS</title><link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/brain.css">
+</head><body>
+<header class="topbar"><div class="brand"><div class="eyebrow">YOUR PRIVATE NOTES</div><div class="brand-row"><h1>Brain</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Capture it now. Find it when you need it.</div></div></header>
+{% include 'nav.html' %}
+<main class="brain-main">
+{% if msg %}<div class="flash" role="status">{{ msg }}</div>{% endif %}
+{% if can_write %}
+<section class="panel"><div class="panel-body">
+<form action="/brain/save" method="post" enctype="multipart/form-data" class="watch-form">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="capture">What do you want to remember?</label>
+  <textarea id="capture" name="body" rows="4" maxlength="20000" required placeholder="A thought, a link, something to follow up on… Add #tags if you want."></textarea>
+  <details><summary>Add a photo or file, or choose a type</summary><div class="brain-options">
+    <label>Attachment (up to 20 MB)<input type="file" name="attachment"></label>
+    <label>Type<select name="kind"><option value="AUTO">Choose for me</option>{% for k in kinds %}<option value="{{ k }}">{{ k|title }}</option>{% endfor %}</select></label>
+    <label>Tags, separated by commas<input name="tags" maxlength="1500" placeholder="Weehawken, NHCAC, personal"></label>
+  </div></details>
+  <button class="primary-button" type="submit">Save note</button>
+</form></div></section>
+{% endif %}
+<section class="panel"><div class="panel-body">
+<form method="get" action="/brain" class="brain-search">
+  <label>Search your notes<input type="search" name="q" value="{{ q }}" maxlength="500" placeholder="Search words, a phrase, or #tags"></label>
+  <label>Type<select name="kind"><option value="">Everything</option>{% for k in kinds %}<option value="{{ k }}" {% if kind==k %}selected{% endif %}>{{ k|title }}s</option>{% endfor %}</select></label>
+  <label>Show<select name="view"><option value="">All notes</option><option value="pinned" {% if view=='pinned' %}selected{% endif %}>Pinned</option><option value="trash" {% if view=='trash' %}selected{% endif %}>Trash</option></select></label>
+  <button type="submit" class="secondary-button">Find</button>
+</form>
+<div class="brain-feed">
+{% for note in rows %}
+<article class="brain-note">
+  <div class="brain-meta"><time datetime="{{ note.created_at.isoformat() }}">{{ note.local_time }} ET</time><span>{{ note.source|title }} · {{ note.kind|title }}{% if note.pinned %} · Pinned{% endif %}</span></div>
+  <p class="brain-body">{{ note.body }}</p>
+  {% for link in note.links %}<p class="brain-link"><a href="{{ link }}" target="_blank" rel="noopener noreferrer">{{ link }}</a></p>{% endfor %}
+  {% if note.tags %}<div class="brain-tags">{% for tag in note.tags %}<span>#{{ tag }}</span>{% endfor %}</div>{% endif %}
+  {% for attachment in note.attachments %}<p><a href="/brain/files/{{ attachment.id }}">Download {{ attachment.filename }}</a></p>{% endfor %}
+  {% if can_write %}<div class="brain-actions">
+    <form action="/brain/{{ note.id }}/action" method="post"><input type="hidden" name="csrf" value="{{ csrf }}">
+    {% if view=='trash' %}<button name="action" value="restore" class="secondary-button">Restore</button>
+    {% else %}<button name="action" value="pin" class="secondary-button">{{ 'Unpin' if note.pinned else 'Pin' }}</button><button name="action" value="trash" class="secondary-button">Move to trash</button>{% endif %}</form>
+    {% if view!='trash' %}<details><summary>Edit note</summary><form action="/brain/{{ note.id }}/update" method="post" class="watch-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><label>Note<textarea name="body" required maxlength="20000" rows="5">{{ note.body }}</textarea></label>
+      <label>Type<select name="kind">{% for k in kinds %}<option value="{{ k }}" {% if note.kind==k %}selected{% endif %}>{{ k|title }}</option>{% endfor %}</select></label>
+      <label>Tags<input name="tags" value="{{ note.tags|join(', ') }}"></label><button class="primary-button">Save changes</button>
+    </form></details>{% endif %}
+  </div>{% endif %}
+</article>
+{% else %}<p class="brain-empty">{{ 'No notes match your search.' if q or kind or view else 'Your Brain starts here. Save your first thought above.' }}</p>{% endfor %}
+</div>
+<div class="brain-pagination">
+{% if page>1 %}<a href="/brain?{{ {'q':q,'kind':kind,'view':view,'page':page-1}|urlencode }}">Previous</a>{% endif %}
+{% if more %}<a href="/brain?{{ {'q':q,'kind':kind,'view':view,'page':page+1}|urlencode }}">Next</a>{% endif %}
+</div></div></section>
+<section class="panel"><div class="panel-body">
+<details><summary>Access from your devices &amp; SMS</summary>
+<p>Open this same page in Safari, Chrome, Edge, or Firefox on your phone, tablet, PC, or Mac. Sign in with the same account to see the same notes. On iPhone or iPad, use Safari’s Share menu → Add to Home Screen. On Android, use your browser’s Add to Home screen option.</p>
+<p>Notes stay private to your City Manager OS account. Types are simple suggestions; tasks saved here do not schedule reminders.</p>
+<p><a href="/brain/export">Export my note text and tags (JSON)</a>. Attachments are downloaded individually from their notes.</p>
+<p>SMS capture: <strong>{{ 'Configured — test an incoming text to confirm delivery.' if sms_ready else 'Needs setup' }}</strong>. Uses your existing SMSGate Android device and its SIM number.</p>
+{% if executive %}
+<p>Use SMSGate’s <code>sms:received</code> event and point it at this page’s origin plus <code>/brain/webhooks/sms</code>. Keep existing webhooks; this is an additional destination. The endpoint must be reachable by your gateway over HTTPS without the browser login.</p>
+<p>On the gateway device, find Settings → Webhooks → Signing Key. Enter it below. Only messages from your allowed numbers will become notes in this account.</p>
+<form method="post" action="/brain/sms/settings" class="watch-form">
+  <input type="hidden" name="csrf" value="{{ csrf }}"><label>Your allowed sender numbers, separated by commas<input name="senders" value="{{ sms_senders }}" required placeholder="+12015551234"></label>
+  <label>SMSGate signing key<input type="password" name="signing_key" autocomplete="new-password" placeholder="{{ 'Leave blank to keep existing key' if sms_ready else 'Enter the device’s signing key' }}"></label>
+  <button class="secondary-button">Save SMS capture settings</button>
+</form>{% endif %}
+{% if executive and sms_ready %}<form method="post" action="/brain/sms/connect"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary-button">Connect existing SMSGate</button></form><p>This uses the credentials already saved on the Share page to add Brain’s webhook. Send a test text after connecting.</p>{% endif %}
+<p>SMS capture currently saves text and links. Attach photos and documents through this page.</p>
+</details></div></section>
+</main></body></html>

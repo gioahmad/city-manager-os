@@ -7,6 +7,7 @@
     <a href="/my-day" class="{% if request.url.path.startswith('/my-day') %}active{% endif %}">My Day</a>
     <a href="/issues" class="{% if request.url.path.startswith('/issues') %}active{% endif %}">Command</a>
     <a href="/inbox" class="{% if request.url.path.startswith('/inbox') %}active{% endif %}">Inbox</a>
+    <a href="/brain" class="{% if request.url.path.startswith('/brain') %}active{% endif %}">Brain</a>
     <a href="/map" class="{% if request.url.path.startswith('/map') or request.url.path.startswith('/flood') %}active{% endif %}">Map</a>
     <a href="/alerts" class="{% if request.url.path.startswith('/alerts') %}active{% endif %}">Alerts</a>
     <a href="/search" class="{% if request.url.path.startswith('/search') %}active{% endif %}">Search</a>
@@ -62,6 +63,7 @@
     <div class="mobile-menu">
       <span class="nav-menu-label">DAILY</span>
       <a href="/inbox">Inbox</a>
+      <a href="/brain">Brain</a>
       <a href="/alerts">Alerts</a>
       <a href="/share">Share</a>
       <a href="/staff-admin">Staff Operations</a>
@@ -90,5 +92,7 @@
   </details>
 </nav>
 
+{% if not request.url.path.startswith('/brain') %}
 {% include "quick_capture_global.html" %}
+{% endif %}
 {% include "share_dialog.html" %}
