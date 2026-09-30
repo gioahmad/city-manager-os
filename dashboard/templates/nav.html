@@ -4,6 +4,7 @@
 
 <nav class="main-nav desktop-nav" aria-label="Primary navigation">
   <div class="nav-inner">
+    <a href="/workspace">Workspace</a>
     <a href="/my-day" class="{% if request.url.path.startswith('/my-day') %}active{% endif %}">My Day</a>
     <a href="/issues" class="{% if request.url.path.startswith('/issues') %}active{% endif %}">Command</a>
     <a href="/inbox" class="{% if request.url.path.startswith('/inbox') %}active{% endif %}">Inbox</a>
@@ -54,6 +55,7 @@
 </nav>
 
 <nav class="mobile-nav" aria-label="Mobile navigation">
+  <a href="/workspace">Workspace</a>
   <a href="/my-day" class="{% if request.url.path.startswith('/my-day') %}active{% endif %}">My Day</a>
   <a href="/issues" class="{% if request.url.path.startswith('/issues') %}active{% endif %}">Command</a>
   <a href="/map" class="{% if request.url.path.startswith('/map') or request.url.path.startswith('/flood') %}active{% endif %}">Map</a>
