@@ -201,3 +201,31 @@ def test_text_claim_prevents_retries_and_requires_saved_recipient(client,monkeyp
     assert calls==[('+12015550101','Thinking of you today.')]
     assert client.post('/workspace/api/action',json={**data,'message_id':str(uuid4()),'phone':'+12015550102'}).status_code==400
     assert len(calls)==1
+
+
+@pytest.mark.parametrize('view,reads', [('brain',2),('people',4),('work',3),('intelligence',4),('settings',3),('today',12)])
+def test_section_loading_only_queries_the_requested_workflow(client,monkeypatch,view,reads):
+    login(client);sqls=[]
+    def one(sql,params=()):
+        sqls.append(sql)
+        return {'settings':{}} if 'workspace_config' in sql else {}
+    def rows(sql,params=()):sqls.append(sql);return []
+    monkeypatch.setattr(ws,'query_one',one);monkeypatch.setattr(ws,'query_all',rows)
+    r=client.get('/workspace/api/state?view='+view)
+    assert r.status_code==200 and r.headers['cache-control']=='no-store'
+    assert len(sqls)==reads
+    if view!='people':assert not any('workspace_relationships' in s or 'workspace_dismissed' in s for s in sqls)
+    if view in {'work','intelligence','brain','people','settings'}:
+        assert 'personal' not in r.json() and 'health_logs' not in r.json()
+
+
+def test_all_original_navigation_links_survive_in_workspace(client,monkeypatch):
+    import re
+    login(client)
+    root=Path(__file__).resolve().parents[1]
+    old=set(re.findall(r'<a[^>]+href="([^"]+)"',(root/'templates/nav.html').read_text()))
+    response=client.get('/workspace')
+    assert response.status_code==200
+    current=set(re.findall(r'<a[^>]+href="([^"]+)"',response.text))
+    assert old<=current,old-current
+    assert 'All tools' in response.text

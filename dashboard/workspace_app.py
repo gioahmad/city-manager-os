@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Form, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from psycopg.types.json import Jsonb
@@ -88,62 +89,96 @@ def workspace_page(request: Request):
     _owner(request)
     return templates.TemplateResponse(request=request,name='workspace.html',context={
         'csrf':_csrf(request),'display':request.url.path.endswith('/display'),
-        'readonly':request.state.cmos_role=='READ_ONLY'})
+        'readonly':request.state.cmos_role=='READ_ONLY','username':request.state.cmos_account.username})
 
 
 @app.get('/workspace/api/state')
-def workspace_state(request: Request, display: bool=False, period: str='day', window: str='24h'):
+def workspace_state(request: Request, display: bool=False, period: str='day', window: str='24h', view: str='all'):
     owner=_owner(request)
+    if view not in {'all','today','intelligence','work','brain','people','dates','settings'}:
+        raise HTTPException(400,'Choose a valid workspace section')
     cfg=config()
-    alerts,health=intelligence(window)
-    work=query_all('''SELECT id,title,status,priority,address,next_action,assigned_to,updated_at
-        FROM issues WHERE status NOT IN ('RESOLVED','CLOSED') ORDER BY updated_at DESC LIMIT 80''')
-    data={'config':cfg,'alerts':alerts,'health':health,'work':work,'refreshed_at':datetime.now(timezone.utc)}
-    # Display endpoint never queries or serializes personal data, even for executives.
-    if display:
-        return JSONResponse(jsonable_encoder(data))
-    entities=query_all('''SELECT * FROM workspace_entities e WHERE (visibility='WORK' OR owner_username=%s)
-        AND (contact_id IS NULL OR EXISTS(SELECT 1 FROM contacts c WHERE c.id=e.contact_id AND c.active AND c.visibility='ALL'))
-        ORDER BY name,id LIMIT 501''',(owner,))
-    limited=len(entities)>500
-    entities=entities[:500]
-    ids={str(e['id']) for e in entities}
-    facts=query_all('''SELECT * FROM workspace_relationships WHERE active
-        AND (visibility='WORK' OR owner_username=%s) ORDER BY created_at LIMIT 2000''',(owner,))
-    facts=[f for f in facts if str(f['source_id']) in ids and str(f['target_id']) in ids]
-    dismissed={r['fingerprint'] for r in query_all('SELECT fingerprint FROM workspace_dismissed WHERE owner_username=%s',(owner,))}
-    data.update(entities=entities,facts=facts,derived=derive_relationships(facts),
-                suggestions=suggestions(entities,dismissed),directory_limited=limited)
-    portals=query_all('''SELECT p.id,p.issue_id,i.title,i.status,p.expires_at,p.revoked,
-        coalesce((SELECT jsonb_agg(jsonb_build_object('author',m.author,'body',m.body,'created_at',m.created_at)
-        ORDER BY m.created_at) FROM workspace_portal_messages m WHERE m.portal_id=p.id),'[]'::jsonb) AS messages
-        FROM workspace_portals p JOIN issues i ON i.id=p.issue_id ORDER BY p.created_at DESC LIMIT 50''')
-    data['portals']=portals
-    # Dates and messages always belong to the signed-in user, including Executive accounts.
-    dates=query_all('''SELECT d.*,e.name,e.attributes FROM workspace_dates d JOIN workspace_entities e ON e.id=d.entity_id
-        WHERE d.owner_username=%s AND d.active AND (e.visibility='WORK' OR e.owner_username=%s)
-        AND (e.contact_id IS NULL OR EXISTS(SELECT 1 FROM contacts c WHERE c.id=e.contact_id AND c.active AND c.visibility='ALL'))''',(owner,owner))
-    days={'day':0,'week':6,'month':29}.get(period)
-    if days is None:
-        raise HTTPException(400,'Choose daily, weekly, or monthly')
     today=datetime.now(ZoneInfo(cfg['timezone'])).date()
-    reminders=briefing_dates(dates,today,days)
-    for r in reminders:
-        r['draft']=text_draft(r)
-    data.update(dates=dates,reminders=reminders,today=today)
-    personal=query_all('SELECT * FROM workspace_personal_tasks WHERE owner_username=%s ORDER BY done,due_date NULLS LAST,created_at DESC LIMIT 100',(owner,))
-    logs=query_all('''SELECT kind,sum(amount) AS amount,(logged_at AT TIME ZONE %s)::date AS day
-        FROM workspace_health WHERE owner_username=%s AND logged_at>=now()-interval '31 days'
-        GROUP BY kind,day ORDER BY day DESC''',(cfg['timezone'],owner))
-    fast=query_one('SELECT * FROM workspace_fasts WHERE owner_username=%s AND ended_at IS NULL',(owner,))
-    history=query_all('SELECT * FROM workspace_fasts WHERE owner_username=%s AND ended_at IS NOT NULL ORDER BY ended_at DESC LIMIT 30',(owner,))
-    goals=query_one('SELECT water_ml,protein_g FROM workspace_goals WHERE owner_username=%s',(owner,))
-    notes=query_all('''SELECT id,body,kind,tags,created_at FROM brain_notes WHERE owner_username=%s
-        AND deleted_at IS NULL ORDER BY pinned DESC,created_at DESC LIMIT 30''',(owner,))
-    data.update(personal=personal,health_logs=logs,fast=fast,fast_history=history,goals=goals,notes=notes)
-    data['message_history']=query_all('''SELECT entity_id,status,created_at,phone FROM workspace_messages
-        WHERE owner_username=%s ORDER BY created_at DESC LIMIT 50''',(owner,))
-    return JSONResponse(jsonable_encoder(data))
+    data={'config':cfg,'today':today,'refreshed_at':datetime.now(timezone.utc)}
+    wants=lambda *views: view=='all' or view in views
+    if display or wants('intelligence','today'):
+        alerts,health=intelligence(window)
+        data.update(alerts=alerts,health=health)
+    if display or wants('work','today'):
+        data['work']=query_all("""SELECT id,title,status,priority,address,next_action,assigned_to,updated_at
+            FROM issues WHERE status NOT IN ('RESOLVED','CLOSED') ORDER BY updated_at DESC LIMIT 80""")
+    # Display never queries personal tables, regardless of the requested section.
+    if display:
+        data.pop('today')
+        return JSONResponse(jsonable_encoder(data),headers={'Cache-Control':'no-store'})
+    if wants('people','dates'):
+        entities=query_all('''SELECT * FROM workspace_entities e WHERE (visibility='WORK' OR owner_username=%s)
+            AND (contact_id IS NULL OR EXISTS(SELECT 1 FROM contacts c WHERE c.id=e.contact_id AND c.active AND c.visibility='ALL'))
+            ORDER BY name,id LIMIT 501''',(owner,))
+        limited=len(entities)>500
+        entities=entities[:500]
+        ids={str(e['id']) for e in entities}
+        data.update(entities=entities,directory_limited=limited)
+        if wants('people'):
+            facts=query_all('''SELECT * FROM workspace_relationships WHERE active
+                AND (visibility='WORK' OR owner_username=%s) ORDER BY created_at LIMIT 2000''',(owner,))
+            facts=[f for f in facts if str(f['source_id']) in ids and str(f['target_id']) in ids]
+            dismissed={r['fingerprint'] for r in query_all('SELECT fingerprint FROM workspace_dismissed WHERE owner_username=%s',(owner,))}
+            data.update(entities=entities,facts=facts,derived=derive_relationships(facts),
+                        suggestions=suggestions(entities,dismissed),directory_limited=limited)
+    if wants('work'):
+        portals=query_all('''SELECT p.id,p.issue_id,i.title,i.status,p.expires_at,p.revoked,
+            coalesce((SELECT jsonb_agg(jsonb_build_object('author',m.author,'body',m.body,'created_at',m.created_at)
+            ORDER BY m.created_at) FROM (SELECT author,body,created_at FROM workspace_portal_messages WHERE portal_id=p.id
+                ORDER BY created_at DESC LIMIT 100) m),'[]'::jsonb) AS messages
+            FROM workspace_portals p JOIN issues i ON i.id=p.issue_id ORDER BY p.created_at DESC LIMIT 50''')
+        data['portals']=portals
+    # Dates and messages always belong to the signed-in user, including Executive accounts.
+    if wants('today','dates'):
+        dates=query_all('''SELECT d.*,e.name,e.attributes FROM workspace_dates d JOIN workspace_entities e ON e.id=d.entity_id
+            WHERE d.owner_username=%s AND d.active AND (e.visibility='WORK' OR e.owner_username=%s)
+            AND (e.contact_id IS NULL OR EXISTS(SELECT 1 FROM contacts c WHERE c.id=e.contact_id AND c.active AND c.visibility='ALL'))''',(owner,owner))
+        days={'day':0,'week':6,'month':29}.get(period)
+        if days is None:
+            raise HTTPException(400,'Choose daily, weekly, or monthly')
+        reminders=briefing_dates(dates,today,days)
+        for r in reminders:
+            r['draft']=text_draft(r)
+        data.update(dates=dates,reminders=reminders,today=today)
+    if wants('today'):
+        personal=query_all('SELECT * FROM workspace_personal_tasks WHERE owner_username=%s ORDER BY done,due_date NULLS LAST,created_at DESC LIMIT 100',(owner,))
+        logs=query_all('''SELECT kind,sum(amount) AS amount,(logged_at AT TIME ZONE %s)::date AS day
+            FROM workspace_health WHERE owner_username=%s AND logged_at>=now()-interval '31 days'
+            GROUP BY kind,day ORDER BY day DESC''',(cfg['timezone'],owner))
+        fast=query_one('SELECT * FROM workspace_fasts WHERE owner_username=%s AND ended_at IS NULL',(owner,))
+        history=query_all('SELECT * FROM workspace_fasts WHERE owner_username=%s AND ended_at IS NOT NULL ORDER BY ended_at DESC LIMIT 30',(owner,))
+        goals=query_one('SELECT water_ml,protein_g FROM workspace_goals WHERE owner_username=%s',(owner,))
+        data.update(personal=personal,health_logs=logs,fast=fast,fast_history=history,goals=goals)
+    if wants('brain'):
+        notes=query_all('''SELECT id,left(body,1200) AS body,char_length(body)>1200 AS truncated,kind,tags,created_at FROM brain_notes WHERE owner_username=%s
+            AND deleted_at IS NULL ORDER BY pinned DESC,created_at DESC LIMIT 30''',(owner,))
+        data['notes']=notes
+    if wants('today','settings'):
+        from workspace_calendar import status
+        data['calendar']=status(owner,lookup=query_one)
+    if wants('today'):
+        data['appointments']=query_all("""SELECT title,starts_at,ends_at,location,all_day,outlook_url
+            FROM workspace_calendar_events WHERE owner_username=%s AND ends_at>=now()
+            ORDER BY starts_at LIMIT 12""",(owner,))
+    if wants('intelligence'):
+        data['notices']=query_all("""SELECT title,municipality,source_name,starts_at,source_url,impact_summary
+            FROM event_intelligence WHERE active AND status NOT IN ('CANCELLED','COMPLETED')
+            AND ((starts_at>=now()-interval '12 hours' AND starts_at<now()+interval '30 days')
+                OR (starts_at IS NULL AND last_seen_at>=now()-interval '3 days'))
+            ORDER BY starts_at NULLS LAST,last_seen_at DESC LIMIT 40""")
+    if wants('settings'):
+        data['connections']=query_all("""SELECT i.name,i.active,i.parser_kind,i.geography_scope,
+            sh.status,sh.last_success_at FROM integrations i LEFT JOIN source_health sh
+            ON sh.source_id='INT:'||i.integration_key ORDER BY i.name LIMIT 100""")
+    if view=='all':
+        data['message_history']=query_all('''SELECT entity_id,status,created_at,phone FROM workspace_messages
+            WHERE owner_username=%s ORDER BY created_at DESC LIMIT 50''',(owner,))
+    return JSONResponse(jsonable_encoder(data),headers={'Cache-Control':'no-store'})
 
 
 @app.get('/workspace/brain.md')
@@ -174,7 +209,7 @@ async def workspace_action(request: Request):
         raise HTTPException(400,'Refresh the page and try again')
     owner=_write(request,data['csrf'])
     try:
-        result=action(owner,data,request)
+        result=await run_in_threadpool(action,owner,data,request)
     except (ValueError,TypeError,KeyError,ZoneInfoNotFoundError):
         raise HTTPException(400,'Check the values and try again')
     return JSONResponse(jsonable_encoder({'ok':True,**(result or {})}))
@@ -182,6 +217,11 @@ async def workspace_action(request: Request):
 
 def action(owner,d,request):
     kind=d.get('action')
+    if kind in {'MS_CALENDAR_CONNECT','MS_CALENDAR_SYNC','MS_CALENDAR_DISCONNECT'}:
+        from workspace_calendar import begin,sync,disconnect
+        if kind=='MS_CALENDAR_CONNECT':return begin(owner,request)
+        if kind=='MS_CALENDAR_SYNC':return sync(owner)
+        return disconnect(owner)
     with db_conn() as conn:
         if kind=='ENTITY':
             k=d.get('kind','PERSON'); vis=d.get('visibility','PRIVATE')

@@ -1,0 +1,162 @@
+"""Owner-private Outlook calendar read access. No mail or calendar writes."""
+import base64
+import hashlib
+import json
+import os
+import re
+import secrets
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode, urlparse
+
+import httpx
+from cryptography.fernet import Fernet, InvalidToken
+from fastapi import HTTPException, Request
+from fastapi.responses import RedirectResponse
+
+from app import app, db_conn, query_one
+from brain_app import _owner
+from private_auth import COOKIE_NAME
+
+SCOPE='offline_access https://graph.microsoft.com/Calendars.ReadBasic'
+GRAPH='https://graph.microsoft.com/v1.0/'
+
+
+def settings():
+    origin=os.getenv('CMOS_PUBLIC_ORIGIN','').rstrip('/')
+    tenant=os.getenv('CMOS_MICROSOFT_TENANT','organizations')
+    client=os.getenv('CMOS_MICROSOFT_CLIENT_ID','')
+    secret=os.getenv('CMOS_MICROSOFT_CLIENT_SECRET','')
+    key=os.getenv('CMOS_CALENDAR_KEY','')
+    url=urlparse(origin)
+    ready=bool(client and secret and key and url.scheme=='https' and url.netloc and not url.path and not url.query and not url.fragment
+               and re.fullmatch(r'[A-Za-z0-9.-]+',tenant))
+    try:Fernet(key.encode())
+    except (ValueError,TypeError):ready=False
+    return {'ready':ready,'client':client,'secret':secret,'key':key,'tenant':tenant,
+            'redirect':origin+'/workspace/calendar/microsoft/callback'}
+
+
+def cipher():
+    cfg=settings()
+    if not cfg['ready']:raise HTTPException(400,'Outlook setup is needed. Follow the calendar setup instructions in Connections.')
+    return Fernet(cfg['key'].encode())
+
+
+def status(owner,lookup=query_one):
+    row=lookup('SELECT connected_at,last_sync_at,sync_error FROM workspace_calendar_connections WHERE owner_username=%s',(owner,))
+    return {'ready':settings()['ready'],'connected':bool(row),**(row or {})}
+
+
+def begin(owner,request):
+    cfg=settings();encrypt=cipher();state=secrets.token_urlsafe(32);verifier=secrets.token_urlsafe(48)
+    with db_conn() as c:
+        c.execute('DELETE FROM workspace_calendar_auth WHERE expires_at<now() OR owner_username=%s',(owner,))
+        c.execute('INSERT INTO workspace_calendar_auth(state_hash,owner_username,session_hash,verifier) VALUES(%s,%s,%s,%s)',
+                  (hashlib.sha256(state.encode()).hexdigest(),owner,hashlib.sha256(request.cookies[COOKIE_NAME].encode()).hexdigest(),encrypt.encrypt(verifier.encode()).decode()))
+    challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
+    params={'client_id':cfg['client'],'response_type':'code','redirect_uri':cfg['redirect'],'scope':SCOPE,
+            'state':state,'code_challenge':challenge,'code_challenge_method':'S256','prompt':'select_account'}
+    return {'redirect_url':f"https://login.microsoftonline.com/{cfg['tenant']}/oauth2/v2.0/authorize?"+urlencode(params)}
+
+
+def token_request(client,data):
+    cfg=settings()
+    response=client.post(f"https://login.microsoftonline.com/{cfg['tenant']}/oauth2/v2.0/token",
+        data={'client_id':cfg['client'],'client_secret':cfg['secret'],'scope':SCOPE,**data})
+    response.raise_for_status();result=response.json()
+    if not isinstance(result,dict) or not result.get('access_token'):raise ValueError('Missing token')
+    return result
+
+
+@app.get('/workspace/calendar/microsoft/callback')
+def callback(request: Request, state: str='', code: str='', error: str=''):
+    owner=_owner(request,write=True)
+    if not re.fullmatch(r'[A-Za-z0-9_-]{43}',state):raise HTTPException(400,'Calendar sign-in expired. Start again.')
+    cfg=settings();encrypt=cipher()
+    with db_conn() as c:
+        pending=c.execute('''DELETE FROM workspace_calendar_auth WHERE state_hash=%s AND owner_username=%s
+            AND session_hash=%s AND expires_at>now() RETURNING verifier''',
+            (hashlib.sha256(state.encode()).hexdigest(),owner,hashlib.sha256(request.cookies[COOKIE_NAME].encode()).hexdigest())).fetchone()
+    if not pending:raise HTTPException(400,'Calendar sign-in expired. Start again.')
+    if error:return RedirectResponse('/workspace#settings',status_code=303)
+    if not code or len(code)>10000:raise HTTPException(400,'Calendar sign-in did not return a code')
+    try:
+        verifier=encrypt.decrypt(pending['verifier'].encode()).decode()
+        with httpx.Client(timeout=20,follow_redirects=False) as client:
+            tokens=token_request(client,{'grant_type':'authorization_code','code':code,'redirect_uri':cfg['redirect'],'code_verifier':verifier})
+        if not tokens.get('refresh_token'):raise ValueError('Missing refresh token')
+        encrypted=encrypt.encrypt(json.dumps({'owner':owner,'refresh':tokens['refresh_token']}).encode()).decode()
+        with db_conn() as c:
+            c.execute('''INSERT INTO workspace_calendar_connections(owner_username,tokens) VALUES(%s,%s)
+                ON CONFLICT(owner_username) DO UPDATE SET tokens=EXCLUDED.tokens,sync_error=false''',(owner,encrypted))
+        sync(owner)
+    except (httpx.HTTPError,ValueError,InvalidToken,HTTPException):
+        # Keep provider response and token contents out of user-facing errors.
+        return RedirectResponse('/workspace#settings',status_code=303)
+    return RedirectResponse('/workspace#today',status_code=303)
+
+
+def graph_pages(client,url,access):
+    rows=[]
+    for page in range(10):
+        parsed=urlparse(url)
+        if parsed.scheme!='https' or parsed.netloc!='graph.microsoft.com' or not parsed.path.startswith('/v1.0/'):
+            raise ValueError('Unexpected pagination target')
+        response=client.get(url,headers={'Authorization':'Bearer '+access,'Prefer':'outlook.timezone="UTC"'})
+        response.raise_for_status();body=response.json()
+        if not isinstance(body.get('value'),list):raise ValueError('Missing calendar results')
+        rows.extend(body['value']);url=body.get('@odata.nextLink')
+        if len(rows)>1000:raise ValueError('Calendar result limit reached')
+        if not url:return rows
+    raise ValueError('Calendar page limit reached')
+
+
+def event_row(owner,event):
+    if event.get('isCancelled'):return None
+    def timestamp(key):
+        value=event[key]
+        if value.get('timeZone') not in {'UTC','Etc/UTC'}:raise ValueError('Calendar must return UTC')
+        result=datetime.fromisoformat(value['dateTime'].replace('Z','+00:00'))
+        return result if result.tzinfo else result.replace(tzinfo=timezone.utc)
+    link=event.get('webLink','');parsed=urlparse(link)
+    if parsed.scheme!='https' or parsed.hostname not in {'outlook.office.com','outlook.office365.com','outlook.live.com'}:link=None
+    start,end=timestamp('start'),timestamp('end')
+    if end<start:raise ValueError('Invalid calendar range')
+    return (owner,str(event['id'])[:2000],str(event.get('subject') or 'Appointment')[:500],start,end,
+            str((event.get('location') or {}).get('displayName') or '')[:1000],bool(event.get('isAllDay')),link)
+
+
+def sync(owner):
+    encrypt=cipher()
+    with db_conn() as c:
+        connection=c.execute('SELECT tokens FROM workspace_calendar_connections WHERE owner_username=%s FOR UPDATE',(owner,)).fetchone()
+        if not connection:raise HTTPException(400,'Connect your Outlook calendar first')
+        try:
+            saved=json.loads(encrypt.decrypt(connection['tokens'].encode()))
+            if saved['owner']!=owner:raise ValueError('Calendar owner mismatch')
+            with httpx.Client(timeout=20,follow_redirects=False) as client:
+                tokens=token_request(client,{'grant_type':'refresh_token','refresh_token':saved['refresh']})
+                saved['refresh']=tokens.get('refresh_token') or saved['refresh']
+                c.execute('UPDATE workspace_calendar_connections SET tokens=%s WHERE owner_username=%s',
+                          (encrypt.encrypt(json.dumps(saved).encode()).decode(),owner))
+                now=datetime.now(timezone.utc)
+                url=GRAPH+'me/calendarView?'+urlencode({'startDateTime':now.isoformat(),'endDateTime':(now+timedelta(days=30)).isoformat(),
+                    '$top':'100','$select':'id,subject,start,end,location,isAllDay,isCancelled,webLink'})
+                rows=[r for e in graph_pages(client,url,tokens['access_token']) if (r:=event_row(owner,e))]
+            c.execute('DELETE FROM workspace_calendar_events WHERE owner_username=%s',(owner,))
+            for row in rows:
+                c.execute('''INSERT INTO workspace_calendar_events(owner_username,event_key,title,starts_at,ends_at,location,all_day,outlook_url)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(owner_username,event_key) DO NOTHING''',row)
+            c.execute('UPDATE workspace_calendar_connections SET last_sync_at=now(),sync_error=false WHERE owner_username=%s',(owner,))
+        except (httpx.HTTPError,InvalidToken,ValueError,KeyError,TypeError):
+            c.execute('UPDATE workspace_calendar_connections SET sync_error=true WHERE owner_username=%s',(owner,))
+            c.commit()  # Preserve rotated refresh token and the last successful event snapshot.
+            raise HTTPException(502,'Outlook could not refresh. Your previous appointments are retained; check Connections or reconnect.')
+    return {'message':'Outlook refreshed. Your appointments remain private.'}
+
+
+def disconnect(owner):
+    with db_conn() as c:
+        c.execute('DELETE FROM workspace_calendar_connections WHERE owner_username=%s',(owner,))
+        c.execute('DELETE FROM workspace_calendar_auth WHERE owner_username=%s',(owner,))
+    return {'message':'Outlook disconnected and imported appointments removed. Microsoft calendar is unchanged.'}
