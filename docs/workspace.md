@@ -129,3 +129,30 @@ python -m unittest discover -s deploy/tests -p test_workspace_deploy.py -v
 These exercise archive bytes/validation, failed-test stopping, read-only migration mounts,
 stdin forwarding, elapsed/size reporting, dashboard-only restart, and a single rollback
 after live verification failure.
+
+## Navigation and workflow polish
+
+All original navigation destinations are available in a searchable **All tools** menu on
+both desktop and mobile. The phone rail opens explicitly instead of occupying the top of
+every screen. Section links survive reload/back navigation through URL hashes. Today shows
+upcoming private Outlook appointments, unfinished personal tasks by default, quick capture,
+due relationship reminders, and optional health goals; advanced logging/goals collapse away.
+Feed, work, and recent Brain filters operate locally without extra requests.
+
+The client asks for the visible section only and renders that section only. Section data is
+kept in page memory for up to 20 seconds; it is never placed in localStorage or a shared cache.
+Successful writes clear section caches; explicit Refresh bypasses them. Superseded requests
+are aborted/ignored. The server retains `view=all` for compatibility and applies the same
+owner/endpoint checks to section requests. Private API responses are `no-store`.
+
+The relationship view performs four database reads; Brain performs two; Work performs three;
+Area intelligence and notices perform four. Those views do not query personal health/tasks.
+Today includes twelve reads after adding the private Outlook snapshot/status. These are
+query-count checks, not a claim about production latency. Relationship/identity matching
+never runs when logging water or refreshing the alert feed. Date formatting is reused and
+entity lookups use an index. Conversation previews retain the latest 100 messages per link;
+Brain previews retain 1,200 characters with a link to full Brain. Full records remain intact.
+
+See `docs/workspace-calendar.md` for the Microsoft setup, ownership boundaries, sync behavior,
+and public town-feed onboarding. Microsoft credentials/account consent and verified town
+feed URLs are required to turn new external connections on.
