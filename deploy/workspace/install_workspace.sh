@@ -3,6 +3,8 @@ set -Eeuo pipefail
 REPO="${CMOS_REPO:-/opt/city-manager-os}"
 EXPECTED="${1:?usage: install_workspace.sh EXPECTED_COMMIT}"
 cd "$REPO"
+source "$REPO/deploy/progress.sh"
+progress_step 0 8 "Checking release and current services"
 [[ -z "$(git status --porcelain)" ]] || { echo 'Repository must be clean'; exit 1; }
 [[ "$(git rev-parse HEAD)" == "$EXPECTED" ]] || { echo 'HEAD does not match expected commit'; exit 1; }
 COMPOSE=(docker compose -f "$REPO/dashboard/docker-compose.yml")
@@ -11,21 +13,27 @@ OLD_IMAGE_NAME="$(docker inspect citymanager-dashboard --format '{{.Config.Image
 PRESERVED=(citymanager-staff citymanager-ops-engine citymanager-integration-engine citymanager-postgis)
 BEFORE="$(docker inspect --format '{{.Name}} {{.Id}} {{.Image}} {{.State.Running}}' "${PRESERVED[@]}")"
 
+progress_step 1 8 "Database backup"
 bash "$REPO/deploy/postgis/backup.sh"
+progress_step 2 8 "Applying additive migrations"
 for migration in 036_brain.sql 037_workspace.sql; do
-  docker exec -i citymanager-postgis sh -lc \
+  run_with_progress "Migration $migration" "" docker exec -i citymanager-postgis sh -lc \
     'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
     < "$REPO/deploy/postgis/init/$migration"
 done
 
 # Only the dashboard image/service is built and restarted. Engines keep their running images.
-"${COMPOSE[@]}" build citymanager-dashboard
-"${COMPOSE[@]}" run --rm --no-deps -T -v "$REPO/dashboard/tests:/app/tests:ro" \
+progress_step 3 8 "Building dashboard image"
+run_with_progress "Dashboard build" "" "${COMPOSE[@]}" build citymanager-dashboard
+progress_step 4 8 "Running release tests"
+run_with_progress "Release tests" "" "${COMPOSE[@]}" run --rm --no-deps -T \
+  -v "$REPO/dashboard/tests:/app/tests:ro" -v "$REPO/deploy:/deploy:ro" \
   --entrypoint python citymanager-dashboard -m pytest -q \
   tests/test_workspace.py tests/test_brain.py tests/test_global_share.py \
   tests/test_contact_directory_share.py tests/test_navigation_and_map_sharing.py \
   tests/test_executive_workflow.py tests/test_today_board.py
-"${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python citymanager-dashboard - <<'PY'
+progress_step 5 8 "Checking database grants and private login"
+run_with_progress "Database/login preflight" "" "${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python citymanager-dashboard - <<'PY'
 from app import db_conn
 from private_auth import _accounts,env_bool
 from workspace_app import config
@@ -49,8 +57,10 @@ rollback(){
   exit 1
 }
 trap rollback ERR
-"${COMPOSE[@]}" up -d --no-deps --force-recreate citymanager-dashboard
-docker exec -i citymanager-dashboard python - <<'PY'
+progress_step 6 8 "Restarting dashboard only"
+run_with_progress "Dashboard restart" "" "${COMPOSE[@]}" up -d --no-deps --force-recreate citymanager-dashboard
+progress_step 7 8 "Verifying live workspace and protected services"
+run_with_progress "Live workspace verification" "" docker exec -i citymanager-dashboard python - <<'PY'
 import json,time,urllib.request
 from private_auth import COOKIE_NAME,_accounts,_issue_session
 account=next(a for a in _accounts().values() if a.role=='EXECUTIVE')
@@ -75,4 +85,5 @@ PY
 AFTER="$(docker inspect --format '{{.Name}} {{.Id}} {{.Image}} {{.State.Running}}' "${PRESERVED[@]}")"
 [[ "$BEFORE" == "$AFTER" ]] || { echo 'Protected service changed unexpectedly'; false; }
 trap - ERR
+progress_step 8 8 "Workspace installation complete"
 echo 'Existing staff, alert engines, integration engine, and database containers preserved.'

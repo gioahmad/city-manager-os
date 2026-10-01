@@ -4,6 +4,7 @@ umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+source "$SCRIPT_DIR/../progress.sh"
 
 if [[ ! -f .env ]]; then
   echo "ERROR: .env not found in $SCRIPT_DIR"
@@ -33,7 +34,8 @@ trap cleanup EXIT
 
 printf 'Creating backup: %s\n' "$OUT"
 
-docker exec citymanager-postgis \
+progress_step 0 5 "Creating database archive"
+run_with_progress "Database dump" "$TMP" docker exec citymanager-postgis \
   pg_dump \
   -U "$POSTGRES_USER" \
   -d "$POSTGRES_DB" \
@@ -44,20 +46,23 @@ docker exec citymanager-postgis \
   exit 1
 }
 
+progress_step 1 5 "Validating archive"
 printf 'Validating archive with pg_restore --list...\n'
-docker exec -i citymanager-postgis \
+run_with_progress "Archive validation" "" docker exec -i citymanager-postgis \
   pg_restore --list \
   < "$TMP" \
   >/dev/null
 
 mv "$TMP" "$OUT"
 
+progress_step 2 5 "Calculating and checking checksum"
 (
   cd "$BACKUP_DIR"
   sha256sum "$NAME" > "$NAME.sha256"
   sha256sum -c "$NAME.sha256" >/dev/null
 )
 
+progress_step 3 5 "Off-box copy (if configured)"
 OFFBOX_STATUS="NOT_CONFIGURED"
 
 if [[ -n "$OFFBOX_DIR" ]]; then
@@ -65,7 +70,7 @@ if [[ -n "$OFFBOX_DIR" ]]; then
     echo "ERROR: BACKUP_OFFBOX_DIR does not exist: $OFFBOX_DIR"
     exit 1
   }
-  install -m 600 "$OUT" "$OFFBOX_DIR/$NAME"
+  run_with_progress "Off-box archive copy" "" install -m 600 "$OUT" "$OFFBOX_DIR/$NAME"
   install -m 600 "$SHA" "$OFFBOX_DIR/$NAME.sha256"
   (
     cd "$OFFBOX_DIR"
@@ -77,7 +82,7 @@ elif [[ -n "$OFFBOX_TARGET" ]]; then
     echo "ERROR: rsync is required for BACKUP_OFFBOX_TARGET"
     exit 1
   }
-  rsync -a --chmod=F600 "$OUT" "$SHA" "${OFFBOX_TARGET%/}/"
+  run_with_progress "Off-box transfer" "" rsync -a --chmod=F600 "$OUT" "$SHA" "${OFFBOX_TARGET%/}/"
   OFFBOX_STATUS="COPIED_RSYNC:$OFFBOX_TARGET"
 elif [[ "$REQUIRE_OFFBOX" == "true" ]]; then
   echo "ERROR: off-box backup is required but no target is configured"
@@ -93,9 +98,11 @@ fi
 mv "$MARKER.tmp" "$MARKER"
 chmod 600 "$MARKER"
 
+progress_step 4 5 "Retention cleanup"
 find "$BACKUP_DIR" -type f -name 'citymanager_*.dump' -mtime "+$RETENTION_DAYS" -delete
 find "$BACKUP_DIR" -type f -name 'citymanager_*.dump.sha256' -mtime "+$RETENTION_DAYS" -delete
 
+progress_step 5 5 "Backup complete and validated"
 printf 'Backup complete and validated: %s\n' "$OUT"
 printf 'Off-box status: %s\n' "$OFFBOX_STATUS"
 printf 'Retention cleanup complete (%s days).\n' "$RETENTION_DAYS"
