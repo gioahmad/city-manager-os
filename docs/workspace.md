@@ -26,7 +26,10 @@ bash deploy/workspace/install_workspace.sh "$(git rev-parse HEAD)"
 The installer backs up the database, applies additive 036/037 migrations, builds/tests the
 dashboard, preflights login and table grants, and checks the authenticated workspace and
 display projection. If the post-restart checks fail, it restores the previous dashboard
-image. It verifies that staff, ops, integration, and database container identities/images
+image. Test containers mount the deploy tree read-only so repository migration checks
+use the same files as the release. Backup/install stage bars show completed stages;
+long commands report elapsed time every five seconds, and the dump reports bytes
+written. The stage bar is not a forecast of remaining time. It verifies that staff, ops, integration, and database container identities/images
 did not change. New tables are retained on rollback, so no newly captured data is deleted.
 Existing canonical contact tables must already be installed.
 
@@ -116,3 +119,13 @@ The workspace checks cover inference order/retraction/evidence, cousins/grandpar
 uncertain matching, leap-year recurrence, advance notice and handled dates, CSRF/read-only/
 automation denial, personal query ownership, display projection, portal expiry/escaping,
 Markdown ownership, and SMS claim/retry/uncertain acceptance handling. Existing module checks protect the surrounding integration paths.
+
+Deployment command checks (no live Docker/database needed):
+
+```sh
+python -m unittest discover -s deploy/tests -p test_workspace_deploy.py -v
+```
+
+These exercise archive bytes/validation, failed-test stopping, read-only migration mounts,
+stdin forwarding, elapsed/size reporting, dashboard-only restart, and a single rollback
+after live verification failure.
