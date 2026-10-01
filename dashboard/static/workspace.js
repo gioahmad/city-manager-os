@@ -392,7 +392,32 @@
       const controls=node('div',undefined,'row');
       if(calendar.ready)controls.append(button(calendar.connected?'Reconnect Outlook':'Connect Outlook',()=>safely(async()=>{const result=await act('MS_CALENDAR_CONNECT',{},false);location.assign(result.redirect_url);}), 'primary'));
       if(calendar.connected)controls.append(button('Refresh Outlook',()=>safely(()=>act('MS_CALENDAR_SYNC'))),button('Disconnect',()=>safely(async()=>{if(confirm('Disconnect Outlook and remove its imported appointments from this workspace?'))await act('MS_CALENDAR_DISCONNECT');})));
-      …491 tokens truncated…e').classList.contains('error')) notice('');
+      target.append(controls);
+    }
+    const sources=$('connections-list');sources.replaceChildren();
+    if(!state.connections.length)return empty(sources,'No registered sources. Add and test a feed above.');
+    for(const source of state.connections){const row=node('div',undefined,'entry'),body=node('div');body.append(node('h3',source.name),node('p',[source.active?'Active':'Paused',source.status || 'No health report',source.geography_scope].filter(Boolean).join(' · '),'muted small'));row.append(body,link('Manage ↗','/integrations/onboarding?q='+encodeURIComponent(source.name)));sources.append(row);}
+  }
+  function renderWorkFiltered() {
+    const search=$('work-search').value.trim().toLocaleLowerCase();
+    renderWork($('work-list'),state.work.filter(w=>!search || [w.title,w.address,w.assigned_to,w.next_action].join(' ').toLocaleLowerCase().includes(search)));
+  }
+  async function load(force = false) {
+    const view=activeView, windowValue=view==='today'?'24h':$('window').value;
+    const key=view+':'+period+':'+windowValue, request=++requestNumber;
+    requestController?.abort();
+    const cached=cache.get(key);
+    if (!force && cached && Date.now()-cached.at<20000) {
+      state=cached.data; indexRecords(); renderCurrent(); $('loading-indicator').hidden=true; return;
+    }
+    requestController=new AbortController(); $('loading-indicator').hidden=false;
+    try {
+      const response=await fetch('/workspace/api/state?'+new URLSearchParams({display:String(display),view,period,window:windowValue}),{signal:requestController.signal,cache:'no-store'});
+      if(!response.ok||!response.headers.get('content-type')?.includes('application/json')) throw new Error('Sign in again or check the database connection.');
+      const data=await response.json();
+      if (request !== requestNumber) return;
+      state=data; indexRecords(); cache.set(key,{at:Date.now(),data}); renderCurrent();
+      if ($('notice').classList.contains('error')) notice('');
     } catch(e) {
       if (e.name !== 'AbortError') {notice('Data may be stale. '+e.message,true); throw e;}
     } finally {if (request === requestNumber) $('loading-indicator').hidden=true;}
