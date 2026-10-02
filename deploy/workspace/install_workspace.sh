@@ -16,7 +16,7 @@ BEFORE="$(docker inspect --format '{{.Name}} {{.Id}} {{.Image}} {{.State.Running
 progress_step 1 8 "Database backup"
 bash "$REPO/deploy/postgis/backup.sh"
 progress_step 2 8 "Applying additive migrations"
-for migration in 036_brain.sql 037_workspace.sql 038_workspace_calendar.sql; do
+for migration in 036_brain.sql 037_workspace.sql 038_workspace_calendar.sql 039_workspace_inbox.sql; do
   run_with_progress "Migration $migration" "" docker exec -i citymanager-postgis sh -lc \
     'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
     < "$REPO/deploy/postgis/init/$migration"
@@ -29,7 +29,8 @@ progress_step 4 8 "Running release tests"
 run_with_progress "Release tests" "" "${COMPOSE[@]}" run --rm --no-deps -T \
   -v "$REPO/dashboard/tests:/app/tests:ro" -v "$REPO/deploy:/deploy:ro" \
   --entrypoint python citymanager-dashboard -m pytest -q \
-  tests/test_workspace.py tests/test_workspace_calendar.py tests/test_brain.py tests/test_global_share.py \
+  tests/test_workspace.py tests/test_workspace_calendar.py tests/test_workspace_hub.py tests/test_workspace_ingest.py \
+  tests/test_brain.py tests/test_global_share.py \
   tests/test_contact_directory_share.py tests/test_navigation_and_map_sharing.py \
   tests/test_executive_workflow.py tests/test_today_board.py
 progress_step 5 8 "Checking database grants and private login"
@@ -43,7 +44,9 @@ with db_conn() as c:
     for table in ('workspace_entities','workspace_relationships','workspace_dates','workspace_messages',
                   'workspace_personal_tasks','workspace_health','workspace_fasts','workspace_goals',
                   'workspace_calendar_auth','workspace_calendar_connections','workspace_calendar_events',
-                  'workspace_config','workspace_portals','workspace_portal_messages','workspace_dismissed','brain_notes'):
+                  'workspace_config','workspace_portals','workspace_portal_messages','workspace_dismissed','brain_notes',
+                  'workspace_documents','workspace_microsoft_mail','workspace_microsoft_contacts',
+                  'workspace_inbox_handled','workspace_context_links'):
         assert c.execute('SELECT to_regclass(%s) AS name',(table,)).fetchone()['name'], table
         assert c.execute('SELECT has_table_privilege(current_user,%s,%s) AS ok',
                          (table,'SELECT,INSERT,UPDATE,DELETE')).fetchone()['ok'], table
@@ -73,7 +76,8 @@ for attempt in range(30):
     except Exception:
         if attempt==29: raise
         time.sleep(1)
-for path in ('/workspace','/workspace/display','/workspace/api/state','/workspace/api/state?display=true'):
+for path in ('/workspace','/workspace/display','/workspace/api/state','/workspace/api/state?display=true',
+             '/workspace/api/hub','/workspace/api/hub?view=library'):
     req=urllib.request.Request('http://127.0.0.1:8000'+path,headers=headers)
     with urllib.request.urlopen(req,timeout=30) as r:
         body=r.read()

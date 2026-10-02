@@ -1,63 +1,84 @@
-# Private Outlook / Microsoft 365 calendar
+# Private Microsoft 365 connector
 
-This deployment supports an owner-private, read-only connection to one Microsoft account's
-primary calendar. Microsoft calendarView supplies individual occurrences in the next 30 days,
-including recurring meetings. Connecting performs an initial sync; Settings has Refresh,
-Reconnect, and Disconnect controls. Sync is explicit, not a new background poller.
-Google/iCloud and additional Microsoft calendars are not connected by this release.
+Our own connector imports email, contacts, and calendar events directly from Microsoft Graph.
+Each workspace login connects one Microsoft account with delegated **read** access. It imports
+up to 250 emails from **Inbox in the last 30 days**, up to 500 contacts from the **default contacts
+folder**, and occurrences from the **primary calendar in the next 30 days**. These are bounded
+working snapshots, not a complete mailbox backup. Message text is limited to 20,000 characters;
+email attachments, shared mailboxes, additional folders/calendars, and Microsoft writes are not
+included in this release. Use Open in Outlook for the full message or event.
 
-## One-time server setup
+Connecting performs the first sync. The private intake worker refreshes connected accounts
+approximately every 15 minutes. Settings offers Refresh, Reconnect, and Disconnect. Existing
+calendar-only connections retain their old consent and continue to sync; select Reconnect once
+to approve the new email/contact scopes. Import failures retain the previous successful snapshot.
 
-1. In Microsoft Entra, register an application with a **Web** redirect URI:
+## One-time Microsoft and server setup
+
+1. Open [Microsoft Entra](https://entra.microsoft.com/) → App registrations → New registration.
+   For your own Office 365 tenant, use the single-tenant audience and its Directory/tenant ID.
+   Register the **Web** redirect URI (not SPA):
    `https://YOUR-DASHBOARD-DOMAIN/workspace/calendar/microsoft/callback`.
-2. Select the account/tenant audience appropriate to your organization. The default tenant
-   is `organizations`; a specific tenant GUID can restrict the application to your directory.
-3. Add delegated Microsoft Graph `Calendars.ReadBasic` permission and `offline_access`.
-   Tenant policy may require administrator consent. No mail or calendar-write permission is used.
-4. Create a client secret. Put the **secret value**, app/client ID, and tenant in
-   `/opt/city-manager-os/dashboard/.env`, preserving all existing values:
+   An existing app registration used by our calendar connector can be reused.
+2. API permissions → Microsoft Graph → **Delegated permissions**: add `Mail.Read`, `Contacts.Read`,
+   `Calendars.ReadBasic`, and `offline_access`. Remove a default `User.Read` if this app is only
+   used by this connector. Tenant consent policy may require an administrator to grant consent.
+   No application-wide mailbox access, mail-send, or Microsoft-write permission is requested.
+3. Certificates & secrets → New client secret. Copy the **secret Value**, not its ID.
+4. Edit `/opt/city-manager-os/dashboard/.env` on the VPS. Preserve the other settings and keep
+   exactly one value for each key below; reuse the existing origin and encryption key if present:
 
    ```dotenv
    CMOS_PUBLIC_ORIGIN=https://YOUR-DASHBOARD-DOMAIN
    CMOS_MICROSOFT_CLIENT_ID=YOUR-APP-CLIENT-ID
    CMOS_MICROSOFT_CLIENT_SECRET=YOUR-SECRET-VALUE
-   CMOS_MICROSOFT_TENANT=organizations
+   CMOS_MICROSOFT_TENANT=YOUR-DIRECTORY-TENANT-ID
    CMOS_CALENDAR_KEY=YOUR-GENERATED-KEY
    ```
 
-   Generate the key on the VPS using Python's standard library:
+   Generate a key only if one does not already exist:
 
    ```sh
    python3 -c 'import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'
    ```
 
-   Keep the key private and back it up separately from database dumps. Tokens and PKCE
-   verifiers are encrypted using authenticated Fernet encryption with this key. Losing or
-   changing it requires reconnecting Microsoft accounts. Rotate client secrets before expiry.
-5. Run the pinned workspace installer after the environment is configured. It applies the
-   additive 038 migration and builds the encryption dependency into the dashboard image.
-6. In Workspace → Settings → Outlook, select **Connect Outlook**, sign in to the intended
-   Microsoft account, and approve read access. Each workspace login connects its own account.
+   Store credentials only on the server. Back up the encryption key separately from database
+   dumps. Changing it requires reconnecting accounts. Rotate client secrets before they expire.
+5. Run the pinned `deploy/intelligence/install_intelligence.sh` release command. This applies
+   additive migrations, validates a database backup, tests and restarts the dashboard, and starts
+   the separate private intake worker. Existing staff and alert/integration engines keep running.
+   If configuring credentials after installation, run the same pinned installer again so both
+   dashboard and worker receive the new environment.
+6. Open Workspace → Settings → Microsoft 365 → **Connect Microsoft 365**. Sign in to the intended
+   Office 365 account once. Open **Inbox**, select Microsoft email or Microsoft contacts, and review
+   the imports. Select **Import as private person** to add a contact to your People directory;
+   a valid birthday creates a private annual reminder. Unusual phone formats remain available in
+   the source preview for manual review. Confirm a number before using the existing SMS action.
 
-State is random, hashed at rest, bound to the current owner/session, expires after ten minutes,
-and is consumed once. PKCE protects the code exchange. Refresh credentials stay on the server;
-state APIs return only connection readiness and status, never tokens or client secrets.
-The callback requires the same signed-in workspace account. The existing private session
-cookie must be sent on Microsoft's top-level callback; cross-site cookie/proxy policies must
-allow this standard redirect. Token/Graph redirects are not followed. Pagination destinations
-are restricted to Microsoft's Graph host and capped at 1,000 events / ten pages.
+## Ownership and failure behavior
 
-Appointments are queried by owner. The TV API returns before any calendar queries; outsider
-request links cannot read appointments. Imported calendars are not copied to operational
-work, shared event intelligence, or notification recipients. Disconnect deletes the local
-connection and its imported events; it does not change Microsoft events. Microsoft consent
-can additionally be revoked in the user's account settings.
+Tokens and PKCE verifiers use authenticated Fernet encryption. OAuth state is random, hashed at
+rest, bound to the owner and signed session, expires in ten minutes, and is consumed once. The
+callback needs the same signed-in workspace session. Token and Graph redirects are never
+followed; pagination can send credentials only to `https://graph.microsoft.com/v1.0/`.
+Connection APIs return readiness, counts, and timestamps, never tokens or client secrets.
 
-If refresh fails, the previous snapshot remains and the interface marks it stale. A rotated
-refresh token is retained even when the subsequent event fetch fails. No partial event page
-replaces a complete snapshot. The connector stores only event title/time/location and the
-Outlook link, not bodies, attachments, attendee lists, or mail. All-day labels are shown as
-all-day; timed appointments use the workspace timezone.
+Every email/contact/calendar read is scoped to the workspace owner. TV views return before
+private queries; outside request portals have no access to the inbox or imports. A context link
+is private to its creator and never changes the visibility of the source or linked record.
+Contact import creates a separate PRIVATE workspace person; it does not overwrite canonical
+contacts, notification recipients, watches, or existing alert rules. Repeated import of the same
+Microsoft contact is idempotent. Later Microsoft refreshes update the import preview while
+preserving your edited People record. Family connections still require confirmed source facts.
+
+All three snapshots are normalized before they replace existing data. A provider error or
+failed page cannot publish a partial snapshot; rotated refresh tokens are preserved even if
+subsequent Graph reads fail. Email/contact provider keys are upserted so local IDs and context
+links survive refresh. Emails with confirmed context links and contact previews you imported into
+People are retained outside the current working window, so follow-ups keep their provenance;
+counts can include these retained sources. Disconnect removes local imported email, contact previews, and calendar
+events. People, birthday reminders, and follow-up tasks you explicitly created remain. Microsoft
+records are unchanged; revoke Microsoft consent separately in your Microsoft account if needed.
 
 ## Public town notice and event feeds
 
@@ -74,4 +95,6 @@ A town that offers only web pages or email notices still needs a verified adapte
 
 References:
 - https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow
-- https://learn.microsoft.com/en-us/graph/api/user-list-calendarview?view=graph-rest-1.0
+- https://learn.microsoft.com/en-us/graph/api/calendar-list-calendarview?view=graph-rest-1.0
+- https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0
+- https://learn.microsoft.com/en-us/graph/api/user-list-contacts?view=graph-rest-1.0
