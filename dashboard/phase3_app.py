@@ -26,6 +26,7 @@ import executive_workflow_app  # noqa: F401,E402
 import brain_app  # noqa: F401,E402
 import workspace_app  # noqa: F401,E402
 import workspace_calendar  # noqa: F401,E402
+import workspace_hub  # noqa: F401,E402
 
 from private_auth import configure_private_auth
 

@@ -20,7 +20,7 @@ is introduced.
 Install from a clean, pinned checkout:
 
 ```sh
-bash deploy/workspace/install_workspace.sh "$(git rev-parse HEAD)"
+bash deploy/intelligence/install_intelligence.sh "$(git rev-parse HEAD)"
 ```
 
 The installer backs up the database, applies additive 036/037 migrations, builds/tests the
@@ -156,3 +156,9 @@ Brain previews retain 1,200 characters with a link to full Brain. Full records r
 See `docs/workspace-calendar.md` for the Microsoft setup, ownership boundaries, sync behavior,
 and public town-feed onboarding. Microsoft credentials/account consent and verified town
 feed URLs are required to turn new external connections on.
+
+## Inbox and private knowledge intake
+
+See [intelligence-today.md](intelligence-today.md) for the unified inbox, same-page source previews,
+private context links, bulk document/data extraction, worker status, and optional local answers.
+Microsoft 365 email/contact/calendar setup is in [workspace-calendar.md](workspace-calendar.md).

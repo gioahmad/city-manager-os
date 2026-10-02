@@ -14,6 +14,7 @@ from pathlib import Path
 a=sys.argv[1:]
 with open(os.environ['MOCK_LOG'],'a') as f:f.write(json.dumps(a)+'\\n')
 if a[0]=='inspect':
+ if 'citymanager-intake' in a and os.environ.get('NO_WORKER'):sys.exit(1)
  if '{{.Config.Image}}' in a:print('test/dashboard:latest')
  elif '{{.Image}}' in a:print('sha256:previous')
  else:print('protected services unchanged')
@@ -25,6 +26,7 @@ elif a[0]=='exec':
  else:
   body=sys.stdin.read();assert body
   if 'citymanager-dashboard' in a:sys.exit(int(os.environ.get('FAIL_LIVE','0')))
+  if 'citymanager-intake' in a:sys.exit(int(os.environ.get('FAIL_WORKER','0')))
 elif a[0]=='compose' and 'pytest' in a:
  mounts=[a[i+1] for i,x in enumerate(a) if x=='-v']
  deploy=next(x for x in mounts if x.endswith(':/deploy:ro'))
@@ -72,6 +74,20 @@ class ReleaseCommands(unittest.TestCase):
   tags=[a for a in self.commands() if a[:2]==['image','tag']];self.assertEqual(tags,[['image','tag','sha256:previous','test/dashboard:latest']])
   self.assertEqual(len([a for a in self.commands() if 'up' in a]),2)
   self.assertNotIn(b'8/8 stages complete',r.stderr)
+ def test_intelligence_release_adds_only_the_private_worker(self):
+  r=self.run_script('deploy/intelligence/install_intelligence.sh');self.assertEqual(r.returncode,0,r.stderr.decode())
+  ups=[a for a in self.commands() if 'up' in a]
+  self.assertEqual([a[-1] for a in ups],['citymanager-dashboard','citymanager-intake'])
+  self.assertTrue(all('--no-deps' in a for a in ups))
+ def test_intake_failure_restores_existing_worker_and_retains_dashboard(self):
+  r=self.run_script('deploy/intelligence/install_intelligence.sh',FAIL_WORKER='7');self.assertNotEqual(r.returncode,0)
+  ups=[a for a in self.commands() if 'up' in a]
+  self.assertEqual([a[-1] for a in ups],['citymanager-dashboard','citymanager-intake','citymanager-intake'])
+  self.assertIn(b'verified dashboard remains installed',r.stdout)
+ def test_intake_failure_removes_only_new_worker(self):
+  r=self.run_script('deploy/intelligence/install_intelligence.sh',FAIL_WORKER='7',NO_WORKER='1');self.assertNotEqual(r.returncode,0)
+  removals=[a for a in self.commands() if 'rm' in a]
+  self.assertEqual(len(removals),1);self.assertEqual(removals[0][-1],'citymanager-intake')
  def test_progress_keeps_stdin_and_reports_growth(self):
   output=Path(self.temp.name)/'growing'
   script='source "$1"; run_with_progress "slow dump" "$2" python -c \'import sys,time; assert sys.stdin.read()=="forwarded\\n";sys.stdout.buffer.write(b"abc");sys.stdout.flush();time.sleep(6)\' > "$2"'

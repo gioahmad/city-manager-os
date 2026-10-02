@@ -8,7 +8,7 @@
   let state = {}, selected, period = 'day', scope = 'both', activeView = 'today';
   let requestController, requestNumber = 0, saving = false;
   const cache = new Map(), initializedForms = new Set(), recordIndex = new Map(), formatters = new Map();
-  const views = ['today','intelligence','work','brain','people','dates','settings'];
+  const views = ['inbox','library','today','intelligence','work','brain','people','dates','settings'];
   document.body.classList.toggle('display', display);
   document.body.classList.toggle('readonly', readonly);
   function node(tag, value, cls) {
@@ -77,7 +77,7 @@
       if (b.dataset.view === view) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
     });
-    $('breadcrumb').textContent = ({today:'Today',intelligence:'Area intelligence',work:'Work & requests',brain:'Brain',people:'People & places',dates:'Important dates',settings:'Settings'})[view];
+    $('breadcrumb').textContent = ({inbox:'Inbox',library:'Library',today:'Today',intelligence:'Area intelligence',work:'Work & requests',brain:'Brain',people:'People & places',dates:'Important dates',settings:'Settings'})[view];
     if (updateHash && !display && location.hash !== '#' + view) history.pushState(null, '', '#' + view);
     closeNavigation();
     return load();
@@ -180,7 +180,7 @@
     showScope();
   }
   function updateTimer() {
-    if (!state || display) return;
+    if (!state || !state.fast || display) return;
     if (!state.fast.id) { $('fast-timer').textContent = 'Not running'; return; }
     const minutes = Math.max(0, Math.floor((Date.now() - new Date(state.fast.started_at))/60000));
     $('fast-timer').textContent = Math.floor(minutes/60) + 'h ' + minutes%60 + 'm';
@@ -387,11 +387,16 @@
   function renderConnections() {
     const target=$('calendar-connection');target.replaceChildren();const calendar=state.calendar;
     target.append(node('p',calendar.connected?'Connected · last sync '+formatTime(calendar.last_sync_at):calendar.ready?'Ready to connect your Microsoft account.':'Microsoft app setup is required before you can connect.','connection-status'));
+    if(calendar.connected) {
+      target.append(node('p',(calendar.mail_enabled?String(calendar.mail_count || 0)+' emails':'Email needs new consent')+' · '+(calendar.contacts_enabled?String(calendar.contact_count || 0)+' contact previews':'Contacts need new consent')+' · primary calendar','muted small'));
+      if (!calendar.mail_enabled || !calendar.contacts_enabled)target.append(node('p','Reconnect to approve email and contact imports. Your existing calendar connection continues to work.','muted small'));
+      target.append(link('Review imports in Inbox →','/workspace#inbox'));
+    }
     if(calendar.sync_error)target.append(node('p','Outlook could not refresh. Retry or reconnect; the previous snapshot is retained.','muted small'));
     if(!readonly) {
       const controls=node('div',undefined,'row');
-      if(calendar.ready)controls.append(button(calendar.connected?'Reconnect Outlook':'Connect Outlook',()=>safely(async()=>{const result=await act('MS_CALENDAR_CONNECT',{},false);location.assign(result.redirect_url);}), 'primary'));
-      if(calendar.connected)controls.append(button('Refresh Outlook',()=>safely(()=>act('MS_CALENDAR_SYNC'))),button('Disconnect',()=>safely(async()=>{if(confirm('Disconnect Outlook and remove its imported appointments from this workspace?'))await act('MS_CALENDAR_DISCONNECT');})));
+      if(calendar.ready)controls.append(button(calendar.connected?'Reconnect Microsoft 365':'Connect Microsoft 365',()=>safely(async()=>{const result=await act('MS_CALENDAR_CONNECT',{},false);location.assign(result.redirect_url);}), 'primary'));
+      if(calendar.connected)controls.append(button('Refresh Microsoft 365',()=>safely(()=>act('MS_CALENDAR_SYNC'))),button('Disconnect',()=>safely(async()=>{if(confirm('Disconnect Microsoft 365 and remove imported email, contact previews, and appointments? People and tasks you created will remain.'))await act('MS_CALENDAR_DISCONNECT');})));
       target.append(controls);
     }
     const sources=$('connections-list');sources.replaceChildren();
@@ -406,6 +411,13 @@
     const view=activeView, windowValue=view==='today'?'24h':$('window').value;
     const key=view+':'+period+':'+windowValue, request=++requestNumber;
     requestController?.abort();
+    if (view==='inbox' || view==='library') {
+      const data=await window.CmosHub.load(view,force);
+      if (request!==requestNumber || !data) return;
+      state=data; $('workspace-name').textContent=data.config.name; $('organization').textContent=data.config.organization;
+      $('refresh-time').textContent=formatTime(data.refreshed_at);$('loading-indicator').hidden=true;return;
+    }
+    window.CmosHub.leave();
     const cached=cache.get(key);
     if (!force && cached && Date.now()-cached.at<20000) {
       state=cached.data; indexRecords(); renderCurrent(); $('loading-indicator').hidden=true; return;
@@ -426,6 +438,9 @@
     recordIndex.clear();
     for (const e of state.entities || []) {e.searchText=(e.name+' '+JSON.stringify(e.attributes)).toLocaleLowerCase();recordIndex.set(e.id,e);}
   }
+  window.CmosHub.init({notice,navigate,clearCache:()=>cache.clear()});
+  $('global-search').addEventListener('click',()=>safely(async()=>{$('inbox-filters').elements.bucket.value='all';$('inbox-filters').elements.scope.value='both';$('inbox-filters').elements.source.value='';await navigate('inbox');$('inbox-query').focus();}));
+  document.addEventListener('keydown',e=>{if(!display && (e.ctrlKey || e.metaKey) && e.key.toLowerCase()==='k'){e.preventDefault();$('global-search').click();}});
   all('[data-view]').forEach(b=>b.addEventListener('click',()=>safely(()=>navigate(b.dataset.view))));
   all('[data-open]').forEach(b=>b.addEventListener('click',()=>safely(()=>navigate(b.dataset.open))));
   all('[data-scope]').forEach(b=>b.addEventListener('click',()=>{scope=b.dataset.scope;showScope();}));
