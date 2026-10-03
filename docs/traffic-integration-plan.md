@@ -41,3 +41,7 @@ This assumes one request per listed resource and no extra pagination or map-tile
 - Render snapshots in Area intelligence and the existing map without changing base-map layers, watch matching, alert delivery, or recipients. Add no traffic-triggered notifications until explicitly configured.
 - Public/TV output contains traffic snapshots only, never personal inbox, contact, or health content.
 - Verify 1,000 dashboard visits produce zero additional provider requests; verify two workers claim one poll; verify retries and restart cannot bypass the daily cap; verify failure and exhausted quota display stale data.
+
+## Presentation settings
+
+Settings → Appearance is stored in the existing `workspace_config.settings.appearance` object. An executive can save Light, Dark, or Automatic mode, a validated six-digit accent color, and one of four built-in font families. No remote font services are loaded. New and existing screens load the presentation through the shared stylesheet/script; staff and login screens receive only the public theme, font, and accent values from `/appearance`. That endpoint never returns organization details, account data, private records, or connector configuration. Changes appear on other devices when they next load a screen. Local preview can be cancelled without changing the stored configuration; saving ordinary organization settings preserves appearance.
