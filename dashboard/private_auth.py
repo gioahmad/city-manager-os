@@ -34,6 +34,7 @@ _ADMIN_WRITE_PREFIXES = (
 
 _PUBLIC_PATHS = {
     "/health",
+    "/appearance",
     "/login",
     "/logout",
 }

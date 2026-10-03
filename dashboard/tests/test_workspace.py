@@ -229,3 +229,37 @@ def test_all_original_navigation_links_survive_in_workspace(client,monkeypatch):
     current=set(re.findall(r'<a[^>]+href="([^"]+)"',response.text))
     assert old<=current,old-current
     assert 'All tools' in response.text
+
+
+def test_appearance_validation_and_atomic_settings_preservation(monkeypatch):
+    from types import SimpleNamespace
+    assert ws.appearance_values({'theme':'dark','font':'serif','accent':'#AaBBcc'})=={'theme':'dark','font':'serif','accent':'#aabbcc'}
+    for bad in ({'theme':'other'}, {'font':'url(https://example.com)'}, {'accent':'red; background:url(x)'}):
+        with pytest.raises(ws.HTTPException): ws.appearance_values(bad)
+    statements=[]
+    class Conn:
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def execute(self,sql,args):statements.append((sql,args))
+    monkeypatch.setattr(ws,'db_conn',Conn)
+    request=SimpleNamespace(state=SimpleNamespace(cmos_role='EXECUTIVE'))
+    ws.action('gio',{'action':'APPEARANCE','theme':'dark','font':'serif','accent':'#286b57'},request)
+    assert "jsonb_set(settings,'{appearance}',%s)" in statements[0][0]
+    assert statements[0][1][0].obj=={'theme':'dark','font':'serif','accent':'#286b57'}
+    ws.action('gio',{'action':'CONFIG','name':'City Manager OS','organization':'Weehawken','timezone':'America/New_York'},request)
+    assert 'settings=settings || %s::jsonb' in statements[-1][0]
+    request.state.cmos_role='SUPERVISOR'
+    with pytest.raises(ws.HTTPException) as error:ws.action('reader',{'action':'APPEARANCE'},request)
+    assert error.value.status_code==403
+    assert len(statements)==2
+
+
+def test_public_appearance_exposes_only_validated_presentation(monkeypatch):
+    monkeypatch.setattr(ws,'config',lambda:{'appearance':{'theme':'light','font':'mono','accent':'#4363a4'},'organization':'private','secret':'hidden'})
+    app=FastAPI();app.router.routes.extend(r for r in ws.app.routes if getattr(r,'path','')=='/appearance')
+    auth.configure_private_auth(app)
+    with TestClient(app) as c:
+        result=c.get('/appearance')
+        assert result.status_code==200
+        assert result.json()=={'theme':'light','font':'mono','accent':'#4363a4'}
+        assert result.headers['cache-control']=='no-store'

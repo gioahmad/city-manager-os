@@ -31,6 +31,26 @@ def config():
     return {**DEFAULT_CONFIG,**(row.get('settings') or {})}
 
 
+DEFAULT_APPEARANCE={'theme':'system','accent':'#4363a4','font':'system'}
+
+
+def appearance_values(value):
+    if not isinstance(value,dict): raise HTTPException(400,'Choose valid appearance settings')
+    theme=value.get('theme','system');font=value.get('font','system');accent=value.get('accent','#4363a4')
+    if theme not in {'system','light','dark'} or font not in {'system','humanist','serif','mono'}:
+        raise HTTPException(400,'Choose a listed theme and font')
+    if not isinstance(accent,str) or not re.fullmatch(r'#[0-9a-fA-F]{6}',accent):
+        raise HTTPException(400,'Choose a valid six-digit accent color')
+    return {'theme':theme,'accent':accent.lower(),'font':font}
+
+
+@app.get('/appearance')
+def appearance_settings():
+    # Public presentation only, including staff/login screens. No other configuration is exposed.
+    value=appearance_values(config().get('appearance',DEFAULT_APPEARANCE))
+    return JSONResponse(value,headers={'Cache-Control':'no-store'})
+
+
 def visible(row, owner, display=False):
     return row['visibility']=='WORK' or (not display and row['owner_username']==owner)
 
@@ -371,6 +391,10 @@ def action(owner,d,request):
             else:
                 conn.execute("INSERT INTO workspace_portal_messages(portal_id,author,body) VALUES(%s,'STAFF',%s)",
                              (portal['id'],text(d['body'],4000,True)))
+        elif kind=='APPEARANCE':
+            if request.state.cmos_role!='EXECUTIVE': raise HTTPException(403,'Executive settings only')
+            value=appearance_values(d)
+            conn.execute("UPDATE workspace_config SET settings=jsonb_set(settings,'{appearance}',%s) WHERE singleton=true",(Jsonb(value),))
         elif kind=='CONFIG':
             if request.state.cmos_role!='EXECUTIVE': raise HTTPException(403,'Executive settings only')
             zone=text(d.get('timezone'),100,True); ZoneInfo(zone)
@@ -378,7 +402,7 @@ def action(owner,d,request):
             if template not in {'CITY','BUSINESS','PERSONAL'}: raise HTTPException(400,'Choose a template')
             settings={'name':text(d.get('name'),60,True),'organization':text(d.get('organization'),100,True),
                       'timezone':zone,'template':template,'personal':bool(d.get('personal',True))}
-            conn.execute('UPDATE workspace_config SET settings=%s WHERE singleton=true',(Jsonb(settings),))
+            conn.execute('UPDATE workspace_config SET settings=settings || %s::jsonb WHERE singleton=true',(Jsonb(settings),))
         else: raise HTTPException(400,'Unknown workspace action')
 
 
