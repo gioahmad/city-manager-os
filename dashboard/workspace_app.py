@@ -94,9 +94,11 @@ def attributes(data):
 def intelligence(window='24h'):
     if window not in WINDOWS:
         raise HTTPException(400,'Choose a valid time window')
-    where='TRUE' if window=='all' else 'received_at >= now()-%s::interval'
-    rows=query_all(f'''SELECT id,alert_id,title,source,municipality,priority,status,received_at
-        FROM alerts WHERE {where} ORDER BY received_at DESC LIMIT 80''',
+    where='TRUE' if window=='all' else 'coalesce(observed_at,received_at) >= now()-%s::interval'
+    rows=query_all(f'''SELECT id,alert_id,title,source,municipality,priority,status,
+               coalesce(observed_at,received_at) AS activity_at,received_at
+        FROM alerts WHERE {where}
+        ORDER BY coalesce(observed_at,received_at) DESC,received_at DESC LIMIT 80''',
         () if window=='all' else (WINDOWS[window],))
     health=query_all('''SELECT source_id,status,last_success_at,last_event_at FROM source_health
         ORDER BY source_id LIMIT 100''')
