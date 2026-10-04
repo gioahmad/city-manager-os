@@ -1485,17 +1485,24 @@ def alerts_bulk_action(
     window: str = Form("7d"),
     custom_hours: int = Form(12),
     min_priority: int = Form(1),
+    shift_minutes: int = Form(0),
 ):
     try:
         action = action.strip().lower()
-        if action not in {"resolve", "delete"}:
-            raise HTTPException(400, "Choose Mark Resolved or Delete Permanently")
+        if action not in {"resolve", "delete", "shift_time"}:
+            raise HTTPException(400, "Choose Mark Resolved, Shift Activity Time, or Delete Permanently")
         selection_scope = selection_scope.strip().lower()
         if selection_scope not in {"selected", "matching"}:
             raise HTTPException(400, "Choose selected alerts or all matching search results")
         role = str(getattr(request.state, "cmos_role", "") or "").upper()
-        if action == "delete" and role and role != "EXECUTIVE":
-            raise HTTPException(403, "Only an Executive user can permanently delete alerts")
+        if action in {"delete","shift_time"} and role != "EXECUTIVE":
+            raise HTTPException(403, "Only an Executive user can permanently delete alerts or correct stored alert times")
+        if action == "shift_time":
+            shift_minutes = max(-43200, min(int(shift_minutes), 43200))
+            if shift_minutes == 0:
+                raise HTTPException(400, "Enter a non-zero number of minutes to shift selected alerts")
+            if selection_scope != "selected":
+                raise HTTPException(400, "Time shifting is limited to explicitly selected alerts")
 
         selected = list(dict.fromkeys(alert_ids))
         clause = ""
@@ -1574,6 +1581,34 @@ def alerts_bulk_action(
                         ([str(alert_id) for alert_id in found],),
                     )
                     cur.execute("DELETE FROM alerts WHERE id=ANY(%s::uuid[])", (found,))
+                elif action == "shift_time":
+                    delivery_total = 0
+                    actor = str(getattr(request.state, "cmos_user", "") or "executive")[:120]
+                    cur.execute(
+                        """
+                        UPDATE alerts a SET
+                          observed_at=coalesce(a.observed_at,a.received_at)+(%s * interval '1 minute'),
+                          metadata=jsonb_set(
+                            coalesce(a.metadata,'{}'::jsonb),
+                            '{time_corrections}',
+                            coalesce(a.metadata->'time_corrections','[]'::jsonb) ||
+                              jsonb_build_array(jsonb_build_object(
+                                'corrected_at',now(),
+                                'corrected_by',%s,
+                                'reason','Bulk activity-time shift',
+                                'shift_minutes',%s,
+                                'prior_observed_at',a.observed_at,
+                                'prior_received_at',a.received_at,
+                                'new_activity_at',coalesce(a.observed_at,a.received_at)+(%s * interval '1 minute'),
+                                'new_received_at',a.received_at
+                              )),
+                            true
+                          ),
+                          updated_at=now()
+                        WHERE a.id=ANY(%s::uuid[])
+                        """,
+                        (shift_minutes, actor, shift_minutes, shift_minutes, found),
+                    )
                 else:
                     delivery_total = 0
                     cur.execute(
@@ -1592,6 +1627,9 @@ def alerts_bulk_action(
                 f"{delivery_total} related Notification record{'s' if delivery_total != 1 else ''}. "
                 "A live source may send the alert again."
             )
+        elif action == "shift_time":
+            direction = "forward" if shift_minutes > 0 else "back"
+            message = f"Shifted activity time {direction} {abs(shift_minutes)} minute{'s' if abs(shift_minutes) != 1 else ''} on {len(found)} alert{'s' if len(found) != 1 else ''}. Received timestamps were not changed."
         else:
             message = f"Marked {len(found)} alert{'s' if len(found) != 1 else ''} resolved. History was kept."
         return _alerts_redirect(return_to, message=message)
@@ -1626,12 +1664,12 @@ def _global_search_rows(q: str, scope: str):
         SELECT 'Alerts'::text AS section, 'ALERT'::text AS result_type,
                a.title, left(a.message,240) AS summary,
                concat_ws(' · ',a.source,a.category,nullif(a.municipality,'')) AS context,
-               a.alert_id AS result_id, a.received_at AS happened_at
+               a.alert_id AS result_id, coalesce(a.observed_at,a.received_at) AS happened_at
         FROM alerts a
         WHERE coalesce(a.search_text,'') ILIKE %s OR a.title ILIKE %s
            OR a.message ILIKE %s OR a.source ILIKE %s OR a.category ILIKE %s
            OR coalesce(a.municipality,'') ILIKE %s OR a.alert_id ILIKE %s
-        ORDER BY a.received_at DESC
+        ORDER BY coalesce(a.observed_at,a.received_at) DESC,a.received_at DESC
         LIMIT 12
         """,
         [needle] * 7,
