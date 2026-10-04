@@ -69,7 +69,7 @@
       <a href="{{ row.url }}" {% if row.url.startswith('/context/') %}data-cmos-quicklook data-cmos-title="{{ row.title }}"{% endif %}>
         <span class="cmos-action-kind {{ row.kind|lower }}">{{ row.kind }}</span>
         <span><strong>{{ row.title }}</strong><small>{{ row.detail }}</small></span>
-        <time>{{ row.happened_at.strftime('%m/%d/%Y %I:%M %p') if row.happened_at and row.happened_at.strftime is defined else row.happened_at or '' }}</time>
+        <time>{{ row.happened_at.strftime('%m/%d/%Y %I:%M %p') if row.happened_at else '' }}</time>
       </a>
       {% endfor %}
     </div>
