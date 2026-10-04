@@ -10,7 +10,9 @@
   <link rel="stylesheet" href="/static/map.css?v=20260921-9">
   <link rel="stylesheet" href="/static/map_status.css?v=20260909-1">
 </head>
-<body>
+{% set embedded = request.query_params.get('embed') == '1' %}
+<body class="{{ 'embedded-map' if embedded else '' }}">
+{% if not embedded %}
 <header class="topbar">
   <div class="brand">
     <div class="eyebrow">GIS · OPERATIONS · INTELLIGENCE</div>
@@ -19,6 +21,7 @@
   </div>
 </header>
 {% include "nav.html" %}
+{% endif %}
 <main class="map-main">
   {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
   <section class="map-shell" id="map-shell">
