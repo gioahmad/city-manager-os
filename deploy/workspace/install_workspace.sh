@@ -10,6 +10,8 @@ progress_step 0 8 "Checking release and current services"
 COMPOSE=(docker compose -f "$REPO/dashboard/docker-compose.yml")
 OLD_IMAGE="$(docker inspect citymanager-dashboard --format '{{.Image}}')"
 OLD_IMAGE_NAME="$(docker inspect citymanager-dashboard --format '{{.Config.Image}}')"
+ROLLBACK_IMAGE="citymanager-dashboard:rollback-${EXPECTED:0:12}"
+docker image tag "$OLD_IMAGE" "$ROLLBACK_IMAGE"
 PRESERVED=(citymanager-staff citymanager-ops-engine citymanager-integration-engine citymanager-postgis)
 BEFORE="$(docker inspect --format '{{.Name}} {{.Id}} {{.Image}} {{.State.Running}}' "${PRESERVED[@]}")"
 
@@ -60,7 +62,7 @@ print('WORKSPACE DATABASE AND LOGIN: PASS')
 PY
 rollback(){
   trap - ERR
-  docker image tag "$OLD_IMAGE" "$OLD_IMAGE_NAME"
+  docker image tag "$ROLLBACK_IMAGE" "$OLD_IMAGE_NAME"
   "${COMPOSE[@]}" up -d --no-deps --force-recreate citymanager-dashboard
   echo 'Workspace verification failed; previous dashboard restored. Additive tables retained.'
   exit 1
@@ -99,5 +101,6 @@ PY
 AFTER="$(docker inspect --format '{{.Name}} {{.Id}} {{.Image}} {{.State.Running}}' "${PRESERVED[@]}")"
 [[ "$BEFORE" == "$AFTER" ]] || { echo 'Protected service changed unexpectedly'; false; }
 trap - ERR
+docker image rm "$ROLLBACK_IMAGE" >/dev/null 2>&1 || true
 progress_step 8 8 "Workspace installation complete"
 echo 'Existing staff, alert engines, integration engine, and database containers preserved.'
