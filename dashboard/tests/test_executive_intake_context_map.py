@@ -280,3 +280,21 @@ def test_polished_templates_compile():
     environment.get_template("executive_changes.html")
     environment.get_template("executive_changes_strip.html")
     environment.get_template("context.html")
+
+
+def test_workspace_polish_uses_current_assets_and_alert_windows():
+    app=(ROOT/"workspace_app.py").read_text()
+    page=(ROOT/"templates"/"workspace.html").read_text()
+    nav=(ROOT/"templates"/"nav.html").read_text()
+    context=(ROOT/"templates"/"context.html").read_text()
+
+    for value in ("1h","2h","4h","6h","12h","24h","3d","7d","30d","all"):
+        assert f"'{value}'" in app
+        assert f'value="{value}"' in page
+    assert "People, places &amp; projects" in page
+    assert "workspace.js?v=20261004-2" in page
+    assert "workspace_hub.js?v=20261004-2" in page
+    assert "workspace.css?v=20261004-2" in page
+    assert "macro_layer.css?v=20261004-2" in nav
+    assert "macro_layer.js?v=20261004-2" in nav
+    assert "context.css?v=20261004-2" in context
