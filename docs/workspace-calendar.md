@@ -13,6 +13,25 @@ approximately every 15 minutes. Settings offers Refresh, Reconnect, and Disconne
 calendar-only connections retain their old consent and continue to sync; select Reconnect once
 to approve the new email/contact scopes. Import failures retain the previous successful snapshot.
 
+## Executive Intake
+
+Microsoft 365 remains delegated read-only. Synced email and primary-calendar occurrences are staged privately in **Executive Intake** at `/workspace#inbox`; they do not automatically become municipal records.
+
+For each staged email or calendar item the signed-in owner can explicitly:
+- create a private follow-up;
+- bring it into Command Center Work;
+- save it to Brain;
+- promote a calendar occurrence into Events Center;
+- create an Events Center item from an email by choosing start/end time;
+- confirm links to existing People, Places, Projects, Work, Events, documents, or other accessible records;
+- snooze it for later review;
+- mark it handled while retaining the Microsoft source snapshot;
+- open the original source in Outlook when Microsoft provides a safe HTTPS web link.
+
+Promoted records are linked back to the Microsoft source through `workspace_context_links`. Calendar rows have stable local UUIDs so confirmed links survive normal Microsoft refreshes. Stale unlinked calendar rows may age out of the bounded 30-day working snapshot; linked rows are retained for provenance.
+
+The main City Manager OS dashboard shows pending Microsoft email/calendar review counts and a short Executive Intake preview. The universal Context inspector can then follow confirmed links among intake sources, Work, Events, People/Places/Projects, Alerts, Watches, and spatial references.
+
 ## One-time Microsoft and server setup
 
 1. Open [Microsoft Entra](https://entra.microsoft.com/) → App registrations → New registration.
