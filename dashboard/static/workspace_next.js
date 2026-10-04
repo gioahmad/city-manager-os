@@ -18,6 +18,23 @@
     if(!r.ok)throw new Error('Request failed ('+r.status+')');
     return r.json();
   }
+  async function action(payload){
+    const r=await fetch('/api/workspace-next/action',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({...payload,csrf:document.body.dataset.csrf||''})
+    });
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(data.detail||'Action failed');
+    return data;
+  }
+  function localInput(value){
+    if(!value)return '';
+    const d=new Date(value);
+    if(Number.isNaN(d.getTime()))return '';
+    const pad=n=>String(n).padStart(2,'0');
+    return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+  }
   function setNav(view){
     state.view=view;
     document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
@@ -160,7 +177,17 @@
       document.querySelectorAll('[data-hub-kind]').forEach(b=>b.addEventListener('click',()=>{
         openSplit('Inbox · '+b.dataset.hubKind,
           '<div class="detail-wrap"><div class="detail-head"><div class="eyebrow">'+esc(b.dataset.hubKind)+'</div><h2>Inbox item</h2></div>'+
-          '<p class="muted">This item remains tied to its existing canonical record. Native triage actions will be added here without creating a second inbox.</p></div>');
+          '<section class="native-actions"><h3>Inbox</h3><button class="native-primary" id="handle-inbox">Mark handled</button><div class="native-status" id="native-status"></div></section>'+
+          '<p class="muted">The source record stays intact; handling only clears it from your active Inbox.</p></div>');
+        const handle=$('handle-inbox');
+        if(handle)handle.addEventListener('click',async()=>{
+          const status=$('native-status');if(status)status.textContent='Updating…';
+          try{
+            const r=await action({action:'INBOX_HANDLE',kind:b.dataset.hubKind,id:b.dataset.hubId,handled:true});
+            if(status)status.textContent=r.message||'Updated';
+            closeSplit();await load('open');
+          }catch(err){if(status)status.textContent=err.message;}
+        });
       }));
     }
     document.querySelectorAll('[data-bucket]').forEach(b=>b.addEventListener('click',()=>{
@@ -247,6 +274,81 @@
       '</div>'));
   }
 
+  function nativeControls(kind,id,o){
+    if(kind==='WORK'){
+      const statuses=['OPEN','IN_PROGRESS','ON_HOLD','RESOLVED','CLOSED'];
+      return '<section class="native-actions"><h3>Work controls</h3>'+
+        '<form id="work-edit-form" class="native-form">'+
+        '<label>Title<input name="title" value="'+esc(o.title||'')+'" required></label>'+
+        '<div class="native-grid"><label>Status<select name="status">'+statuses.map(x=>'<option '+(o.status===x?'selected':'')+'>'+x+'</option>').join('')+'</select></label>'+
+        '<label>Priority<input name="priority" type="number" min="1" max="5" value="'+esc(o.priority||3)+'"></label></div>'+
+        '<label>Assigned to<input name="assigned_to" value="'+esc(o.assigned_to||'')+'"></label>'+
+        '<label>Next action<textarea name="next_action" rows="2">'+esc(o.next_action||'')+'</textarea></label>'+
+        '<label>Waiting on<input name="waiting_on" value="'+esc(o.waiting_on||'')+'"></label>'+
+        '<div class="native-grid"><label>Due<input name="due_at" type="datetime-local" value="'+esc(localInput(o.due_at))+'"></label>'+
+        '<label>Follow up<input name="follow_up_at" type="datetime-local" value="'+esc(localInput(o.follow_up_at))+'"></label></div>'+
+        '<button class="native-primary" type="submit">Save work</button></form>'+
+        (o.waiting_on?'<div class="native-inline"><button data-work-chased>Chased today</button><button data-work-response>Response received</button></div>':'')+
+        '<form id="work-note-form" class="native-form compact"><label>Add update<textarea name="note" rows="3" placeholder="Add a note or update…"></textarea></label><button type="submit">Add update</button></form>'+
+        '<div class="native-status" id="native-status"></div></section>';
+    }
+    if(kind==='ALERT'){
+      return '<section class="native-actions"><h3>Actions</h3><button class="native-primary" data-alert-work>Track as Work</button>'+
+        '<button data-open-map-internal>Open in Map</button><div class="native-status" id="native-status"></div></section>';
+    }
+    if(['PLACE','WATCH','EVENT'].includes(kind)){
+      return '<section class="native-actions"><h3>Actions</h3><button data-open-map-internal>Open in Map</button></section>';
+    }
+    return '';
+  }
+
+  function bindNativeActions(kind,id,o){
+    const status=$('native-status');
+    const show=message=>{if(status)status.textContent=message||'';};
+
+    const workForm=$('work-edit-form');
+    if(workForm)workForm.addEventListener('submit',async e=>{
+      e.preventDefault();show('Saving…');
+      const v=Object.fromEntries(new FormData(workForm).entries());
+      try{
+        const result=await action({action:'WORK_UPDATE',id,...v});
+        show(result.message||'Saved');
+        await openObject(kind,id,null);
+      }catch(err){show(err.message);}
+    });
+
+    const noteForm=$('work-note-form');
+    if(noteForm)noteForm.addEventListener('submit',async e=>{
+      e.preventDefault();show('Adding update…');
+      const note=String(new FormData(noteForm).get('note')||'');
+      try{
+        const result=await action({action:'WORK_NOTE',id,note});
+        show(result.message||'Added');
+        await openObject(kind,id,null);
+      }catch(err){show(err.message);}
+    });
+
+    const chased=document.querySelector('[data-work-chased]');
+    if(chased)chased.addEventListener('click',async()=>{
+      try{const r=await action({action:'WORK_CHASED',id});show(r.message);await openObject(kind,id,null);}catch(err){show(err.message);}
+    });
+    const response=document.querySelector('[data-work-response]');
+    if(response)response.addEventListener('click',async()=>{
+      try{const r=await action({action:'WORK_RESPONSE',id});show(r.message);await openObject(kind,id,null);}catch(err){show(err.message);}
+    });
+    const alertWork=document.querySelector('[data-alert-work]');
+    if(alertWork)alertWork.addEventListener('click',async()=>{
+      show('Creating Work item…');
+      try{
+        const r=await action({action:'ALERT_TO_WORK',id});
+        show(r.message||'Added to Work');
+        if(r.issue_id)await openObject('WORK',r.issue_id,null);
+      }catch(err){show(err.message);}
+    });
+    const mapButton=document.querySelector('[data-open-map-internal]');
+    if(mapButton)mapButton.addEventListener('click',()=>renderMap());
+  }
+
   async function openObject(kind,id,button){
     state.selected=kind+':'+id;
     document.querySelectorAll('.object-row').forEach(b=>b.classList.remove('active'));
@@ -280,9 +382,10 @@
         '<div class="detail-wrap"><div class="detail-head"><div class="eyebrow">'+esc(kind)+'</div><h2>'+esc(title)+'</h2>'+
         (subtitle?'<p class="muted small">'+esc(subtitle)+'</p>':'')+
         '<div class="detail-actions">'+
-        (data.map_url?'<a href="'+esc(data.map_url)+'">Full map ↗</a>':'')+
         (data.legacy_url?'<a href="'+esc(data.legacy_url)+'">Advanced controls ↗</a>':'')+
-        '</div></div><section class="context-section"><h3>Overview</h3><div class="field-grid">'+fields+'</div></section>'+related+'</div>');
+        '</div></div>'+nativeControls(kind,id,o)+
+        '<section class="context-section"><h3>Overview</h3><div class="field-grid">'+fields+'</div></section>'+related+'</div>');
+      bindNativeActions(kind,id,o);
     }catch(e){openSplit(kind,'<div class="detail-empty">'+esc(e.message)+'</div>');}
   }
 
