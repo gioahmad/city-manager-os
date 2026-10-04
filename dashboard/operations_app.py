@@ -2265,7 +2265,7 @@ def source_health_page(request: Request):
         "errors": sum(1 for row in rows if str(row.get("status") or "").upper() in {"ERROR","FAILED","DOWN","UNHEALTHY"}),
     }
     for row in rows:
-        row["alerts_url"] = f"/alerts?source={urlencode({'v': row['source_id']})[2:]}&window=7d&state=all"
+        row["alerts_url"] = f"/alerts?{urlencode({'source': row['source_id'], 'window': '7d', 'state': 'all'})}"
         row["search_url"] = f"/search?{urlencode({'q': row['source_id']})}"
     return templates.TemplateResponse(
         request=request,
