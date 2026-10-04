@@ -174,3 +174,7 @@ p{margin:0 0 9px}
 .native-inline{display:flex;gap:5px;margin-top:10px;flex-wrap:wrap}
 .native-status{min-height:15px;margin-top:8px;color:#7ea6d5;font-size:9px}
 @media(max-width:900px){.native-grid{grid-template-columns:1fr}}
+
+.row-button{width:100%;border:0;background:transparent;color:inherit;text-align:left}
+.row-button:hover{background:#1c2229}
+.preserve{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;line-height:1.55;color:#c6ced7}
