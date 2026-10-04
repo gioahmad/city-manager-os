@@ -1,5 +1,4 @@
 """Universal context inspector for connected City Manager OS records."""
-from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException, Request
@@ -56,7 +55,8 @@ def _link_row(owner: str, kind: str, record_id: UUID) -> list[dict]:
 def _alert_record(owner: str, record_id: UUID) -> dict:
     row = query_one(
         """SELECT a.id,a.alert_id,a.title,a.message,a.status,a.priority,a.source,a.category,a.subtype,
-                  a.municipality,a.county,a.received_at,a.updated_at,
+                  a.municipality,a.county,a.observed_at,a.received_at,
+                  coalesce(a.observed_at,a.received_at) AS activity_at,a.updated_at,
                   coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address','')) AS address,
                   coalesce((SELECT count(*) FROM alert_watch_matches m WHERE m.alert_id=a.id),0) AS match_count,
                   coalesce((SELECT count(*) FROM deliveries d WHERE d.alert_id=a.id),0) AS delivery_count,
@@ -260,7 +260,7 @@ def _context_insights(owner: str, kind: str, record_id: UUID, item: dict, relati
             {"label": "Updated", "value": item.get("updated_at") or "—"},
         ]
 
-    evidence.sort(key=lambda row: row.get("happened_at") or datetime.min, reverse=True)
+    evidence.sort(key=lambda row: str(row.get("happened_at") or ""), reverse=True)
     return metrics, evidence
 
 
