@@ -48,6 +48,21 @@
     </article>
   </section>
 
+  {% if item.links %}
+  <section class="panel context-relationships">
+    <div class="panel-head"><div><div class="panel-kicker">CONTEXT TIMELINE</div><h2>Connected activity</h2></div></div>
+    <div class="panel-body context-timeline">
+      {% for link in item.links|sort(attribute='updated_at', reverse=true) %}
+      <a href="/context/{{ link.kind }}/{{ link.id }}" data-cmos-quicklook data-cmos-title="{{ link.title }}">
+        <span class="cmos-action-kind {{ link.kind|lower }}">{{ link.kind }}</span>
+        <span><strong>{{ link.title }}</strong><small>{{ link.status }}{% if link.snippet %} · {{ link.snippet }}{% endif %}</small></span>
+        <time>{{ link.updated_at.strftime('%m/%d/%Y %I:%M %p') if link.updated_at else '' }}</time>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   {% if relationships %}
   <section class="panel context-relationships">
     <div class="panel-head"><div><div class="panel-kicker">RELATIONSHIPS</div><h2>People / places / projects</h2></div></div>
