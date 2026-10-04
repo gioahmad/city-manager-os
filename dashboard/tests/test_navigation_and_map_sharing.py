@@ -143,7 +143,7 @@ def test_alert_layer_endpoint_applies_every_display_filter(monkeypatch):
 
     assert response.status_code == 200
     assert json.loads(response.body)["features"] == []
-    assert "a.received_at >= now()-(%s * interval '1 hour')" in captured["sql"]
+    assert "coalesce(a.observed_at,a.received_at) >= now()-(%s * interval '1 hour')" in captured["sql"]
     assert "upper(a.source)=upper(%s)" in captured["sql"]
     assert "upper(a.category)=upper(%s)" in captured["sql"]
     assert "a.status <> 'RESOLVED'" in captured["sql"]
