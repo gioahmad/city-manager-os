@@ -3,7 +3,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
 
-def test_workspace_next_is_parallel_read_layer():
+def test_workspace_next_has_unified_read_and_guarded_action_routes():
     source=(ROOT/"workspace_next_app.py").read_text()
     assert '@app.get("/workspace-next"' in source
     assert '@app.get("/api/workspace-next/home")' in source
@@ -11,7 +11,8 @@ def test_workspace_next_is_parallel_read_layer():
     assert '@app.get("/api/workspace-next/documents")' in source
     assert '@app.get("/api/objects/search")' in source
     assert '@app.get("/api/objects/{kind}/{object_id}")' in source
-    assert "@app.post(" not in source
+    assert '@app.post("/api/workspace-next/action")' in source
+    assert "_write(request" in source
 
 
 def test_unified_objects_preserve_authoritative_systems():
@@ -88,3 +89,20 @@ def test_map_uses_full_primary_window():
     js=(ROOT/"static"/"workspace_next.js").read_text()
     assert 'setPrimary(\'Map\'' in js
     assert 'src="/map?embed=1"' in js
+
+
+def test_native_actions_preserve_existing_work_concepts():
+    api=(ROOT/"workspace_next_app.py").read_text()
+    js=(ROOT/"static"/"workspace_next.js").read_text()
+    for action in ("WORK_UPDATE","WORK_NOTE","WORK_CHASED","WORK_RESPONSE","ALERT_TO_WORK","INBOX_HANDLE"):
+        assert action in api
+        assert action in js
+    assert "waiting_on_last_chased=now()" in api
+    assert "waiting_on_chase_count" in api
+    assert "workspace_inbox_handled" in api
+
+
+def test_native_map_action_stays_inside_shell():
+    js=(ROOT/"static"/"workspace_next.js").read_text()
+    assert "data-open-map-internal" in js
+    assert "renderMap()" in js
