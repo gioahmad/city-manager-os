@@ -70,6 +70,11 @@
     return '<div class="row-item"><div class="row-main">'+tag+'<strong>'+esc(title)+'</strong>'+
       (detail?'<p>'+esc(detail)+'</p>':'')+'</div>'+(meta?'<div class="row-meta">'+esc(meta)+'</div>':'')+'</div>';
   }
+  function clickRow(kind,id,title,detail,meta='',tag=''){
+    return '<button class="row-item row-button" data-object-kind="'+esc(kind)+'" data-object-id="'+esc(id)+'"><div class="row-main">'+tag+
+      '<strong>'+esc(title)+'</strong>'+(detail?'<p>'+esc(detail)+'</p>':'')+'</div>'+
+      (meta?'<div class="row-meta">'+esc(meta)+'</div>':'')+'</button>';
+  }
   function objectRows(items){
     if(!items.length)return '<div class="card-empty">Nothing matches this view.</div>';
     return items.map(item=>{
@@ -99,18 +104,18 @@
         '<div class="metric"><small>Exceptions</small><strong>'+esc(Number(c.failed_24h||0)+Number(c.unhealthy_sources||0))+
         '</strong><span>Delivery or source issues</span></div></div>';
 
-      const attention=(data.attention||[]).map(x=>rowItem(
-        x.title,x.next_action||x.waiting_on||x.address||x.status,when(x.updated_at),
+      const attention=(data.attention||[]).map(x=>clickRow(
+        'WORK',x.id,x.title,x.next_action||x.waiting_on||x.address||x.status,when(x.updated_at),
         badge(x.attention_reason,x.attention_reason==='OVERDUE'?'danger':x.attention_reason==='WAITING'?'warning':'')
       )).join('')||'<div class="card-empty">No urgent work exceptions.</div>';
 
-      const alerts=(data.alerts||[]).slice(0,8).map(x=>rowItem(
-        x.title,[x.source,x.municipality].filter(Boolean).join(' · '),when(x.received_at),
+      const alerts=(data.alerts||[]).slice(0,8).map(x=>clickRow(
+        'ALERT',x.id,x.title,[x.source,x.municipality].filter(Boolean).join(' · '),when(x.received_at),
         badge('P'+x.priority,x.priority>=4?'danger':'')
       )).join('')||'<div class="card-empty">No recent alerts.</div>';
 
-      const events=(data.events||[]).slice(0,7).map(x=>rowItem(
-        x.title,x.venue||x.address||x.municipality||x.event_type,when(x.starts_at),
+      const events=(data.events||[]).slice(0,7).map(x=>clickRow(
+        'EVENT',x.id,x.title,x.venue||x.address||x.municipality||x.event_type,when(x.starts_at),
         badge(x.impact_level||'EVENT')
       )).join('')||'<div class="card-empty">No upcoming events.</div>';
 
@@ -131,6 +136,7 @@
         (data.recent||[]).slice(0,9).map(x=>rowItem(x.title,x.detail,when(x.occurred_at),badge(x.kind))).join('')+
         '</div></section></div></div>';
       setPrimary('Home',wrap(html));
+      bindObjects();
       document.querySelectorAll('[data-jump]').forEach(b=>b.addEventListener('click',()=>openView(b.dataset.jump)));
       document.querySelectorAll('[data-kind-open]').forEach(b=>b.addEventListener('click',()=>loadKind(b.dataset.kindOpen,'operations')));
     }catch(e){
@@ -174,20 +180,31 @@
         '<button class="object-row" data-hub-kind="'+esc(x.kind)+'" data-hub-id="'+esc(x.id)+'"><span class="object-kind">'+esc(x.kind)+'</span>'+
         '<span class="object-copy"><strong>'+esc(x.title)+'</strong><span>'+esc(x.snippet||'')+'</span></span><span class="object-meta">'+esc(x.status||'')+'</span></button>'
       ).join('')||'<div class="card-empty">Inbox is clear.</div>';
-      document.querySelectorAll('[data-hub-kind]').forEach(b=>b.addEventListener('click',()=>{
-        openSplit('Inbox · '+b.dataset.hubKind,
-          '<div class="detail-wrap"><div class="detail-head"><div class="eyebrow">'+esc(b.dataset.hubKind)+'</div><h2>Inbox item</h2></div>'+
-          '<section class="native-actions"><h3>Inbox</h3><button class="native-primary" id="handle-inbox">Mark handled</button><div class="native-status" id="native-status"></div></section>'+
-          '<p class="muted">The source record stays intact; handling only clears it from your active Inbox.</p></div>');
-        const handle=$('handle-inbox');
-        if(handle)handle.addEventListener('click',async()=>{
-          const status=$('native-status');if(status)status.textContent='Updating…';
-          try{
-            const r=await action({action:'INBOX_HANDLE',kind:b.dataset.hubKind,id:b.dataset.hubId,handled:true});
-            if(status)status.textContent=r.message||'Updated';
-            closeSplit();await load('open');
-          }catch(err){if(status)status.textContent=err.message;}
-        });
+      document.querySelectorAll('[data-hub-kind]').forEach(b=>b.addEventListener('click',async()=>{
+        openSplit('Inbox · '+b.dataset.hubKind,'<div class="detail-empty">Loading…</div>');
+        try{
+          const d=await api('/api/workspace-next/hub/'+encodeURIComponent(b.dataset.hubKind)+'/'+encodeURIComponent(b.dataset.hubId));
+          const item=d.item||{};
+          const links=(d.links||[]).map(x=>'<div class="related"><strong>'+esc(x.title)+'</strong><p>'+esc(x.kind)+'</p></div>').join('');
+          const suggestions=(d.suggestions||[]).map(x=>'<div class="related"><strong>'+esc(x.title)+'</strong><p>'+esc(x.evidence||'Possible connection')+'</p></div>').join('');
+          openSplit(item.title||('Inbox · '+b.dataset.hubKind),
+            '<div class="detail-wrap"><div class="detail-head"><div class="eyebrow">'+esc(item.kind||b.dataset.hubKind)+'</div><h2>'+esc(item.title||'Inbox item')+'</h2>'+
+            '<p class="muted small">'+esc(item.status||'')+'</p></div>'+
+            '<section class="native-actions"><h3>Inbox</h3><button class="native-primary" id="handle-inbox">Mark handled</button><div class="native-status" id="native-status"></div></section>'+
+            '<section class="context-section"><h3>Content</h3><p class="preserve">'+esc(item.body||item.snippet||'')+'</p></section>'+
+            (links?'<section class="context-section"><h3>Linked context</h3>'+links+'</section>':'')+
+            (suggestions?'<section class="context-section"><h3>Possible connections</h3>'+suggestions+'</section>':'')+
+            '</div>');
+          const handle=$('handle-inbox');
+          if(handle)handle.addEventListener('click',async()=>{
+            const status=$('native-status');if(status)status.textContent='Updating…';
+            try{
+              const r=await action({action:'INBOX_HANDLE',kind:b.dataset.hubKind,id:b.dataset.hubId,handled:true});
+              if(status)status.textContent=r.message||'Updated';
+              closeSplit();await load('open');
+            }catch(err){if(status)status.textContent=err.message;}
+          });
+        }catch(err){openSplit('Inbox','<div class="detail-empty">'+esc(err.message)+'</div>');}
       }));
     }
     document.querySelectorAll('[data-bucket]').forEach(b=>b.addEventListener('click',()=>{
@@ -205,11 +222,22 @@
       const q=$('doc-query')?.value||'';
       const data=await api('/api/workspace-next/documents?q='+encodeURIComponent(q));
       $('doc-list').innerHTML=(data.items||[]).map(x=>
-        '<button class="object-row" data-doc-title="'+esc(x.title)+'"><span class="object-kind">'+esc(x.kind)+'</span><span class="object-copy"><strong>'+
+        '<button class="object-row" data-doc-kind="'+esc(x.kind)+'" data-doc-id="'+esc(x.id)+'"><span class="object-kind">'+esc(x.kind)+'</span><span class="object-copy"><strong>'+
         esc(x.title)+'</strong><span>'+esc(x.snippet||'')+'</span></span><span class="object-meta">'+esc(x.status||'')+'</span></button>'
       ).join('')||'<div class="card-empty">No documents match.</div>';
-      document.querySelectorAll('[data-doc-title]').forEach(b=>b.addEventListener('click',()=>openSplit('Document',
-        '<div class="detail-wrap"><div class="detail-head"><div class="eyebrow">KNOWLEDGE</div><h2>'+esc(b.dataset.docTitle)+'</h2></div><p class="muted">Document detail and editing stay in this split as the native document surface is completed.</p></div>')));
+      document.querySelectorAll('[data-doc-kind]').forEach(b=>b.addEventListener('click',async()=>{
+        openSplit('Document','<div class="detail-empty">Loading…</div>');
+        try{
+          const d=await api('/api/workspace-next/hub/'+encodeURIComponent(b.dataset.docKind)+'/'+encodeURIComponent(b.dataset.docId));
+          const item=d.item||{};
+          const attachments=((item.metadata||{}).attachments||[]).map(a=>'<div class="related"><strong>'+esc(a.filename)+'</strong></div>').join('');
+          openSplit(item.title||'Document',
+            '<div class="detail-wrap"><div class="detail-head"><div class="eyebrow">'+esc(item.kind||'DOCUMENT')+'</div><h2>'+esc(item.title||'Document')+'</h2><p class="muted small">'+esc(item.status||'')+'</p></div>'+
+            '<section class="context-section"><h3>Content</h3><p class="preserve">'+esc(item.body||item.snippet||'')+'</p></section>'+
+            (attachments?'<section class="context-section"><h3>Attachments</h3>'+attachments+'</section>':'')+
+            '</div>');
+        }catch(err){openSplit('Document','<div class="detail-empty">'+esc(err.message)+'</div>');}
+      }));
     }
     await load();
     let t;$('doc-query').addEventListener('input',()=>{clearTimeout(t);t=setTimeout(load,220);});
