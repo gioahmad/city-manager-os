@@ -296,7 +296,12 @@
       return '<section class="native-actions"><h3>Actions</h3><button class="native-primary" data-alert-work>Track as Work</button>'+
         '<button data-open-map-internal>Open in Map</button><div class="native-status" id="native-status"></div></section>';
     }
-    if(['PLACE','WATCH','EVENT'].includes(kind)){
+    if(kind==='WATCH'){
+      return '<section class="native-actions"><h3>Watch controls</h3>'+
+        '<button class="native-primary" data-watch-toggle="'+(o.active?'pause':'reactivate')+'">'+(o.active?'Pause Watch':'Turn Watch On')+'</button>'+
+        '<button data-open-map-internal>Open in Map</button><div class="native-status" id="native-status"></div></section>';
+    }
+    if(['PLACE','EVENT'].includes(kind)){
       return '<section class="native-actions"><h3>Actions</h3><button data-open-map-internal>Open in Map</button></section>';
     }
     return '';
@@ -343,6 +348,15 @@
         const r=await action({action:'ALERT_TO_WORK',id});
         show(r.message||'Added to Work');
         if(r.issue_id)await openObject('WORK',r.issue_id,null);
+      }catch(err){show(err.message);}
+    });
+    const watchToggle=document.querySelector('[data-watch-toggle]');
+    if(watchToggle)watchToggle.addEventListener('click',async()=>{
+      show(watchToggle.dataset.watchToggle==='pause'?'Pausing Watch…':'Turning Watch on…');
+      try{
+        const r=await action({action:'WATCH_TOGGLE',id,state:watchToggle.dataset.watchToggle});
+        show(r.message||'Watch updated');
+        await openObject(kind,id,null);
       }catch(err){show(err.message);}
     });
     const mapButton=document.querySelector('[data-open-map-internal]');
