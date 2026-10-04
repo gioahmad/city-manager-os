@@ -10,6 +10,9 @@ services:
       DB_PORT: 5432
       DB_NAME: citymanager
       DB_USER: citymanager_app
+      DB_POOL_MIN: "${DB_POOL_MIN:-1}"
+      DB_POOL_MAX: "${DB_POOL_MAX:-6}"
+      DB_POOL_TIMEOUT: "${DB_POOL_TIMEOUT:-5}"
       TZ: "${APP_TIMEZONE:-America/New_York}"
       PGTZ: "${APP_TIMEZONE:-America/New_York}"
     command: [python, workspace_ingest.py]
