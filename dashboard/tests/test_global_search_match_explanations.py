@@ -74,7 +74,7 @@ def test_map_startup_avoids_full_extent_and_eager_flood_load():
     assert '"key": "flood"' in source
     flood_line = next(line for line in source.splitlines() if '"key": "flood"' in line)
     assert '"default_visible": False' in flood_line
-    assert "SELECT DISTINCT source FROM alerts" in source
+    assert "GROUP BY source" in source
     assert "SELECT DISTINCT category FROM alerts" in source
     assert "lower(fulladdr)>=lower(%s) AND lower(fulladdr)<lower(%s)" in source
     assert "parcel_identifier_sql" in source
