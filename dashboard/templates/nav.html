@@ -20,7 +20,8 @@
     <a href="/" class="{% if request.url.path == '/' %}active{% endif %}"><span>⌂</span>Overview</a>
     <a href="/my-day" class="{% if request.url.path.startswith('/my-day') %}active{% endif %}"><span>◷</span>My Day</a>
     <a href="/issues" class="{% if request.url.path.startswith('/issues') %}active{% endif %}"><span>✓</span>Command</a>
-    <a href="/inbox" class="{% if request.url.path.startswith('/inbox') %}active{% endif %}"><span>▣</span>Inbox</a>
+    <a href="/workspace#inbox" class="{% if request.url.path.startswith('/workspace') %}active{% endif %}"><span>▣</span>Intake</a>
+    <a href="/inbox" class="{% if request.url.path.startswith('/inbox') %}active{% endif %}"><span>↳</span>Capture Inbox</a>
     <a href="/brain" class="{% if request.url.path.startswith('/brain') %}active{% endif %}"><span>◉</span>Brain</a>
     <a href="/map" class="{% if request.url.path.startswith('/map') or request.url.path.startswith('/flood') %}active{% endif %}"><span>⌖</span>Map</a>
     <a href="/alerts" class="{% if request.url.path.startswith('/alerts') %}active{% endif %}"><span>!</span>Alerts</a>
