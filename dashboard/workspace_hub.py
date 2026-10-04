@@ -34,6 +34,19 @@ SOURCES='''WITH account AS (SELECT %s::text AS owner), items AS (
         jsonb_build_object('attributes',m.attributes,'entity_id',m.imported_entity_id)
  FROM workspace_microsoft_contacts m,account a WHERE m.owner_username=a.owner
  UNION ALL
+ SELECT 'CALENDAR',e.id,e.title,
+        concat_ws(E'\n',e.location,to_char(e.starts_at AT TIME ZONE current_setting('TimeZone'),'MM/DD/YYYY HH12:MI AM')),'PRIVATE',
+        e.starts_at, e.ends_at>=now(),
+        CASE WHEN e.ends_at<now() THEN 'Past' ELSE 'Upcoming' END,
+        '/workspace#today',
+        jsonb_build_object('starts_at',e.starts_at,'ends_at',e.ends_at,'location',e.location,'all_day',e.all_day,'outlook_url',e.outlook_url)
+ FROM workspace_calendar_events e,account a WHERE e.owner_username=a.owner
+ UNION ALL
+ SELECT 'EVENT',e.id,e.title,concat_ws(E'\n',e.notes,e.location_name,e.address),'WORK',
+        e.updated_at,e.active AND e.event_status NOT IN ('COMPLETED','CANCELLED'),e.event_status,'/schedule',
+        jsonb_build_object('starts_at',e.starts_at,'ends_at',e.ends_at,'location',coalesce(e.location_name,e.address),'municipality',e.municipality)
+ FROM operational_events e
+ UNION ALL
  SELECT 'DOCUMENT',d.id,d.filename,d.extracted_text,'PRIVATE',d.created_at,d.status IN ('FAILED','NEEDS_OCR'),
         d.status,'/workspace#library',jsonb_build_object('profile',d.profile,'error',d.error,
              'processing_status',d.status,'content_type',d.content_type,'bytes',octet_length(d.content))
@@ -66,7 +79,7 @@ SOURCES='''WITH account AS (SELECT %s::text AS owner), items AS (
  FROM workspace_entities e,account a WHERE (e.visibility='WORK' OR e.owner_username=a.owner)
    AND (e.contact_id IS NULL OR EXISTS(SELECT 1 FROM contacts c WHERE c.id=e.contact_id AND c.active AND c.visibility='ALL'))
 ) '''
-KINDS={'MAIL','CONTACT','DOCUMENT','BRAIN','TASK','WORK','REQUEST','ALERT','RECORD'}
+KINDS={'MAIL','CALENDAR','CONTACT','DOCUMENT','BRAIN','TASK','WORK','EVENT','REQUEST','ALERT','RECORD'}
 
 
 def reply(value):
@@ -261,6 +274,51 @@ def action(owner,values):
             c.execute('''INSERT INTO workspace_context_links(owner_username,source_kind,source_id,target_kind,target_id)
                 VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING''',(owner,*endpoints[0],*endpoints[1]))
             return {'message':'Private follow-up created and linked to its source.','id':task['id']}
+        if action_name=='WORK':
+            title=text(values.get('title') or item['title'],500,required=True)
+            description=text(values.get('description') or item['body'],20000)
+            next_action=text(values.get('next_action') or 'Review and determine the next municipal action.',1000)
+            work=c.execute("""INSERT INTO issues(title,description,source,status,priority,item_type,next_action)
+                VALUES(%s,%s,'MICROSOFT','OPEN',%s,%s,%s) RETURNING id""",
+                (title,description,max(1,min(int(values.get('priority') or 3),5)),
+                 values.get('item_type') if values.get('item_type') in {'ISSUE','TASK','FOLLOW_UP','DECISION','COMMITMENT','COMMUNICATION'} else 'TASK',
+                 next_action)).fetchone()
+            endpoints=sorted([(item_kind,str(item_id)),('WORK',str(work['id']))])
+            c.execute("""INSERT INTO workspace_context_links(owner_username,source_kind,source_id,target_kind,target_id)
+                VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",(owner,*endpoints[0],*endpoints[1]))
+            c.execute("""INSERT INTO workspace_inbox_handled(owner_username,kind,item_id) VALUES(%s,%s,%s)
+                ON CONFLICT(owner_username,kind,item_id) DO UPDATE SET handled_at=now()""",(owner,item_kind,item_id))
+            return {'message':'Brought into Command Center and linked to the Microsoft source.','id':work['id']}
+        if action_name=='BRAIN':
+            body=text(values.get('body') or item['body'] or item['title'],20000,required=True)
+            source_id=f'INTAKE:{owner}:{item_kind}:{item_id}'
+            note=c.execute("""INSERT INTO brain_notes(owner_username,body,kind,tags,source,source_id)
+                VALUES(%s,%s,'NOTE',ARRAY['microsoft','intake']::text[],'WEB',%s)
+                ON CONFLICT(source,source_id) DO UPDATE SET body=EXCLUDED.body,updated_at=now()
+                RETURNING id""",(owner,body,source_id)).fetchone()
+            endpoints=sorted([(item_kind,str(item_id)),('BRAIN',str(note['id']))])
+            c.execute("""INSERT INTO workspace_context_links(owner_username,source_kind,source_id,target_kind,target_id)
+                VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",(owner,*endpoints[0],*endpoints[1]))
+            return {'message':'Saved to Brain and linked to its Microsoft source.','id':note['id']}
+        if action_name=='EVENT':
+            meta=item.get('metadata') or {}
+            starts=meta.get('starts_at')
+            ends=meta.get('ends_at')
+            if not starts:
+                raise HTTPException(400,'This source does not have a usable event time.')
+            event=c.execute("""INSERT INTO operational_events(
+                    title,category,location_name,municipality,starts_at,ends_at,priority,source,notes,
+                    event_status,event_scope,source_url,confirmation_status,preparation_status)
+                VALUES(%s,'MICROSOFT',%s,'Weehawken',%s,%s,3,'MICROSOFT',%s,
+                       'PLANNING','MANAGED',%s,'CONFIRMED','NOT_STARTED')
+                RETURNING id""",
+                (item['title'],meta.get('location') or None,starts,ends,item['body'] or None,meta.get('outlook_url') or None)).fetchone()
+            endpoints=sorted([(item_kind,str(item_id)),('EVENT',str(event['id']))])
+            c.execute("""INSERT INTO workspace_context_links(owner_username,source_kind,source_id,target_kind,target_id)
+                VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",(owner,*endpoints[0],*endpoints[1]))
+            c.execute("""INSERT INTO workspace_inbox_handled(owner_username,kind,item_id) VALUES(%s,%s,%s)
+                ON CONFLICT(owner_username,kind,item_id) DO UPDATE SET handled_at=now()""",(owner,item_kind,item_id))
+            return {'message':'Brought into Events Center and linked to the Microsoft source.','id':event['id']}
         if action_name=='IMPORT_CONTACT' and item_kind=='CONTACT':
             row=c.execute('SELECT * FROM workspace_microsoft_contacts WHERE owner_username=%s AND id=%s FOR UPDATE',(owner,item_id)).fetchone()
             if not row:raise HTTPException(404,'Contact is no longer available. Refresh the inbox.')
