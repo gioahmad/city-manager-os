@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from app import app, db_conn, execute, query_one, templates
 from brain_app import _csrf, _owner, _write
 from unified_objects import OBJECT_KINDS, home_snapshot, object_detail, search_objects
-from workspace_hub import list_items
+from workspace_hub import context as hub_context, find as hub_find, list_items
 from operations_app import require_watch_recipients
 
 
@@ -47,6 +47,21 @@ def workspace_next_inbox(request: Request, q: str="", bucket: str="open", offset
 def workspace_next_documents(request: Request, q: str="", offset: int=0):
     owner=_owner(request)
     return _json(list_items(owner, view="library", q=q, scope="both", source="", bucket="all", offset=offset))
+
+
+@app.get("/api/workspace-next/hub/{item_kind}/{item_id}")
+def workspace_next_hub_detail(request: Request, item_kind: str, item_id: str):
+    owner=_owner(request)
+    item=hub_find(owner,item_kind,item_id)
+    links,suggestions=hub_context(owner,item)
+    if item["kind"]=="BRAIN":
+        item["metadata"]["attachments"]=query_one(
+            """SELECT coalesce(jsonb_agg(jsonb_build_object('id',a.id,'filename',a.filename)),'[]'::jsonb) AS items
+               FROM brain_attachments a JOIN brain_notes n ON n.id=a.note_id
+               WHERE n.id=%s AND n.owner_username=%s AND n.deleted_at IS NULL""",
+            (item["id"],owner),
+        ).get("items") or []
+    return _json({"item":item,"links":links,"suggestions":suggestions})
 
 
 @app.get("/api/objects/search")
