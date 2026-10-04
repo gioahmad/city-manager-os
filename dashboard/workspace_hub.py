@@ -302,17 +302,17 @@ def action(owner,values):
             return {'message':'Saved to Brain and linked to its Microsoft source.','id':note['id']}
         if action_name=='EVENT':
             meta=item.get('metadata') or {}
-            starts=meta.get('starts_at')
-            ends=meta.get('ends_at')
+            starts=values.get('starts_at') or meta.get('starts_at')
+            ends=values.get('ends_at') or meta.get('ends_at')
             if not starts:
-                raise HTTPException(400,'This source does not have a usable event time.')
+                raise HTTPException(400,'Choose a start time for this event.')
             event=c.execute("""INSERT INTO operational_events(
                     title,category,location_name,municipality,starts_at,ends_at,priority,source,notes,
                     event_status,event_scope,source_url,confirmation_status,preparation_status)
                 VALUES(%s,'MICROSOFT',%s,'Weehawken',%s,%s,3,'MICROSOFT',%s,
                        'PLANNING','MANAGED',%s,'CONFIRMED','NOT_STARTED')
                 RETURNING id""",
-                (item['title'],meta.get('location') or None,starts,ends,item['body'] or None,meta.get('outlook_url') or None)).fetchone()
+                (item['title'],values.get('location') or meta.get('location') or None,starts,ends,item['body'] or None,meta.get('outlook_url') or None)).fetchone()
             endpoints=sorted([(item_kind,str(item_id)),('EVENT',str(event['id']))])
             c.execute("""INSERT INTO workspace_context_links(owner_username,source_kind,source_id,target_kind,target_id)
                 VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",(owner,*endpoints[0],*endpoints[1]))
