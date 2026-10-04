@@ -204,17 +204,20 @@ def test_filter_select_edit_alert_timeline_workflow():
     assert "Edit Selected" in template
     assert "Save All Time Corrections" in template
     assert "function renderBulkTimeEditor()" in template
-    assert 'name="activity_times"' in template
-    assert 'name="received_modes"' in template
+    assert "activity.name='activity_times'" in template
+    assert "mode.name='received_modes'" in template
+    assert "received.name='received_times'" in template
+    assert "reason.name='reasons'" in template
     assert ".alert-bulk-edit-row" in css
 
 
 def test_system_update_converges_app_services_without_pruning_data():
-    compose=(ROOT/"docker-compose.yml").read_text()
-    updater=(ROOT.parent/"deploy"/"cmos-system-update").read_text()
-    maintenance=(ROOT.parent/"deploy"/"cmos-maintenance").read_text()
+    deploy_root=Path("/deploy")
+    updater=(deploy_root/"cmos-system-update").read_text()
+    maintenance=(deploy_root/"cmos-maintenance").read_text()
 
-    assert 'CMOS_APP_IMAGE' in compose
+    assert 'CMOS_APP_IMAGE="$RELEASE_TAG"' in updater
+    assert 'dashboard/docker-compose.yml' in updater
     for service in (
         "citymanager-dashboard",
         "citymanager-staff",
