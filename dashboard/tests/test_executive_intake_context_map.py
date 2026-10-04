@@ -189,3 +189,21 @@ def test_alert_time_corrections_are_audited_and_bulk_capable():
     assert 'name="bulk_received_at"' in template
     assert "Correct Alert Time" in template
     assert "Activity" in template and "Received" in template
+
+
+def test_filter_select_edit_alert_timeline_workflow():
+    source=(ROOT/"operations_app.py").read_text()
+    template=(ROOT/"templates"/"alerts.html").read_text()
+    css=(ROOT/"static"/"macro_layer.css").read_text()
+    assert '@app.post("/alerts/bulk-time-edit")' in source
+    assert "activity_times: list[str]" in source
+    assert "received_modes: list[str]" in source
+    assert "Bulk selected alert time correction" in source
+    assert 'id="alert-bulk-edit-selected"' in template
+    assert 'id="alert-bulk-edit-dialog"' in template
+    assert "Edit Selected" in template
+    assert "Save All Time Corrections" in template
+    assert "function renderBulkTimeEditor()" in template
+    assert 'name="activity_times"' in template
+    assert 'name="received_modes"' in template
+    assert ".alert-bulk-edit-row" in css
