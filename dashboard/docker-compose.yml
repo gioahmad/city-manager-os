@@ -11,6 +11,10 @@ services:
       DB_PORT: 5432
       DB_NAME: citymanager
       DB_USER: citymanager_app
+      DB_POOL_MIN: "${DB_POOL_MIN:-1}"
+      DB_POOL_MAX: "${DB_POOL_MAX:-12}"
+      DB_POOL_TIMEOUT: "${DB_POOL_TIMEOUT:-5}"
+      CMOS_SLOW_REQUEST_MS: "${CMOS_SLOW_REQUEST_MS:-750}"
       STAFF_UPLOAD_DIR: /app/uploads
       TZ: "${APP_TIMEZONE:-America/New_York}"
       PGTZ: "${APP_TIMEZONE:-America/New_York}"
@@ -35,6 +39,10 @@ services:
       DB_PORT: 5432
       DB_NAME: citymanager
       DB_USER: citymanager_app
+      DB_POOL_MIN: "${DB_POOL_MIN:-1}"
+      DB_POOL_MAX: "${DB_POOL_MAX:-12}"
+      DB_POOL_TIMEOUT: "${DB_POOL_TIMEOUT:-5}"
+      CMOS_SLOW_REQUEST_MS: "${CMOS_SLOW_REQUEST_MS:-750}"
       STAFF_UPLOAD_DIR: /app/uploads
       TZ: "${APP_TIMEZONE:-America/New_York}"
       PGTZ: "${APP_TIMEZONE:-America/New_York}"
@@ -71,6 +79,10 @@ services:
       DB_PORT: 5432
       DB_NAME: citymanager
       DB_USER: citymanager_app
+      DB_POOL_MIN: "${DB_POOL_MIN:-1}"
+      DB_POOL_MAX: "${DB_POOL_MAX:-12}"
+      DB_POOL_TIMEOUT: "${DB_POOL_TIMEOUT:-5}"
+      CMOS_SLOW_REQUEST_MS: "${CMOS_SLOW_REQUEST_MS:-750}"
       TZ: "${APP_TIMEZONE:-America/New_York}"
       PGTZ: "${APP_TIMEZONE:-America/New_York}"
       OPS_ENGINE_INTERVAL_SECONDS: "${OPS_ENGINE_INTERVAL_SECONDS:-60}"
@@ -91,6 +103,10 @@ services:
       DB_PORT: 5432
       DB_NAME: citymanager
       DB_USER: citymanager_app
+      DB_POOL_MIN: "${DB_POOL_MIN:-1}"
+      DB_POOL_MAX: "${DB_POOL_MAX:-12}"
+      DB_POOL_TIMEOUT: "${DB_POOL_TIMEOUT:-5}"
+      CMOS_SLOW_REQUEST_MS: "${CMOS_SLOW_REQUEST_MS:-750}"
       TZ: "${APP_TIMEZONE:-America/New_York}"
       PGTZ: "${APP_TIMEZONE:-America/New_York}"
       INTEGRATION_ENGINE_INTERVAL_SECONDS: "${INTEGRATION_ENGINE_INTERVAL_SECONDS:-60}"
