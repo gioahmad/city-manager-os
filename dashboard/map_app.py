@@ -739,7 +739,7 @@ def map_alerts_geojson(
         "coalesce(a.geom,r.geom) IS NOT NULL",
     ]
     if window_hours is not None:
-        where.insert(0, "a.received_at >= now()-(%s * interval '1 hour')")
+        where.insert(0, "coalesce(a.observed_at,a.received_at) >= now()-(%s * interval '1 hour')")
         params.insert(0, window_hours)
     selected_sources = [item.strip() for item in sources.split(",") if item.strip()]
     if selected_sources:
@@ -775,7 +775,7 @@ def map_alerts_geojson(
                     THEN coalesce(r.resolved_label,nullif(a.location->>'label',''),nullif(a.location->>'address',''))
                     ELSE coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address',''),r.resolved_label)
                END AS mapped_address,
-               a.observed_at,a.received_at,a.click_url,
+               a.observed_at,a.received_at,coalesce(a.observed_at,a.received_at) AS activity_at,a.click_url,
                r.status AS resolution_status,r.match_type,r.confidence,
                r.spatial_precision,(a.geom IS NULL) AS approximate,
                ST_AsGeoJSON(coalesce(a.geom,r.geom))::json AS geometry
@@ -802,7 +802,7 @@ def map_alerts_geojson(
           ) m
         ) wm ON true
         WHERE {' AND '.join(where)}
-        ORDER BY a.priority DESC,a.received_at DESC
+        ORDER BY coalesce(a.observed_at,a.received_at) DESC,a.priority DESC,a.received_at DESC
         LIMIT 5000
         """,
         tuple(params),
