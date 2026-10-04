@@ -2258,7 +2258,20 @@ def source_health_page(request: Request):
         ORDER BY source_id
         """
     )
-    return templates.TemplateResponse(request=request, name="source_health.html", context={"rows": rows, "page": "source-health"})
+    counts = {
+        "total": len(rows),
+        "healthy": sum(1 for row in rows if str(row.get("status") or "").upper() in {"OK","HEALTHY","ACTIVE"}),
+        "attention": sum(1 for row in rows if str(row.get("status") or "").upper() not in {"OK","HEALTHY","ACTIVE"}),
+        "errors": sum(1 for row in rows if str(row.get("status") or "").upper() in {"ERROR","FAILED","DOWN","UNHEALTHY"}),
+    }
+    for row in rows:
+        row["alerts_url"] = f"/alerts?source={urlencode({'v': row['source_id']})[2:]}&window=7d&state=all"
+        row["search_url"] = f"/search?{urlencode({'q': row['source_id']})}"
+    return templates.TemplateResponse(
+        request=request,
+        name="source_health.html",
+        context={"rows": rows, "counts": counts, "page": "source-health"},
+    )
 
 
 def _humanize_match_reason(reason):
@@ -2357,7 +2370,7 @@ def deliveries_page(request: Request, status: str = "", q: str = ""):
                d.error_message, d.matched_watch_ids, d.match_reasons,
                coalesce(mw.matched_watches,'[]'::jsonb) AS matched_watches,
                s.name AS subscriber_name, s.subscriber_id,
-               a.title AS alert_title, a.source, a.alert_id
+               a.id AS alert_uuid,a.title AS alert_title, a.source, a.alert_id
         FROM deliveries d
         JOIN subscribers s ON s.id = d.subscriber_id
         JOIN alerts a ON a.id = d.alert_id
@@ -2387,10 +2400,22 @@ def deliveries_page(request: Request, status: str = "", q: str = ""):
         """,
         params,
     )
+    delivery_counts = query_one(
+        """SELECT count(*) AS total,
+                  count(*) FILTER (WHERE upper(status)='SENT') AS sent,
+                  count(*) FILTER (WHERE upper(status)='FAILED') AS failed,
+                  count(*) FILTER (WHERE upper(status)='SUPPRESSED') AS suppressed
+           FROM deliveries
+           WHERE created_at>=now()-interval '24 hours'"""
+    )
     for row in rows:
         row["evidence"] = _delivery_evidence(row)
         row["track_alert_url"] = f"/issues?{urlencode({'from_alert': row['alert_id']})}"
-    return templates.TemplateResponse(request=request, name="deliveries.html", context={"rows": rows, "status": status, "q": q, "page": "deliveries"})
+    return templates.TemplateResponse(
+        request=request,
+        name="deliveries.html",
+        context={"rows": rows, "delivery_counts": delivery_counts, "status": status, "q": q, "page": "deliveries"},
+    )
 
 
 @app.get("/subscribers", response_class=HTMLResponse)
