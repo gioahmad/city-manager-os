@@ -63,10 +63,10 @@
   </section>
 
   <section class="panel">
-    <div class="panel-head"><div><div class="panel-kicker">REFERENCE GEOGRAPHY</div><h2>Catalog</h2></div><a class="button secondary" href="/map">Open Mapping Center</a></div>
+    <div class="panel-head"><div><div class="panel-kicker">REFERENCE GEOGRAPHY</div><h2>Catalog</h2></div><a class="button secondary" href="/map" data-cmos-quicklook data-cmos-title="Mapping Center">Open Mapping Center</a></div>
     <div class="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Location</th><th>Source</th><th>Parcel</th><th>Watch</th></tr></thead><tbody>
       {% for row in rows %}<tr>
-        <td><a href="/spatial-reference/{{ row.entity_id }}"><strong>{{ row.canonical_name }}</strong></a>{% if row.aliases %}<br><small>{{ row.aliases|join(', ') }}</small>{% endif %}</td>
+        <td><a href="/spatial-reference/{{ row.entity_id }}" data-cmos-quicklook data-cmos-title="{{ row.canonical_name|e }}"><strong>{{ row.canonical_name }}</strong></a>{% if row.aliases %}<br><small>{{ row.aliases|join(', ') }}</small>{% endif %}</td>
         <td>{{ row.entity_type|replace('_',' ')|title }}{% if row.entity_subtype %}<br><small>{{ row.entity_subtype|replace('_',' ')|title }}</small>{% endif %}</td>
         <td>{{ row.normalized_address or row.municipality or 'Mapped geometry' }}{% if row.state %}<br><small>{{ row.state }}</small>{% endif %}</td>
         <td>{{ row.source_provider }}{% if row.authoritative %}<br><small>Authoritative</small>{% endif %}</td>
