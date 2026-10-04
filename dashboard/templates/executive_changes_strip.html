@@ -11,11 +11,14 @@
     <span class="changed-chip"><strong>{{ change_counts.issues }}</strong> work items</span>
     <span class="changed-chip"><strong>{{ change_counts.alerts }}</strong> alerts</span>
     <span class="changed-chip"><strong>{{ change_counts.events }}</strong> events</span>
+    {% if change_counts.needs_attention %}<a class="changed-chip" href="/what-changed#overdue-work"><strong>{{ change_counts.needs_attention }}</strong> need attention</a>{% endif %}
+    {% if change_counts.watch_matches %}<a class="changed-chip" href="/what-changed#watch-matches"><strong>{{ change_counts.watch_matches }}</strong> Watch matches</a>{% endif %}
     {% if change_counts.source_warnings %}<span class="changed-chip"><strong>{{ change_counts.source_warnings }}</strong> source warnings</span>{% endif %}
   </div>
   {% if first_review %}<div class="changed-line" style="margin-top:8px">First review uses the last 24 hours as the starting window.</div>{% endif %}
   <div class="changed-latest">
     {% for i in changed_issues[:3] %}<div class="changed-line">{{ i.change_type }} · {{ i.title }}</div>{% endfor %}
     {% for a in changed_alerts[:2] %}<div class="changed-line">ALERT · {{ a.source }} · {{ a.title }}</div>{% endfor %}
+    {% for w in watch_matches[:2] %}<div class="changed-line">MATCH · {{ w.display_name }} → {{ w.title }}</div>{% endfor %}
   </div>
 </section>
