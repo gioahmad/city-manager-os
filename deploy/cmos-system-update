@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+REPO="${CMOS_REPO:-/opt/city-manager-os}"
+EXPECTED="${1:?usage: bash deploy/cmos-system-update EXPECTED_COMMIT}"
+cd "$REPO"
+
+[[ -z "$(git status --porcelain)" ]] || { echo "Repository must be clean"; exit 1; }
+[[ "$(git rev-parse HEAD)" == "$EXPECTED" ]] || { echo "HEAD does not match expected commit"; exit 1; }
+
+APP_COMPOSE=(docker compose -f "$REPO/dashboard/docker-compose.yml")
+INTAKE_COMPOSE=(docker compose -p citymanager-intelligence -f "$REPO/deploy/intelligence/docker-compose.yml")
+APP_SERVICES=(citymanager-dashboard citymanager-staff citymanager-ops-engine citymanager-integration-engine)
+ALL_APP_SERVICES=(citymanager-dashboard citymanager-staff citymanager-ops-engine citymanager-integration-engine citymanager-intake)
+RELEASE_TAG="citymanager-os-app:${EXPECTED:0:12}"
+ROLLBACK_PREFIX="citymanager-os-rollback-${EXPECTED:0:12}"
+
+declare -A OLD_IMAGES=()
+declare -A ROLLBACK_TAGS=()
+
+echo "===== PINNING CURRENT APPLICATION IMAGES ====="
+for service in "${ALL_APP_SERVICES[@]}"; do
+  image_id="$(docker inspect "$service" --format '{{.Image}}' 2>/dev/null || true)"
+  [[ -n "$image_id" ]] || { echo "Missing application container: $service"; exit 1; }
+  tag="$ROLLBACK_PREFIX-$service"
+  docker image tag "$image_id" "$tag"
+  OLD_IMAGES["$service"]="$image_id"
+  ROLLBACK_TAGS["$service"]="$tag"
+  echo "$service -> $image_id -> $tag"
+done
+
+cleanup_tags(){
+  for service in "${ALL_APP_SERVICES[@]}"; do
+    docker image rm "${ROLLBACK_TAGS[$service]}" >/dev/null 2>&1 || true
+  done
+}
+
+rollback(){
+  code=$?
+  trap - ERR
+  echo
+  echo "===== SYSTEM UPDATE FAILED — RESTORING PRIOR APPLICATION IMAGES ====="
+  override="$(mktemp)"
+  cat >"$override" <<YAML
+services:
+  citymanager-dashboard:
+    image: "${ROLLBACK_TAGS[citymanager-dashboard]}"
+  citymanager-staff:
+    image: "${ROLLBACK_TAGS[citymanager-staff]}"
+  citymanager-ops-engine:
+    image: "${ROLLBACK_TAGS[citymanager-ops-engine]}"
+  citymanager-integration-engine:
+    image: "${ROLLBACK_TAGS[citymanager-integration-engine]}"
+YAML
+  docker compose -f "$REPO/dashboard/docker-compose.yml" -f "$override" up -d --no-deps --force-recreate "${APP_SERVICES[@]}" || true
+  CMOS_INTAKE_IMAGE="${ROLLBACK_TAGS[citymanager-intake]}" "${INTAKE_COMPOSE[@]}" up -d --no-deps --force-recreate citymanager-intake || true
+  rm -f "$override"
+  echo "Prior application images restored. Database migrations are additive and remain."
+  exit "$code"
+}
+trap rollback ERR
+
+echo
+echo "===== VERIFIED RELEASE INSTALL ====="
+bash "$REPO/deploy/intelligence/install_intelligence.sh" "$EXPECTED"
+
+NEW_IMAGE="$(docker inspect citymanager-dashboard --format '{{.Image}}')"
+docker image tag "$NEW_IMAGE" "$RELEASE_TAG"
+
+echo
+echo "===== CONVERGING ALL APPLICATION SERVICES TO $RELEASE_TAG ====="
+CMOS_APP_IMAGE="$RELEASE_TAG" "${APP_COMPOSE[@]}" up -d --no-deps --force-recreate "${APP_SERVICES[@]}"
+CMOS_INTAKE_IMAGE="$RELEASE_TAG" "${INTAKE_COMPOSE[@]}" up -d --no-deps --force-recreate citymanager-intake
+
+echo
+echo "===== WAITING FOR APPLICATION SERVICES ====="
+for attempt in $(seq 1 30); do
+  dashboard="$(docker inspect citymanager-dashboard --format '{{.State.Status}}' 2>/dev/null || true)"
+  staff="$(docker inspect citymanager-staff --format '{{.State.Status}}' 2>/dev/null || true)"
+  ops="$(docker inspect citymanager-ops-engine --format '{{.State.Status}}' 2>/dev/null || true)"
+  integration="$(docker inspect citymanager-integration-engine --format '{{.State.Status}}' 2>/dev/null || true)"
+  intake="$(docker inspect citymanager-intake --format '{{.State.Health.Status}}' 2>/dev/null || true)"
+  if [[ "$dashboard" == running && "$staff" == running && "$ops" == running && "$integration" == running && "$intake" == healthy ]]; then
+    break
+  fi
+  [[ "$attempt" == 30 ]] && { echo "Application services did not become healthy in time"; false; }
+  sleep 2
+done
+
+echo
+echo "===== IMAGE PARITY ====="
+expected_id="$(docker image inspect "$RELEASE_TAG" --format '{{.Id}}')"
+for service in "${ALL_APP_SERVICES[@]}"; do
+  actual="$(docker inspect "$service" --format '{{.Image}}')"
+  echo "$service $actual"
+  [[ "$actual" == "$expected_id" ]] || { echo "$service is not on $RELEASE_TAG"; false; }
+done
+
+echo
+echo "===== AUTHENTICATED APPLICATION SMOKE ====="
+docker exec -i citymanager-dashboard python - <<'PY'
+import json,urllib.request
+from private_auth import COOKIE_NAME,_accounts,_issue_session
+account=next(a for a in _accounts().values() if a.role=='EXECUTIVE')
+headers={'Cookie':COOKIE_NAME+'='+_issue_session(account)}
+for path in ('/','/map','/alerts?window=24h','/workspace','/workspace/api/hub','/source-health','/watchlist','/issues'):
+    req=urllib.request.Request('http://127.0.0.1:8000'+path,headers=headers)
+    with urllib.request.urlopen(req,timeout=30) as r:
+        assert r.status==200,(path,r.status)
+        print(path,r.status)
+PY
+
+docker exec -i citymanager-staff python - <<'PY'
+import urllib.request
+with urllib.request.urlopen('http://127.0.0.1:8000/staff',timeout=20) as r:
+    assert 200 <= r.status < 400
+    print('/staff',r.status)
+PY
+
+echo
+echo "===== ENGINE PROCESS CHECK ====="
+for service in citymanager-ops-engine citymanager-integration-engine; do
+  [[ "$(docker inspect "$service" --format '{{.State.Status}}')" == "running" ]]
+  [[ "$(docker inspect "$service" --format '{{.RestartCount}}')" == "0" ]] || {
+    echo "$service restarted unexpectedly"
+    false
+  }
+done
+
+echo
+echo "===== COMPLETE HEALTH CHECK ====="
+bash deploy/cmos-health
+
+echo
+echo "===== SAFE MAINTENANCE CLEAN ====="
+bash deploy/cmos-maintenance clean
+
+trap - ERR
+cleanup_tags
+
+echo
+echo "===== SYSTEM UPDATE COMPLETE ====="
+echo "Release: $EXPECTED"
+echo "Image: $RELEASE_TAG ($expected_id)"
+echo "All City Manager application services are on one tested image."
+echo "PostGIS/n8n/ntfy/Caddy were not blindly upgraded or pruned."
