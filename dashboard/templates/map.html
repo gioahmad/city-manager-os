@@ -125,7 +125,7 @@
               <label>Category<select id="alert-map-category"><option value="">All categories</option>{% for item in alert_categories %}<option value="{{ item.category }}">{{ item.category|replace('_',' ') }}</option>{% endfor %}</select></label>
               <label>Minimum priority<select id="alert-map-priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
             </div>
-            <label class="map-check"><input id="alert-map-active" type="checkbox"> Current unresolved only</label>
+            <label class="map-check"><input id="alert-map-active" type="checkbox" checked> Current unresolved only</label>
           </details>
 
           <div class="map-visual-mode">
@@ -135,6 +135,7 @@
               <button type="button" class="map-visual-choice" data-map-visual="heat">Heat</button>
               <button type="button" class="map-visual-choice" data-map-visual="both">Both</button>
             </div>
+            <button id="alert-playback" class="map-mini-button map-full-button" type="button">Play activity · 1h → 24h</button>
           </div>
           <div class="map-layer-actions">
             <button id="apply-alert-filters" class="map-mini-button" type="button">Apply Filters</button>
@@ -325,9 +326,12 @@ function spatialActions(feature,layer,key){
   else if(layer.getBounds){const bounds=layer.getBounds();if(bounds.isValid())center=bounds.getCenter();}
   const wrap=document.createElement('div');wrap.className='map-layer-actions';
   const label=merged.title||merged.display_name||merged.name||merged.label||merged.canonical_name||merged.fulladdr||merged.prop_loc||merged.mapped_address||'Map selection';
-  if(key==='alerts'&&merged.alert_id){wrap.appendChild(actionLink('Share This Alert','/share?'+new URLSearchParams({alert:merged.alert_id})));wrap.appendChild(actionLink('Track This Alert','/issues?'+new URLSearchParams({from_alert:merged.alert_id})));wrap.appendChild(actionLink('Create Watch From Alert','/watchlist?'+new URLSearchParams({from_alert:merged.alert_id})));wrap.appendChild(actionLink('Open Full Alert','/alerts?'+new URLSearchParams({q:merged.alert_id,window:'all',state:'all'})));const impact=document.createElement('button');impact.type='button';impact.className='map-mini-button';impact.textContent='Show Impact Area';impact.addEventListener('click',()=>showImpactArea(merged.alert_id));wrap.appendChild(impact);const correct=document.createElement('button');correct.type='button';correct.className='map-mini-button';correct.textContent='Correct Alert Location';correct.addEventListener('click',()=>startAlertLocationEditor(feature,layer));wrap.appendChild(correct);}
-  else if(key==='watchlist'&&merged.watch_id){wrap.appendChild(actionLink('Open Watch','/watchlist?'+new URLSearchParams({q:merged.watch_id})));}
+  if(key==='alerts'&&merged.alert_id){if(merged.id)wrap.appendChild(actionLink('Open Context','/context/ALERT/'+encodeURIComponent(merged.id)));wrap.appendChild(actionLink('Share This Alert','/share?'+new URLSearchParams({alert:merged.alert_id})));wrap.appendChild(actionLink('Track This Alert','/issues?'+new URLSearchParams({from_alert:merged.alert_id})));wrap.appendChild(actionLink('Create Watch From Alert','/watchlist?'+new URLSearchParams({from_alert:merged.alert_id})));wrap.appendChild(actionLink('Open Full Alert','/alerts?'+new URLSearchParams({q:merged.alert_id,window:'all',state:'all'})));const impact=document.createElement('button');impact.type='button';impact.className='map-mini-button';impact.textContent='Show Impact Area';impact.addEventListener('click',()=>showImpactArea(merged.alert_id));wrap.appendChild(impact);const correct=document.createElement('button');correct.type='button';correct.className='map-mini-button';correct.textContent='Correct Alert Location';correct.addEventListener('click',()=>startAlertLocationEditor(feature,layer));wrap.appendChild(correct);}
+  else if(key==='watchlist'&&merged.watch_id){if(merged.id)wrap.appendChild(actionLink('Open Context','/context/WATCH/'+encodeURIComponent(merged.id)));wrap.appendChild(actionLink('Open Watch','/watchlist?'+new URLSearchParams({q:merged.watch_id})));}
   else{
+    if(key==='operations'&&merged.id)wrap.appendChild(actionLink('Open Context','/context/WORK/'+encodeURIComponent(merged.id)));
+    if(key==='managed-events'&&merged.id)wrap.appendChild(actionLink('Open Context','/context/EVENT/'+encodeURIComponent(merged.id)));
+    if(key==='spatial-references'&&merged.entity_id)wrap.appendChild(actionLink('Open Context','/context/REFERENCE/'+encodeURIComponent(merged.entity_id)));
     let locationKind='',locationId='';
     if(key==='parcels'&&merged.objectid){locationKind='PARCEL';locationId=merged.objectid;}
     else if(key==='addresses'&&merged.objectid){locationKind='ADDRESS';locationId=merged.objectid;}
@@ -651,6 +655,20 @@ document.querySelectorAll('[data-alert-source]').forEach(el=>el.addEventListener
 document.getElementById('alert-sources-all')?.addEventListener('click',()=>{document.querySelectorAll('[data-alert-source]').forEach(el=>{el.checked=true;});refreshAlertLayer(true);});
 document.getElementById('alert-sources-none')?.addEventListener('click',()=>{document.querySelectorAll('[data-alert-source]').forEach(el=>{el.checked=false;});refreshAlertLayer(true);});
 document.querySelectorAll('[data-map-visual]').forEach(button=>button.addEventListener('click',()=>{alertVisualMode=button.dataset.mapVisual;syncVisualButtons();applyAlertVisualMode();}));
+let alertPlaybackTimer=null;
+document.getElementById('alert-playback')?.addEventListener('click',async()=>{
+  const button=document.getElementById('alert-playback');
+  if(alertPlaybackTimer){clearTimeout(alertPlaybackTimer);alertPlaybackTimer=null;button.textContent='Play activity · 1h → 24h';return;}
+  const windows=['1h','2h','4h','6h','12h','24h'];let index=0;
+  const step=async()=>{
+    const select=document.getElementById('alert-window');if(!select)return;
+    select.value=windows[index];syncCustomWindow();button.textContent='Stop playback · '+select.selectedOptions[0].textContent;
+    await refreshAlertLayer(true);index+=1;
+    if(index>=windows.length){alertPlaybackTimer=null;button.textContent='Play activity · 1h → 24h';return;}
+    alertPlaybackTimer=setTimeout(()=>step().catch(e=>status(e.message)),1200);
+  };
+  step().catch(e=>{alertPlaybackTimer=null;button.textContent='Play activity · 1h → 24h';status(e.message);});
+});
 syncCustomWindow();syncVisualButtons();
 document.getElementById('apply-alert-filters')?.addEventListener('click',()=>refreshAlertLayer(true));
 document.getElementById('reset-alert-filters')?.addEventListener('click',resetAlertFilters);
