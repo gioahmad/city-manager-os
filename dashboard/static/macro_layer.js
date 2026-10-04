@@ -334,4 +334,23 @@
   }
 
   organizePageFlow();
+
+  // Deep-link quick actions into the newly organized primary workflows.
+  if(location.pathname==='/issues'&&location.hash==='#new-work'){
+    const capture=document.querySelector('.command-capture');
+    if(capture){
+      capture.open=true;
+      setTimeout(()=>{
+        capture.scrollIntoView({behavior:'smooth',block:'start'});
+        capture.querySelector('input[name="title"]')?.focus();
+      },80);
+    }
+  }
+  if(location.pathname==='/watchlist'&&location.hash==='#new-watch'){
+    setTimeout(()=>{
+      const input=document.querySelector('.watch-layout input[name="display_name"]');
+      input?.scrollIntoView({behavior:'smooth',block:'center'});
+      input?.focus();
+    },80);
+  }
 })();
