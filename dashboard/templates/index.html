@@ -134,6 +134,48 @@
       </article>
     </section>
 
+    <section class="section-label lower-label"><span>SPATIAL OPERATING PICTURE</span><span class="section-rule"></span></section>
+    <section class="panel cmos-spatial-panel">
+      <div class="panel-head">
+        <div><div class="panel-kicker">POSTGIS · PARCELS · WATCH GEOMETRY</div><h2>Mapping &amp; Spatial Intelligence</h2></div>
+        <div class="cmos-spatial-actions">
+          <a class="secondary-button" href="/map" data-cmos-quicklook data-cmos-title="Mapping Center">Open Live Map</a>
+          <a class="secondary-button" href="/spatial-reference" data-cmos-quicklook data-cmos-title="Reference Catalog">Reference Catalog</a>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="cmos-spatial-grid">
+          <button type="button" data-cmos-context="/map" data-cmos-title="Mapped Alerts" class="cmos-spatial-stat">
+            <span>Mapped Alerts · 24h</span>
+            <strong>{{ spatial_status.mapped_alerts_24h or 0 }}/{{ spatial_status.total_alerts_24h or 0 }}</strong>
+            <small>Alert locations available to spatial matching and map review</small>
+          </button>
+          <button type="button" data-cmos-context="/watchlist" data-cmos-title="Spatial Watches" class="cmos-spatial-stat">
+            <span>Spatial Watches</span>
+            <strong>{{ spatial_status.active_spatial_watches or 0 }}</strong>
+            <small>Active Watches with effective geometry or map position</small>
+          </button>
+          <button type="button" data-cmos-context="/spatial-reference" data-cmos-title="Reference Places" class="cmos-spatial-stat">
+            <span>Reference Places</span>
+            <strong>{{ spatial_status.active_references or 0 }}</strong>
+            <small>Canonical places, corridors and parcel-linked references</small>
+          </button>
+          <button type="button" data-cmos-context="/map" data-cmos-title="GIS Layers" class="cmos-spatial-stat">
+            <span>GIS Layers</span>
+            <strong>{{ spatial_status.active_map_layers or 0 }}</strong>
+            <small>Active system and custom operational map layers</small>
+          </button>
+        </div>
+        <div class="cmos-spatial-ready">
+          <span class="{{ 'ready' if spatial_status.parcels_ready else 'missing' }}">Parcels {{ 'ready' if spatial_status.parcels_ready else 'missing' }}</span>
+          <span class="{{ 'ready' if spatial_status.addresses_ready else 'missing' }}">Addresses {{ 'ready' if spatial_status.addresses_ready else 'missing' }}</span>
+          <span class="{{ 'ready' if spatial_status.flood_ready else 'missing' }}">Flood zones {{ 'ready' if spatial_status.flood_ready else 'missing' }}</span>
+          <a href="/flood" data-cmos-quicklook data-cmos-title="Flood Intelligence">Flood Intelligence</a>
+          <a href="/transit" data-cmos-quicklook data-cmos-title="Transit Intelligence">Transit</a>
+        </div>
+      </div>
+    </section>
+
     <section class="section-label lower-label"><span>MONITORING</span><span class="section-rule"></span></section>
     <section class="grid secondary-grid">
       <article class="panel">
