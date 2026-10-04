@@ -21,9 +21,9 @@ SYSTEM_LAYERS = [
     {"key": "parcels", "name": "Parcels", "endpoint": "/map/system/parcels.geojson", "default_visible": False, "style": {"color": "#7fb3d5"}, "viewport": True},
     {"key": "addresses", "name": "NG911 Addresses", "endpoint": "/map/system/addresses.geojson", "default_visible": False, "point": True, "viewport": True},
     {"key": "watchlist", "name": "Watch Locations", "endpoint": "/map/system/watchlist.geojson", "default_visible": True, "point": True, "viewport": True},
-    {"key": "spatial-references", "name": "Regional References", "endpoint": "/map/system/spatial-references.geojson", "default_visible": True, "style": {"color": "#9b7ede"}, "viewport": True},
+    {"key": "spatial-references", "name": "Regional References", "endpoint": "/map/system/spatial-references.geojson", "default_visible": False, "style": {"color": "#9b7ede"}, "viewport": True},
     {"key": "alerts", "name": "Alerts", "endpoint": "/map/system/alerts.geojson?hours=12", "default_visible": True, "point": True, "viewport": True},
-    {"key": "operations", "name": "Operations / Work Items", "endpoint": "/map/system/issues.geojson", "default_visible": True, "point": True, "viewport": True},
+    {"key": "operations", "name": "Operations / Work Items", "endpoint": "/map/system/issues.geojson", "default_visible": False, "point": True, "viewport": True},
     {"key": "event-intelligence", "name": "Event Intelligence", "endpoint": "/map/system/events.geojson", "default_visible": False, "point": True, "viewport": True},
     {"key": "managed-events", "name": "Managed Events", "endpoint": "/map/system/managed-events.geojson", "default_visible": False, "point": True},
     {"key": "transit-intelligence", "name": "Transit Intelligence", "endpoint": "/map/system/transit.geojson", "default_visible": False, "point": True},
@@ -174,6 +174,18 @@ def mapping_center(request: Request, msg: str = ""):
         FROM e WHERE b IS NOT NULL
         """
     )
+    local_bounds = query_one(
+        """
+        SELECT ST_XMin(b) AS minx,ST_YMin(b) AS miny,ST_XMax(b) AS maxx,ST_YMax(b) AS maxy
+        FROM (
+          SELECT ST_Extent(geom) AS b
+          FROM gis_parcels
+          WHERE geom IS NOT NULL
+            AND upper(coalesce(mun_name,'')) LIKE 'WEEHAWKEN%'
+        ) x
+        WHERE b IS NOT NULL
+        """
+    )
     custom_layers = query_all(
         """
         SELECT l.id,l.layer_key,l.name,l.layer_type,l.source_url,l.attribution,
@@ -200,6 +212,7 @@ def mapping_center(request: Request, msg: str = ""):
             "page": "map",
             "msg": msg,
             "bounds": bounds,
+            "local_bounds": local_bounds,
             "system_layers": SYSTEM_LAYERS,
             "custom_layers": custom_layers,
             "editable_layers": editable_layers,
@@ -699,11 +712,15 @@ def map_alerts_geojson(
     active_only: bool = False,
     q: str = "",
     source: str = "",
+    sources: str = "",
     category: str = "",
+    custom_hours: int | None = None,
 ):
     # Keep the older `hours` and `days` URLs working while the map uses the same
     # named history windows as the full Alert search page.
-    if window:
+    if window.strip().lower() == "custom":
+        window_hours = max(1, min(int(custom_hours or 12), 24 * 365))
+    elif window:
         window_hours = ALERT_WINDOWS.get(window.strip().lower(), 12)
     elif days is not None:
         window_hours = max(24, min(int(days), 365) * 24)
@@ -719,7 +736,11 @@ def map_alerts_geojson(
     if window_hours is not None:
         where.insert(0, "a.received_at >= now()-(%s * interval '1 hour')")
         params.insert(0, window_hours)
-    if source.strip():
+    selected_sources = [item.strip() for item in sources.split(",") if item.strip()]
+    if selected_sources:
+        where.append("upper(a.source)=ANY(%s)")
+        params.append([item.upper() for item in selected_sources])
+    elif source.strip():
         where.append("upper(a.source)=upper(%s)")
         params.append(source.strip())
     if category.strip():
