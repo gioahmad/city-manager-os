@@ -42,7 +42,7 @@ def test_global_share_uses_native_clients_and_smsgate_contract(monkeypatch, tmp_
     nav = (DASHBOARD_ROOT / "templates" / "nav.html").read_text()
     assert "mailto:" in template and "sms:" in template
     assert template.count('type="password"') == 1
-    assert nav.count('href="/share"') == 2
+    assert nav.count('href="/share"') == 1
     assert "CMOS_SMSGATE_USERNAME" in Path(operations_app.__file__).read_text()
     assert operations_app._normalize_smsgate_url(
         "https://api.sms-gate.app/3rdparty/v1/message"
