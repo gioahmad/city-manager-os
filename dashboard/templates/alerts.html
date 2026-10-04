@@ -101,10 +101,15 @@
           <label>Action
             <select name="action" data-alert-bulk-action>
               <option value="resolve">Mark selected resolved · keep history</option>
+              {% if can_correct_alert_times %}<option value="shift_time">Shift selected activity times</option>{% endif %}
               {% if can_delete_alerts %}
               <option value="delete">Delete selected permanently</option>
               {% endif %}
             </select>
+          </label>
+          <label data-alert-shift hidden>Shift minutes
+            <input name="shift_minutes" type="number" min="-43200" max="43200" step="1" value="0" placeholder="-60">
+            <span class="hint">Negative = earlier · positive = later. Received time stays unchanged.</span>
           </label>
           <label data-alert-delete-confirm hidden><span data-alert-confirm-label>Type DELETE to confirm</span>
             <input name="confirm_delete" autocomplete="off" placeholder="DELETE">
@@ -156,8 +161,32 @@
           </div>
           <div class="data-side">
             <span class="status {{ (a.status or 'unknown')|lower }}">{{ a.status }}</span>
-            <time>{{ a.received_at.strftime('%m/%d/%Y %I:%M %p') if a.received_at else '' }}</time>
+            <div class="alert-time-stack">
+              <time><strong>Activity</strong> {{ a.activity_at.strftime('%m/%d/%Y %I:%M %p') if a.activity_at else '' }}</time>
+              <time><span>Received</span> {{ a.received_at.strftime('%m/%d/%Y %I:%M %p') if a.received_at else '' }}</time>
+            </div>
             <a class="secondary-button alert-map-button" href="/context/ALERT/{{ a.alert_uuid }}" data-cmos-quicklook data-cmos-title="Alert Context">Open Context</a>
+            {% if can_correct_alert_times %}
+            <details class="alert-time-correction">
+              <summary>Correct Alert Time</summary>
+              <form method="post" action="/alerts/{{ a.alert_uuid }}/time-correction" class="watch-form compact">
+                <input type="hidden" name="return_to" value="{{ current_url }}">
+                <label>Activity date &amp; time
+                  <input type="datetime-local" name="activity_at" value="{{ a.activity_local_value or '' }}" required>
+                  <span class="hint">When the incident actually happened. This controls operational chronology.</span>
+                </label>
+                <details>
+                  <summary>Advanced · correct received time too</summary>
+                  <label class="checkbox-row"><input type="checkbox" name="correct_received" value="1"> Change the stored received time</label>
+                  <label>Received date &amp; time<input type="datetime-local" name="received_at" value="{{ a.received_local_value or '' }}"></label>
+                  <span class="hint">Use this only when the stored ingestion time itself is wrong.</span>
+                </details>
+                <label>Reason<input name="reason" maxlength="500" placeholder="Seeded backlog / upstream queue delay"></label>
+                <button class="secondary-button" type="submit">Save Time Correction</button>
+                <span class="hint">Original timestamps are retained in Alert audit metadata.</span>
+              </form>
+            </details>
+            {% endif %}
             {% if has_map_location %}<a class="secondary-button alert-map-button" href="{{ a.map_url }}" data-cmos-quicklook data-cmos-title="Alert on Map">View on Map</a>
             {% elif can_correct_alert_locations %}<a class="secondary-button alert-map-button" href="{{ a.map_url }}" data-cmos-quicklook data-cmos-title="Place Alert on Map">Place on Map</a>
             {% else %}<span class="alert-map-unavailable">Location not mapped</span>{% endif %}
@@ -205,6 +234,8 @@
   const action = form.querySelector('[data-alert-bulk-action]');
   const scope = form.querySelector('[data-alert-selection-scope]');
   const confirmation = form.querySelector('[data-alert-delete-confirm]');
+  const shift = form.querySelector('[data-alert-shift]');
+  const shiftInput = shift?.querySelector('input');
   const confirmationInput = confirmation?.querySelector('input');
   const confirmationLabel = confirmation?.querySelector('[data-alert-confirm-label]');
   const sync = () => {
@@ -216,8 +247,11 @@
   };
   const syncAction = () => {
     const deleting = action.value === 'delete';
+    const shifting = action.value === 'shift_time';
     const allMatching = scope.value === 'matching';
-    const expected = deleting ? (allMatching ? 'DELETE ALL' : 'DELETE') : (allMatching ? 'APPLY ALL' : '');
+    if(shift){shift.hidden=!shifting;if(shiftInput)shiftInput.required=shifting;}
+    if(shifting&&scope){scope.value='selected';scope.disabled=true;}else if(scope){scope.disabled=false;}
+    const expected = deleting ? (allMatching ? 'DELETE ALL' : 'DELETE') : (!shifting&&allMatching ? 'APPLY ALL' : '');
     confirmation.hidden = !expected;
     confirmationInput.required = Boolean(expected);
     confirmationInput.placeholder = expected;
