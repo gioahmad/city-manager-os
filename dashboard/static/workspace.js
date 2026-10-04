@@ -220,6 +220,7 @@
     }
     if (!readonly) {
       const controls = node('div', undefined, 'row');
+      controls.append(link('Open connected context', '/context/RECORD/' + record.id));
       if (!record.contact_id) controls.append(button('Edit record', () => {const form = $('record-form'); form.hidden = false; for (const key of ['id','name','kind','visibility']) form.elements[key].value = record[key]; for (const key of ['organization','title','address','unit','phones','emails','aliases','tags','notes']) form.elements[key].value = Array.isArray(attrs[key]) ? attrs[key].join(', ') : attrs[key] || ''; form.elements.name.focus();}));
       else controls.append(link('Edit canonical contact', '/contacts?q=' + encodeURIComponent(record.name)));
       if (record.kind === 'PERSON') {
