@@ -36,11 +36,13 @@
           <span class="hint">Searches titles, messages, places, sources, categories, tags, and stored alert text.</span>
         </label>
         <label>Time period
-          <select name="window">
-            {% for value,label in [('6h','Last 6 hours'),('12h','Last 12 hours'),('24h','Last 24 hours'),('7d','Last week'),('30d','Last 30 days'),('all','All stored history')] %}
+          <select name="window" id="alerts-window">
+            {% for value,label in [('1h','Last 1 hour'),('2h','Last 2 hours'),('4h','Last 4 hours'),('6h','Last 6 hours'),('12h','Last 12 hours'),('24h','Last 24 hours'),('3d','Last 3 days'),('7d','Last 7 days'),('30d','Last 30 days'),('custom','Custom interval'),('all','All stored history')] %}
             <option value="{{ value }}" {% if window == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
+          <input id="alerts-custom-hours" name="custom_hours" type="number" min="1" max="8760" value="{{ custom_hours or 12 }}" {% if window != 'custom' %}hidden{% endif %} placeholder="Hours">
+          <span class="hint" id="alerts-custom-hint" {% if window != 'custom' %}hidden{% endif %}>Enter the exact number of hours to review.</span>
         </label>
         <label>Source
           <select name="source"><option value="">All sources</option>{% for item in sources %}<option value="{{ item.source }}" {% if source == item.source %}selected{% endif %}>{{ item.source }} ({{ item.total }})</option>{% endfor %}</select>
@@ -85,6 +87,7 @@
         <input type="hidden" name="municipality" value="{{ municipality }}">
         <input type="hidden" name="state" value="{{ state }}">
         <input type="hidden" name="window" value="{{ window }}">
+        <input type="hidden" name="custom_hours" value="{{ custom_hours or 12 }}">
         <input type="hidden" name="min_priority" value="{{ min_priority }}">
         <div class="bulk-action-toolbar">
           <label class="checkbox-row"><input type="checkbox" data-alert-select-all> Select all on this page</label>
@@ -176,6 +179,10 @@
 </main>
 <script>
 (() => {
+  const windowSelect=document.getElementById('alerts-window'),customHours=document.getElementById('alerts-custom-hours'),customHint=document.getElementById('alerts-custom-hint');
+  const syncCustom=()=>{const show=windowSelect?.value==='custom';if(customHours)customHours.hidden=!show;if(customHint)customHint.hidden=!show;};
+  windowSelect?.addEventListener('change',syncCustom);syncCustom();
+
   document.querySelectorAll('[data-alert-watch-builder]').forEach((builder) => {
     builder.querySelector('[data-alert-watch-continue]')?.addEventListener('click', () => {
       const params = new URLSearchParams({
