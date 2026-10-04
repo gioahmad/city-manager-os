@@ -241,3 +241,42 @@ def test_system_update_converges_app_services_without_pruning_data():
     assert "apt-get -s upgrade" in maintenance
     assert "apt-get upgrade" not in maintenance
     assert "No volumes, running containers, GIS artifacts, n8n data" in maintenance
+
+
+def test_what_changed_is_an_exception_brief():
+    source=(ROOT/"executive_workflow_app.py").read_text()
+    page=(ROOT/"templates"/"executive_changes.html").read_text()
+    strip=(ROOT/"templates"/"executive_changes_strip.html").read_text()
+    assert "coalesce(observed_at,received_at) AS activity_at" in source
+    assert "watch_matches = query_all(" in source
+    assert "delivery_failures = query_all(" in source
+    assert "overdue_work = query_all(" in source
+    assert "NEEDS YOUR ATTENTION" in page
+    assert "New Watch Matches" in page
+    assert "Failed Notifications" in page
+    assert "/context/WORK/" in page
+    assert "/context/ALERT/" in page
+    assert "Watch matches" in strip
+
+
+def test_context_two_surfaces_metrics_evidence_and_project_actions():
+    source=(ROOT/"context_app.py").read_text()
+    page=(ROOT/"templates"/"context.html").read_text()
+    css=(ROOT/"static"/"context.css").read_text()
+    assert "def _context_insights(" in source
+    assert "FROM alert_watch_matches" in source
+    assert "FROM deliveries" in source
+    assert "FROM issues WHERE id=%s" in source
+    assert '("Search Everything"' in source
+    assert '("Find Project Work"' in source
+    assert "OPERATIONAL EVIDENCE" in page
+    assert "context-metrics" in page
+    assert "Technical details" in page
+    assert ".context-metrics" in css
+
+
+def test_polished_templates_compile():
+    environment=Environment(loader=FileSystemLoader(ROOT/"templates"))
+    environment.get_template("executive_changes.html")
+    environment.get_template("executive_changes_strip.html")
+    environment.get_template("context.html")
