@@ -4,62 +4,86 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>City Manager OS</title>
-<link rel="stylesheet" href="/static/workspace_next.css?v=20261004-2">
-<script src="/static/workspace_next.js?v=20261004-2" defer></script>
+<link rel="stylesheet" href="/static/workspace_next.css?v=20261004-3">
+<script src="/static/workspace_next.js?v=20261004-3" defer></script>
 </head>
 <body>
-<div class="app">
+<div class="app-shell">
 
-<aside class="rail">
+<aside class="rail" id="rail">
   <a class="brand" href="/workspace-next">
     <span class="brand-mark">CM</span>
     <span class="brand-copy"><strong>City Manager OS</strong><small>Weehawken</small></span>
   </a>
 
-  <button class="compose" type="button" id="quick-search">+ Find or act</button>
+  <button class="new-button" id="quick-search" type="button"><span>＋</span><span>Find or act</span></button>
 
-  <nav class="nav-primary" aria-label="Workspace">
+  <nav class="primary-nav" aria-label="Workspace">
     <button class="nav-item active" data-view="home"><span class="nav-icon">⌂</span><span>Home</span></button>
-    <button class="nav-item" data-view="inbox"><span class="nav-icon">▣</span><span>Inbox</span><span class="nav-count" id="inbox-count"></span></button>
+    <button class="nav-item" data-view="inbox"><span class="nav-icon">▣</span><span>Inbox</span><span class="nav-badge" id="inbox-count"></span></button>
     <button class="nav-item" data-view="search"><span class="nav-icon">⌕</span><span>Search</span></button>
     <button class="nav-item" data-view="work"><span class="nav-icon">✓</span><span>Work</span></button>
     <button class="nav-item" data-view="people"><span class="nav-icon">◎</span><span>People</span></button>
     <button class="nav-item" data-view="places"><span class="nav-icon">⌖</span><span>Places</span></button>
     <button class="nav-item" data-view="map"><span class="nav-icon">⌘</span><span>Map</span></button>
     <button class="nav-item" data-view="documents"><span class="nav-icon">▤</span><span>Documents</span></button>
+    <button class="nav-item" data-view="operations"><span class="nav-icon">◉</span><span>Operations</span></button>
   </nav>
 
-  <div class="nav-label">SYSTEM</div>
-  <nav>
-    <button class="nav-item" data-view="operations"><span class="nav-icon">◉</span><span>Operations</span></button>
+  <div class="rail-spacer"></div>
+
+  <nav class="secondary-nav">
     <button class="nav-item" data-view="admin"><span class="nav-icon">⚙</span><span>Admin</span></button>
   </nav>
 
-  <div class="rail-foot">
-    <span class="status-dot"></span>
-    <span>Existing engines connected</span>
-  </div>
+  <div class="rail-status"><span></span><small>Operational engines connected</small></div>
 </aside>
 
-<section class="product">
+<section class="workspace-shell">
   <header class="topbar">
-    <button class="mobile-menu" id="mobile-menu" aria-label="Open navigation">☰</button>
-    <form id="global-search" class="command">
-      <span>⌕</span>
-      <input id="global-query" type="search" placeholder="Search or ask about a person, place, issue, alert…" autocomplete="off">
-      <kbd>⌘ K</kbd>
+    <div class="history-controls">
+      <button id="mobile-menu" class="icon-button mobile-menu" type="button" aria-label="Open navigation">☰</button>
+      <button class="icon-button" id="back-button" type="button" aria-label="Back">‹</button>
+      <button class="icon-button" id="forward-button" type="button" aria-label="Forward">›</button>
+    </div>
+
+    <form id="global-search" class="command-bar">
+      <span class="search-mark">⌕</span>
+      <input id="global-query" type="search" placeholder="Search or ask across City Manager OS…" autocomplete="off">
+      <kbd>⌘K</kbd>
     </form>
-    <div class="account"><span>{{ username }}</span><span class="avatar">GA</span></div>
+
+    <div class="top-actions">
+      <button class="icon-button" id="refresh-view" type="button" title="Refresh current view">↻</button>
+      <span class="avatar">GA</span>
+    </div>
   </header>
 
-  <div class="workbench">
-    <main class="canvas" id="canvas" aria-live="polite"></main>
-    <aside class="context" id="context" aria-live="polite"></aside>
+  <div class="window-manager" id="window-manager">
+    <section class="window primary-window">
+      <header class="window-bar">
+        <div class="window-breadcrumb" id="primary-breadcrumb">Home</div>
+        <div class="window-tools">
+          <button class="window-tool" id="primary-maximize" type="button" title="Focus this pane">□</button>
+        </div>
+      </header>
+      <div class="window-body" id="primary"></div>
+    </section>
+
+    <section class="window secondary-window" id="secondary-window" hidden>
+      <header class="window-bar">
+        <div class="window-breadcrumb" id="secondary-breadcrumb">Context</div>
+        <div class="window-tools">
+          <button class="window-tool" id="secondary-maximize" type="button" title="Focus this pane">□</button>
+          <button class="window-tool" id="secondary-close" type="button" title="Close pane">×</button>
+        </div>
+      </header>
+      <div class="window-body" id="secondary"></div>
+    </section>
   </div>
 </section>
 
 </div>
-
-<div class="rail-backdrop" id="rail-backdrop" hidden></div>
+<div id="rail-backdrop" class="rail-backdrop" hidden></div>
 </body>
 </html>
