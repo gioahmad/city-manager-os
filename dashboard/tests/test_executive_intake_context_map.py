@@ -21,6 +21,7 @@ def test_executive_intake_is_first_class_and_selective():
     assert "Bring into Events" in js
     assert "Create Event" in js
     assert "Mark handled" in js
+    assert "Snooze" in js
     assert "Open connected context" in js
     assert "Microsoft calendar" in template
     assert "Microsoft email" in template
@@ -35,6 +36,7 @@ def test_calendar_refresh_preserves_linkable_ids():
 
     assert "ADD COLUMN IF NOT EXISTS id uuid" in migration
     assert "workspace_calendar_events_id_unique" in migration
+    assert "workspace_inbox_snoozed" in migration
     assert "ON CONFLICT(owner_username,event_key) DO UPDATE" in calendar
     assert "workspace_context_links" in calendar
     assert "040_executive_intake.sql" in installer
@@ -133,3 +135,26 @@ def test_new_templates_compile():
     environment.get_template("context.html")
     environment.get_template("workspace_hub.html")
     environment.get_template("map.html")
+
+
+def test_command_palette_routes_intent_without_writing():
+    js=(ROOT/"static"/"macro_layer.js").read_text()
+    assert "function smartCommandRoute" in js
+    assert "intake_source:'MAIL'" in js
+    assert "intake_source:'CALENDAR'" in js
+    assert "state:'waiting'" in js
+    assert "setup_mode:'TOPIC'" in js
+    assert "custom_hours" in js
+    # Smart commands only route or prefill. They do not POST or create records.
+    smart=js.split("function smartCommandRoute",1)[1].split("function use(",1)[0]
+    assert "fetch(" not in smart
+    assert "POST" not in smart
+
+
+def test_full_alert_page_has_fixed_and_custom_time_windows():
+    source=(ROOT/"operations_app.py").read_text()
+    template=(ROOT/"templates"/"alerts.html").read_text()
+    assert 'window == "custom"' in source
+    assert "custom_hours" in source
+    for value in ("1h","2h","4h","6h","12h","24h","3d","7d","30d","custom","all"):
+        assert f"value=\"{value}\"" in template
