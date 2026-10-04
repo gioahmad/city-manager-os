@@ -202,7 +202,7 @@ def test_filter_select_edit_alert_timeline_workflow():
     assert 'id="alert-bulk-edit-selected"' in template
     assert 'id="alert-bulk-edit-dialog"' in template
     assert "Edit Selected" in template
-    assert "Save All Time Corrections" in template
+    assert "Save Selected Timeline" in template
     assert "function renderBulkTimeEditor()" in template
     assert "activity.name='activity_times'" in template
     assert "mode.name='received_modes'" in template
@@ -298,3 +298,27 @@ def test_workspace_polish_uses_current_assets_and_alert_windows():
     assert "macro_layer.css?v=20261004-2" in nav
     assert "macro_layer.js?v=20261004-2" in nav
     assert "context.css?v=20261004-2" in context
+
+
+def test_alert_timeline_editor_supports_date_time_shift_sequence_and_sort():
+    template=(ROOT/"templates"/"alerts.html").read_text()
+    css=(ROOT/"static"/"macro_layer.css").read_text()
+
+    assert "Repair Alert Timeline" in template
+    assert 'id="alert-bulk-date-only"' in template
+    assert 'id="alert-bulk-time-only"' in template
+    assert 'id="alert-bulk-shift-days"' in template
+    assert 'id="alert-bulk-shift-hours"' in template
+    assert 'id="alert-bulk-shift-minutes"' in template
+    assert 'id="alert-bulk-sequence-start"' in template
+    assert 'id="alert-bulk-sequence-spacing"' in template
+    assert 'id="alert-bulk-sort-oldest"' in template
+    assert 'id="alert-bulk-sort-newest"' in template
+    assert 'id="alert-bulk-reset"' in template
+    assert "Set Date · Keep Times" in template
+    assert "Set Time · Keep Dates" in template
+    assert "Sequence Rows" in template
+    assert "Save Selected Timeline" in template
+    assert "function sortEditor(direction)" in template
+    assert "dataset.originalValue" in template
+    assert ".alert-bulk-tool-group" in css
