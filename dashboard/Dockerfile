@@ -41,6 +41,7 @@ COPY transit_runtime.py .
 COPY transit_engine.py .
 COPY transit_app.py .
 COPY integration_worker.py .
+COPY unified_objects.py workspace_next_app.py ./
 COPY private_auth.py .
 COPY phase3_app.py .
 COPY templates ./templates
