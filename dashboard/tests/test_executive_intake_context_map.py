@@ -295,7 +295,7 @@ def test_workspace_polish_uses_current_assets_and_alert_windows():
     assert "workspace.js?v=20261004-2" in page
     assert "workspace_hub.js?v=20261004-2" in page
     assert "workspace.css?v=20261004-2" in page
-    assert "macro_layer.css?v=20261004-2" in nav
+    assert "macro_layer.css?v=20261004-3" in nav
     assert "macro_layer.js?v=20261004-2" in nav
     assert "context.css?v=20261004-2" in context
 
@@ -322,3 +322,36 @@ def test_alert_timeline_editor_supports_date_time_shift_sequence_and_sort():
     assert "function sortEditor(direction)" in template
     assert "dataset.originalValue" in template
     assert ".alert-bulk-tool-group" in css
+
+
+def test_operational_health_and_delivery_pages_have_context_actions():
+    source=(ROOT/"operations_app.py").read_text()
+    health=(ROOT/"templates"/"source_health.html").read_text()
+    deliveries=(ROOT/"templates"/"deliveries.html").read_text()
+
+    assert '"healthy": sum(' in source
+    assert '"attention": sum(' in source
+    assert 'row["alerts_url"]' in source
+    assert 'row["search_url"]' in source
+    assert "delivery_counts = query_one(" in source
+    assert 'a.id AS alert_uuid' in source
+    assert 'row["alert_context_url"]' in source
+    assert "Needs Attention" in health
+    assert "Search Context" in health
+    assert "Last 24h" in deliveries
+    assert "Alert Context" in deliveries
+    assert "Alert History" in deliveries
+
+
+def test_product_docs_reflect_current_cohesion_phase():
+    feature=(ROOT.parent/"docs"/"FEATURE_MATRIX.md").read_text()
+    roadmap=(ROOT.parent/"docs"/"ROADMAP.md").read_text()
+    readme=(ROOT.parent/"README.md").read_text()
+    assert "October 4, 2026" in feature
+    assert "| Executive Intake | Working" in feature
+    assert "| Universal Context Inspector | Working" in feature
+    assert "| Alert Timeline Repair | Working" in feature
+    assert "Context Everywhere" in roadmap
+    assert "Executive Exception Layer" in roadmap
+    assert "Alert / Watch / Map Cohesion" in roadmap
+    assert "Context Everywhere" in readme
