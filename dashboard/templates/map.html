@@ -142,6 +142,7 @@
             <button id="reset-alert-filters" class="map-mini-button" type="button">Reset</button>
           </div>
           <small id="alert-filter-status" class="map-alert-filter-status" aria-live="polite">Loading mapped alerts for this map area...</small>
+          <div id="map-activity-summary" class="map-activity-summary" aria-live="polite"><strong>Activity summary</strong><small>Loads from the alerts currently shown in this map area.</small></div>
           <small>Changing a filter refreshes the Alerts layer immediately. Category uses the category supplied by each source, including BNN. The Alert time choice only controls what is displayed. Alert history is kept.</small>
         </div>
 
@@ -606,7 +607,19 @@ function alertFilterLabel(){
   return parts.join(' · ');
 }
 function showAlertFilterStatus(message,loading=false){const output=document.getElementById('alert-filter-status');if(!output)return;output.textContent=message;output.classList.toggle('loading',loading);output.setAttribute('aria-busy',loading?'true':'false');}
-function showAppliedAlertCount(count){showAlertFilterStatus(count?count.toLocaleString()+' mapped alert'+(count===1?'':'s')+' shown · '+alertFilterLabel():'No mapped alerts match '+alertFilterLabel().toLowerCase()+' in this map area.');}
+function buildMapActivitySummary(){
+  const box=document.getElementById('map-activity-summary');if(!box)return;
+  const features=[];groups.alerts?.eachLayer?.(layer=>{const ll=layer.getLatLng?.();if(ll&&layer.feature)features.push({ll,props:mergedProperties(layer.feature)});});
+  box.replaceChildren();const title=document.createElement('strong');title.textContent='Activity summary';box.appendChild(title);
+  if(!features.length){const empty=document.createElement('small');empty.textContent='No alert activity is loaded for the current filters and map area.';box.appendChild(empty);return;}
+  const urgent=features.filter(x=>Number(x.props.priority||0)>=4).length,feeds=new Map(),cells=new Map();
+  features.forEach(x=>{const source=String(x.props.source||'Unknown');feeds.set(source,(feeds.get(source)||0)+1);const key=(Math.round(x.ll.lat/0.004)*0.004).toFixed(3)+','+(Math.round(x.ll.lng/0.005)*0.005).toFixed(3);const cell=cells.get(key)||{count:0,lat:0,lng:0};cell.count++;cell.lat+=x.ll.lat;cell.lng+=x.ll.lng;cells.set(key,cell);});
+  const headline=document.createElement('small');headline.textContent=features.length+' alerts · '+urgent+' P4/P5 · '+feeds.size+' active feed'+(feeds.size===1?'':'s');box.appendChild(headline);
+  const topFeeds=[...feeds.entries()].sort((a,b)=>b[1]-a[1]).slice(0,4);if(topFeeds.length){const row=document.createElement('small');row.textContent='Top feeds: '+topFeeds.map(([name,count])=>name+' '+count).join(' · ');box.appendChild(row);}
+  const hot=[...cells.values()].filter(c=>c.count>=3).sort((a,b)=>b.count-a.count).slice(0,3);
+  hot.forEach((cell,index)=>{const b=document.createElement('button');b.type='button';b.className='map-hotspot';b.textContent='Hotspot '+(index+1)+' · '+cell.count+' alerts';b.addEventListener('click',()=>map.setView([cell.lat/cell.count,cell.lng/cell.count],Math.max(map.getZoom(),15)));box.appendChild(b);});
+}
+function showAppliedAlertCount(count){showAlertFilterStatus(count?count.toLocaleString()+' mapped alert'+(count===1?'':'s')+' shown · '+alertFilterLabel():'No mapped alerts match '+alertFilterLabel().toLowerCase()+' in this map area.');buildMapActivitySummary();}
 function resetAlertFilters(){const defaults={'alert-window':'12h','alert-map-category':'','alert-map-priority':'1'};Object.entries(defaults).forEach(([id,value])=>{const el=document.getElementById(id);if(el)el.value=value;});document.querySelectorAll('[data-alert-source]').forEach(el=>{el.checked=true;});const active=document.getElementById('alert-map-active');if(active)active.checked=true;syncCustomWindow();refreshAlertLayer(true);}
 function heatPointsFromAlerts(){
   const points=[];
