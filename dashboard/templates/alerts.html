@@ -157,6 +157,7 @@
           <div class="data-side">
             <span class="status {{ (a.status or 'unknown')|lower }}">{{ a.status }}</span>
             <time>{{ a.received_at.strftime('%m/%d/%Y %I:%M %p') if a.received_at else '' }}</time>
+            <a class="secondary-button alert-map-button" href="/context/ALERT/{{ a.alert_uuid }}" data-cmos-quicklook data-cmos-title="Alert Context">Open Context</a>
             {% if has_map_location %}<a class="secondary-button alert-map-button" href="{{ a.map_url }}" data-cmos-quicklook data-cmos-title="Alert on Map">View on Map</a>
             {% elif can_correct_alert_locations %}<a class="secondary-button alert-map-button" href="{{ a.map_url }}" data-cmos-quicklook data-cmos-title="Place Alert on Map">Place on Map</a>
             {% else %}<span class="alert-map-unavailable">Location not mapped</span>{% endif %}
