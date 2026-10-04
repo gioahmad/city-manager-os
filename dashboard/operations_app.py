@@ -387,7 +387,7 @@ def _alert_filter(
     custom_hours = max(1, min(int(custom_hours or 12), 24 * 365))
     window_hours = custom_hours if window == "custom" else ALERT_WINDOWS[window]
     if window_hours is not None:
-        where.append("a.received_at>=now()-(%s * interval '1 hour')")
+        where.append("coalesce(a.observed_at,a.received_at)>=now()-(%s * interval '1 hour')")
         params.append(window_hours)
     state = state if state in {"active", "resolved", "all"} else "all"
     if state == "active":
@@ -1238,7 +1238,10 @@ def alerts_page(
         f"""
         SELECT a.id AS alert_uuid,a.alert_id,a.source,a.category,a.subtype,a.status,a.event_action,
                a.title,a.message,a.priority,a.county,a.municipality,a.received_at,a.updated_at,
-               a.observed_at,a.click_url,a.tags,
+               a.observed_at,coalesce(a.observed_at,a.received_at) AS activity_at,
+               to_char(coalesce(a.observed_at,a.received_at) AT TIME ZONE current_setting('TimeZone'),'YYYY-MM-DD"T"HH24:MI') AS activity_local_value,
+               to_char(a.received_at AT TIME ZONE current_setting('TimeZone'),'YYYY-MM-DD"T"HH24:MI') AS received_local_value,
+               a.click_url,a.tags,
                coalesce(
                  CASE WHEN r.match_type='MANUAL_COORDINATE_CORRECTION' THEN r.resolved_label END,
                  nullif(a.location->>'label',''),nullif(a.location->>'address',''),r.resolved_label
@@ -1287,7 +1290,7 @@ def alerts_page(
           ) m
         ) wm ON true
         {clause}
-        ORDER BY a.received_at DESC,a.id
+        ORDER BY coalesce(a.observed_at,a.received_at) DESC,a.received_at DESC,a.id
         LIMIT %s OFFSET %s
         """,
         [*params, per_page, offset],
@@ -1390,6 +1393,82 @@ def _alerts_redirect(return_to: str, *, message: str = "", error: str = "") -> R
     return RedirectResponse(f"{target}{separator}{query}" if query else target, status_code=303)
 
 
+@app.post("/alerts/{alert_uuid}/time-correction")
+def alert_time_correction(
+    alert_uuid: uuid.UUID,
+    request: Request,
+    activity_at: str = Form(...),
+    received_at: str = Form(""),
+    correct_received: str | None = Form(None),
+    reason: str = Form(""),
+    return_to: str = Form("/alerts"),
+):
+    role = str(getattr(request.state, "cmos_role", "") or "").upper()
+    if role != "EXECUTIVE":
+        raise HTTPException(403, "Only an Executive user can correct stored Alert times")
+    activity_at = activity_at.strip()
+    received_at = received_at.strip()
+    reason = reason.strip()[:500]
+    if not activity_at:
+        raise HTTPException(400, "Choose the corrected activity date and time")
+    if correct_received is not None and not received_at:
+        raise HTTPException(400, "Choose the corrected received date and time")
+    actor = str(getattr(request.state, "cmos_user", "") or "executive")[:120]
+    row = query_one(
+        """
+        WITH prior AS (
+          SELECT id,observed_at,received_at,metadata
+          FROM alerts
+          WHERE id=%s
+          FOR UPDATE
+        ), changed AS (
+          UPDATE alerts a SET
+            observed_at=%s::timestamp AT TIME ZONE current_setting('TimeZone'),
+            received_at=CASE WHEN %s THEN %s::timestamp AT TIME ZONE current_setting('TimeZone')
+                             ELSE a.received_at END,
+            metadata=jsonb_set(
+              coalesce(a.metadata,'{}'::jsonb),
+              '{time_corrections}',
+              coalesce(a.metadata->'time_corrections','[]'::jsonb) ||
+                jsonb_build_array(jsonb_build_object(
+                  'corrected_at',now(),
+                  'corrected_by',%s,
+                  'reason',%s,
+                  'prior_observed_at',(SELECT observed_at FROM prior),
+                  'prior_received_at',(SELECT received_at FROM prior),
+                  'new_activity_at',%s::timestamp AT TIME ZONE current_setting('TimeZone'),
+                  'new_received_at',CASE WHEN %s THEN %s::timestamp AT TIME ZONE current_setting('TimeZone')
+                                         ELSE (SELECT received_at FROM prior) END
+                )),
+              true
+            ),
+            updated_at=now()
+          FROM prior
+          WHERE a.id=prior.id
+          RETURNING a.id,a.alert_id,a.observed_at,a.received_at
+        )
+        SELECT * FROM changed
+        """,
+        (
+            alert_uuid,
+            activity_at,
+            correct_received is not None,
+            received_at or activity_at,
+            actor,
+            reason or "Manual timeline correction",
+            activity_at,
+            correct_received is not None,
+            received_at or activity_at,
+        ),
+    )
+    if not row:
+        raise HTTPException(404, "Alert not found")
+    return _alerts_redirect(
+        return_to,
+        message=f"Corrected activity time for {row['alert_id']}. Original timestamps were retained in the Alert audit metadata.",
+    )
+
+
 @app.post("/alerts/bulk-action")
 def alerts_bulk_action(
     request: Request,
@@ -1466,7 +1545,7 @@ def alerts_bulk_action(
                     cur.execute(
                         f"""
                         SELECT a.id FROM alerts a {clause}
-                        ORDER BY a.received_at DESC,a.id
+                        ORDER BY coalesce(a.observed_at,a.received_at) DESC,a.received_at DESC,a.id
                         LIMIT %s FOR UPDATE
                         """,
                         [*filter_params, ALERT_FILTERED_BULK_LIMIT + 1],
