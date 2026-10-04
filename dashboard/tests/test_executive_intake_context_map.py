@@ -207,3 +207,34 @@ def test_filter_select_edit_alert_timeline_workflow():
     assert 'name="activity_times"' in template
     assert 'name="received_modes"' in template
     assert ".alert-bulk-edit-row" in css
+
+
+def test_system_update_converges_app_services_without_pruning_data():
+    compose=(ROOT/"docker-compose.yml").read_text()
+    updater=(ROOT.parent/"deploy"/"cmos-system-update").read_text()
+    maintenance=(ROOT.parent/"deploy"/"cmos-maintenance").read_text()
+
+    assert 'CMOS_APP_IMAGE' in compose
+    for service in (
+        "citymanager-dashboard",
+        "citymanager-staff",
+        "citymanager-ops-engine",
+        "citymanager-integration-engine",
+    ):
+        assert service in updater
+    assert "citymanager-intake" in updater
+    assert 'RELEASE_TAG="citymanager-os-app:' in updater
+    assert "IMAGE PARITY" in updater
+    assert "AUTHENTICATED APPLICATION SMOKE" in updater
+    assert "bash deploy/cmos-health" in updater
+    assert "bash deploy/cmos-maintenance clean" in updater
+
+    # Maintenance may remove disposable build artifacts, but never live data.
+    assert "docker image prune -f" in maintenance
+    assert "docker builder prune -f --filter until=168h" in maintenance
+    assert "docker volume prune" not in maintenance
+    assert "docker system prune" not in maintenance
+    assert "docker container prune" not in maintenance
+    assert "apt-get -s upgrade" in maintenance
+    assert "apt-get upgrade" not in maintenance
+    assert "No volumes, running containers, GIS artifacts, n8n data" in maintenance
