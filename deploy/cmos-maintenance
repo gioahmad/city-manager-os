@@ -83,6 +83,7 @@ if [[ -f deploy/postgis/.env ]]; then
 fi
 BACKUP_DIR="${BACKUP_DIR:-$REPO/deploy/postgis/backups}"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+MAX_LOCAL_COUNT="${BACKUP_MAX_LOCAL_COUNT:-3}"
 printf 'Configured DB backup directory: %s\n' "$BACKUP_DIR"
 printf 'Configured retention: %s days\n' "$RETENTION_DAYS"
 du -sh "$BACKUP_DIR" 2>/dev/null || true
@@ -125,6 +126,17 @@ if [[ "$MODE" == "clean" ]]; then
   if [[ -d "$BACKUP_DIR" ]]; then
     find "$BACKUP_DIR" -type f -name 'citymanager_*.dump' -mtime "+$RETENTION_DAYS" -print -delete
     find "$BACKUP_DIR" -type f -name 'citymanager_*.dump.sha256' -mtime "+$RETENTION_DAYS" -print -delete
+    if [[ "$MAX_LOCAL_COUNT" =~ ^[0-9]+$ ]] && (( MAX_LOCAL_COUNT > 0 )); then
+      mapfile -t stale_local < <(
+        find "$BACKUP_DIR" -maxdepth 1 -type f -name 'citymanager_*.dump' -printf '%T@ %p\n' 2>/dev/null |
+          sort -nr |
+          awk -v keep="$MAX_LOCAL_COUNT" 'NR>keep {sub(/^[^ ]+ /,""); print}'
+      )
+      for old_dump in "${stale_local[@]}"; do
+        echo "Removing excess local validated backup: $old_dump"
+        rm -f -- "$old_dump" "$old_dump.sha256"
+      done
+    fi
   fi
   echo
   echo "No volumes, running containers, GIS artifacts, n8n data, staff uploads, or arbitrary /var/backups trees were deleted."
