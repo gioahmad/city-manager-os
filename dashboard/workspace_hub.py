@@ -119,7 +119,7 @@ def list_items(owner,view='inbox',q='',scope='both',source='',bucket='open',offs
             clauses.append('(z.snoozed_until IS NULL OR z.snoozed_until<=now())')
         elif bucket=='handled':clauses.append('h.item_id IS NOT NULL')
         if bucket=='action':clauses.append('i.attention')
-        if bucket in {'open','action'} and not q:clauses.append("NOT(i.kind='TASK' AND i.status='Completed') AND NOT(i.kind='CONTACT' AND i.status='Imported')")
+        if bucket in {'open','action'} and not q:clauses.append("NOT(i.kind='TASK' AND i.status='Completed') AND NOT(i.kind='CONTACT' AND i.status='Imported') AND NOT(i.kind='CALENDAR' AND i.status='Past')")
     where=' AND '.join(clauses) or 'true'
     offset=max(0,min(int(offset),10000))
     sql=SOURCES+'''SELECT i.kind,i.id,i.title,left(i.body,250) AS snippet,i.visibility,i.updated_at,i.attention,i.status,i.route,
