@@ -103,3 +103,25 @@ def test_product_cohesion_pass_v2():
         ".cmos-spatial-panel",
     ):
         assert token in css
+
+
+def test_primary_pages_are_task_first():
+    js=(ROOT/"static"/"macro_layer.js").read_text()
+    css=(ROOT/"static"/"macro_layer.css").read_text()
+    for path in ("'/issues'","'/watchlist'","'/alerts'","'/spatial-reference'"):
+        assert path in js
+    for phrase in (
+        "Review work first",
+        "Create or manage a Watch",
+        "Find and review alerts",
+        "Find a place, then act on it",
+        "Advanced Tools",
+    ):
+        assert phrase in js
+    for token in (
+        ".cmos-flow-header",
+        ".cmos-advanced-tools",
+        ".cmos-inline-advanced",
+        ".cmos-secondary-workflow",
+    ):
+        assert token in css
