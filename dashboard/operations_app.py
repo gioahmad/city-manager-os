@@ -769,12 +769,22 @@ def operations_home(request: Request):
                         AND NOT EXISTS (
                           SELECT 1 FROM workspace_inbox_handled h
                           WHERE h.owner_username=m.owner_username AND h.kind='MAIL' AND h.item_id=m.id
+                        )
+                        AND NOT EXISTS (
+                          SELECT 1 FROM workspace_inbox_snoozed z
+                          WHERE z.owner_username=m.owner_username AND z.kind='MAIL' AND z.item_id=m.id
+                            AND z.snoozed_until>now()
                         )) AS mail_pending,
                      (SELECT count(*) FROM workspace_calendar_events e
                       WHERE e.owner_username=%s AND e.ends_at>=now()
                         AND NOT EXISTS (
                           SELECT 1 FROM workspace_inbox_handled h
                           WHERE h.owner_username=e.owner_username AND h.kind='CALENDAR' AND h.item_id=e.id
+                        )
+                        AND NOT EXISTS (
+                          SELECT 1 FROM workspace_inbox_snoozed z
+                          WHERE z.owner_username=e.owner_username AND z.kind='CALENDAR' AND z.item_id=e.id
+                            AND z.snoozed_until>now()
                         )) AS calendar_pending""",
                 (owner, owner),
             ) or {}
@@ -791,6 +801,11 @@ def operations_home(request: Request):
                          SELECT 1 FROM workspace_inbox_handled h
                          WHERE h.owner_username=m.owner_username AND h.kind='MAIL' AND h.item_id=m.id
                        )
+                       AND NOT EXISTS (
+                         SELECT 1 FROM workspace_inbox_snoozed z
+                         WHERE z.owner_username=m.owner_username AND z.kind='MAIL' AND z.item_id=m.id
+                           AND z.snoozed_until>now()
+                       )
                      UNION ALL
                      SELECT 'CALENDAR',e.id,e.title,
                             concat_ws(' · ',nullif(e.location,''),to_char(e.starts_at AT TIME ZONE current_setting('TimeZone'),'MM/DD HH12:MI AM')),
@@ -800,6 +815,11 @@ def operations_home(request: Request):
                        AND NOT EXISTS (
                          SELECT 1 FROM workspace_inbox_handled h
                          WHERE h.owner_username=e.owner_username AND h.kind='CALENDAR' AND h.item_id=e.id
+                       )
+                       AND NOT EXISTS (
+                         SELECT 1 FROM workspace_inbox_snoozed z
+                         WHERE z.owner_username=e.owner_username AND z.kind='CALENDAR' AND z.item_id=e.id
+                           AND z.snoozed_until>now()
                        )
                    ) x ORDER BY happened_at DESC LIMIT 8""",
                 (owner, owner),
