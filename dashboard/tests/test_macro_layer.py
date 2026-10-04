@@ -141,3 +141,9 @@ def test_executive_action_center_and_quick_actions():
     assert "location.hash==='#new-work'" in js
     assert "location.hash==='#new-watch'" in js
     assert ".cmos-action-grid" in css
+
+
+def test_dashboard_sql_avoids_percent_placeholder_collisions():
+    operations=(ROOT/"operations_app.py").read_text()
+    assert "%20" not in operations
+    assert "chr(37)||'20'" in operations
