@@ -16,14 +16,13 @@ sys.path.insert(0, str(DASHBOARD_ROOT))
 
 def test_navigation_is_task_grouped_without_removing_destinations():
     nav = (TEMPLATES / "nav.html").read_text()
-    styles = (DASHBOARD_ROOT / "static" / "command_nav.css").read_text()
+    macro = (DASHBOARD_ROOT / "static" / "macro_layer.css").read_text()
 
-    assert "Admin / More" not in nav
-    assert "<summary>Operations</summary>" in nav
-    assert "<summary>Control Center</summary>" in nav
-    assert 'class="nav-group nav-operations' in nav
-    assert 'class="nav-group nav-control' in nav
-    assert nav.count('href="/integrations"') == 2
+    assert 'class="cmos-rail"' in nav
+    assert 'class="cmos-global-bar"' in nav
+    assert 'data-cmos-command-trigger' in nav
+    assert "Intake" in nav
+    assert "/workspace#inbox" in nav
 
     for route in (
         "/my-day",
@@ -31,12 +30,9 @@ def test_navigation_is_task_grouped_without_removing_destinations():
         "/inbox",
         "/map",
         "/alerts",
-        "/search",
         "/staff-admin",
         "/schedule",
         "/event-intelligence",
-        "/today-board",
-        "/today-board/setup",
         "/transit",
         "/watchlist",
         "/subscribers",
@@ -50,8 +46,8 @@ def test_navigation_is_task_grouped_without_removing_destinations():
     for retired_route in ("/modules", "/rules", "/routing", "/alert-admin"):
         assert f'href="{retired_route}"' not in nav
 
-    assert ".desktop-nav .nav-control{margin-left:auto}" in styles
-    assert ".mobile-menu{max-height:calc(100vh - 96px);overflow-y:auto}" in styles
+    assert ".cmos-rail{" in macro
+    assert ".cmos-global-bar{" in macro
 
 
 def test_navigation_template_compiles():
