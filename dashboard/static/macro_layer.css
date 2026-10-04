@@ -474,3 +474,124 @@ html[data-color-mode=dark] .cmos-spatial-stat strong{color:#eef1f7}
   body:not(.cmos-embedded)>main{padding:13px 12px 88px!important}
   .cmos-sidecar{width:100vw}
 }
+
+
+/* Workflow hierarchy pass */
+.cmos-flow-header{
+  display:flex;align-items:center;justify-content:space-between;gap:18px;
+  margin:10px 0 14px;padding:12px 14px;border:1px solid #dce4ea;border-radius:8px;
+  background:#f8fafc
+}
+.cmos-flow-header>div:first-child{min-width:0}
+.cmos-flow-kicker{
+  display:block;margin-bottom:3px;color:#738496;font-size:7.5px;font-weight:850;letter-spacing:.12em
+}
+.cmos-flow-header strong{display:block;color:#203247;font-size:12px}
+.cmos-flow-header p{margin:2px 0 0;color:#718191;font-size:9px;line-height:1.45}
+.cmos-flow-actions{display:flex;gap:6px;flex-wrap:wrap;flex:none}
+.cmos-flow-actions button{
+  min-height:30px;border:1px solid #d2dce5;border-radius:6px;background:#fff;color:#425a70;
+  padding:6px 9px;font-size:9px;font-weight:700
+}
+.cmos-flow-actions button:first-child{background:#2c5377;border-color:#2c5377;color:#fff}
+.cmos-flow-actions button:hover{filter:brightness(.98);border-color:#aebfce}
+
+.cmos-secondary-workflow{margin-top:13px!important;border-style:dashed!important}
+.cmos-secondary-workflow>summary{background:#fafbfd;color:#526779!important}
+.cmos-secondary-workflow[open]>summary{border-bottom:1px solid #e2e7ec}
+
+.cmos-advanced-tools{
+  margin-top:12px;border:1px solid #dce4ea;border-radius:8px;background:#fafbfd;overflow:hidden
+}
+.cmos-advanced-tools>summary{
+  cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;
+  padding:11px 13px;color:#40566c
+}
+.cmos-advanced-tools>summary::-webkit-details-marker{display:none}
+.cmos-advanced-tools>summary:after{content:'＋';color:#8190a0;font-size:12px}
+.cmos-advanced-tools[open]>summary:after{content:'−'}
+.cmos-advanced-tools>summary span strong,.cmos-advanced-tools>summary span small{display:block}
+.cmos-advanced-tools>summary strong{font-size:10.5px}
+.cmos-advanced-tools>summary small{margin-top:2px;color:#7d8996;font-size:8.5px;font-weight:500}
+.cmos-advanced-tools-body{display:grid;gap:10px;padding:0 10px 10px}
+.cmos-advanced-tools-body>.panel{margin:0!important}
+
+.cmos-inline-advanced{
+  margin:7px 0 10px;border:1px solid #e0e6eb;border-radius:7px;background:#fafbfd
+}
+.cmos-inline-advanced>summary{cursor:pointer;padding:8px 10px;color:#566b80;font-size:9px;font-weight:700}
+.cmos-inline-advanced-body{padding:0 9px 9px}
+
+/* Command: queue is the work surface; creation is secondary. */
+body:not(.cmos-embedded) .command-tabs{
+  margin-bottom:9px;padding:3px 0 7px!important;border-bottom:1px solid #e3e8ed
+}
+.command-tabs a{
+  background:#fff!important;color:#637587!important;border-color:#dbe3ea!important;
+  padding:6px 9px!important;font-size:9px!important
+}
+.command-tabs a:hover,.command-tabs a.active{
+  background:#eaf0f6!important;color:#294d72!important;border-color:#c5d3df!important
+}
+.command-list{gap:6px!important}
+.work-card{
+  background:#fff!important;border-color:#dce4ea!important;border-radius:7px!important;color:#263747!important
+}
+.work-card>summary{padding:10px 11px!important}
+.work-name{color:#203247!important;font-size:11.5px!important}
+.work-context{color:#788896!important;font-size:9px!important}
+.work-next{color:#42576b!important;font-size:9.5px!important}
+.work-card-body{border-top-color:#e2e7ec!important;background:#fbfcfd!important;padding:11px!important}
+.type-chip,.attention-chip{
+  font-size:7.5px!important;padding:2px 5px!important;background:#f0f4f7!important;
+  border-color:#d6e0e7!important;color:#5a7084!important
+}
+
+/* Alerts: review content first; management is subordinate. */
+.alert-search-panel{margin-bottom:11px!important}
+.alert-search-results .data-row{
+  border:1px solid #e0e6eb!important;border-radius:7px!important;margin:7px 0!important;padding:11px!important;background:#fff!important
+}
+.alert-search-results .data-main{min-width:0}
+.alert-search-results .data-side{min-width:118px}
+.alert-why{margin-top:7px!important;padding:7px 8px!important;border-radius:6px!important;background:#f7f9fb!important;font-size:9px!important}
+.row-message{font-size:10.5px!important;line-height:1.5!important;color:#405365!important}
+.alert-reference{opacity:.7}
+
+/* Spatial catalog: search + catalog become the primary workflow. */
+body:not(.cmos-embedded) .cmos-advanced-tools #adopt-form{margin-top:8px}
+body:not(.cmos-embedded) .cmos-advanced-tools .table-wrap{margin-top:6px}
+
+/* Watches: primary editor + saved list stay visible; specialist tools recede. */
+.watch-layout{margin-top:11px!important}
+.watch-health-panel{margin-top:0!important}
+.watch-health-grid{padding-top:10px!important;gap:7px!important}
+.watch-health-grid div{padding:8px 9px!important}
+.watch-health-grid strong{font-size:17px!important}
+.watch-step{padding:11px 0!important;grid-template-columns:27px minmax(0,1fr)!important;gap:9px!important}
+.watch-step-number{width:25px!important;height:25px!important;font-size:10px!important}
+.watch-step-content h3{font-size:12px!important}
+.watch-editor{gap:8px!important}
+.watch-mode-card{padding:8px!important}
+.watch-mode-card strong{font-size:10.5px!important}
+.watch-mode-card small{font-size:8.5px!important}
+
+html[data-color-mode=dark] .cmos-flow-header,
+html[data-color-mode=dark] .cmos-advanced-tools,
+html[data-color-mode=dark] .cmos-inline-advanced,
+html[data-color-mode=dark] .work-card,
+html[data-color-mode=dark] .alert-search-results .data-row{
+  background:#1d222b!important;border-color:#303642!important;color:#e2e7ef!important
+}
+html[data-color-mode=dark] .cmos-flow-header strong,
+html[data-color-mode=dark] .work-name{color:#eef1f7!important}
+html[data-color-mode=dark] .cmos-flow-header p,
+html[data-color-mode=dark] .work-context{color:#9ca7b5!important}
+html[data-color-mode=dark] .work-card-body,
+html[data-color-mode=dark] .alert-why{background:#202630!important;border-color:#303642!important}
+
+@media(max-width:760px){
+  .cmos-flow-header{align-items:flex-start;flex-direction:column;gap:9px}
+  .cmos-flow-actions{width:100%}
+  .cmos-flow-actions button{flex:1}
+}
