@@ -110,6 +110,7 @@
         else actions.append(button('Create Event',()=>{const form=target.querySelector('.hub-event-form');form.hidden=!form.hidden;if(!form.hidden)form.elements.starts_at.focus();}));
       }
       actions.append(button(row.handled?'Return to inbox':'Mark handled',()=>act('HANDLE',{handled:!row.handled})));
+      if(!row.handled)actions.append(button('Snooze',()=>{const raw=prompt('Snooze for how many hours?','24');if(raw===null)return;const hours=Number(raw);if(!Number.isFinite(hours)||hours<1)throw new Error('Enter at least 1 hour.');return act('SNOOZE',{hours:Math.round(hours)});}));
       if(item.kind==='CONTACT'&&!meta.entity_id)actions.append(button('Import as private person',()=>act('IMPORT_CONTACT')));
       if(item.kind==='DOCUMENT'&&['FAILED','NEEDS_OCR'].includes(item.status))actions.append(button('Retry processing',()=>act('RETRY')));
     }
