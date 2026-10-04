@@ -475,7 +475,7 @@ def operations_home(request: Request):
         FROM alerts
         WHERE status <> 'RESOLVED'
           AND (expires_at IS NULL OR expires_at > now())
-        ORDER BY priority DESC, received_at DESC
+        ORDER BY coalesce(observed_at,received_at) DESC, priority DESC, received_at DESC
         LIMIT 12
         """
     )
@@ -485,7 +485,7 @@ def operations_home(request: Request):
         SELECT alert_id, source, category, subtype, status, event_action,
                title, priority, municipality, received_at
         FROM alerts
-        ORDER BY received_at DESC
+        ORDER BY coalesce(observed_at,received_at) DESC, received_at DESC
         LIMIT 20
         """
     )
@@ -623,7 +623,7 @@ def operations_home(request: Request):
                    ELSE 'High-priority active alert'
                  END,
                  a.priority,
-                 a.received_at,
+                 coalesce(a.observed_at,a.received_at),
                  '/alerts?q=' || replace(a.alert_id,' ',chr(37)||'20') || '&window=all&state=all'
           FROM alerts a
           LEFT JOIN geo_entity_resolutions r
@@ -1375,6 +1375,8 @@ def alerts_page(
             or getattr(request.state, "cmos_role", None) == "EXECUTIVE",
             "can_correct_alert_locations": getattr(request.state, "cmos_role", None)
             != "READ_ONLY",
+            "can_correct_alert_times": str(getattr(request.state, "cmos_role", "") or "").upper()
+            == "EXECUTIVE",
             "page": "alerts",
         },
     )
