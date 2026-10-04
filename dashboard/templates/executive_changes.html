@@ -59,7 +59,7 @@
   </div></section>
 
   <section class="panel exception-section" id="delivery-failures"><div class="panel-head"><div><div class="panel-kicker">DELIVERY EXCEPTIONS</div><h2>Failed Notifications</h2></div><span class="count-pill">{{ delivery_failures|length }}</span></div><div class="panel-body change-list">
-    {% for d in delivery_failures %}<div class="change-row"><div class="change-title">{{ d.source }} · {{ d.title }}</div><div class="change-meta">{{ d.subscriber_name or 'Recipient' }}{% if d.ntfy_topic %} · {{ d.ntfy_topic }}{% endif %}{% if d.error_message %} · {{ d.error_message }}</div>{% endif %}<div class="change-time">{{ d.attempted_at.strftime('%m/%d %I:%M %p') if d.attempted_at else '' }}</div><div class="change-actions"><a href="/context/ALERT/{{ d.alert_uuid }}" data-cmos-quicklook data-cmos-title="{{ d.title }}">Alert Context</a><a href="/deliveries">Notification History</a></div></div>{% else %}<div class="empty-change">No failed notifications since your checkpoint.</div>{% endfor %}
+    {% for d in delivery_failures %}<div class="change-row"><div class="change-title">{{ d.source }} · {{ d.title }}</div><div class="change-meta">{{ d.subscriber_name or 'Recipient' }}{% if d.ntfy_topic %} · {{ d.ntfy_topic }}{% endif %}{% if d.error_message %} · {{ d.error_message }}{% endif %}</div><div class="change-time">{{ d.attempted_at.strftime('%m/%d %I:%M %p') if d.attempted_at else '' }}</div><div class="change-actions"><a href="/context/ALERT/{{ d.alert_uuid }}" data-cmos-quicklook data-cmos-title="{{ d.title }}">Alert Context</a><a href="/deliveries">Notification History</a></div></div>{% else %}<div class="empty-change">No failed notifications since your checkpoint.</div>{% endfor %}
   </div></section>
 </main>
 </body>
