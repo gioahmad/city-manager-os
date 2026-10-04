@@ -5,6 +5,13 @@
     return;
   }
 
+  const quickActions=[
+    ['＋','New Work','Create a new accountable work item','/issues#new-work'],
+    ['◎','New Watch','Create a topic, location, or spatial Watch','/watchlist#new-watch'],
+    ['⌖','Open Map','Open the full Mapping Center','/map'],
+    ['▣','Quick Capture','Capture something now and organize it later','#quick-capture'],
+    ['⌕','Search Records','Search across alerts, work, places, people, events and sources','/search']
+  ];
   const commands=[
     ['⌂','Overview','Executive operating picture','/'],
     ['◫','Workspace','Inbox, documents, people and private context','/workspace'],
@@ -63,9 +70,11 @@
 
   function filtered(){
     const q=input.value.trim().toLowerCase();
-    const base=commands.map(x=>({icon:x[0],title:x[1],detail:x[2],url:x[3],recent:false}));
+    const actions=quickActions.map(x=>({icon:x[0],title:x[1],detail:x[2],url:x[3],recent:false,action:true}));
+    const base=commands.map(x=>({icon:x[0],title:x[1],detail:x[2],url:x[3],recent:false,action:false}));
     const recent=readRecent().map(x=>({icon:'↺',title:x.title,detail:'Recently opened',url:x.url,recent:true}));
-    const all=q?[...base,...recent].filter(x=>(x.title+' '+x.detail).toLowerCase().includes(q)):[...recent.slice(0,4),...base];
+    const pool=[...actions,...base,...recent];
+    const all=q?pool.filter(x=>(x.title+' '+x.detail).toLowerCase().includes(q)):[...actions,...recent.slice(0,3),...base];
     return all.filter((x,i,a)=>a.findIndex(y=>y.url===x.url)===i).slice(0,28);
   }
   function render(){
@@ -74,7 +83,7 @@
       list.innerHTML='<div class="cmos-command-empty">Press Enter to search all operational records for “'+escapeHtml(input.value)+'”.</div>';
       return;
     }
-    list.innerHTML=current.map((x,i)=>'<button class="cmos-command-item" data-i="'+i+'" aria-selected="'+(i===selected)+'">'+
+    list.innerHTML=current.map((x,i)=>'<button class="cmos-command-item '+(x.action?'action':'')+'" data-i="'+i+'" aria-selected="'+(i===selected)+'">'+
       '<span class="cmos-command-icon">'+escapeHtml(x.icon)+'</span><span class="cmos-command-copy"><strong>'+escapeHtml(x.title)+'</strong><small>'+escapeHtml(x.detail)+'</small></span>'+
       '<span class="cmos-command-key">'+(x.recent?'RECENT':'')+'</span></button>').join('');
   }
@@ -86,6 +95,11 @@
     if(!item){
       const q=input.value.trim();
       if(q){dialog.close();location.href='/search?q='+encodeURIComponent(q)}
+      return;
+    }
+    if(item.url==='#quick-capture'){
+      dialog.close();
+      document.getElementById('qc-open')?.click();
       return;
     }
     remember(item.url,item.title);
