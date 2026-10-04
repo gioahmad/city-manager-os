@@ -107,7 +107,7 @@ def list_items(owner,view='inbox',q='',scope='both',source='',bucket='open',offs
     pattern='%'+q.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
     clauses=[];params=[owner,owner]
     if view=='library':clauses.append("i.kind IN ('BRAIN','DOCUMENT')")
-    elif bucket!='all' and not q and not source:clauses.append("i.kind<>'RECORD'")
+    elif bucket!='all' and not q and not source:clauses.append("i.kind NOT IN ('RECORD','EVENT')")
     if scope!='both':clauses.append('i.visibility=%s');params.append('PRIVATE' if scope=='personal' else 'WORK')
     if source:clauses.append('i.kind=%s');params.append(source)
     if q:
