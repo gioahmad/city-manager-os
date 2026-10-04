@@ -1,4 +1,5 @@
 """Universal context inspector for connected City Manager OS records."""
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException, Request
@@ -157,6 +158,112 @@ def _reference_record(record_id: UUID) -> dict:
     }
 
 
+def _context_insights(owner: str, kind: str, record_id: UUID, item: dict, relationships: list[dict]) -> tuple[list[dict], list[dict]]:
+    metadata = item.get("metadata") or {}
+    metrics: list[dict] = []
+    evidence: list[dict] = []
+
+    if kind == "ALERT":
+        matches = query_all(
+            """SELECT w.id AS watch_uuid,w.display_name,m.match_type,m.match_reason,m.matched_at
+               FROM alert_watch_matches m
+               JOIN watch_items w ON w.id=m.watch_item_id
+               WHERE m.alert_id=%s
+               ORDER BY m.matched_at DESC LIMIT 25""",
+            (record_id,),
+        )
+        deliveries = query_all(
+            """SELECT d.status,d.attempted_at,d.sent_at,d.error_message,d.ntfy_topic,s.name AS subscriber_name
+               FROM deliveries d LEFT JOIN subscribers s ON s.id=d.subscriber_id
+               WHERE d.alert_id=%s ORDER BY d.attempted_at DESC LIMIT 25""",
+            (record_id,),
+        )
+        metrics = [
+            {"label": "Priority", "value": f"P{metadata.get('priority') or '—'}"},
+            {"label": "Watch matches", "value": str(len(matches))},
+            {"label": "Notifications", "value": str(len(deliveries))},
+            {"label": "Activity", "value": metadata.get("activity_at") or metadata.get("received_at")},
+        ]
+        for row in matches:
+            evidence.append({
+                "kind": "WATCH",
+                "title": row["display_name"],
+                "detail": " · ".join(x for x in (row.get("match_type"), row.get("match_reason")) if x),
+                "happened_at": row.get("matched_at"),
+                "url": f"/context/WATCH/{row['watch_uuid']}",
+            })
+        for row in deliveries:
+            evidence.append({
+                "kind": "NOTIFICATION",
+                "title": row.get("subscriber_name") or row.get("ntfy_topic") or "Notification",
+                "detail": " · ".join(x for x in (row.get("status"), row.get("error_message")) if x),
+                "happened_at": row.get("sent_at") or row.get("attempted_at"),
+                "url": "/deliveries",
+            })
+    elif kind == "WATCH":
+        recent = query_all(
+            """SELECT a.id AS alert_uuid,a.title,a.source,a.priority,m.match_reason,m.matched_at
+               FROM alert_watch_matches m JOIN alerts a ON a.id=m.alert_id
+               WHERE m.watch_item_id=%s
+               ORDER BY m.matched_at DESC LIMIT 30""",
+            (record_id,),
+        )
+        metrics = [
+            {"label": "State", "value": item.get("status") or "—"},
+            {"label": "Matches", "value": str(metadata.get("match_count") or 0)},
+            {"label": "Recipients", "value": str(metadata.get("recipient_count") or 0)},
+            {"label": "Notifications · 24h", "value": str(metadata.get("deliveries_24h") or 0)},
+        ]
+        for row in recent:
+            evidence.append({
+                "kind": "ALERT",
+                "title": row["title"],
+                "detail": f"{row.get('source') or 'Alert'} · P{row.get('priority') or '—'}" + (f" · {row['match_reason']}" if row.get("match_reason") else ""),
+                "happened_at": row.get("matched_at"),
+                "url": f"/context/ALERT/{row['alert_uuid']}",
+            })
+    elif kind == "WORK":
+        row = query_one(
+            """SELECT priority,item_type,status,assigned_to,waiting_on,next_action,address,municipality,due_at,follow_up_at
+               FROM issues WHERE id=%s""",
+            (record_id,),
+        ) or {}
+        metadata.update(row)
+        item["metadata"] = metadata
+        metrics = [
+            {"label": "Priority", "value": f"P{row.get('priority') or '—'}"},
+            {"label": "Owner", "value": row.get("assigned_to") or "Unassigned"},
+            {"label": "Waiting on", "value": row.get("waiting_on") or "—"},
+            {"label": "Next action", "value": row.get("next_action") or "Not set"},
+        ]
+    elif kind == "RECORD":
+        attrs = metadata.get("attributes") or {}
+        record_kind = str(item.get("status") or "RECORD").replace("_", " ")
+        metrics = [
+            {"label": "Record type", "value": record_kind},
+            {"label": "Linked context", "value": str(len(item.get("links") or []))},
+            {"label": "Relationships", "value": str(len(relationships))},
+            {"label": "Location", "value": attrs.get("address") or "—"},
+        ]
+    elif kind == "EVENT":
+        metrics = [
+            {"label": "State", "value": item.get("status") or "—"},
+            {"label": "Starts", "value": metadata.get("starts_at") or "—"},
+            {"label": "Location", "value": metadata.get("location") or "—"},
+            {"label": "Linked context", "value": str(len(item.get("links") or []))},
+        ]
+    else:
+        metrics = [
+            {"label": "State", "value": item.get("status") or "—"},
+            {"label": "Visibility", "value": item.get("visibility") or "—"},
+            {"label": "Linked context", "value": str(len(item.get("links") or []))},
+            {"label": "Updated", "value": item.get("updated_at") or "—"},
+        ]
+
+    evidence.sort(key=lambda row: row.get("happened_at") or datetime.min, reverse=True)
+    return metrics, evidence
+
+
 @app.get("/context/{item_kind}/{item_id}", response_class=HTMLResponse)
 def context_page(request: Request, item_kind: str, item_id: str):
     owner = _owner(request)
@@ -199,10 +306,16 @@ def context_page(request: Request, item_kind: str, item_id: str):
         if metadata.get("outlook_url"):
             actions.append(("Open in Outlook", metadata["outlook_url"]))
     elif kind == "RECORD":
-        actions = [("Open People & Places", "/workspace#people")]
-        address = (metadata.get("attributes") or {}).get("address")
+        attrs = metadata.get("attributes") or {}
+        record_type = str(item.get("status") or "").upper()
+        actions = [("Open People & Places", "/workspace#people"), ("Search Everything", f"/search?q={item['title']}")]
+        address = attrs.get("address")
         if address:
             actions.append(("Map Address", f"/map?q={address}"))
+        if record_type == "PROJECT":
+            actions.append(("Find Project Work", f"/issues?q={item['title']}"))
+        elif record_type in {"BUILDING","STREET"}:
+            actions.append(("Nearby Activity", f"/map?q={address or item['title']}"))
     elif kind == "WATCH":
         actions = [("Open Watch", item["route"]), ("Map", f"/map?map_view=1&layers=watchlist&selected_layer=watchlist&selected_id={metadata.get('watch_id','')}")]
     elif kind == "REFERENCE":
@@ -228,6 +341,8 @@ def context_page(request: Request, item_kind: str, item_id: str):
             (record_id, record_id, record_id, owner, record_id, record_id),
         )
 
+    metrics, evidence = _context_insights(owner, kind, record_id, item, relationships)
+
     return templates.TemplateResponse(
         request=request,
         name="context.html",
@@ -236,6 +351,8 @@ def context_page(request: Request, item_kind: str, item_id: str):
             "item": item,
             "actions": actions,
             "relationships": relationships,
+            "metrics": metrics,
+            "evidence": evidence,
         },
     )
 
