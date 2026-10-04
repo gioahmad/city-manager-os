@@ -1,6 +1,6 @@
 # Feature Matrix
 
-_Last reconciled with production/main: September 4, 2026._
+_Last reconciled with the preserve-first production release: October 4, 2026._
 
 | Feature | Status | Priority | Lives In | Next Action |
 |---|---|---:|---|---|
@@ -27,6 +27,10 @@ _Last reconciled with production/main: September 4, 2026._
 | Visibility Queue | Working | Medium | Dashboard / Postgres | Maintain |
 | Rules Center | Working | High | Dashboard / Postgres | Extend only as needed |
 | Executive Assistant / Morning Brief | Working | High | n8n / Dashboard / Postgres | Improve Daily Manager Brief and Waiting On |
+| Executive Intake | Working | High | Dashboard / Microsoft Graph / Postgres | Keep Microsoft read-only; user decides what becomes Work / Brain / Event |
+| Universal Context Inspector | Working | High | Dashboard / existing context links | Expand evidence and record-specific actions without parallel graph tables |
+| Macro-inspired Shell / Quick Look | Working | High | Dashboard | Preserve all module power while improving search, sidecar and keyboard navigation |
+| Alert Timeline Repair | Working | High | Dashboard / Postgres | Maintain audited Activity Time corrections and batch repair workflows |
 | Employee Operations Portal | Working | Critical | FastAPI / Postgres | Maintain |
 | Supervisor Operations Board | Working | Critical | Dashboard / Postgres | Maintain |
 | Employee Photos / Checklists | Working | High | FastAPI / storage / Postgres | Maintain |
@@ -53,14 +57,14 @@ _Last reconciled with production/main: September 4, 2026._
 | NWS Flood / Coastal Alerts | Working | High | n8n / Postgres | Maintain |
 | Flood Spatial Watch Context | Working | High | PostGIS / n8n | Add real watched facilities as configured |
 | Flood Dynamic Alert Routing | Working | Critical | n8n / Postgres / ntfy | Maintain central matcher path |
-| Watchlist / Subscriber Admin v2 | Planned | Critical | Dashboard / Postgres | Simplify create/edit/routing UX without redesigning backend |
-| Events Center | Planned | High | Dashboard / Postgres | Add event tracking and preparation linked to existing issues |
-| Integrations Center | Planned | Critical | Dashboard / n8n / Postgres | Central web administration for APIs/data sources |
-| NJ Transit Integration | Planned | High | n8n / Postgres / Dashboard | Add through Integrations Center and current alert pipeline |
-| Location-aware Integration Context | Planned | High | PostGIS / Dashboard / n8n | Attach route/station/area/location context to feeds where available |
-| In-App Instructions | Planned | High | Dashboard | Short help text and examples on admin pages |
-| Daily Manager Brief v2 | Planned | High | Dashboard / n8n / Postgres | Focus on what changed, exceptions, deadlines and waiting-on items |
-| Commitments / Waiting On | Planned | High | Dashboard / Postgres | Track follow-up without creating a parallel task database |
+| Watchlist / Subscriber Admin v2 | Working | Critical | Dashboard / Postgres | Continue UX polish; preserve matcher and routing model |
+| Events Center | Working | High | Dashboard / Postgres | Continue contextual linking and preparation polish |
+| Integrations Center | Working | Critical | Dashboard / n8n / Postgres | Continue source onboarding / operational health polish |
+| NJ Transit / Transit Intelligence | Working | High | Dashboard / integrations / Postgres | Maintain relevance scoring and expand only with operational value |
+| Location-aware Integration Context | Working | High | PostGIS / Dashboard / integrations | Continue improving precision and context handoffs |
+| In-App Instructions | Working | High | Dashboard | Continue concise help on specialist/admin pages |
+| Daily Manager Brief / What Changed v2 | Working | High | Dashboard / n8n / Postgres | Continue exception ranking and contextual drill-down |
+| Commitments / Waiting On | Working | High | Dashboard / Postgres | Continue chase/follow-up ergonomics in Command Center |
 | Additional Transit / Traffic / Port Authority Sources | Backlog | Medium | n8n / Postgres | Add after NJ Transit based on operational value |
 | SMS / Email Delivery | Backlog | Low | Routing layer | Add only if needed |
 | Obsidian / Local Documents | Deferred | Medium | Future knowledge layer | Revisit after active next-phase work stabilizes |
