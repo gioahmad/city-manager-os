@@ -1,6 +1,7 @@
 services:
   citymanager-dashboard:
     build: .
+    image: "${CMOS_APP_IMAGE:-dashboard-citymanager-dashboard:latest}"
     container_name: citymanager-dashboard
     restart: unless-stopped
     env_file:
@@ -24,7 +25,7 @@ services:
       - citymanager
 
   citymanager-staff:
-    image: dashboard-citymanager-dashboard:latest
+    image: "${CMOS_APP_IMAGE:-dashboard-citymanager-dashboard:latest}"
     container_name: citymanager-staff
     restart: unless-stopped
     env_file:
@@ -60,7 +61,7 @@ services:
       - citymanager
 
   citymanager-ops-engine:
-    image: dashboard-citymanager-dashboard:latest
+    image: "${CMOS_APP_IMAGE:-dashboard-citymanager-dashboard:latest}"
     container_name: citymanager-ops-engine
     restart: unless-stopped
     env_file:
@@ -80,7 +81,7 @@ services:
       - citymanager
 
   citymanager-integration-engine:
-    image: dashboard-citymanager-dashboard:latest
+    image: "${CMOS_APP_IMAGE:-dashboard-citymanager-dashboard:latest}"
     container_name: citymanager-integration-engine
     restart: unless-stopped
     env_file:
