@@ -492,6 +492,28 @@ def operations_home(request: Request):
         """
     )
 
+    spatial_status = query_one(
+        """
+        SELECT
+          (SELECT count(*) FROM alerts a
+             LEFT JOIN geo_entity_resolutions r
+               ON r.entity_type='ALERT' AND r.entity_id=a.id::text AND r.status='RESOLVED'
+             WHERE a.received_at >= now()-interval '24 hours'
+               AND coalesce(a.geom,r.geom) IS NOT NULL) AS mapped_alerts_24h,
+          (SELECT count(*) FROM alerts
+             WHERE received_at >= now()-interval '24 hours') AS total_alerts_24h,
+          (SELECT count(*) FROM watch_items
+             WHERE active=true
+               AND (spatial_geom IS NOT NULL OR spatial_target_geom IS NOT NULL OR geom IS NOT NULL))
+             AS active_spatial_watches,
+          (SELECT count(*) FROM spatial_reference_entities WHERE active=true) AS active_references,
+          (SELECT count(*) FROM map_layers WHERE active=true) AS active_map_layers,
+          EXISTS(SELECT 1 FROM gis_parcels WHERE geom IS NOT NULL LIMIT 1) AS parcels_ready,
+          EXISTS(SELECT 1 FROM gis_addresses WHERE geom IS NOT NULL LIMIT 1) AS addresses_ready,
+          EXISTS(SELECT 1 FROM gis_flood_zones WHERE geom IS NOT NULL LIMIT 1) AS flood_ready
+        """
+    )
+
     recent_deliveries = query_all(
         """
         SELECT d.status, d.ntfy_topic, d.sent_at, d.attempted_at,
@@ -600,6 +622,7 @@ def operations_home(request: Request):
             "active_alerts": active_alerts,
             "intelligence_feed": intelligence_feed,
             "source_health": source_health,
+            "spatial_status": spatial_status,
             "recent_deliveries": recent_deliveries,
             "command_center": command_center,
             "command_counts": command_counts,
