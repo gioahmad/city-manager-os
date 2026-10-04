@@ -642,3 +642,19 @@ html[data-color-mode=dark] .alert-why{background:#202630!important;border-color:
 html[data-color-mode=dark] .cmos-intake-metrics>a{background:#202630;border-color:#303642;color:#e2e7ef}
 html[data-color-mode=dark] .cmos-intake-metrics strong{color:#eef1f7}
 @media(max-width:650px){.cmos-intake-metrics{grid-template-columns:1fr}.cmos-intake-list>a{grid-template-columns:auto minmax(0,1fr)}.cmos-intake-list time{display:none}}
+
+
+/* Alert chronology polish */
+.alert-time-stack{display:grid;gap:2px;min-width:150px}
+.alert-time-stack time{display:block!important;font-size:8.5px!important;white-space:nowrap;color:#778795}
+.alert-time-stack time:first-child{color:#2a4258}
+.alert-time-stack time strong,.alert-time-stack time span{font-size:7.5px;text-transform:uppercase;letter-spacing:.04em;margin-right:3px}
+.alert-time-correction{width:100%;margin-top:4px;border:1px solid #e0e6eb;border-radius:6px;background:#fafbfd}
+.alert-time-correction>summary{cursor:pointer;padding:6px 8px;font-size:8.5px;font-weight:750;color:#536b80}
+.alert-time-correction form{padding:7px 8px!important;margin:0!important}
+.alert-bulk-time-panel{display:grid;gap:7px;min-width:240px;padding:8px;border:1px solid #dce4ea;border-radius:7px;background:#fafbfd}
+.alert-bulk-time-panel[hidden]{display:none!important}
+.alert-bulk-time-panel details{margin:0}
+html[data-color-mode=dark] .alert-time-correction,
+html[data-color-mode=dark] .alert-bulk-time-panel{background:#202630;border-color:#303642}
+html[data-color-mode=dark] .alert-time-stack time:first-child{color:#e2e7ef}
