@@ -4,6 +4,7 @@ This is a parallel presentation layer over existing authoritative tables and
 engines. Existing routes remain available as advanced controls.
 """
 import json
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, Request
@@ -14,6 +15,7 @@ from app import app, db_conn, execute, query_one, templates
 from brain_app import _csrf, _owner, _write
 from unified_objects import OBJECT_KINDS, home_snapshot, object_detail, search_objects
 from workspace_hub import list_items
+from operations_app import require_watch_recipients
 
 
 def _json(value):
@@ -195,6 +197,33 @@ async def workspace_next_action(request: Request):
                 ),
             ).fetchone()
         return _json({"ok":True,"message":"Alert added to Work.","issue_id":row["id"]})
+
+    if action=="WATCH_TOGGLE":
+        watch_id=_uid(data.get("id"))
+        requested=str(data.get("state") or "").lower().strip()
+        if requested not in {"pause","activate","reactivate"}:
+            raise HTTPException(400,"Choose Pause or Reactivate")
+        with db_conn() as conn:
+            row=conn.execute(
+                "SELECT active,expires_at FROM watch_items WHERE id=%s FOR UPDATE",
+                (watch_id,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(404,"Watch not found")
+            next_active=requested in {"activate","reactivate"}
+            clear_expired=bool(
+                next_active and row.get("expires_at") and row["expires_at"]<=datetime.now(timezone.utc)
+            )
+            conn.execute(
+                """UPDATE watch_items SET active=%s,
+                   starts_at=CASE WHEN %s THEN NULL ELSE starts_at END,
+                   expires_at=CASE WHEN %s THEN NULL ELSE expires_at END,
+                   updated_at=now() WHERE id=%s""",
+                (next_active,clear_expired,clear_expired,watch_id),
+            )
+            if next_active:
+                require_watch_recipients(conn,[watch_id])
+        return _json({"ok":True,"message":"Watch is on" if next_active else "Watch paused."})
 
     if action=="INBOX_HANDLE":
         item_kind=_clean(data.get("kind"),30)
