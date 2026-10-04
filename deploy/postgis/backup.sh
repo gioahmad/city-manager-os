@@ -20,6 +20,7 @@ OFFBOX_DIR="${BACKUP_OFFBOX_DIR:-}"
 OFFBOX_TARGET="${BACKUP_OFFBOX_TARGET:-}"
 REQUIRE_OFFBOX="${BACKUP_REQUIRE_OFFBOX:-false}"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+MAX_LOCAL_COUNT="${BACKUP_MAX_LOCAL_COUNT:-3}"
 
 mkdir -p "$BACKUP_DIR"
 STAMP="$(date +%Y%m%d_%H%M%S)"
@@ -102,7 +103,22 @@ progress_step 4 5 "Retention cleanup"
 find "$BACKUP_DIR" -type f -name 'citymanager_*.dump' -mtime "+$RETENTION_DAYS" -delete
 find "$BACKUP_DIR" -type f -name 'citymanager_*.dump.sha256' -mtime "+$RETENTION_DAYS" -delete
 
+# Full GIS-enabled dumps are large. Repeated deploy/retry runs can otherwise
+# create many multi-GB backups on the same day. Keep only the newest validated
+# local archives after age retention. Longer retention belongs off-box.
+if [[ "$MAX_LOCAL_COUNT" =~ ^[0-9]+$ ]] && (( MAX_LOCAL_COUNT > 0 )); then
+  mapfile -t stale_local < <(
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'citymanager_*.dump' -printf '%T@ %p\n' 2>/dev/null |
+      sort -nr |
+      awk -v keep="$MAX_LOCAL_COUNT" 'NR>keep {sub(/^[^ ]+ /,""); print}'
+  )
+  for old_dump in "${stale_local[@]}"; do
+    [[ "$old_dump" == "$OUT" ]] && continue
+    rm -f -- "$old_dump" "$old_dump.sha256"
+  done
+fi
+
 progress_step 5 5 "Backup complete and validated"
 printf 'Backup complete and validated: %s\n' "$OUT"
 printf 'Off-box status: %s\n' "$OFFBOX_STATUS"
-printf 'Retention cleanup complete (%s days).\n' "$RETENTION_DAYS"
+printf 'Retention cleanup complete (%s days; newest %s local full backups retained).\n' "$RETENTION_DAYS" "$MAX_LOCAL_COUNT"
