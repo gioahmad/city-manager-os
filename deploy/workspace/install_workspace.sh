@@ -16,7 +16,7 @@ BEFORE="$(docker inspect --format '{{.Name}} {{.Id}} {{.Image}} {{.State.Running
 progress_step 1 8 "Database backup"
 bash "$REPO/deploy/postgis/backup.sh"
 progress_step 2 8 "Applying additive migrations"
-for migration in 036_brain.sql 037_workspace.sql 038_workspace_calendar.sql 039_workspace_inbox.sql; do
+for migration in 036_brain.sql 037_workspace.sql 038_workspace_calendar.sql 039_workspace_inbox.sql 040_executive_intake.sql; do
   run_with_progress "Migration $migration" "" docker exec -i citymanager-postgis sh -lc \
     'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
     < "$REPO/deploy/postgis/init/$migration"
