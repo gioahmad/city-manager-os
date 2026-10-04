@@ -181,7 +181,7 @@ def mapping_center(request: Request, msg: str = ""):
           SELECT ST_Extent(geom) AS b
           FROM gis_parcels
           WHERE geom IS NOT NULL
-            AND upper(coalesce(mun_name,'')) LIKE 'WEEHAWKEN%'
+            AND position('WEEHAWKEN' in upper(coalesce(mun_name,'')))=1
         ) x
         WHERE b IS NOT NULL
         """
