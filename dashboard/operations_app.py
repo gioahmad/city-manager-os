@@ -596,7 +596,7 @@ def operations_home(request: Request):
                  END AS reason,
                  i.priority,
                  i.updated_at AS happened_at,
-                 '/issues?q=' || replace(i.title,' ','%20') || '&state=all' AS url
+                 '/issues?q=' || replace(i.title,' ',chr(37)||'20') || '&state=all' AS url
           FROM issues i
           WHERE i.status NOT IN ('RESOLVED','CLOSED')
             AND (
@@ -617,7 +617,7 @@ def operations_home(request: Request):
                  END,
                  a.priority,
                  a.received_at,
-                 '/alerts?q=' || replace(a.alert_id,' ','%20') || '&window=all&state=all'
+                 '/alerts?q=' || replace(a.alert_id,' ',chr(37)||'20') || '&window=all&state=all'
           FROM alerts a
           LEFT JOIN geo_entity_resolutions r
             ON r.entity_type='ALERT' AND r.entity_id=a.id::text AND r.status='RESOLVED'
@@ -650,7 +650,7 @@ def operations_home(request: Request):
                  END,
                  4,
                  w.updated_at,
-                 '/watchlist?q=' || replace(w.display_name,' ','%20')
+                 '/watchlist?q=' || replace(w.display_name,' ',chr(37)||'20')
           FROM watch_items w
           WHERE (
             w.active=true AND NOT EXISTS (
@@ -691,7 +691,7 @@ def operations_home(request: Request):
                  a.title,
                  concat_ws(' · ',a.source,a.category,nullif(a.municipality,'')) AS detail,
                  a.received_at AS happened_at,
-                 '/alerts?q=' || replace(a.alert_id,' ','%20') || '&window=all&state=all' AS url
+                 '/alerts?q=' || replace(a.alert_id,' ',chr(37)||'20') || '&window=all&state=all' AS url
           FROM alerts a
           WHERE a.received_at>=now()-interval '7 days'
 
@@ -702,7 +702,7 @@ def operations_home(request: Request):
                  i.title,
                  concat_ws(' · ',i.item_type,i.status,nullif(i.assigned_to,'')) AS detail,
                  i.updated_at,
-                 '/issues?q=' || replace(i.title,' ','%20') || '&state=all'
+                 '/issues?q=' || replace(i.title,' ',chr(37)||'20') || '&state=all'
           FROM issues i
           WHERE i.updated_at>=now()-interval '7 days'
 
@@ -713,7 +713,7 @@ def operations_home(request: Request):
                  e.title,
                  concat_ws(' · ',e.category,nullif(e.municipality,''),e.event_status) AS detail,
                  e.updated_at,
-                 '/schedule?q=' || replace(e.title,' ','%20') || '&state=all'
+                 '/schedule?q=' || replace(e.title,' ',chr(37)||'20') || '&state=all'
           FROM operational_events e
           WHERE e.updated_at>=now()-interval '14 days'
 
@@ -724,7 +724,7 @@ def operations_home(request: Request):
                  a.title,
                  s.name || ' · ' || d.status,
                  coalesce(d.sent_at,d.attempted_at,d.created_at),
-                 '/deliveries?q=' || replace(a.title,' ','%20')
+                 '/deliveries?q=' || replace(a.title,' ',chr(37)||'20')
           FROM deliveries d
           JOIN alerts a ON a.id=d.alert_id
           JOIN subscribers s ON s.id=d.subscriber_id
