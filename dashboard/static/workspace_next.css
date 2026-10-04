@@ -156,3 +156,21 @@ p{margin:0 0 9px}
   .view-wrap{padding:20px 15px 34px}
   .command-bar{max-width:none}
 }
+
+
+/* Native parity controls */
+.native-actions{margin:0 0 18px;padding:14px;border:1px solid #303741;background:#171c22;border-radius:8px}
+.native-actions h3{font-size:9px;text-transform:uppercase;letter-spacing:.9px;color:#84909d;margin:0 0 10px}
+.native-form{display:grid;gap:9px}
+.native-form.compact{margin-top:12px;padding-top:12px;border-top:1px solid #2a3038}
+.native-form label{display:block;color:#7f8a96;font-size:9px;text-transform:uppercase;letter-spacing:.45px}
+.native-form input,.native-form textarea,.native-form select{display:block;width:100%;margin-top:4px;border:1px solid #303741;background:#101419;color:#e7edf3;border-radius:6px;padding:7px 8px;outline:0;font-size:11px;text-transform:none;letter-spacing:0}
+.native-form textarea{resize:vertical}
+.native-form input:focus,.native-form textarea:focus,.native-form select:focus{border-color:#456183;box-shadow:0 0 0 2px #5c8fd612}
+.native-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.native-actions button{border:1px solid #343c46;background:#1b2128;color:#cbd4de;border-radius:6px;padding:7px 9px;font-size:10px;margin-right:5px}
+.native-actions button:hover{background:#232a32;color:#fff}
+.native-actions .native-primary{background:#31577f;border-color:#416c99;color:#fff;font-weight:700}
+.native-inline{display:flex;gap:5px;margin-top:10px;flex-wrap:wrap}
+.native-status{min-height:15px;margin-top:8px;color:#7ea6d5;font-size:9px}
+@media(max-width:900px){.native-grid{grid-template-columns:1fr}}
