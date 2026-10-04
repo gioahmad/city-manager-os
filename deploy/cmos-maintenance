@@ -77,6 +77,35 @@ ORDER BY n_dead_tup DESC
 LIMIT 15;
 SQL
 
+section "GIS STAGING / ROLLBACK CAPACITY"
+docker exec -i citymanager-postgis sh -lc 'psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<'SQL'
+SELECT 'candidate|'||c.relname||'|'||pg_size_pretty(pg_total_relation_size(c.oid))
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname='public' AND c.relkind='r'
+  AND (
+    c.relname LIKE 'stg_nj_%'
+    OR c.relname LIKE 'stg_hudson_%'
+    OR c.relname LIKE 'gis_parcels_backup_%'
+    OR c.relname LIKE 'gis_addresses_backup_%'
+    OR c.relname LIKE 'gis_parcel_blocks_backup_%'
+    OR c.relname LIKE 'gis_road_aliases_backup_%'
+    OR c.relname LIKE 'gis_landmark_aliases_backup_%'
+  )
+ORDER BY pg_total_relation_size(c.oid) DESC;
+SELECT 'candidate_total|'||pg_size_pretty(coalesce(sum(pg_total_relation_size(c.oid)),0))
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname='public' AND c.relkind='r'
+  AND (
+    c.relname LIKE 'stg_nj_%'
+    OR c.relname LIKE 'stg_hudson_%'
+    OR c.relname LIKE 'gis_parcels_backup_%'
+    OR c.relname LIKE 'gis_addresses_backup_%'
+    OR c.relname LIKE 'gis_parcel_blocks_backup_%'
+    OR c.relname LIKE 'gis_road_aliases_backup_%'
+    OR c.relname LIKE 'gis_landmark_aliases_backup_%'
+  );
+SQL
+
 section "BACKUPS"
 if [[ -f deploy/postgis/.env ]]; then
   set -a; source deploy/postgis/.env; set +a
