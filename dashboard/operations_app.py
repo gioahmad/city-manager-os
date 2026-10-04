@@ -581,6 +581,160 @@ def operations_home(request: Request):
         """
     )
 
+    action_center = query_all(
+        """
+        SELECT * FROM (
+          SELECT 'WORK'::text AS kind,
+                 i.id::text AS record_id,
+                 i.title,
+                 CASE
+                   WHEN i.due_at IS NOT NULL AND i.due_at < now() THEN 'Overdue'
+                   WHEN i.follow_up_at IS NOT NULL AND i.follow_up_at < now() THEN 'Follow-up due'
+                   WHEN nullif(trim(i.waiting_on),'') IS NOT NULL THEN 'Waiting on ' || i.waiting_on
+                   WHEN nullif(trim(i.next_action),'') IS NULL THEN 'No next action'
+                   ELSE 'Needs review'
+                 END AS reason,
+                 i.priority,
+                 i.updated_at AS happened_at,
+                 '/issues?q=' || replace(i.title,' ','%20') || '&state=all' AS url
+          FROM issues i
+          WHERE i.status NOT IN ('RESOLVED','CLOSED')
+            AND (
+              (i.due_at IS NOT NULL AND i.due_at < now())
+              OR (i.follow_up_at IS NOT NULL AND i.follow_up_at < now())
+              OR nullif(trim(i.waiting_on),'') IS NOT NULL
+              OR nullif(trim(i.next_action),'') IS NULL
+            )
+
+          UNION ALL
+
+          SELECT 'ALERT',
+                 a.id::text,
+                 a.title,
+                 CASE
+                   WHEN coalesce(a.geom,r.geom) IS NULL THEN 'Important alert is not mapped'
+                   ELSE 'High-priority active alert'
+                 END,
+                 a.priority,
+                 a.received_at,
+                 '/alerts?q=' || replace(a.alert_id,' ','%20') || '&window=all&state=all'
+          FROM alerts a
+          LEFT JOIN geo_entity_resolutions r
+            ON r.entity_type='ALERT' AND r.entity_id=a.id::text AND r.status='RESOLVED'
+          WHERE a.status <> 'RESOLVED'
+            AND (a.expires_at IS NULL OR a.expires_at > now())
+            AND (
+              a.priority >= 4
+              OR coalesce(a.geom,r.geom) IS NULL
+            )
+
+          UNION ALL
+
+          SELECT 'WATCH',
+                 w.id::text,
+                 w.display_name,
+                 CASE
+                   WHEN w.active=true AND NOT EXISTS (
+                     SELECT 1
+                     FROM watch_item_recipients wir
+                     JOIN subscribers s ON s.id=wir.subscriber_id
+                     WHERE wir.watch_item_id=w.id AND wir.active=true AND s.active=true
+                   ) THEN 'Active Watch has no Recipient'
+                   WHEN EXISTS (
+                     SELECT 1 FROM deliveries d
+                     WHERE d.status='FAILED'
+                       AND d.created_at>=now()-interval '24 hours'
+                       AND d.matched_watch_ids ? w.watch_id
+                   ) THEN 'Recent delivery problem'
+                   ELSE 'Watch needs review'
+                 END,
+                 4,
+                 w.updated_at,
+                 '/watchlist?q=' || replace(w.display_name,' ','%20')
+          FROM watch_items w
+          WHERE (
+            w.active=true AND NOT EXISTS (
+              SELECT 1
+              FROM watch_item_recipients wir
+              JOIN subscribers s ON s.id=wir.subscriber_id
+              WHERE wir.watch_item_id=w.id AND wir.active=true AND s.active=true
+            )
+          ) OR EXISTS (
+            SELECT 1 FROM deliveries d
+            WHERE d.status='FAILED'
+              AND d.created_at>=now()-interval '24 hours'
+              AND d.matched_watch_ids ? w.watch_id
+          )
+
+          UNION ALL
+
+          SELECT 'SOURCE',
+                 h.source_id,
+                 h.source_id,
+                 coalesce(nullif(h.last_error,''),'Source health is ' || h.status),
+                 4,
+                 h.updated_at,
+                 '/source-health'
+          FROM source_health h
+          WHERE upper(h.status) NOT IN ('OK','HEALTHY')
+        ) x
+        ORDER BY priority DESC,happened_at DESC
+        LIMIT 24
+        """
+    )
+
+    recent_activity = query_all(
+        """
+        SELECT * FROM (
+          SELECT 'ALERT'::text AS kind,
+                 a.id::text AS record_id,
+                 a.title,
+                 concat_ws(' · ',a.source,a.category,nullif(a.municipality,'')) AS detail,
+                 a.received_at AS happened_at,
+                 '/alerts?q=' || replace(a.alert_id,' ','%20') || '&window=all&state=all' AS url
+          FROM alerts a
+          WHERE a.received_at>=now()-interval '7 days'
+
+          UNION ALL
+
+          SELECT 'WORK',
+                 i.id::text,
+                 i.title,
+                 concat_ws(' · ',i.item_type,i.status,nullif(i.assigned_to,'')) AS detail,
+                 i.updated_at,
+                 '/issues?q=' || replace(i.title,' ','%20') || '&state=all'
+          FROM issues i
+          WHERE i.updated_at>=now()-interval '7 days'
+
+          UNION ALL
+
+          SELECT 'EVENT',
+                 e.id::text,
+                 e.title,
+                 concat_ws(' · ',e.category,nullif(e.municipality,''),e.event_status) AS detail,
+                 e.updated_at,
+                 '/schedule?q=' || replace(e.title,' ','%20') || '&state=all'
+          FROM operational_events e
+          WHERE e.updated_at>=now()-interval '14 days'
+
+          UNION ALL
+
+          SELECT 'DELIVERY',
+                 d.id::text,
+                 a.title,
+                 s.name || ' · ' || d.status,
+                 coalesce(d.sent_at,d.attempted_at,d.created_at),
+                 '/deliveries?q=' || replace(a.title,' ','%20')
+          FROM deliveries d
+          JOIN alerts a ON a.id=d.alert_id
+          JOIN subscribers s ON s.id=d.subscriber_id
+          WHERE d.created_at>=now()-interval '7 days'
+        ) x
+        ORDER BY happened_at DESC
+        LIMIT 30
+        """
+    )
+
     happening_now = query_all(
         """
         SELECT id, title, category, location_name, address, municipality,
@@ -626,6 +780,8 @@ def operations_home(request: Request):
             "recent_deliveries": recent_deliveries,
             "command_center": command_center,
             "command_counts": command_counts,
+            "action_center": action_center,
+            "recent_activity": recent_activity,
             "happening_now": happening_now,
             "generated_at": datetime.now(),
             "page": "overview",
