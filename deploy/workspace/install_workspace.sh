@@ -15,8 +15,9 @@ docker image tag "$OLD_IMAGE" "$ROLLBACK_IMAGE"
 PRESERVED=(citymanager-staff citymanager-ops-engine citymanager-integration-engine citymanager-postgis)
 BEFORE="$(docker inspect --format '{{.Name}} {{.Id}} {{.Image}} {{.State.Running}}' "${PRESERVED[@]}")"
 
-progress_step 1 8 "Database backup"
-bash "$REPO/deploy/postgis/backup.sh"
+progress_step 1 8 "Recovery point"
+PREVIOUS_RELEASE="${CMOS_PREVIOUS_RELEASE:-}"
+bash "$REPO/deploy/postgis/ensure-deploy-backup.sh" "$PREVIOUS_RELEASE" "$EXPECTED"
 progress_step 2 8 "Applying additive migrations"
 for migration in 036_brain.sql 037_workspace.sql 038_workspace_calendar.sql 039_workspace_inbox.sql 040_executive_intake.sql; do
   run_with_progress "Migration $migration" "" docker exec -i citymanager-postgis sh -lc \
