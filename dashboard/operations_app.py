@@ -1471,6 +1471,94 @@ def alert_time_correction(
     )
 
 
+@app.post("/alerts/bulk-time-edit")
+def alerts_bulk_time_edit(
+    request: Request,
+    alert_ids: list[uuid.UUID] = Form([]),
+    activity_times: list[str] = Form([]),
+    received_modes: list[str] = Form([]),
+    received_times: list[str] = Form([]),
+    reasons: list[str] = Form([]),
+    return_to: str = Form("/alerts"),
+):
+    role = str(getattr(request.state, "cmos_role", "") or "").upper()
+    if role != "EXECUTIVE":
+        raise HTTPException(403, "Only an Executive user can correct stored Alert times")
+    count = len(alert_ids)
+    if not count:
+        return _alerts_redirect(return_to, error="Choose at least one alert to edit")
+    if count > ALERT_BULK_LIMIT:
+        return _alerts_redirect(return_to, error=f"Choose {ALERT_BULK_LIMIT} or fewer alerts at a time")
+    if not (len(activity_times)==len(received_modes)==len(received_times)==len(reasons)==count):
+        return _alerts_redirect(return_to, error="The bulk time editor was incomplete. Reopen it and try again.")
+    actor = str(getattr(request.state, "cmos_user", "") or "executive")[:120]
+    changed = 0
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                for alert_id,activity_at,received_mode,received_at,reason in zip(
+                    alert_ids,activity_times,received_modes,received_times,reasons
+                ):
+                    activity_at = activity_at.strip()
+                    received_mode = received_mode.strip().lower()
+                    received_at = received_at.strip()
+                    reason = reason.strip()[:500]
+                    if not activity_at:
+                        raise HTTPException(400, "Every selected alert needs an Activity date and time")
+                    if received_mode not in {"keep","set"}:
+                        raise HTTPException(400, "Choose whether to keep or change Received Time")
+                    if received_mode == "set" and not received_at:
+                        raise HTTPException(400, "Choose the Received date and time for rows marked to change it")
+                    cur.execute(
+                        """
+                        UPDATE alerts a SET
+                          observed_at=%s::timestamp AT TIME ZONE current_setting('TimeZone'),
+                          received_at=CASE WHEN %s='set'
+                                           THEN %s::timestamp AT TIME ZONE current_setting('TimeZone')
+                                           ELSE a.received_at END,
+                          metadata=jsonb_set(
+                            coalesce(a.metadata,'{}'::jsonb),
+                            '{time_corrections}',
+                            coalesce(a.metadata->'time_corrections','[]'::jsonb) ||
+                              jsonb_build_array(jsonb_build_object(
+                                'corrected_at',now(),
+                                'corrected_by',%s,
+                                'reason',%s,
+                                'prior_observed_at',a.observed_at,
+                                'prior_received_at',a.received_at,
+                                'new_activity_at',%s::timestamp AT TIME ZONE current_setting('TimeZone'),
+                                'new_received_at',CASE WHEN %s='set'
+                                                       THEN %s::timestamp AT TIME ZONE current_setting('TimeZone')
+                                                       ELSE a.received_at END,
+                                'bulk_editor',true
+                              )),
+                            true
+                          ),
+                          updated_at=now()
+                        WHERE a.id=%s
+                        RETURNING a.id
+                        """,
+                        (
+                            activity_at,received_mode,received_at or activity_at,
+                            actor,reason or "Bulk selected alert time correction",
+                            activity_at,received_mode,received_at or activity_at,alert_id,
+                        ),
+                    )
+                    if cur.fetchone():
+                        changed += 1
+            conn.commit()
+        return _alerts_redirect(
+            return_to,
+            message=f"Updated timeline on {changed} selected alert{'s' if changed != 1 else ''}. Original timestamps were retained in audit metadata.",
+        )
+    except HTTPException as exc:
+        return _alerts_redirect(return_to, error=str(exc.detail))
+    except Exception:
+        incident_id = uuid.uuid4().hex[:10].upper()
+        LOGGER.exception("Bulk alert time edit failed incident=%s", incident_id)
+        return _alerts_redirect(return_to, error=f"The alert times were not changed. Reference {incident_id}.")
+
+
 @app.post("/alerts/bulk-action")
 def alerts_bulk_action(
     request: Request,
