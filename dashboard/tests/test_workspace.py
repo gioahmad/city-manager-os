@@ -223,12 +223,20 @@ def test_all_original_navigation_links_survive_in_workspace(client,monkeypatch):
     import re
     login(client)
     root=Path(__file__).resolve().parents[1]
-    old=set(re.findall(r'<a[^>]+href="([^"]+)"',(root/'templates/nav.html').read_text()))
     response=client.get('/workspace')
     assert response.status_code==200
     current=set(re.findall(r'<a[^>]+href="([^"]+)"',response.text))
-    assert old<=current,old-current
+    for route in (
+        '/my-day','/issues','/inbox','/brain','/map','/alerts','/search','/share',
+        '/staff-admin','/schedule','/event-intelligence','/today-board',
+        '/today-board/setup','/transit','/watchlist','/subscribers','/contacts',
+        '/spatial-reference','/deliveries','/what-changed','/admin-tools',
+        '/integrations','/database','/source-health','/api-lab','/workspace','/logout',
+    ):
+        assert route in current
     assert 'All tools' in response.text
+    assert 'Everything, still here.' in response.text
+    assert 'Intake' in response.text
 
 
 def test_appearance_validation_and_atomic_settings_preservation(monkeypatch):
