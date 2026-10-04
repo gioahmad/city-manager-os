@@ -115,6 +115,7 @@
     }
     if(item.kind==='DOCUMENT')actions.append(link('Download original ↗','/workspace/documents/'+item.id+'/download'));
     else if(item.kind!=='MAIL'&&item.kind!=='CONTACT')actions.append(link('Open full controls ↗',item.kind==='WORK'?'/issues?q='+encodeURIComponent(item.title):item.route));
+    actions.append(link('Open connected context ↗','/context/'+item.kind+'/'+item.id));
     if(meta.outlook_url){try{const u=new URL(meta.outlook_url);if(u.protocol==='https:'){const a=link('Open in Outlook ↗',u.href);a.target='_blank';a.rel='noopener noreferrer';actions.append(a);}}catch{}}
     target.append(actions);
     if(!readonly){
