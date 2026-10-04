@@ -739,6 +739,69 @@ def operations_home(request: Request):
         """
     )
 
+    intake_summary = {
+        "connected": False,
+        "mail_pending": 0,
+        "calendar_pending": 0,
+        "last_sync_at": None,
+        "sync_error": False,
+        "items": [],
+    }
+    account = getattr(request.state, "cmos_account", None)
+    owner = str(getattr(account, "username", "") or "").casefold()
+    if owner and owner != "automation":
+        connection = query_one(
+            """SELECT last_sync_at,sync_error
+               FROM workspace_calendar_connections WHERE owner_username=%s""",
+            (owner,),
+        )
+        if connection:
+            intake_summary["connected"] = True
+            intake_summary["last_sync_at"] = connection.get("last_sync_at")
+            intake_summary["sync_error"] = bool(connection.get("sync_error"))
+            counts = query_one(
+                """SELECT
+                     (SELECT count(*) FROM workspace_microsoft_mail m
+                      WHERE m.owner_username=%s
+                        AND NOT EXISTS (
+                          SELECT 1 FROM workspace_inbox_handled h
+                          WHERE h.owner_username=m.owner_username AND h.kind='MAIL' AND h.item_id=m.id
+                        )) AS mail_pending,
+                     (SELECT count(*) FROM workspace_calendar_events e
+                      WHERE e.owner_username=%s AND e.ends_at>=now()
+                        AND NOT EXISTS (
+                          SELECT 1 FROM workspace_inbox_handled h
+                          WHERE h.owner_username=e.owner_username AND h.kind='CALENDAR' AND h.item_id=e.id
+                        )) AS calendar_pending""",
+                (owner, owner),
+            ) or {}
+            intake_summary["mail_pending"] = int(counts.get("mail_pending") or 0)
+            intake_summary["calendar_pending"] = int(counts.get("calendar_pending") or 0)
+            intake_summary["items"] = query_all(
+                """SELECT * FROM (
+                     SELECT 'MAIL'::text AS kind,m.id,m.title,
+                            concat_ws(' · ',nullif(m.sender_name,''),nullif(m.sender_email,'')) AS detail,
+                            m.received_at AS happened_at
+                     FROM workspace_microsoft_mail m
+                     WHERE m.owner_username=%s
+                       AND NOT EXISTS (
+                         SELECT 1 FROM workspace_inbox_handled h
+                         WHERE h.owner_username=m.owner_username AND h.kind='MAIL' AND h.item_id=m.id
+                       )
+                     UNION ALL
+                     SELECT 'CALENDAR',e.id,e.title,
+                            concat_ws(' · ',nullif(e.location,''),to_char(e.starts_at AT TIME ZONE current_setting('TimeZone'),'MM/DD HH12:MI AM')),
+                            e.starts_at
+                     FROM workspace_calendar_events e
+                     WHERE e.owner_username=%s AND e.ends_at>=now()
+                       AND NOT EXISTS (
+                         SELECT 1 FROM workspace_inbox_handled h
+                         WHERE h.owner_username=e.owner_username AND h.kind='CALENDAR' AND h.item_id=e.id
+                       )
+                   ) x ORDER BY happened_at DESC LIMIT 8""",
+                (owner, owner),
+            )
+
     happening_now = query_all(
         """
         SELECT id, title, category, location_name, address, municipality,
@@ -786,6 +849,7 @@ def operations_home(request: Request):
             "command_counts": command_counts,
             "action_center": action_center,
             "recent_activity": recent_activity,
+            "intake_summary": intake_summary,
             "happening_now": happening_now,
             "generated_at": datetime.now(),
             "page": "overview",
