@@ -1,0 +1,218 @@
+/* Preserve-first Macro interaction layer for the existing City Manager OS. */
+:root{
+  --macro-panel:#fff;
+  --macro-ink:#172130;
+  --macro-muted:#6e7b89;
+  --macro-line:#dde4ea;
+  --macro-soft:#f6f8fa;
+  --macro-accent:#355f91;
+  --macro-shadow:0 22px 70px rgba(16,32,48,.22);
+}
+
+/* Keep the established municipal dashboard, but sharpen the product chrome. */
+body:not(.cmos-embedded)>.topbar{
+  padding-top:18px;
+  padding-bottom:18px;
+}
+body:not(.cmos-embedded)>.topbar h1{font-weight:680}
+.desktop-nav .cmos-command-trigger{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-height:34px;
+  margin-right:8px;
+  padding:0 11px;
+  border:1px solid var(--border,#dde4ea);
+  border-radius:7px;
+  background:#fff;
+  color:#445466;
+  font-size:11px;
+  font-weight:650;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.desktop-nav .cmos-command-trigger:hover{background:#f4f7fa;color:#203a5d}
+.desktop-nav .cmos-command-trigger kbd{
+  border:1px solid #d9e1e8;
+  border-radius:4px;
+  padding:2px 4px;
+  background:#f7f9fb;
+  color:#7a8795;
+  font-size:9px;
+}
+
+/* Dashboard records become obvious interactive objects without flattening the dashboard. */
+[data-cmos-context]{
+  cursor:pointer;
+  transition:background .14s ease,border-color .14s ease,box-shadow .14s ease,transform .14s ease;
+}
+[data-cmos-context]:hover{
+  border-color:#b9c9d7!important;
+  box-shadow:0 5px 18px rgba(22,48,73,.08);
+}
+.metric[data-cmos-context]:hover{transform:translateY(-1px)}
+.feed-row[data-cmos-context]:hover{background:#f8fafc}
+[data-cmos-context]:focus-visible{outline:2px solid #5d84ad;outline-offset:2px}
+.cmos-context-hint{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  margin-left:6px;
+  color:#7f8d9a;
+  font-size:9px;
+  font-weight:650;
+}
+
+/* Global command palette. */
+.cmos-command-dialog{
+  width:min(760px,calc(100vw - 28px));
+  max-height:min(720px,86vh);
+  border:1px solid #cfd9e2;
+  border-radius:13px;
+  background:#fff;
+  color:var(--macro-ink);
+  padding:0;
+  box-shadow:0 30px 90px rgba(10,25,40,.32);
+}
+.cmos-command-dialog::backdrop{background:rgba(12,22,32,.44);backdrop-filter:blur(2px)}
+.cmos-command-box{padding:12px;border-bottom:1px solid var(--macro-line)}
+.cmos-command-input{
+  width:100%;
+  min-height:46px;
+  border:1px solid #d6dfe7;
+  border-radius:9px;
+  padding:10px 12px;
+  background:#f9fafb;
+  color:#172130;
+  font-size:15px;
+  outline:none;
+}
+.cmos-command-input:focus{border-color:#7395b7;box-shadow:0 0 0 3px rgba(53,95,145,.10)}
+.cmos-command-meta{display:flex;justify-content:space-between;gap:12px;padding:8px 13px;color:#7e8a96;font-size:9px;border-bottom:1px solid #edf1f4}
+.cmos-command-list{display:grid;gap:2px;padding:7px;max-height:58vh;overflow:auto}
+.cmos-command-item{
+  display:grid;
+  grid-template-columns:32px minmax(0,1fr) auto;
+  align-items:center;
+  gap:9px;
+  width:100%;
+  border:0;
+  border-radius:8px;
+  padding:9px 10px;
+  background:#fff;
+  color:#263747;
+  text-align:left;
+}
+.cmos-command-item:hover,.cmos-command-item[aria-selected=true]{background:#eef3f8}
+.cmos-command-icon{
+  width:29px;height:29px;border-radius:7px;background:#f1f4f7;color:#4c647b;
+  display:grid;place-items:center;font-weight:800;font-size:11px
+}
+.cmos-command-copy strong{display:block;font-size:12px}
+.cmos-command-copy small{display:block;margin-top:2px;color:#7b8996;font-size:9px}
+.cmos-command-key{font-size:9px;color:#8b97a3}
+.cmos-command-empty{padding:28px;text-align:center;color:#778593;font-size:11px}
+.cmos-command-footer{display:flex;justify-content:space-between;gap:12px;padding:9px 13px;border-top:1px solid #edf1f4;color:#7e8a96;font-size:9px}
+
+/* Universal Quick Look / split panel. Existing pages run inside this pane. */
+.cmos-sidecar{
+  position:fixed;
+  top:0;right:0;bottom:0;
+  width:min(720px,52vw);
+  z-index:2400;
+  display:grid;
+  grid-template-rows:46px minmax(0,1fr);
+  background:#fff;
+  border-left:1px solid #cfd8e1;
+  box-shadow:-18px 0 52px rgba(15,31,48,.18);
+  transform:translateX(105%);
+  transition:transform .18s ease,width .18s ease;
+}
+body.cmos-sidecar-open .cmos-sidecar{transform:translateX(0)}
+.cmos-sidecar.focused{width:calc(100vw - 54px)}
+.cmos-sidecar-bar{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 9px 7px 12px;
+  background:#f8fafb;
+  border-bottom:1px solid #dbe3ea;
+}
+.cmos-sidecar-title{
+  min-width:0;flex:1;color:#586777;font-size:10px;font-weight:700;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.cmos-sidecar-bar button,.cmos-sidecar-bar a{
+  display:grid;place-items:center;min-width:30px;height:30px;
+  border:1px solid #d9e1e7;border-radius:6px;background:#fff;color:#566676;
+  text-decoration:none;font-size:11px
+}
+.cmos-sidecar-bar button:hover,.cmos-sidecar-bar a:hover{background:#eef3f7;color:#213d5c}
+.cmos-sidecar-frame{width:100%;height:100%;border:0;background:#fff}
+.cmos-sidecar-resize{
+  position:absolute;left:-5px;top:46px;bottom:0;width:10px;cursor:ew-resize
+}
+.cmos-sidecar-backdrop{
+  position:fixed;inset:0;z-index:2390;background:rgba(12,24,36,.10);
+  opacity:0;pointer-events:none;transition:opacity .18s
+}
+body.cmos-sidecar-open .cmos-sidecar-backdrop{opacity:1;pointer-events:auto}
+body.cmos-sidecar-open.cmos-sidecar-pinned .cmos-sidecar-backdrop{display:none}
+.cmos-sidecar-pin.active{background:#e8eef5!important;color:#244c78!important}
+
+/* Embedded mode strips only outer chrome; the real module remains intact. */
+body.cmos-embedded{background:#f4f7fa}
+body.cmos-embedded>.topbar,
+body.cmos-embedded>.desktop-nav,
+body.cmos-embedded>.mobile-nav,
+body.cmos-embedded>#qc-open,
+body.cmos-embedded>#qc-dialog,
+body.cmos-embedded>#share-dialog{display:none!important}
+body.cmos-embedded>main{
+  width:100%!important;
+  max-width:none!important;
+  margin:0!important;
+  padding:16px!important;
+}
+body.cmos-embedded .map-main{padding:0!important}
+body.cmos-embedded .map-shell{min-height:100vh!important;height:100vh!important}
+body.cmos-embedded .map-sidebar{max-height:100vh!important}
+body.cmos-embedded #city-map{min-height:100vh!important;height:100vh!important}
+
+/* Macro-inspired quick capture while preserving every field/action. */
+.qc-fab{background:#254766!important;border-color:#3c688d!important;box-shadow:0 10px 30px rgba(18,43,65,.22)!important}
+.qc-dialog,.share-dialog{background:#fff!important;color:#223244!important;border-color:#cfd9e2!important;box-shadow:0 24px 70px rgba(10,25,40,.28)!important}
+.qc-dialog::backdrop,.share-dialog::backdrop{background:rgba(12,24,36,.42)!important}
+.qc-head,.share-dialog-head{border-color:#e0e6eb!important}
+.qc-head .panel-kicker,.share-dialog-head .panel-kicker{color:#718090!important}
+.qc-close,.share-dialog-close{background:#f7f9fb!important;color:#485c6e!important;border-color:#d5dee6!important}
+.qc-form textarea,.qc-form input,.qc-form select,.share-dialog input,.share-dialog textarea{
+  background:#fff!important;color:#263747!important;border-color:#cfd9e2!important
+}
+.qc-form label,.share-dialog label{color:#607386!important}
+.qc-options,.share-dialog-contacts{border-color:#d9e2e9!important}
+.qc-save{background:#2b567d!important;border-color:#2b567d!important}
+.share-contact{background:#f7f9fb!important}
+
+/* Dark appearance still works. */
+html[data-color-mode=dark] .cmos-command-dialog,
+html[data-color-mode=dark] .cmos-command-item,
+html[data-color-mode=dark] .cmos-sidecar,
+html[data-color-mode=dark] .cmos-sidecar-frame,
+html[data-color-mode=dark] .cmos-sidecar-bar{
+  background:#1b1f28;color:#e2e7ef;border-color:#303642
+}
+html[data-color-mode=dark] .cmos-command-input{background:#151820;color:#e2e7ef;border-color:#303642}
+html[data-color-mode=dark] .cmos-command-item:hover,
+html[data-color-mode=dark] .cmos-command-item[aria-selected=true]{background:#29344a}
+html[data-color-mode=dark] .cmos-command-icon{background:#242b37;color:#b6c7dd}
+html[data-color-mode=dark] .cmos-sidecar-bar button,
+html[data-color-mode=dark] .cmos-sidecar-bar a{background:#242b37;color:#c9d4e0;border-color:#303642}
+
+@media(max-width:1050px){
+  .cmos-sidecar{width:min(680px,68vw)}
+}
+@media(max-width:840px){
+  .desktop-nav .cmos-command-trigger{display:none}
+  .cmos-sidecar{width:100vw}
+  .cmos-sidecar.focused{width:100vw}
+  .cmos-sidecar-resize{display:none}
+}
