@@ -198,4 +198,126 @@
   });
 
   window.CMOS={openSidecar,openCommand};
+
+  // Reorganize inherited module layouts around the user's primary task.
+  // Existing forms, routes, controls and data stay untouched; only presentation order changes.
+  function organizePageFlow(){
+    const main=document.querySelector('body:not(.cmos-embedded)>main, body.cmos-embedded>main');
+    if(!main)return;
+    const path=location.pathname;
+    const panelByTitle=title=>[...main.querySelectorAll('.panel')].find(p=>p.querySelector('.panel-head h2')?.textContent.trim()===title);
+    const makeFlow=(title,description,actions=[])=>{
+      const bar=document.createElement('section');
+      bar.className='cmos-flow-header';
+      bar.innerHTML='<div><span class="cmos-flow-kicker">WORKFLOW</span><strong>'+escapeHtml(title)+'</strong><p>'+escapeHtml(description)+'</p></div>'+
+        '<div class="cmos-flow-actions">'+actions.map(a=>'<button type="button" data-flow-action="'+escapeHtml(a.key)+'">'+escapeHtml(a.label)+'</button>').join('')+'</div>';
+      const first=main.querySelector('.metrics')||main.firstElementChild;
+      if(first)first.insertAdjacentElement('afterend',bar); else main.prepend(bar);
+      return bar;
+    };
+
+    if(path==='/issues'){
+      const capture=main.querySelector('.command-capture');
+      const queue=[...main.querySelectorAll('.panel')].find(p=>p.querySelector('.panel-kicker')?.textContent.includes('WORK QUEUE'));
+      const tabs=main.querySelector('.command-tabs');
+      if(capture&&queue){
+        const flow=makeFlow('Review work first','Start with what needs attention. Create new work only when you need to capture something new.',[
+          {key:'new-work',label:'+ New Work'}
+        ]);
+        if(tabs)flow.insertAdjacentElement('afterend',tabs);
+        queue.insertAdjacentElement('afterend',capture);
+        if(!capture.hasAttribute('open'))capture.open=false;
+        flow.querySelector('[data-flow-action="new-work"]')?.addEventListener('click',()=>{
+          capture.open=true;
+          capture.scrollIntoView({behavior:'smooth',block:'start'});
+          capture.querySelector('input[name="title"]')?.focus();
+        });
+        capture.classList.add('cmos-secondary-workflow');
+      }
+    }
+
+    if(path==='/watchlist'){
+      const health=main.querySelector('.watch-health-panel');
+      const layout=main.querySelector('.watch-layout');
+      const lab=main.querySelector('.watch-lab-panel');
+      const bulk=main.querySelector('.watch-location-library');
+      const metrics=main.querySelector('.watch-state-metrics');
+      if(layout){
+        const flow=makeFlow('Create or manage a Watch','Health problems stay visible first. Normal Watch creation and saved Watches come next; diagnostics and bulk GIS tools are advanced.',[
+          {key:'new-watch',label:'+ New Watch'},
+          {key:'advanced',label:'Advanced Tools'}
+        ]);
+        if(metrics)flow.insertAdjacentElement('beforebegin',metrics);
+        if(health)layout.insertAdjacentElement('beforebegin',health);
+        if(health)health.insertAdjacentElement('afterend',layout);
+
+        const advanced=document.createElement('details');
+        advanced.className='cmos-advanced-tools';
+        advanced.innerHTML='<summary><span><strong>Advanced Tools</strong><small>Watch Lab, bulk GIS Watch creation, diagnostics and specialist workflows</small></span></summary><div class="cmos-advanced-tools-body"></div>';
+        layout.insertAdjacentElement('afterend',advanced);
+        const body=advanced.querySelector('.cmos-advanced-tools-body');
+        if(lab)body.appendChild(lab);
+        if(bulk)body.appendChild(bulk);
+
+        flow.querySelector('[data-flow-action="new-watch"]')?.addEventListener('click',()=>{
+          layout.querySelector('input[name="display_name"]')?.scrollIntoView({behavior:'smooth',block:'center'});
+          setTimeout(()=>layout.querySelector('input[name="display_name"]')?.focus(),250);
+        });
+        flow.querySelector('[data-flow-action="advanced"]')?.addEventListener('click',()=>{
+          advanced.open=true;advanced.scrollIntoView({behavior:'smooth',block:'start'});
+        });
+      }
+    }
+
+    if(path==='/alerts'){
+      const search=main.querySelector('.alert-search-panel');
+      const results=[...main.querySelectorAll('.panel')].find(p=>p.querySelector('.panel-head h2')?.textContent.trim()==='Alert history');
+      const bulk=results?.querySelector('.bulk-action-toolbar');
+      if(search&&results){
+        const flow=makeFlow('Find and review alerts','Search first, review the incident and its Watch evidence, then take action. Bulk changes stay out of the way until you need them.',[
+          {key:'map',label:'Search on Map'},
+          {key:'bulk',label:'Bulk Actions'}
+        ]);
+        search.insertAdjacentElement('afterend',results);
+        flow.querySelector('[data-flow-action="map"]')?.addEventListener('click',()=>openSidecar('/map','Mapping Center'));
+        if(bulk){
+          const hint=bulk.nextElementSibling?.classList.contains('hint')?bulk.nextElementSibling:null;
+          const details=document.createElement('details');
+          details.className='cmos-inline-advanced';
+          details.innerHTML='<summary>Bulk management</summary><div class="cmos-inline-advanced-body"></div>';
+          bulk.insertAdjacentElement('beforebegin',details);
+          details.querySelector('.cmos-inline-advanced-body').appendChild(bulk);
+          if(hint)details.querySelector('.cmos-inline-advanced-body').appendChild(hint);
+          flow.querySelector('[data-flow-action="bulk"]')?.addEventListener('click',()=>{
+            details.open=true;details.scrollIntoView({behavior:'smooth',block:'center'});
+          });
+        }
+      }
+    }
+
+    if(path==='/spatial-reference'){
+      const search=panelByTitle('Find a reference');
+      const catalog=panelByTitle('Catalog');
+      const adopt=panelByTitle('Add or refresh a reference');
+      const coverage=panelByTitle('Linked source coverage');
+      if(search&&catalog){
+        const flow=makeFlow('Find a place, then act on it','The catalog is the primary workspace. Source adoption and refresh status are advanced maintenance tools.',[
+          {key:'map',label:'Open Map'},
+          {key:'advanced',label:'Manage Sources'}
+        ]);
+        search.insertAdjacentElement('afterend',catalog);
+        const advanced=document.createElement('details');
+        advanced.className='cmos-advanced-tools';
+        advanced.innerHTML='<summary><span><strong>Source & Catalog Administration</strong><small>Add authoritative references, refresh linked sources, and inspect source coverage</small></span></summary><div class="cmos-advanced-tools-body"></div>';
+        catalog.insertAdjacentElement('afterend',advanced);
+        const body=advanced.querySelector('.cmos-advanced-tools-body');
+        if(adopt)body.appendChild(adopt);
+        if(coverage)body.appendChild(coverage);
+        flow.querySelector('[data-flow-action="map"]')?.addEventListener('click',()=>openSidecar('/map','Mapping Center'));
+        flow.querySelector('[data-flow-action="advanced"]')?.addEventListener('click',()=>{advanced.open=true;advanced.scrollIntoView({behavior:'smooth',block:'start'})});
+      }
+    }
+  }
+
+  organizePageFlow();
 })();
