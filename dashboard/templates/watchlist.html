@@ -561,6 +561,7 @@
         </details>
 
         <div class="watch-card-actions">
+          <a class="secondary-button" href="/context/WATCH/{{ w.id }}" data-cmos-quicklook data-cmos-title="{{ w.display_name|e }}">Open Context</a>
           <form method="post" action="/watchlist/{{ w.id }}/toggle">
             {% if w.state_label in ['Paused','Expired'] %}<input type="hidden" name="action" value="reactivate"><button class="secondary-button" type="submit">Reactivate Watch</button>{% else %}<input type="hidden" name="action" value="pause"><button class="secondary-button" type="submit">Pause Watch</button>{% endif %}
           </form>
