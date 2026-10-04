@@ -47,7 +47,7 @@ with db_conn() as c:
                   'workspace_calendar_auth','workspace_calendar_connections','workspace_calendar_events',
                   'workspace_config','workspace_portals','workspace_portal_messages','workspace_dismissed','brain_notes',
                   'workspace_documents','workspace_microsoft_mail','workspace_microsoft_contacts',
-                  'workspace_inbox_handled','workspace_context_links'):
+                  'workspace_inbox_handled','workspace_inbox_snoozed','workspace_context_links'):
         assert c.execute('SELECT to_regclass(%s) AS name',(table,)).fetchone()['name'], table
         assert c.execute('SELECT has_table_privilege(current_user,%s,%s) AS ok',
                          (table,'SELECT,INSERT,UPDATE,DELETE')).fetchone()['ok'], table
