@@ -356,9 +356,13 @@ SEARCH_SECTION_ORDER = (
 ALERT_BULK_LIMIT = 100
 ALERT_FILTERED_BULK_LIMIT = 5000
 ALERT_WINDOWS = {
+    "1h": 1,
+    "2h": 2,
+    "4h": 4,
     "6h": 6,
     "12h": 12,
     "24h": 24,
+    "3d": 72,
     "7d": 168,
     "30d": 720,
     "all": None,
