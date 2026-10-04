@@ -64,6 +64,39 @@
       </div>
     </section>
 
+    <section class="section-label"><span>MICROSOFT INTAKE</span><span class="section-rule"></span><a class="text-link" href="/workspace#inbox">Open Intake</a></section>
+    <section class="panel cmos-intake-panel">
+      <div class="panel-head">
+        <div><div class="panel-kicker">EMAIL · CALENDAR · SELECTIVE PROMOTION</div><h2>Executive Intake</h2></div>
+        {% if intake_summary.connected %}
+          <span class="status {{ 'warning' if intake_summary.sync_error else 'healthy' }}">{{ 'SYNC NEEDS ATTENTION' if intake_summary.sync_error else 'CONNECTED' }}</span>
+        {% else %}
+          <a class="secondary-button" href="/workspace#settings">Connect Microsoft 365</a>
+        {% endif %}
+      </div>
+      <div class="panel-body">
+        {% if intake_summary.connected %}
+        <div class="cmos-intake-metrics">
+          <a href="/workspace#inbox"><span>Email to review</span><strong>{{ intake_summary.mail_pending }}</strong><small>Choose what becomes Work, Brain, Event, follow-up, or context.</small></a>
+          <a href="/workspace#inbox"><span>Calendar to review</span><strong>{{ intake_summary.calendar_pending }}</strong><small>Bring only relevant meetings into Events or linked context.</small></a>
+        </div>
+        <div class="cmos-intake-list">
+          {% for item in intake_summary.items %}
+          <a href="/workspace#inbox">
+            <span class="cmos-action-kind {{ item.kind|lower }}">{{ item.kind }}</span>
+            <span><strong>{{ item.title }}</strong><small>{{ item.detail }}</small></span>
+            <time>{{ item.happened_at.strftime('%m/%d %I:%M %p') if item.happened_at else '' }}</time>
+          </a>
+          {% else %}
+          <div class="empty-state small"><strong>Nothing waiting for review</strong><span>Your Microsoft snapshot is connected and current.</span></div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state small"><strong>Microsoft 365 is not connected</strong><span>Connect it once to privately stage email, contacts, and calendar for selective review.</span></div>
+        {% endif %}
+      </div>
+    </section>
+
     <section class="section-label"><span>ACTION CENTER</span><span class="section-rule"></span></section>
     <section class="grid cmos-action-grid">
       <article class="panel cmos-action-panel">
