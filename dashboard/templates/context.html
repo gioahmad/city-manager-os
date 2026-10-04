@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ item.title }} · Context · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/context.css?v=20261004-1">
+</head>
+<body>
+<header class="topbar"><div class="brand"><div class="eyebrow">CONNECTED CONTEXT</div><div class="brand-row"><h1>{{ item.title }}</h1><span class="private-badge">{{ item.kind }}</span></div><div class="tagline">{{ item.status }}{% if item.visibility %} · {{ item.visibility }}{% endif %}</div></div></header>
+{% include "nav.html" %}
+<main class="context-main">
+  <section class="context-actions">
+    {% for label,url in actions %}
+      <a class="{{ 'primary-button' if loop.first else 'secondary-button' }}" href="{{ url }}" {% if url.startswith('https://') %}target="_blank" rel="noopener"{% else %}data-cmos-quicklook data-cmos-title="{{ label }}"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </section>
+
+  <section class="context-grid">
+    <article class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">SUMMARY</div><h2>Record</h2></div></div>
+      <div class="panel-body context-summary">
+        {% if item.body %}<p>{{ item.body }}</p>{% endif %}
+        <dl class="context-facts">
+          {% for key,value in item.metadata.items() %}
+            {% if value is not none and value != '' and key not in ['outlook_url','attributes'] %}
+            <div><dt>{{ key|replace('_',' ')|title }}</dt><dd>{{ value }}</dd></div>
+            {% endif %}
+          {% endfor %}
+          {% if item.metadata.attributes %}
+            {% for key,value in item.metadata.attributes.items() %}
+              {% if value is not none and value != '' %}<div><dt>{{ key|replace('_',' ')|title }}</dt><dd>{{ value }}</dd></div>{% endif %}
+            {% endfor %}
+          {% endif %}
+        </dl>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-head"><div><div class="panel-kicker">CONNECTED</div><h2>Linked context</h2></div><span class="count-pill">{{ item.links|length }}</span></div>
+      <div class="panel-body context-list">
+        {% for link in item.links %}
+        <a href="/context/{{ link.kind }}/{{ link.id }}" data-cmos-quicklook data-cmos-title="{{ link.title }}">
+          <span><strong>{{ link.title }}</strong><small>{{ link.kind }} · {{ link.status }}</small></span><span>›</span>
+        </a>
+        {% else %}<div class="empty-state small"><strong>No confirmed links yet</strong><span>Use Executive Intake or People &amp; Places to confirm relationships.</span></div>{% endfor %}
+      </div>
+    </article>
+  </section>
+
+  {% if relationships %}
+  <section class="panel context-relationships">
+    <div class="panel-head"><div><div class="panel-kicker">RELATIONSHIPS</div><h2>People / places / projects</h2></div></div>
+    <div class="panel-body context-list">
+      {% for row in relationships %}
+      <a href="/context/RECORD/{{ row.other_id }}" data-cmos-quicklook data-cmos-title="{{ row.other_name }}">
+        <span><strong>{{ row.other_name }}</strong><small>{{ row.other_kind }} · {{ row.relation|replace('_',' ') }}</small>{% if row.evidence %}<small>{{ row.evidence }}</small>{% endif %}</span><span>›</span>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</main>
+</body></html>
