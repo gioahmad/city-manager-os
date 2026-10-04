@@ -81,7 +81,8 @@ for attempt in range(30):
     except Exception:
         if attempt==29: raise
         time.sleep(1)
-for path in ('/workspace','/workspace/display','/workspace/api/state','/workspace/api/state?display=true',
+for path in ('/','/map','/alerts?window=24h','/workspace','/workspace/display',
+             '/workspace/api/state','/workspace/api/state?display=true',
              '/workspace/api/hub','/workspace/api/hub?view=library'):
     req=urllib.request.Request('http://127.0.0.1:8000'+path,headers=headers)
     with urllib.request.urlopen(req,timeout=30) as r:
@@ -90,7 +91,10 @@ for path in ('/workspace','/workspace/display','/workspace/api/state','/workspac
         if path.endswith('display=true'):
             data=json.loads(body)
             assert set(data)=={'config','alerts','health','work','refreshed_at'}
-print('WORKSPACE RELEASE: PASS — open /workspace; PC/TV view at /workspace/display')
+paths={getattr(route,'path','') for route in __import__('phase3_app').app.routes}
+assert '/context/{item_kind}/{item_id}' in paths
+assert '/records/{record_id}' in paths
+print('WORKSPACE RELEASE: PASS — dashboard, map, Executive Intake and context routes verified')
 PY
 AFTER="$(docker inspect --format '{{.Name}} {{.Id}} {{.Image}} {{.State.Running}}' "${PRESERVED[@]}")"
 [[ "$BEFORE" == "$AFTER" ]] || { echo 'Protected service changed unexpectedly'; false; }
