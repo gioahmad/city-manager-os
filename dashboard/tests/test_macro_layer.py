@@ -76,3 +76,17 @@ def test_dashboard_spatial_operating_picture():
         assert field in page
     assert "Mapping &amp; Spatial Intelligence" in page
     assert 'data-cmos-quicklook data-cmos-title="Mapping Center"' in page
+
+
+def test_persistent_rail_replaces_mixed_nav():
+    nav=(ROOT/"templates"/"nav.html").read_text()
+    css=(ROOT/"static"/"macro_layer.css").read_text()
+    js=(ROOT/"static"/"macro_layer.js").read_text()
+    assert 'class="cmos-rail"' in nav
+    assert 'class="cmos-global-bar"' in nav
+    assert 'data-cmos-command-trigger' in nav
+    for label in ("Overview","My Day","Command","Inbox","Brain","Map","Alerts","Watches","Staff","Events","Event Intelligence","Transit","Places / References"):
+        assert label in nav
+    assert ".cmos-rail{" in css
+    assert ".cmos-global-bar{" in css
+    assert "cmos-mobile-nav-open" in js
