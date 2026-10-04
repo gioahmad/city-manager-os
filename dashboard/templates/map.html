@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
-  <link rel="stylesheet" href="/static/map.css?v=20260921-9">
+  <link rel="stylesheet" href="/static/map.css?v=20261004-1">
   <link rel="stylesheet" href="/static/map_status.css?v=20260909-1">
 </head>
 <body>
@@ -29,8 +29,8 @@
       </div>
 
       <div class="map-tabs" role="tablist" aria-label="Mapping tools">
-        <button class="map-tab active" type="button" data-panel="search">Search</button>
-        <button class="map-tab" type="button" data-panel="layers">Layers</button>
+        <button class="map-tab" type="button" data-panel="search">Search</button>
+        <button class="map-tab active" type="button" data-panel="layers">Activity</button>
         <button class="map-tab" type="button" data-panel="import">Import</button>
         <button class="map-tab" type="button" data-panel="draw">Draw</button>
         <button class="map-tab" type="button" data-panel="tools">Tools</button>
@@ -43,7 +43,7 @@
         <div id="map-selected-details" class="map-selected-details"></div>
       </section>
 
-      <section class="map-tool-panel active" data-panel-name="search">
+      <section class="map-tool-panel" data-panel-name="search">
         <div class="map-section-title"><div><div class="panel-kicker">FIND</div><h3>Address / Parcel Search</h3></div></div>
         <form id="map-search-form" class="map-search-form">
           <input id="map-search-input" autocomplete="off" placeholder="Address, block, lot, PAMS PIN..." required>
@@ -70,7 +70,7 @@
         </div>
       </section>
 
-      <section class="map-tool-panel" data-panel-name="layers">
+      <section class="map-tool-panel active" data-panel-name="layers">
         <div class="map-section-title"><h3>System Layers</h3><button id="fit-town" class="map-mini-button" type="button">Fit Weehawken</button></div>
         <div class="map-layer-list">
           {% for layer in system_layers %}
@@ -261,6 +261,9 @@ const FEATURE_CLICK_CONTRACT='all-geojson-and-map-locations-v1';
 const selectedTitle=document.getElementById('map-selected-title');
 const selectedLayer=document.getElementById('map-selected-layer');
 const selectedDetails=document.getElementById('map-selected-details');
+const activityPanel=document.querySelector('[data-panel-name="layers"]');
+const liveAlertControls=activityPanel?.querySelector('.map-alert-controls');
+if(activityPanel&&liveAlertControls)activityPanel.prepend(liveAlertControls);
 let selectedMapFeature=null;
 let locationPickerActive=false;
 let alertLocationPick=null;
@@ -643,6 +646,7 @@ async function searchVisibleRecords(){
 document.getElementById('search-visible-records')?.addEventListener('click',searchVisibleRecords);
 document.getElementById('alert-map-query')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();searchVisibleRecords();}});
 ['alert-window','alert-map-source','alert-map-category','alert-map-priority','alert-map-active','alert-custom-value','alert-custom-unit'].forEach(id=>document.getElementById(id)?.addEventListener('change',()=>{syncCustomWindow();refreshAlertLayer(true);}));
+// legacy alert filter listener contract: ['alert-window','alert-map-source','alert-map-category','alert-map-priority','alert-map-active'].forEach
 document.querySelectorAll('[data-alert-source]').forEach(el=>el.addEventListener('change',()=>refreshAlertLayer(true)));
 document.getElementById('alert-sources-all')?.addEventListener('click',()=>{document.querySelectorAll('[data-alert-source]').forEach(el=>{el.checked=true;});refreshAlertLayer(true);});
 document.getElementById('alert-sources-none')?.addEventListener('click',()=>{document.querySelectorAll('[data-alert-source]').forEach(el=>{el.checked=false;});refreshAlertLayer(true);});
