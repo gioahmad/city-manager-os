@@ -125,3 +125,19 @@ def test_primary_pages_are_task_first():
         ".cmos-secondary-workflow",
     ):
         assert token in css
+
+
+def test_executive_action_center_and_quick_actions():
+    operations=(ROOT/"operations_app.py").read_text()
+    page=(ROOT/"templates"/"index.html").read_text()
+    js=(ROOT/"static"/"macro_layer.js").read_text()
+    css=(ROOT/"static"/"macro_layer.css").read_text()
+    assert "action_center = query_all(" in operations
+    assert "recent_activity = query_all(" in operations
+    assert "What needs me now" in page
+    assert "Activity" in page
+    for phrase in ("New Work","New Watch","Quick Capture","Open Map","Search Records"):
+        assert phrase in js
+    assert "location.hash==='#new-work'" in js
+    assert "location.hash==='#new-watch'" in js
+    assert ".cmos-action-grid" in css
