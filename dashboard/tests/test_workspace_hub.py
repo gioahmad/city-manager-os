@@ -47,8 +47,9 @@ def test_pagination_literal_search_and_owner_binding(monkeypatch):
     monkeypatch.setattr(hub,'config',lambda:{'name':'Workspace'})
     data=hub.list_items('gio',q='100%_budget',scope='personal',source='MAIL')
     assert len(data['items'])==60 and data['has_more']
-    sql,p=statements[0];assert p[:2]==('gio','gio') and p[2:4]==('PRIVATE','MAIL')
-    assert p[4:6]==('%100\\%\\_budget%',)*2 and p[-1]==0
+    sql,p=statements[0];assert p[:3]==('gio','gio','gio') and p[3:5]==('PRIVATE','MAIL')
+    assert p[5:7]==('%100\\%\\_budget%',)*2 and p[-1]==0
+    assert 'workspace_inbox_snoozed' in sql
     assert 'h.owner_username=%s' in sql and 'm.owner_username=a.owner' in sql
 
 
