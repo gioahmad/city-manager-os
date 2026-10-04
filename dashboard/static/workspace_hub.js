@@ -186,6 +186,13 @@
   }
   function init(callbacks) {
     api=callbacks;
+    const incoming=new URLSearchParams(location.search);
+    const inboxFilters=$('inbox-filters');
+    if(inboxFilters){
+      const source=incoming.get('intake_source'),query=incoming.get('intake_q');
+      if(source&&inboxFilters.elements.source)inboxFilters.elements.source.value=source;
+      if(query&&inboxFilters.elements.q)inboxFilters.elements.q.value=query;
+    }
     for(const name of ['inbox','library']){
       const form=$(name+'-filters');let debounce;
       form.addEventListener('submit',e=>{e.preventDefault();safe(()=>load(name,true));});
