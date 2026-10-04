@@ -1488,16 +1488,20 @@ def alerts_bulk_action(
     custom_hours: int = Form(12),
     min_priority: int = Form(1),
     shift_minutes: int = Form(0),
+    bulk_activity_at: str = Form(""),
+    bulk_received_at: str = Form(""),
+    bulk_correct_received: str | None = Form(None),
+    bulk_time_reason: str = Form(""),
 ):
     try:
         action = action.strip().lower()
-        if action not in {"resolve", "delete", "shift_time"}:
-            raise HTTPException(400, "Choose Mark Resolved, Shift Activity Time, or Delete Permanently")
+        if action not in {"resolve", "delete", "shift_time", "set_time"}:
+            raise HTTPException(400, "Choose Mark Resolved, Shift Activity Time, Set Activity Time, or Delete Permanently")
         selection_scope = selection_scope.strip().lower()
         if selection_scope not in {"selected", "matching"}:
             raise HTTPException(400, "Choose selected alerts or all matching search results")
         role = str(getattr(request.state, "cmos_role", "") or "").upper()
-        if action in {"delete","shift_time"} and role != "EXECUTIVE":
+        if action in {"delete","shift_time","set_time"} and role != "EXECUTIVE":
             raise HTTPException(403, "Only an Executive user can permanently delete alerts or correct stored alert times")
         if action == "shift_time":
             shift_minutes = max(-43200, min(int(shift_minutes), 43200))
@@ -1505,6 +1509,16 @@ def alerts_bulk_action(
                 raise HTTPException(400, "Enter a non-zero number of minutes to shift selected alerts")
             if selection_scope != "selected":
                 raise HTTPException(400, "Time shifting is limited to explicitly selected alerts")
+        if action == "set_time":
+            bulk_activity_at = bulk_activity_at.strip()
+            bulk_received_at = bulk_received_at.strip()
+            bulk_time_reason = bulk_time_reason.strip()[:500]
+            if selection_scope != "selected":
+                raise HTTPException(400, "Exact time correction is limited to explicitly selected alerts")
+            if not bulk_activity_at:
+                raise HTTPException(400, "Choose the Activity date and time for the selected alerts")
+            if bulk_correct_received is not None and not bulk_received_at:
+                raise HTTPException(400, "Choose the Received date and time for the selected alerts")
 
         selected = list(dict.fromkeys(alert_ids))
         clause = ""
@@ -1611,6 +1625,46 @@ def alerts_bulk_action(
                         """,
                         (shift_minutes, actor, shift_minutes, shift_minutes, found),
                     )
+                elif action == "set_time":
+                    delivery_total = 0
+                    actor = str(getattr(request.state, "cmos_user", "") or "executive")[:120]
+                    cur.execute(
+                        """
+                        UPDATE alerts a SET
+                          observed_at=%s::timestamp AT TIME ZONE current_setting('TimeZone'),
+                          received_at=CASE WHEN %s THEN %s::timestamp AT TIME ZONE current_setting('TimeZone')
+                                           ELSE a.received_at END,
+                          metadata=jsonb_set(
+                            coalesce(a.metadata,'{}'::jsonb),
+                            '{time_corrections}',
+                            coalesce(a.metadata->'time_corrections','[]'::jsonb) ||
+                              jsonb_build_array(jsonb_build_object(
+                                'corrected_at',now(),
+                                'corrected_by',%s,
+                                'reason',%s,
+                                'prior_observed_at',a.observed_at,
+                                'prior_received_at',a.received_at,
+                                'new_activity_at',%s::timestamp AT TIME ZONE current_setting('TimeZone'),
+                                'new_received_at',CASE WHEN %s THEN %s::timestamp AT TIME ZONE current_setting('TimeZone')
+                                                       ELSE a.received_at END
+                              )),
+                            true
+                          ),
+                          updated_at=now()
+                        WHERE a.id=ANY(%s::uuid[])
+                        """,
+                        (
+                            bulk_activity_at,
+                            bulk_correct_received is not None,
+                            bulk_received_at or bulk_activity_at,
+                            actor,
+                            bulk_time_reason or 'Bulk exact time correction',
+                            bulk_activity_at,
+                            bulk_correct_received is not None,
+                            bulk_received_at or bulk_activity_at,
+                            found,
+                        ),
+                    )
                 else:
                     delivery_total = 0
                     cur.execute(
@@ -1632,6 +1686,9 @@ def alerts_bulk_action(
         elif action == "shift_time":
             direction = "forward" if shift_minutes > 0 else "back"
             message = f"Shifted activity time {direction} {abs(shift_minutes)} minute{'s' if abs(shift_minutes) != 1 else ''} on {len(found)} alert{'s' if len(found) != 1 else ''}. Received timestamps were not changed."
+        elif action == "set_time":
+            received_note = " Received times were also corrected." if bulk_correct_received is not None else " Received times were not changed."
+            message = f"Set Activity Time on {len(found)} selected alert{'s' if len(found) != 1 else ''}.{received_note} Original timestamps were retained in audit metadata."
         else:
             message = f"Marked {len(found)} alert{'s' if len(found) != 1 else ''} resolved. History was kept."
         return _alerts_redirect(return_to, message=message)
