@@ -90,3 +90,16 @@ def test_persistent_rail_replaces_mixed_nav():
     assert ".cmos-rail{" in css
     assert ".cmos-global-bar{" in css
     assert "cmos-mobile-nav-open" in js
+
+
+def test_product_cohesion_pass_v2():
+    css=(ROOT/"static"/"macro_layer.css").read_text()
+    for token in (
+        "Product cohesion pass v2",
+        "--cmos-rail-w:190px",
+        ".cmos-global-bar",
+        ".cmos-sidecar{width:min(640px,46vw)",
+        "body.cmos-embedded>main",
+        ".cmos-spatial-panel",
+    ):
+        assert token in css
