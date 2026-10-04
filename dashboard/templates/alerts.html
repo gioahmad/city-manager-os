@@ -227,24 +227,44 @@
 <dialog id="alert-bulk-edit-dialog" class="alert-bulk-edit-dialog">
   <form method="post" action="/alerts/bulk-time-edit" id="alert-bulk-time-form">
     <div class="alert-bulk-edit-head">
-      <div><div class="panel-kicker">SELECTED ALERTS</div><h2>Edit Timeline</h2><p>Fix each selected alert's Activity Time so the history sorts correctly. Received Time is left alone unless you explicitly change it.</p></div>
+      <div><div class="panel-kicker">ALERT DATABASE · SELECTED RECORDS</div><h2>Repair Alert Timeline</h2><p>Correct dates and times individually or reshape the selected batch. Activity Time controls operational chronology. Received Time remains original unless you explicitly change it.</p></div>
       <button type="button" class="secondary-button" id="alert-bulk-edit-close">Close</button>
     </div>
     <input type="hidden" name="return_to" value="{{ current_url }}">
     <div class="alert-bulk-edit-tools">
-      <label>Set the same date/time on all
-        <input type="datetime-local" id="alert-bulk-set-all">
-      </label>
-      <button type="button" class="secondary-button" id="alert-bulk-apply-all">Apply to all rows</button>
-      <label>Shift every row by minutes
-        <input type="number" id="alert-bulk-shift-all" value="0" step="1" placeholder="-60">
-      </label>
-      <button type="button" class="secondary-button" id="alert-bulk-shift-button">Shift rows</button>
+      <div class="alert-bulk-tool-group">
+        <strong>Set part of the timestamp</strong>
+        <label>Date only<input type="date" id="alert-bulk-date-only"></label>
+        <button type="button" class="secondary-button" id="alert-bulk-date-button">Set Date · Keep Times</button>
+        <label>Time only<input type="time" id="alert-bulk-time-only" step="60"></label>
+        <button type="button" class="secondary-button" id="alert-bulk-time-button">Set Time · Keep Dates</button>
+      </div>
+      <div class="alert-bulk-tool-group">
+        <strong>Move the whole batch</strong>
+        <div class="alert-bulk-shift-grid">
+          <label>Days<input type="number" id="alert-bulk-shift-days" value="0" step="1"></label>
+          <label>Hours<input type="number" id="alert-bulk-shift-hours" value="0" step="1"></label>
+          <label>Minutes<input type="number" id="alert-bulk-shift-minutes" value="0" step="1"></label>
+        </div>
+        <button type="button" class="secondary-button" id="alert-bulk-shift-button">Shift Selected Timeline</button>
+      </div>
+      <div class="alert-bulk-tool-group">
+        <strong>Build a clean sequence</strong>
+        <label>Start at<input type="datetime-local" id="alert-bulk-sequence-start"></label>
+        <label>Spacing in minutes<input type="number" id="alert-bulk-sequence-spacing" value="5" min="0" max="1440" step="1"></label>
+        <button type="button" class="secondary-button" id="alert-bulk-sequence-button">Sequence Rows</button>
+      </div>
+      <div class="alert-bulk-tool-group">
+        <strong>Row order</strong>
+        <button type="button" class="secondary-button" id="alert-bulk-sort-oldest">Sort Oldest → Newest</button>
+        <button type="button" class="secondary-button" id="alert-bulk-sort-newest">Sort Newest → Oldest</button>
+        <button type="button" class="secondary-button" id="alert-bulk-reset">Reset Unsaved Changes</button>
+      </div>
     </div>
     <div id="alert-bulk-edit-rows" class="alert-bulk-edit-rows"></div>
     <div class="alert-bulk-edit-footer">
       <span id="alert-bulk-edit-count" class="muted"></span>
-      <button class="primary-button" type="submit">Save All Time Corrections</button>
+      <button class="primary-button" type="submit">Save Selected Timeline</button>
     </div>
   </form>
 </dialog>
@@ -323,13 +343,36 @@
       .map(box=>box.closest('[data-alert-row]'))
       .filter(Boolean);
   }
+  function localParts(value){
+    const match=String(value||'').match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+    return match?{date:match[1],time:match[2]}:null;
+  }
+  function formatLocalDate(d){
+    const pad=n=>String(n).padStart(2,'0');
+    return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+  }
   function addMinutesToLocal(value,minutes){
     if(!value)return value;
     const d=new Date(value);
     if(Number.isNaN(d.getTime()))return value;
     d.setMinutes(d.getMinutes()+minutes);
-    const pad=n=>String(n).padStart(2,'0');
-    return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+    return formatLocalDate(d);
+  }
+  function editorActivityInputs(){
+    return [...document.querySelectorAll('#alert-bulk-edit-rows input[name="activity_times"]')];
+  }
+  function editorRows(){
+    return [...document.querySelectorAll('#alert-bulk-edit-rows .alert-bulk-edit-row')];
+  }
+  function refreshEditorPositions(){
+    const rows=editorRows();
+    rows.forEach((row,index)=>{
+      const meta=row.querySelector('.alert-bulk-edit-info small:not(.alert-bulk-original)');
+      if(meta){
+        const source=(meta.textContent||'').split(' · ')[0];
+        meta.textContent=source+' · '+(index+1)+' of '+rows.length;
+      }
+    });
   }
   function renderBulkTimeEditor(){
     const dialog=document.getElementById('alert-bulk-edit-dialog'),target=document.getElementById('alert-bulk-edit-rows');
@@ -342,16 +385,17 @@
       const info=document.createElement('div');info.className='alert-bulk-edit-info';
       const title=document.createElement('strong');title.textContent=row.dataset.alertTitle||'Alert';
       const meta=document.createElement('small');meta.textContent=(row.dataset.alertSource||'')+' · '+(index+1)+' of '+rows.length;
-      info.append(title,meta);
+      const original=document.createElement('small');original.className='alert-bulk-original';original.textContent='Stored activity: '+(row.dataset.alertActivity||'—');
+      info.append(title,meta,original);
 
       const id=document.createElement('input');id.type='hidden';id.name='alert_ids';id.value=row.dataset.alertId||'';
 
       const activityLabel=document.createElement('label');activityLabel.textContent='Activity Time';
-      const activity=document.createElement('input');activity.type='datetime-local';activity.name='activity_times';activity.required=true;activity.value=row.dataset.alertActivity||'';
+      const activity=document.createElement('input');activity.type='datetime-local';activity.name='activity_times';activity.required=true;activity.value=row.dataset.alertActivity||'';activity.dataset.originalValue=row.dataset.alertActivity||'';
       activityLabel.append(activity);
 
       const receivedLabel=document.createElement('label');receivedLabel.textContent='Received Time';
-      const received=document.createElement('input');received.type='datetime-local';received.name='received_times';received.value=row.dataset.alertReceived||'';
+      const received=document.createElement('input');received.type='datetime-local';received.name='received_times';received.value=row.dataset.alertReceived||'';received.dataset.originalValue=row.dataset.alertReceived||'';
       receivedLabel.append(received);
 
       const modeLabel=document.createElement('label');modeLabel.textContent='Received Time';
@@ -371,15 +415,57 @@
   }
   document.getElementById('alert-bulk-edit-selected')?.addEventListener('click',renderBulkTimeEditor);
   document.getElementById('alert-bulk-edit-close')?.addEventListener('click',()=>document.getElementById('alert-bulk-edit-dialog')?.close());
-  document.getElementById('alert-bulk-apply-all')?.addEventListener('click',()=>{
-    const value=document.getElementById('alert-bulk-set-all')?.value||'';
-    if(!value)return;
-    document.querySelectorAll('#alert-bulk-edit-rows input[name="activity_times"]').forEach(input=>{input.value=value;});
+  document.getElementById('alert-bulk-date-button')?.addEventListener('click',()=>{
+    const date=document.getElementById('alert-bulk-date-only')?.value||'';
+    if(!date)return;
+    editorActivityInputs().forEach(input=>{
+      const parts=localParts(input.value);
+      if(parts)input.value=date+'T'+parts.time;
+    });
+  });
+  document.getElementById('alert-bulk-time-button')?.addEventListener('click',()=>{
+    const time=document.getElementById('alert-bulk-time-only')?.value||'';
+    if(!time)return;
+    editorActivityInputs().forEach(input=>{
+      const parts=localParts(input.value);
+      if(parts)input.value=parts.date+'T'+time.slice(0,5);
+    });
   });
   document.getElementById('alert-bulk-shift-button')?.addEventListener('click',()=>{
-    const minutes=Number(document.getElementById('alert-bulk-shift-all')?.value||0);
-    if(!Number.isFinite(minutes)||minutes===0)return;
-    document.querySelectorAll('#alert-bulk-edit-rows input[name="activity_times"]').forEach(input=>{input.value=addMinutesToLocal(input.value,minutes);});
+    const days=Number(document.getElementById('alert-bulk-shift-days')?.value||0);
+    const hours=Number(document.getElementById('alert-bulk-shift-hours')?.value||0);
+    const minutes=Number(document.getElementById('alert-bulk-shift-minutes')?.value||0);
+    if(![days,hours,minutes].every(Number.isFinite))return;
+    const total=(days*1440)+(hours*60)+minutes;
+    if(total===0)return;
+    editorActivityInputs().forEach(input=>{input.value=addMinutesToLocal(input.value,total);});
+  });
+  document.getElementById('alert-bulk-sequence-button')?.addEventListener('click',()=>{
+    const start=document.getElementById('alert-bulk-sequence-start')?.value||'';
+    const spacing=Number(document.getElementById('alert-bulk-sequence-spacing')?.value||0);
+    if(!start||!Number.isFinite(spacing)||spacing<0)return;
+    editorActivityInputs().forEach((input,index)=>{input.value=addMinutesToLocal(start,index*spacing);});
+  });
+  function sortEditor(direction){
+    const target=document.getElementById('alert-bulk-edit-rows');
+    if(!target)return;
+    const rows=editorRows().sort((a,b)=>{
+      const av=a.querySelector('input[name="activity_times"]')?.value||'';
+      const bv=b.querySelector('input[name="activity_times"]')?.value||'';
+      return direction==='asc'?av.localeCompare(bv):bv.localeCompare(av);
+    });
+    rows.forEach(row=>target.append(row));
+    refreshEditorPositions();
+  }
+  document.getElementById('alert-bulk-sort-oldest')?.addEventListener('click',()=>sortEditor('asc'));
+  document.getElementById('alert-bulk-sort-newest')?.addEventListener('click',()=>sortEditor('desc'));
+  document.getElementById('alert-bulk-reset')?.addEventListener('click',()=>{
+    editorRows().forEach(row=>{
+      row.querySelectorAll('input[name="activity_times"],input[name="received_times"]').forEach(input=>{input.value=input.dataset.originalValue||'';});
+      const mode=row.querySelector('select[name="received_modes"]');if(mode)mode.value='keep';
+      const reason=row.querySelector('input[name="reasons"]');if(reason)reason.value='';
+    });
+    sortEditor('desc');
   });
   document.getElementById('alert-bulk-edit-dialog')?.addEventListener('click',event=>{if(event.target===event.currentTarget)event.currentTarget.close();});
 
