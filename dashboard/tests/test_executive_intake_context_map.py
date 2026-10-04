@@ -156,3 +156,17 @@ def test_full_alert_page_has_fixed_and_custom_time_windows():
     assert "custom_hours" in source
     for value in ("1h","2h","4h","6h","12h","24h","3d","7d","30d","custom","all"):
         assert f"('{value}'," in template
+
+
+def test_local_map_extent_avoids_psycopg_percent_placeholders():
+    source=(ROOT/"map_app.py").read_text()
+    local=source.split("local_bounds = query_one(",1)[1].split("custom_layers = query_all(",1)[0]
+    assert "WEEHAWKEN%" not in local
+    assert "position('WEEHAWKEN'" in local
+
+
+def test_release_installer_pins_a_real_rollback_image():
+    installer=(ROOT.parent/"deploy"/"workspace"/"install_workspace.sh").read_text()
+    assert 'ROLLBACK_IMAGE="citymanager-dashboard:rollback-' in installer
+    assert 'docker image tag "$OLD_IMAGE" "$ROLLBACK_IMAGE"' in installer
+    assert 'docker image tag "$ROLLBACK_IMAGE" "$OLD_IMAGE_NAME"' in installer
