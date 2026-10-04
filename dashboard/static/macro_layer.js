@@ -167,7 +167,8 @@
   document.addEventListener('click',e=>{
     const target=e.target.closest('[data-cmos-context]');
     if(!target)return;
-    if(e.target.closest('a,button,input,select,textarea,summary')&&e.target!==target)return;
+    const interactive=e.target.closest('a,button,input,select,textarea,summary');
+    if(interactive&&interactive!==target)return;
     const url=target.dataset.cmosContext;
     if(!url)return;
     e.preventDefault();
