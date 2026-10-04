@@ -101,14 +101,21 @@
   list.addEventListener('click',e=>{const b=e.target.closest('[data-i]');if(b)use(current[Number(b.dataset.i)],false)});
   dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close()});
 
-  // Add launcher to the existing nav without removing any destinations.
-  const navInner=document.querySelector('.desktop-nav .nav-inner');
-  if(navInner){
-    const trigger=document.createElement('button');
-    trigger.type='button';trigger.className='cmos-command-trigger';
-    trigger.innerHTML='<span>⌕</span><span>Search & Open</span><kbd>⌘P</kbd>';
-    trigger.addEventListener('click',openCommand);
-    navInner.prepend(trigger);
+  // The shared preserve-first rail exposes command launchers on every module.
+  document.querySelectorAll('[data-cmos-command-trigger]').forEach(trigger=>trigger.addEventListener('click',openCommand));
+
+  // Mobile rail.
+  const mobileToggle=document.querySelector('.cmos-mobile-rail-toggle');
+  const railBackdrop=document.querySelector('.cmos-rail-backdrop');
+  if(mobileToggle&&railBackdrop){
+    mobileToggle.addEventListener('click',()=>{
+      document.body.classList.add('cmos-mobile-nav-open');
+      railBackdrop.hidden=false;
+    });
+    railBackdrop.addEventListener('click',()=>{
+      document.body.classList.remove('cmos-mobile-nav-open');
+      railBackdrop.hidden=true;
+    });
   }
 
   // Universal Quick Look sidecar.
