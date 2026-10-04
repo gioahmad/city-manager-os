@@ -37,7 +37,7 @@
   <input type="hidden" name="longitude" value="{{ longitude or '' }}">
   <div class="location-search-actions">
     <button class="secondary-button verify-location" type="button">Verify full address</button>
-    <a class="secondary-button" href="/map">Choose on map</a>
+    <a class="secondary-button" href="/map" data-cmos-quicklook data-cmos-title="Choose Watch Location">Choose on map</a>
   </div>
   <div class="location-selected" data-location-selected {% if not selected_label and not latitude %}hidden{% endif %}>
     <strong>Selected Location</strong>
@@ -180,7 +180,7 @@
       <div class="watch-card-actions">
         <button class="secondary-button" type="button" data-watch-lab-copy>Copy Diagnostic Receipt</button>
         <a class="secondary-button" data-watch-lab-alert-link href="/alerts?window=all">Open Alert History</a>
-        <a class="secondary-button" href="/map">Open Mapping Center</a>
+        <a class="secondary-button" href="/map" data-cmos-quicklook data-cmos-title="Mapping Center">Open Mapping Center</a>
       </div>
     </div>
   </div>
