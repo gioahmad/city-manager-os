@@ -129,6 +129,7 @@
           <label data-alert-delete-confirm hidden><span data-alert-confirm-label>Type DELETE to confirm</span>
             <input name="confirm_delete" autocomplete="off" placeholder="DELETE">
           </label>
+          {% if can_correct_alert_times %}<button class="secondary-button" type="button" id="alert-bulk-edit-selected">Edit Selected</button>{% endif %}
           <button class="secondary-button" type="submit">Apply Change</button>
         </div>
         <div class="hint">Resolved alerts stay searchable.{% if can_delete_alerts %} Permanent deletion also removes their Match and Notification evidence, and a live source may send them again.{% endif %}</div>
@@ -136,7 +137,7 @@
       <div class="data-list alert-search-results">
         {% for a in alerts %}
         {% set has_map_location = a.map_latitude is defined and a.map_latitude is not none %}
-        <article class="data-row priority-{{ a.priority }}">
+        <article class="data-row priority-{{ a.priority }}" data-alert-row data-alert-id="{{ a.alert_uuid }}" data-alert-title="{{ a.title|e }}" data-alert-source="{{ a.source|e }}" data-alert-activity="{{ a.activity_local_value or '' }}" data-alert-received="{{ a.received_local_value or '' }}">
           <div class="data-main">
             <label class="alert-bulk-select"><input type="checkbox" name="alert_ids" value="{{ a.alert_uuid }}" data-alert-select> Select this alert</label>
             <div class="data-title"><span class="priority-chip p{{ a.priority }}">P{{ a.priority }}</span><strong>{{ a.title }}</strong></div>
@@ -222,6 +223,33 @@
   </article>
   <footer><span>City Manager OS</span><span>Complete alert history · map view defaults to 12 hours</span></footer>
 </main>
+{% if can_correct_alert_times %}
+<dialog id="alert-bulk-edit-dialog" class="alert-bulk-edit-dialog">
+  <form method="post" action="/alerts/bulk-time-edit" id="alert-bulk-time-form">
+    <div class="alert-bulk-edit-head">
+      <div><div class="panel-kicker">SELECTED ALERTS</div><h2>Edit Timeline</h2><p>Fix each selected alert's Activity Time so the history sorts correctly. Received Time is left alone unless you explicitly change it.</p></div>
+      <button type="button" class="secondary-button" id="alert-bulk-edit-close">Close</button>
+    </div>
+    <input type="hidden" name="return_to" value="{{ current_url }}">
+    <div class="alert-bulk-edit-tools">
+      <label>Set the same date/time on all
+        <input type="datetime-local" id="alert-bulk-set-all">
+      </label>
+      <button type="button" class="secondary-button" id="alert-bulk-apply-all">Apply to all rows</button>
+      <label>Shift every row by minutes
+        <input type="number" id="alert-bulk-shift-all" value="0" step="1" placeholder="-60">
+      </label>
+      <button type="button" class="secondary-button" id="alert-bulk-shift-button">Shift rows</button>
+    </div>
+    <div id="alert-bulk-edit-rows" class="alert-bulk-edit-rows"></div>
+    <div class="alert-bulk-edit-footer">
+      <span id="alert-bulk-edit-count" class="muted"></span>
+      <button class="primary-button" type="submit">Save All Time Corrections</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
+
 <script>
 (() => {
   const windowSelect=document.getElementById('alerts-window'),customHours=document.getElementById('alerts-custom-hours'),customHint=document.getElementById('alerts-custom-hint');
@@ -290,6 +318,71 @@
       count.textContent = 'Choose at least one alert';
     }
   });
+  function selectedAlertRows(){
+    return [...document.querySelectorAll('[data-alert-select]:checked')]
+      .map(box=>box.closest('[data-alert-row]'))
+      .filter(Boolean);
+  }
+  function addMinutesToLocal(value,minutes){
+    if(!value)return value;
+    const d=new Date(value);
+    if(Number.isNaN(d.getTime()))return value;
+    d.setMinutes(d.getMinutes()+minutes);
+    const pad=n=>String(n).padStart(2,'0');
+    return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+  }
+  function renderBulkTimeEditor(){
+    const dialog=document.getElementById('alert-bulk-edit-dialog'),target=document.getElementById('alert-bulk-edit-rows');
+    if(!dialog||!target)return;
+    const rows=selectedAlertRows();
+    if(!rows.length){alert('Choose at least one alert first.');return;}
+    target.replaceChildren();
+    rows.forEach((row,index)=>{
+      const wrap=document.createElement('div');wrap.className='alert-bulk-edit-row';
+      const info=document.createElement('div');info.className='alert-bulk-edit-info';
+      const title=document.createElement('strong');title.textContent=row.dataset.alertTitle||'Alert';
+      const meta=document.createElement('small');meta.textContent=(row.dataset.alertSource||'')+' · '+(index+1)+' of '+rows.length;
+      info.append(title,meta);
+
+      const id=document.createElement('input');id.type='hidden';id.name='alert_ids';id.value=row.dataset.alertId||'';
+
+      const activityLabel=document.createElement('label');activityLabel.textContent='Activity Time';
+      const activity=document.createElement('input');activity.type='datetime-local';activity.name='activity_times';activity.required=true;activity.value=row.dataset.alertActivity||'';
+      activityLabel.append(activity);
+
+      const receivedLabel=document.createElement('label');receivedLabel.textContent='Received Time';
+      const received=document.createElement('input');received.type='datetime-local';received.name='received_times';received.value=row.dataset.alertReceived||'';
+      receivedLabel.append(received);
+
+      const modeLabel=document.createElement('label');modeLabel.textContent='Received Time';
+      const mode=document.createElement('select');mode.name='received_modes';
+      [['keep','Keep original'],['set','Correct it too']].forEach(([value,label])=>{const o=document.createElement('option');o.value=value;o.textContent=label;mode.append(o);});
+      modeLabel.append(mode);
+
+      const reasonLabel=document.createElement('label');reasonLabel.textContent='Reason';
+      const reason=document.createElement('input');reason.name='reasons';reason.maxLength=500;reason.placeholder='Seeded backlog / queue delay';
+      reasonLabel.append(reason);
+
+      wrap.append(info,id,activityLabel,modeLabel,receivedLabel,reasonLabel);
+      target.append(wrap);
+    });
+    document.getElementById('alert-bulk-edit-count').textContent=rows.length+' selected alert'+(rows.length===1?'':'s');
+    dialog.showModal();
+  }
+  document.getElementById('alert-bulk-edit-selected')?.addEventListener('click',renderBulkTimeEditor);
+  document.getElementById('alert-bulk-edit-close')?.addEventListener('click',()=>document.getElementById('alert-bulk-edit-dialog')?.close());
+  document.getElementById('alert-bulk-apply-all')?.addEventListener('click',()=>{
+    const value=document.getElementById('alert-bulk-set-all')?.value||'';
+    if(!value)return;
+    document.querySelectorAll('#alert-bulk-edit-rows input[name="activity_times"]').forEach(input=>{input.value=value;});
+  });
+  document.getElementById('alert-bulk-shift-button')?.addEventListener('click',()=>{
+    const minutes=Number(document.getElementById('alert-bulk-shift-all')?.value||0);
+    if(!Number.isFinite(minutes)||minutes===0)return;
+    document.querySelectorAll('#alert-bulk-edit-rows input[name="activity_times"]').forEach(input=>{input.value=addMinutesToLocal(input.value,minutes);});
+  });
+  document.getElementById('alert-bulk-edit-dialog')?.addEventListener('click',event=>{if(event.target===event.currentTarget)event.currentTarget.close();});
+
   sync();
   syncAction();
 })();
