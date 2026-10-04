@@ -32,7 +32,8 @@ run_with_progress "Release tests" "" "${COMPOSE[@]}" run --rm --no-deps -T \
   tests/test_workspace.py tests/test_workspace_calendar.py tests/test_workspace_hub.py tests/test_workspace_ingest.py \
   tests/test_brain.py tests/test_global_share.py \
   tests/test_contact_directory_share.py tests/test_navigation_and_map_sharing.py \
-  tests/test_executive_workflow.py tests/test_today_board.py
+  tests/test_executive_workflow.py tests/test_today_board.py \
+  tests/test_executive_intake_context_map.py
 progress_step 5 8 "Checking database grants and private login"
 run_with_progress "Database/login preflight" "" "${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python citymanager-dashboard - <<'PY'
 from app import db_conn
@@ -51,6 +52,10 @@ with db_conn() as c:
         assert c.execute('SELECT has_table_privilege(current_user,%s,%s) AS ok',
                          (table,'SELECT,INSERT,UPDATE,DELETE')).fetchone()['ok'], table
 assert config()['timezone']
+with db_conn() as c:
+    cols={row['column_name'] for row in c.execute("""SELECT column_name FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='workspace_calendar_events'""").fetchall()}
+    assert 'id' in cols, 'Executive Intake calendar ID migration missing'
 print('WORKSPACE DATABASE AND LOGIN: PASS')
 PY
 rollback(){
