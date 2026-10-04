@@ -53,8 +53,8 @@
   <a class="secondary-button button-link" href="/schedule?state=awaiting">Awaiting Confirmation</a>
   <a class="secondary-button button-link" href="/schedule?state=completed">Completed</a>
   <a class="secondary-button button-link" href="/schedule?state=past">Past</a>
-  <a class="secondary-button button-link" href="/map">Map</a>
-  <a class="secondary-button button-link" href="/event-intelligence">Event Intelligence</a>
+  <a class="secondary-button button-link" href="/map" data-cmos-quicklook data-cmos-title="Mapping Center">Map</a>
+  <a class="secondary-button button-link" href="/event-intelligence" data-cmos-quicklook data-cmos-title="Event Intelligence">Event Intelligence</a>
 </div>
 
 <section class="grid watch-layout" style="margin-top:16px">
@@ -420,7 +420,7 @@ Active
   {% endif %}
 
   {% if e.event_intelligence_id %}
-  <a class="secondary-button button-link" href="/event-intelligence">Event Intelligence</a>
+  <a class="secondary-button button-link" href="/event-intelligence" data-cmos-quicklook data-cmos-title="Event Intelligence">Event Intelligence</a>
   {% endif %}
 
   <form method="post" action="/schedule/{{ e.id }}/toggle">
