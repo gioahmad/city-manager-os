@@ -91,10 +91,44 @@
   function openCommand(){
     selected=0;input.value='';render();dialog.showModal();setTimeout(()=>input.focus(),0);
   }
+  function smartCommandRoute(raw){
+    const q=String(raw||'').trim(),lower=q.toLowerCase();
+    if(!q)return null;
+    const time=lower.match(/last\s+(\d+)\s*(hour|hours|hr|hrs|day|days)/);
+    const customHours=time?Math.max(1,Math.min(8760,Number(time[1])*(time[2].startsWith('day')?24:1))):null;
+    const stripTime=value=>value.replace(/\blast\s+\d+\s*(?:hour|hours|hr|hrs|day|days)\b/ig,'').replace(/\b(show|map|around|near|in)\b/ig,' ').replace(/\s+/g,' ').trim();
+    if(/^(email|emails)\b/.test(lower)){
+      const term=q.replace(/^(email|emails)(\s+from)?\s*/i,'').trim();
+      const url='/workspace?'+new URLSearchParams({intake_source:'MAIL',intake_q:term})+'#inbox';
+      return {url,title:'Executive Intake · Email'};
+    }
+    if(/^(calendar|meeting|meetings)\b/.test(lower)){
+      const term=q.replace(/^(calendar|meeting|meetings)\s*/i,'').trim();
+      const url='/workspace?'+new URLSearchParams({intake_source:'CALENDAR',intake_q:term})+'#inbox';
+      return {url,title:'Executive Intake · Calendar'};
+    }
+    if(lower.startsWith('waiting on ')){
+      const term=q.slice('waiting on '.length).trim();
+      return {url:'/issues?'+new URLSearchParams({state:'waiting',q:term}),title:'Waiting On'};
+    }
+    if(lower.startsWith('watch ')){
+      const term=q.slice(6).trim();
+      return {url:'/watchlist?'+new URLSearchParams({setup_mode:'TOPIC',search_term:term,display_name:term}),title:'New Watch'};
+    }
+    if(customHours||/\b(map|show|near|around)\b/.test(lower)){
+      const term=stripTime(q);
+      const params=new URLSearchParams({map_view:'1',tab:'layers'});
+      if(term)params.set('area_q',term);
+      if(customHours){params.set('window','custom');params.set('custom_hours',String(customHours));}
+      return {url:'/map?'+params,title:'Mapping Center'};
+    }
+    return {url:'/search?q='+encodeURIComponent(q),title:'Search'};
+  }
+
   function use(item,quick=false){
     if(!item){
-      const q=input.value.trim();
-      if(q){dialog.close();location.href='/search?q='+encodeURIComponent(q)}
+      const route=smartCommandRoute(input.value);
+      if(route){dialog.close();quick?openSidecar(route.url,route.title):location.assign(route.url)}
       return;
     }
     if(item.url==='#quick-capture'){
