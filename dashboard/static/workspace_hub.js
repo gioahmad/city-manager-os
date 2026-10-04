@@ -39,7 +39,7 @@
     const processing=items.some(r=>r.kind==='DOCUMENT'&&['QUEUED','PROCESSING'].includes(r.status));
     timer=setTimeout(async()=>{
       if(view!==current)return;
-      const editing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||$(view+'-preview').querySelector('.hub-task-form:not([hidden]),.context-picker');
+      const editing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||$(view+'-preview').querySelector('.hub-task-form:not([hidden]),.hub-event-form:not([hidden]),.context-picker');
       if(!document.hidden&&!busy&&!editing&&items.length<=60)await safe(()=>load(current,true));
       else schedulePoll();
     },processing?6000:60000);
