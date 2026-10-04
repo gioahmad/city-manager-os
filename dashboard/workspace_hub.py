@@ -257,10 +257,12 @@ def action(owner,values):
             if values.get('handled') is not False:
                 c.execute('''INSERT INTO workspace_inbox_handled(owner_username,kind,item_id) VALUES(%s,%s,%s)
                     ON CONFLICT(owner_username,kind,item_id) DO UPDATE SET handled_at=now()''',(owner,item_kind,item_id))
+                c.execute('DELETE FROM workspace_inbox_snoozed WHERE owner_username=%s AND kind=%s AND item_id=%s',(owner,item_kind,item_id))
             else:c.execute('DELETE FROM workspace_inbox_handled WHERE owner_username=%s AND kind=%s AND item_id=%s',(owner,item_kind,item_id))
             return {'message':'Inbox updated. The source record is retained.'}
         if action_name=='SNOOZE':
             hours=max(1,min(int(values.get('hours') or 24),24*30))
+            c.execute('DELETE FROM workspace_inbox_handled WHERE owner_username=%s AND kind=%s AND item_id=%s',(owner,item_kind,item_id))
             c.execute("""INSERT INTO workspace_inbox_snoozed(owner_username,kind,item_id,snoozed_until)
                 VALUES(%s,%s,%s,now()+(%s * interval '1 hour'))
                 ON CONFLICT(owner_username,kind,item_id) DO UPDATE SET snoozed_until=EXCLUDED.snoozed_until""",
