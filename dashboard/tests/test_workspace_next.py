@@ -9,6 +9,7 @@ def test_workspace_next_has_unified_read_and_guarded_action_routes():
     assert '@app.get("/api/workspace-next/home")' in source
     assert '@app.get("/api/workspace-next/inbox")' in source
     assert '@app.get("/api/workspace-next/documents")' in source
+    assert '@app.get("/api/workspace-next/hub/{item_kind}/{item_id}")' in source
     assert '@app.get("/api/objects/search")' in source
     assert '@app.get("/api/objects/{kind}/{object_id}")' in source
     assert '@app.post("/api/workspace-next/action")' in source
@@ -94,7 +95,7 @@ def test_map_uses_full_primary_window():
 def test_native_actions_preserve_existing_work_concepts():
     api=(ROOT/"workspace_next_app.py").read_text()
     js=(ROOT/"static"/"workspace_next.js").read_text()
-    for action in ("WORK_UPDATE","WORK_NOTE","WORK_CHASED","WORK_RESPONSE","ALERT_TO_WORK","INBOX_HANDLE"):
+    for action in ("WORK_UPDATE","WORK_NOTE","WORK_CHASED","WORK_RESPONSE","ALERT_TO_WORK","WATCH_TOGGLE","INBOX_HANDLE"):
         assert action in api
         assert action in js
     assert "waiting_on_last_chased=now()" in api
@@ -106,3 +107,11 @@ def test_native_map_action_stays_inside_shell():
     js=(ROOT/"static"/"workspace_next.js").read_text()
     assert "data-open-map-internal" in js
     assert "renderMap()" in js
+
+
+def test_home_rows_open_native_context():
+    js=(ROOT/"static"/"workspace_next.js").read_text()
+    assert "clickRow(" in js
+    assert "bindObjects();" in js
+    assert "/api/workspace-next/hub/" in js
+    assert "data-doc-kind" in js
