@@ -127,3 +127,12 @@ p{margin:0 0 10px}
   .canvas{padding:22px 16px 40px}
   .account>span:first-child{display:none}
 }
+
+
+/* First-class embedded Mapping Center */
+.workbench.map-mode{grid-template-columns:minmax(0,1fr)}
+.workbench.map-mode .canvas{padding:0;overflow:hidden;background:#0d151f}
+.workbench.map-mode .context{display:none}
+.map-frame{display:block;width:100%;height:100%;min-height:0;border:0;background:#0d151f}
+.link-button,.card-head button,.ops-card button{border:0;background:transparent;color:var(--accent);font-size:10px;font-weight:650;padding:4px 2px}
+.link-button:hover,.card-head button:hover,.ops-card button:hover{text-decoration:underline}
