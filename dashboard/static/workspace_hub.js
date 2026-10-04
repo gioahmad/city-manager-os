@@ -3,8 +3,8 @@
   const $=id=>document.getElementById(id),readonly=document.body.dataset.readonly==='true';
   const csrf=document.body.dataset.csrf;
   let api,view,controller,detailController,pickerController,sequence=0,detailSequence=0,selected=null,items=[],more=false,busy=false,timer;
-  const labels={MAIL:'Email',CONTACT:'Contact import',DOCUMENT:'File',BRAIN:'Brain',TASK:'Personal task',WORK:'Work',REQUEST:'Request',ALERT:'Area alert',RECORD:'Record'};
-  const paths={MAIL:'M4 5h16v14H4z M4 6l8 6 8-6',CONTACT:'M12 3a4 4 0 1 0 0 8 4 4 0 1 0 0-8 M4 21v-3a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v3',DOCUMENT:'M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6',BRAIN:'M12 3v18 M3 12h18 M5 5l14 14 M5 19L19 5',TASK:'M9 3H4v17h16v-8 M8 10l4 4 9-10',WORK:'M4 7h16v14H4z M8 7V3h8v4 M4 13h16 M10 11v4h4v-4',REQUEST:'M3 4h18v13H9l-6 4z M7 8h10 M7 12h7',ALERT:'M12 3L2 21h20z M12 9v5 M12 17v1',RECORD:'M12 2l9 5v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10'};
+  const labels={MAIL:'Email',CALENDAR:'Calendar',CONTACT:'Contact import',DOCUMENT:'File',BRAIN:'Brain',TASK:'Personal task',WORK:'Work',EVENT:'Event',REQUEST:'Request',ALERT:'Area alert',RECORD:'Record'};
+  const paths={MAIL:'M4 5h16v14H4z M4 6l8 6 8-6',CALENDAR:'M5 4h14v16H5z M8 2v4 M16 2v4 M5 9h14 M8 13h3 M13 13h3 M8 16h3',CONTACT:'M12 3a4 4 0 1 0 0 8 4 4 0 1 0 0-8 M4 21v-3a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v3',DOCUMENT:'M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6',BRAIN:'M12 3v18 M3 12h18 M5 5l14 14 M5 19L19 5',TASK:'M9 3H4v17h16v-8 M8 10l4 4 9-10',WORK:'M4 7h16v14H4z M8 7V3h8v4 M4 13h16 M10 11v4h4v-4',EVENT:'M5 4h14v16H5z M8 2v4 M16 2v4 M5 9h14',REQUEST:'M3 4h18v13H9l-6 4z M7 8h10 M7 12h7',ALERT:'M12 3L2 21h20z M12 9v5 M12 17v1',RECORD:'M12 2l9 5v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10'};
   function node(tag,value,cls) {const n=document.createElement(tag);if(value!==undefined)n.textContent=String(value);if(cls)n.className=cls;return n;}
   function button(label,fn,cls='') {const b=node('button',label,cls);b.type='button';b.addEventListener('click',()=>safe(fn));return b;}
   function link(label,url) {const a=node('a',label,'button');a.href=url;return a;}
@@ -103,6 +103,12 @@
     const actions=node('div',undefined,'preview-actions');
     if(!readonly){
       actions.append(button('Make a follow-up',()=>{const form=target.querySelector('.hub-task-form');form.hidden=!form.hidden;if(!form.hidden)form.elements.title.focus();},'primary'));
+      if(['MAIL','CALENDAR'].includes(item.kind)){
+        actions.append(button('Bring into Work',()=>act('WORK',{title:item.title,item_type:'TASK',priority:3,next_action:'Review and determine the next municipal action.'})));
+        actions.append(button('Add to Brain',()=>act('BRAIN',{body:item.body||item.title})));
+        if(item.kind==='CALENDAR')actions.append(button('Bring into Events',()=>act('EVENT')));
+        else actions.append(button('Create Event',()=>{const form=target.querySelector('.hub-event-form');form.hidden=!form.hidden;if(!form.hidden)form.elements.starts_at.focus();}));
+      }
       actions.append(button(row.handled?'Return to inbox':'Mark handled',()=>act('HANDLE',{handled:!row.handled})));
       if(item.kind==='CONTACT'&&!meta.entity_id)actions.append(button('Import as private person',()=>act('IMPORT_CONTACT')));
       if(item.kind==='DOCUMENT'&&['FAILED','NEEDS_OCR'].includes(item.status))actions.append(button('Retry processing',()=>act('RETRY')));
@@ -116,6 +122,15 @@
       const title=node('label','Private follow-up'),input=node('input');input.name='title';input.required=true;input.maxLength=500;input.value=item.title.slice(0,500);title.append(input);
       const due=node('label','Due date (optional)'),date=node('input');date.name='due_date';date.type='date';due.append(date);
       form.append(title,due,node('button','Create linked task','primary'));form.addEventListener('submit',e=>{e.preventDefault();safe(()=>act('TASK',Object.fromEntries(new FormData(form).entries())));});target.append(form);
+      if(item.kind==='MAIL'){
+        const eventForm=node('form',undefined,'hub-event-form');eventForm.hidden=true;
+        const startLabel=node('label','Event start'),start=document.createElement('input');start.name='starts_at';start.type='datetime-local';start.required=true;startLabel.append(start);
+        const endLabel=node('label','Event end (optional)'),end=document.createElement('input');end.name='ends_at';end.type='datetime-local';endLabel.append(end);
+        const locationLabel=node('label','Location (optional)'),location=document.createElement('input');location.name='location';location.maxLength=500;locationLabel.append(location);
+        eventForm.append(startLabel,endLabel,locationLabel,node('button','Create linked event','primary'));
+        eventForm.addEventListener('submit',e=>{e.preventDefault();safe(()=>act('EVENT',Object.fromEntries(new FormData(eventForm).entries())));});
+        target.append(eventForm);
+      }
     }
     if(item.kind==='DOCUMENT')renderProfile(target,meta.profile,item.status,meta.error);
     else if(item.kind==='CONTACT'||item.kind==='RECORD')renderAttributes(target,meta.attributes);
