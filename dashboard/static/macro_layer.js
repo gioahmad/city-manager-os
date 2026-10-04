@@ -183,6 +183,7 @@
 
   // Global route links can opt into Quick Look without losing their original href.
   document.addEventListener('click',e=>{
+    if(e.defaultPrevented)return;
     const a=e.target.closest('a[data-cmos-quicklook]');
     if(!a)return;
     e.preventDefault();
