@@ -105,7 +105,7 @@ def list_items(owner,view='inbox',q='',scope='both',source='',bucket='open',offs
     if bucket not in {'open','action','handled','all'}:raise HTTPException(400,'Unknown inbox filter')
     q=text(q,500);source=kind(source) if source else ''
     pattern='%'+q.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
-    clauses=[];params=[owner,owner]
+    clauses=[];params=[owner,owner,owner]
     if view=='library':clauses.append("i.kind IN ('BRAIN','DOCUMENT')")
     elif bucket!='all' and not q and not source:clauses.append("i.kind NOT IN ('RECORD','EVENT')")
     if scope!='both':clauses.append('i.visibility=%s');params.append('PRIVATE' if scope=='personal' else 'WORK')
@@ -114,15 +114,23 @@ def list_items(owner,view='inbox',q='',scope='both',source='',bucket='open',offs
         clauses.append("(i.title ILIKE %s ESCAPE E'\\\\' OR i.body ILIKE %s ESCAPE E'\\\\')")
         params.extend([pattern,pattern])
     if view=='inbox':
-        if bucket in {'open','action'}:clauses.append('h.item_id IS NULL')
+        if bucket in {'open','action'}:
+            clauses.append('h.item_id IS NULL')
+            clauses.append('(z.snoozed_until IS NULL OR z.snoozed_until<=now())')
         elif bucket=='handled':clauses.append('h.item_id IS NOT NULL')
         if bucket=='action':clauses.append('i.attention')
         if bucket in {'open','action'} and not q:clauses.append("NOT(i.kind='TASK' AND i.status='Completed') AND NOT(i.kind='CONTACT' AND i.status='Imported')")
     where=' AND '.join(clauses) or 'true'
     offset=max(0,min(int(offset),10000))
     sql=SOURCES+'''SELECT i.kind,i.id,i.title,left(i.body,250) AS snippet,i.visibility,i.updated_at,i.attention,i.status,i.route,
-        h.item_id IS NOT NULL AS handled FROM items i LEFT JOIN workspace_inbox_handled h
-        ON h.owner_username=%s AND h.kind=i.kind AND h.item_id=i.id WHERE '''+where+' ORDER BY i.updated_at DESC,i.kind,i.id LIMIT 61 OFFSET %s'
+        h.item_id IS NOT NULL AS handled,
+        z.snoozed_until
+        FROM items i
+        LEFT JOIN workspace_inbox_handled h
+          ON h.owner_username=%s AND h.kind=i.kind AND h.item_id=i.id
+        LEFT JOIN workspace_inbox_snoozed z
+          ON z.owner_username=%s AND z.kind=i.kind AND z.item_id=i.id
+        WHERE '''+where+' ORDER BY i.updated_at DESC,i.kind,i.id LIMIT 61 OFFSET %s'
     rows=query_all(sql,tuple(params+[offset]))
     return {'items':rows[:60],'has_more':len(rows)>60,'offset':offset,'config':config(),
             'local_answers':bool(ollama_settings()),
@@ -251,6 +259,17 @@ def action(owner,values):
                     ON CONFLICT(owner_username,kind,item_id) DO UPDATE SET handled_at=now()''',(owner,item_kind,item_id))
             else:c.execute('DELETE FROM workspace_inbox_handled WHERE owner_username=%s AND kind=%s AND item_id=%s',(owner,item_kind,item_id))
             return {'message':'Inbox updated. The source record is retained.'}
+        if action_name=='SNOOZE':
+            hours=max(1,min(int(values.get('hours') or 24),24*30))
+            c.execute("""INSERT INTO workspace_inbox_snoozed(owner_username,kind,item_id,snoozed_until)
+                VALUES(%s,%s,%s,now()+(%s * interval '1 hour'))
+                ON CONFLICT(owner_username,kind,item_id) DO UPDATE SET snoozed_until=EXCLUDED.snoozed_until""",
+                (owner,item_kind,item_id,hours))
+            return {'message':f'Snoozed for {hours} hour'+('' if hours==1 else 's')+'.'}
+        if action_name=='UNSNOOZE':
+            c.execute('DELETE FROM workspace_inbox_snoozed WHERE owner_username=%s AND kind=%s AND item_id=%s',
+                (owner,item_kind,item_id))
+            return {'message':'Returned to Executive Intake.'}
         if action_name=='LINK':
             target=find(owner,values.get('target_kind'),values.get('target_id'),connection=c)
             if (item_kind,item_id)==(target['kind'],target['id']):raise HTTPException(400,'Choose a different record')
