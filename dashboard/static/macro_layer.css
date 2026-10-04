@@ -595,3 +595,31 @@ html[data-color-mode=dark] .alert-why{background:#202630!important;border-color:
   .cmos-flow-actions{width:100%}
   .cmos-flow-actions button{flex:1}
 }
+
+
+/* Executive action center */
+.cmos-action-grid{grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr)}
+.cmos-action-panel .panel-body,.cmos-recent-panel .panel-body{padding-top:1px!important}
+.cmos-action-row{border-left:3px solid transparent;padding-left:8px!important}
+.cmos-action-row:hover{border-left-color:#5c7fa1}
+.cmos-action-kind{
+  flex:none;display:inline-flex;align-items:center;border-radius:999px;padding:2px 5px;
+  font-size:7px;font-weight:900;letter-spacing:.06em;background:#eef2f6;color:#5e7185
+}
+.cmos-action-kind.work{background:#eef3fa;color:#365f8d}
+.cmos-action-kind.alert{background:#fff1ec;color:#a35231}
+.cmos-action-kind.watch{background:#f3eef9;color:#6d4e91}
+.cmos-action-kind.source{background:#fff7df;color:#8c6b1e}
+.cmos-action-kind.event{background:#edf6f2;color:#327058}
+.cmos-action-kind.delivery{background:#f0f2f5;color:#5d6975}
+.cmos-recent-activity{max-height:420px;overflow:auto}
+
+/* Make dense dashboard sections breathe by grouping rather than adding more cards. */
+.cmos-action-grid+.section-label{margin-top:24px!important}
+.cmos-action-panel,.cmos-recent-panel{min-height:0}
+
+/* Command palette quick actions */
+.cmos-command-item.action .cmos-command-icon{background:#e8eef6;color:#315c88}
+.cmos-command-item.action .cmos-command-copy strong{color:#1d3f62}
+
+@media(max-width:1050px){.cmos-action-grid{grid-template-columns:1fr}}
