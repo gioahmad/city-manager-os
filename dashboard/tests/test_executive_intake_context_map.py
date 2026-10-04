@@ -355,3 +355,40 @@ def test_product_docs_reflect_current_cohesion_phase():
     assert "Executive Exception Layer" in roadmap
     assert "Alert / Watch / Map Cohesion" in roadmap
     assert "Context Everywhere" in readme
+
+
+def test_fast_release_backup_gate_and_runtime_performance_foundation():
+    app=(ROOT/"app.py").read_text()
+    requirements=(ROOT/"requirements.txt").read_text()
+    installer=(ROOT.parent/"deploy"/"workspace"/"install_workspace.sh").read_text()
+    updater=(ROOT.parent/"deploy"/"cmos-system-update").read_text()
+    gate=(ROOT.parent/"deploy"/"postgis"/"ensure-deploy-backup.sh").read_text()
+    migration=(ROOT.parent/"deploy"/"postgis"/"init"/"041_performance_indexes.sql").read_text()
+    perf=(ROOT.parent/"deploy"/"cmos-performance-audit").read_text()
+
+    assert "psycopg[binary,pool]" in requirements
+    assert "ConnectionPool" in app
+    assert "def _db_pool()" in app
+    assert "X-CMOS-Response-Ms" in app
+    assert "slow_request" in app
+
+    assert "ensure-deploy-backup.sh" in installer
+    assert "CMOS_PREVIOUS_RELEASE" in installer
+    assert "041_performance_indexes.sql" in installer
+    assert "last-successful-release" in updater
+    assert "CMOS_PREVIOUS_RELEASE" in updater
+
+    assert "verify-backup.sh" in gate
+    assert "database/GIS-sensitive files changed" in gate
+    assert "reusing recent validated recovery point" in gate
+    assert "CMOS_FORCE_FULL_BACKUP" in gate
+
+    assert "idx_alerts_activity_time" in migration
+    assert "idx_alert_watch_matches_watch_recent" in migration
+    assert "idx_deliveries_status_attempted_recent" in migration
+    assert "idx_workspace_context_links_source_recent" in migration
+    assert "idx_issues_open_follow_up" in migration
+
+    assert "CITY MANAGER OS PERFORMANCE AUDIT" in perf
+    assert "Workspace Intelligence" in perf
+    assert "cache_hit_pct" in perf
