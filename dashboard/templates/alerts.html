@@ -101,7 +101,10 @@
           <label>Action
             <select name="action" data-alert-bulk-action>
               <option value="resolve">Mark selected resolved · keep history</option>
-              {% if can_correct_alert_times %}<option value="shift_time">Shift selected activity times</option>{% endif %}
+              {% if can_correct_alert_times %}
+              <option value="shift_time">Shift selected activity times</option>
+              <option value="set_time">Set selected activity time</option>
+              {% endif %}
               {% if can_delete_alerts %}
               <option value="delete">Delete selected permanently</option>
               {% endif %}
@@ -111,6 +114,18 @@
             <input name="shift_minutes" type="number" min="-43200" max="43200" step="1" value="0" placeholder="-60">
             <span class="hint">Negative = earlier · positive = later. Received time stays unchanged.</span>
           </label>
+          <div data-alert-set-time hidden class="alert-bulk-time-panel">
+            <label>Set Activity date &amp; time
+              <input name="bulk_activity_at" type="datetime-local">
+            </label>
+            <details>
+              <summary>Advanced · set Received time too</summary>
+              <label class="checkbox-row"><input type="checkbox" name="bulk_correct_received" value="1"> Also correct Received Time</label>
+              <label>Received date &amp; time<input name="bulk_received_at" type="datetime-local"></label>
+            </details>
+            <label>Reason<input name="bulk_time_reason" maxlength="500" placeholder="Seeded backlog / queue delay"></label>
+            <span class="hint">Applies the same exact Activity Time to the selected alerts. Original timestamps are retained in audit metadata.</span>
+          </div>
           <label data-alert-delete-confirm hidden><span data-alert-confirm-label>Type DELETE to confirm</span>
             <input name="confirm_delete" autocomplete="off" placeholder="DELETE">
           </label>
@@ -236,6 +251,8 @@
   const confirmation = form.querySelector('[data-alert-delete-confirm]');
   const shift = form.querySelector('[data-alert-shift]');
   const shiftInput = shift?.querySelector('input');
+  const setTime = form.querySelector('[data-alert-set-time]');
+  const setTimeActivity = setTime?.querySelector('input[name="bulk_activity_at"]');
   const confirmationInput = confirmation?.querySelector('input');
   const confirmationLabel = confirmation?.querySelector('[data-alert-confirm-label]');
   const sync = () => {
@@ -248,10 +265,12 @@
   const syncAction = () => {
     const deleting = action.value === 'delete';
     const shifting = action.value === 'shift_time';
+    const setting = action.value === 'set_time';
     const allMatching = scope.value === 'matching';
     if(shift){shift.hidden=!shifting;if(shiftInput)shiftInput.required=shifting;}
-    if(shifting&&scope){scope.value='selected';scope.disabled=true;}else if(scope){scope.disabled=false;}
-    const expected = deleting ? (allMatching ? 'DELETE ALL' : 'DELETE') : (!shifting&&allMatching ? 'APPLY ALL' : '');
+    if(setTime){setTime.hidden=!setting;if(setTimeActivity)setTimeActivity.required=setting;}
+    if((shifting||setting)&&scope){scope.value='selected';scope.disabled=true;}else if(scope){scope.disabled=false;}
+    const expected = deleting ? (allMatching ? 'DELETE ALL' : 'DELETE') : (!(shifting||setting)&&allMatching ? 'APPLY ALL' : '');
     confirmation.hidden = !expected;
     confirmationInput.required = Boolean(expected);
     confirmationInput.placeholder = expected;
