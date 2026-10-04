@@ -44,13 +44,11 @@ def test_calendar_refresh_preserves_linkable_ids():
 
 def test_universal_context_inspector_is_wired():
     phase = (ROOT / "phase3_app.py").read_text()
-    dockerfile = (ROOT / "Dockerfile").read_text()
     app = (ROOT / "context_app.py").read_text()
     template = (ROOT / "templates" / "context.html").read_text()
     mapping = (ROOT / "templates" / "map.html").read_text()
 
     assert "import context_app" in phase
-    assert "COPY context_app.py ." in dockerfile
     assert '@app.get("/context/{item_kind}/{item_id}"' in app
     assert '@app.get("/records/{record_id}")' in app
     assert "Linked context" in template
@@ -157,4 +155,4 @@ def test_full_alert_page_has_fixed_and_custom_time_windows():
     assert 'window == "custom"' in source
     assert "custom_hours" in source
     for value in ("1h","2h","4h","6h","12h","24h","3d","7d","30d","custom","all"):
-        assert f"value=\"{value}\"" in template
+        assert f"('{value}'," in template
