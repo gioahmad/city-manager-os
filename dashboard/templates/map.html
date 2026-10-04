@@ -443,7 +443,7 @@ async function loadGeo(key,endpoint,color,viewport=false,layerName=key,force=fal
   layerLoads[key]={signature,controller,promise};
   return promise;
 }
-function removeLayer(key){loadVersions[key]=(loadVersions[key]||0)+1;layerLoads[key]?.controller.abort();delete layerLoads[key];delete loadedSignatures[key];delete layerMetrics[key];if(groups[key]){map.removeLayer(groups[key]);groups[key]=null;}if(key==='watchlist'&&groups['watch-centers']){map.removeLayer(groups['watch-centers']);groups['watch-centers']=null;}layerRuntime(key,'Not loaded');}
+function removeLayer(key){loadVersions[key]=(loadVersions[key]||0)+1;layerLoads[key]?.controller.abort();delete layerLoads[key];delete loadedSignatures[key];delete layerMetrics[key];if(groups[key]){map.removeLayer(groups[key]);groups[key]=null;}if(key==='alerts'&&groups['alert-heat']){map.removeLayer(groups['alert-heat']);groups['alert-heat']=null;}if(key==='watchlist'&&groups['watch-centers']){map.removeLayer(groups['watch-centers']);groups['watch-centers']=null;}layerRuntime(key,'Not loaded');}
 async function showImpactArea(alertId){const requested=window.prompt('Impact buffer in feet','500');if(requested===null)return;const radius=Math.max(1,Math.min(Number(requested)||500,26400));status('Loading impact area...');const res=await fetch('/api/alerts/'+encodeURIComponent(alertId)+'/impact-buffer.geojson?radius_ft='+radius,{headers:{Accept:'application/geo+json'}});if(!res.ok){status('Impact area unavailable');return;}const data=await res.json();removeLayer('impact-preview');groups['impact-preview']=L.geoJSON(data,{style:{color:'#d64545',weight:3,fillColor:'#d64545',fillOpacity:.16,interactive:false}}).addTo(map);refreshFeatureOrder();const bounds=groups['impact-preview'].getBounds();if(bounds.isValid())map.fitBounds(bounds,{padding:[30,30],maxZoom:18});status('Impact area · '+radius.toLocaleString()+' ft');}
 
 function parseMapCoordinates(value){
@@ -504,7 +504,7 @@ function startAlertLocationEditor(feature={},layer=null){
   coordinateInput.focus();coordinateInput.select();status('Edit coordinates, pick the map, or drag the marker');
 }
 
-async function syncSystemLayer(el,force=false){if(!el.checked){removeLayer(el.dataset.key);return null;}return loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,el.dataset.viewport==='1',el.dataset.name||el.dataset.key,force);}
+async function syncSystemLayer(el,force=false){if(!el.checked){removeLayer(el.dataset.key);return null;}const group=await loadGeo(el.dataset.key,el.dataset.endpoint,el.dataset.color||null,el.dataset.viewport==='1',el.dataset.name||el.dataset.key,force);if(el.dataset.key==='alerts')applyAlertVisualMode();return group;}
 document.querySelectorAll('.system-layer-toggle').forEach(el=>{el.addEventListener('change',()=>syncSystemLayer(el).catch(e=>status(e.message)));});
 const OSM_TILE_HOST='tile.openstreetmap.org';
 const OSM_REFERRER_POLICY='strict-origin-when-cross-origin';
@@ -607,7 +607,7 @@ function alertFilterLabel(){
 }
 function showAlertFilterStatus(message,loading=false){const output=document.getElementById('alert-filter-status');if(!output)return;output.textContent=message;output.classList.toggle('loading',loading);output.setAttribute('aria-busy',loading?'true':'false');}
 function showAppliedAlertCount(count){showAlertFilterStatus(count?count.toLocaleString()+' mapped alert'+(count===1?'':'s')+' shown · '+alertFilterLabel():'No mapped alerts match '+alertFilterLabel().toLowerCase()+' in this map area.');}
-function resetAlertFilters(){const defaults={'alert-window':'12h','alert-map-category':'','alert-map-priority':'1'};Object.entries(defaults).forEach(([id,value])=>{const el=document.getElementById(id);if(el)el.value=value;});document.querySelectorAll('[data-alert-source]').forEach(el=>{el.checked=true;});const active=document.getElementById('alert-map-active');if(active)active.checked=false;syncCustomWindow();refreshAlertLayer(true);}
+function resetAlertFilters(){const defaults={'alert-window':'12h','alert-map-category':'','alert-map-priority':'1'};Object.entries(defaults).forEach(([id,value])=>{const el=document.getElementById(id);if(el)el.value=value;});document.querySelectorAll('[data-alert-source]').forEach(el=>{el.checked=true;});const active=document.getElementById('alert-map-active');if(active)active.checked=true;syncCustomWindow();refreshAlertLayer(true);}
 function heatPointsFromAlerts(){
   const points=[];
   groups.alerts?.eachLayer?.(layer=>{
