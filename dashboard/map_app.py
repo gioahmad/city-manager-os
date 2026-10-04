@@ -200,7 +200,12 @@ def mapping_center(request: Request, msg: str = ""):
     )
     editable_layers = [x for x in custom_layers if x["layer_type"] == "CUSTOM_GEOJSON" and x["active"]]
     alert_sources = query_all(
-        "SELECT DISTINCT source FROM alerts WHERE nullif(trim(source),'') IS NOT NULL ORDER BY source"
+        """SELECT source,count(*) AS total,
+                  count(*) FILTER (WHERE received_at>=now()-interval '24 hours') AS recent_24h
+           FROM alerts
+           WHERE nullif(trim(source),'') IS NOT NULL
+           GROUP BY source
+           ORDER BY source"""
     )
     alert_categories = query_all(
         "SELECT DISTINCT category FROM alerts WHERE nullif(trim(category),'') IS NOT NULL ORDER BY category"
