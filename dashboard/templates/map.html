@@ -113,9 +113,10 @@
             </div>
             <div class="map-source-grid" id="alert-source-grid">
               {% for item in alert_sources %}
-              <label class="map-source-choice"><input type="checkbox" data-alert-source value="{{ item.source }}" checked><span>{{ item.source }}</span></label>
+              <label class="map-source-choice"><input type="checkbox" data-alert-source value="{{ item.source }}" checked><span><strong>{{ item.source }}</strong><small>{{ item.recent_24h or 0 }} / 24h · {{ item.total or 0 }} stored</small></span></label>
               {% endfor %}
             </div>
+            <select id="alert-map-source" hidden aria-hidden="true"><option value="">All sources</option>{% for item in alert_sources %}<option value="{{ item.source }}">{{ item.source }}</option>{% endfor %}</select>
           </div>
 
           <details>
@@ -551,9 +552,13 @@ function restoreMapControls(){
   };
   Object.entries(values).forEach(([id,param])=>{const value=mapShareParams.get(param),el=document.getElementById(id);if(el&&value!==null)el.value=value;});
   const savedSources=mapShareParams.get('sources');
+  const legacySource=mapShareParams.get('source');
   if(savedSources!==null){
     const enabled=new Set(savedSources.split(',').filter(Boolean));
     document.querySelectorAll('[data-alert-source]').forEach(el=>{el.checked=enabled.has(el.value);});
+  } else if(legacySource){
+    document.querySelectorAll('[data-alert-source]').forEach(el=>{el.checked=el.value===legacySource;});
+    const legacy=document.getElementById('alert-map-source');if(legacy)legacy.value=legacySource;
   }
   const customHours=mapShareParams.get('custom_hours');
   if(customHours!==null){const el=document.getElementById('alert-custom-value');if(el)el.value=customHours;}
@@ -637,7 +642,7 @@ async function searchVisibleRecords(){
 }
 document.getElementById('search-visible-records')?.addEventListener('click',searchVisibleRecords);
 document.getElementById('alert-map-query')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();searchVisibleRecords();}});
-['alert-window','alert-map-category','alert-map-priority','alert-map-active','alert-custom-value','alert-custom-unit'].forEach(id=>document.getElementById(id)?.addEventListener('change',()=>{syncCustomWindow();refreshAlertLayer(true);}));
+['alert-window','alert-map-source','alert-map-category','alert-map-priority','alert-map-active','alert-custom-value','alert-custom-unit'].forEach(id=>document.getElementById(id)?.addEventListener('change',()=>{syncCustomWindow();refreshAlertLayer(true);}));
 document.querySelectorAll('[data-alert-source]').forEach(el=>el.addEventListener('change',()=>refreshAlertLayer(true)));
 document.getElementById('alert-sources-all')?.addEventListener('click',()=>{document.querySelectorAll('[data-alert-source]').forEach(el=>{el.checked=true;});refreshAlertLayer(true);});
 document.getElementById('alert-sources-none')?.addEventListener('click',()=>{document.querySelectorAll('[data-alert-source]').forEach(el=>{el.checked=false;});refreshAlertLayer(true);});
