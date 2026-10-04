@@ -170,3 +170,22 @@ def test_release_installer_pins_a_real_rollback_image():
     assert 'ROLLBACK_IMAGE="citymanager-dashboard:rollback-' in installer
     assert 'docker image tag "$OLD_IMAGE" "$ROLLBACK_IMAGE"' in installer
     assert 'docker image tag "$ROLLBACK_IMAGE" "$OLD_IMAGE_NAME"' in installer
+
+
+def test_alert_time_corrections_are_audited_and_bulk_capable():
+    source=(ROOT/"operations_app.py").read_text()
+    template=(ROOT/"templates"/"alerts.html").read_text()
+    assert '@app.post("/alerts/{alert_uuid}/time-correction")' in source
+    assert "time_corrections" in source
+    assert "prior_observed_at" in source
+    assert "prior_received_at" in source
+    assert "Only an Executive user can correct stored Alert times" in source
+    assert 'action == "shift_time"' in source
+    assert 'action == "set_time"' in source
+    assert "Bulk exact time correction" in source
+    assert "Shift selected activity times" in template
+    assert "Set selected activity time" in template
+    assert 'name="bulk_activity_at"' in template
+    assert 'name="bulk_received_at"' in template
+    assert "Correct Alert Time" in template
+    assert "Activity" in template and "Received" in template
