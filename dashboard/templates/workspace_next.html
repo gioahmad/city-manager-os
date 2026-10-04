@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>City Manager OS</title>
+<link rel="stylesheet" href="/static/workspace_next.css?v=20261004-2">
+<script src="/static/workspace_next.js?v=20261004-2" defer></script>
+</head>
+<body>
+<div class="app">
+
+<aside class="rail">
+  <a class="brand" href="/workspace-next">
+    <span class="brand-mark">CM</span>
+    <span class="brand-copy"><strong>City Manager OS</strong><small>Weehawken</small></span>
+  </a>
+
+  <button class="compose" type="button" id="quick-search">+ Find or act</button>
+
+  <nav class="nav-primary" aria-label="Workspace">
+    <button class="nav-item active" data-view="home"><span class="nav-icon">⌂</span><span>Home</span></button>
+    <button class="nav-item" data-view="inbox"><span class="nav-icon">▣</span><span>Inbox</span><span class="nav-count" id="inbox-count"></span></button>
+    <button class="nav-item" data-view="search"><span class="nav-icon">⌕</span><span>Search</span></button>
+    <button class="nav-item" data-view="work"><span class="nav-icon">✓</span><span>Work</span></button>
+    <button class="nav-item" data-view="people"><span class="nav-icon">◎</span><span>People</span></button>
+    <button class="nav-item" data-view="places"><span class="nav-icon">⌖</span><span>Places</span></button>
+    <button class="nav-item" data-view="documents"><span class="nav-icon">▤</span><span>Documents</span></button>
+  </nav>
+
+  <div class="nav-label">SYSTEM</div>
+  <nav>
+    <button class="nav-item" data-view="operations"><span class="nav-icon">◉</span><span>Operations</span></button>
+    <button class="nav-item" data-view="admin"><span class="nav-icon">⚙</span><span>Admin</span></button>
+  </nav>
+
+  <div class="rail-foot">
+    <span class="status-dot"></span>
+    <span>Existing engines connected</span>
+  </div>
+</aside>
+
+<section class="product">
+  <header class="topbar">
+    <button class="mobile-menu" id="mobile-menu" aria-label="Open navigation">☰</button>
+    <form id="global-search" class="command">
+      <span>⌕</span>
+      <input id="global-query" type="search" placeholder="Search or ask about a person, place, issue, alert…" autocomplete="off">
+      <kbd>⌘ K</kbd>
+    </form>
+    <div class="account"><span>{{ username }}</span><span class="avatar">GA</span></div>
+  </header>
+
+  <div class="workbench">
+    <main class="canvas" id="canvas" aria-live="polite"></main>
+    <aside class="context" id="context" aria-live="polite"></aside>
+  </div>
+</section>
+
+</div>
+
+<div class="rail-backdrop" id="rail-backdrop" hidden></div>
+</body>
+</html>
