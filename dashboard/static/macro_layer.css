@@ -623,3 +623,22 @@ html[data-color-mode=dark] .alert-why{background:#202630!important;border-color:
 .cmos-command-item.action .cmos-command-copy strong{color:#1d3f62}
 
 @media(max-width:1050px){.cmos-action-grid{grid-template-columns:1fr}}
+
+
+/* Executive Intake dashboard */
+.cmos-intake-panel{margin-bottom:0}
+.cmos-intake-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:4px 0 10px}
+.cmos-intake-metrics>a{display:grid;gap:2px;padding:10px 11px;border:1px solid #dfe6ec;border-radius:7px;background:#fafbfd;color:#263747;text-decoration:none}
+.cmos-intake-metrics>a:hover{background:#f3f7fa;border-color:#c6d4df}
+.cmos-intake-metrics span{font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#718291}
+.cmos-intake-metrics strong{font-size:22px;color:#18314a}
+.cmos-intake-metrics small{font-size:8.5px;color:#778895;line-height:1.4}
+.cmos-intake-list{display:grid;border-top:1px solid #e5eaee}
+.cmos-intake-list>a{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:8px;padding:8px 1px;border-bottom:1px solid #e9edf1;color:#263747;text-decoration:none}
+.cmos-intake-list>a:hover{background:#f8fafc;padding-left:6px;padding-right:6px;margin-left:-6px;margin-right:-6px}
+.cmos-intake-list>a>span:nth-child(2){display:grid;gap:2px}
+.cmos-intake-list strong{font-size:10.5px}
+.cmos-intake-list small,.cmos-intake-list time{font-size:8.5px;color:#788895}
+html[data-color-mode=dark] .cmos-intake-metrics>a{background:#202630;border-color:#303642;color:#e2e7ef}
+html[data-color-mode=dark] .cmos-intake-metrics strong{color:#eef1f7}
+@media(max-width:650px){.cmos-intake-metrics{grid-template-columns:1fr}.cmos-intake-list>a{grid-template-columns:auto minmax(0,1fr)}.cmos-intake-list time{display:none}}
