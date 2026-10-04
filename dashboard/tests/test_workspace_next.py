@@ -71,3 +71,20 @@ def test_mapping_center_embeds_without_legacy_chrome():
     assert "request.query_params.get('embed')" in template
     assert "embedded-map" in template
     assert "Unified shell embedded map" in css
+
+
+def test_workspace_uses_optional_split_windows():
+    template=(ROOT/"templates"/"workspace_next.html").read_text()
+    js=(ROOT/"static"/"workspace_next.js").read_text()
+    css=(ROOT/"static"/"workspace_next.css").read_text()
+    assert 'id="window-manager"' in template
+    assert 'id="secondary-window" hidden' in template
+    assert "openSplit(" in js
+    assert "closeSplit()" in js
+    assert ".window-manager.split-open" in css
+
+
+def test_map_uses_full_primary_window():
+    js=(ROOT/"static"/"workspace_next.js").read_text()
+    assert 'setPrimary(\'Map\'' in js
+    assert 'src="/map?embed=1"' in js
