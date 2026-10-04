@@ -37,7 +37,7 @@ def test_unified_objects_preserve_authoritative_systems():
 
 def test_shell_has_one_primary_navigation_model():
     source=(ROOT/"templates"/"workspace_next.html").read_text()
-    for label in ("Home","Inbox","Search","Work","People","Places","Documents","Operations","Admin"):
+    for label in ("Home","Inbox","Search","Work","People","Places","Map","Documents","Operations","Admin"):
         assert f">{label}<" in source
     assert "Intelligence</span>" not in source
     assert "Watches</span>" not in source
@@ -61,3 +61,13 @@ def test_home_is_default_and_context_is_not_blank():
     assert "Operational snapshot" in source
     assert "Needs attention" in source
     assert "Live intelligence" in source
+
+
+def test_mapping_center_embeds_without_legacy_chrome():
+    shell=(ROOT/"static"/"workspace_next.js").read_text()
+    template=(ROOT/"templates"/"map.html").read_text()
+    css=(ROOT/"static"/"map.css").read_text()
+    assert 'src="/map?embed=1"' in shell
+    assert "request.query_params.get('embed')" in template
+    assert "embedded-map" in template
+    assert "Unified shell embedded map" in css
