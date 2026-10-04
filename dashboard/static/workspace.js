@@ -121,7 +121,7 @@
     for (const alert of alerts) {
       const item = node('article', undefined, 'alert'); item.dataset.priority = alert.priority;
       const meta = node('div', undefined, 'row'); meta.append(node('span', alert.source, 'badge'), node('span', alert.municipality || 'Location not recorded', 'muted small'));
-      item.append(meta, node('h3', alert.title), node('div', pretty(alert.status) + ' · ' + formatTime(alert.received_at), 'muted small'));
+      item.append(meta, node('h3', alert.title), node('div', pretty(alert.status) + ' · activity ' + formatTime(alert.activity_at || alert.received_at), 'muted small'));
       if (!display) item.append(link('Open alert controls', '/alerts?q=' + encodeURIComponent(alert.alert_id)));
       $('alert-feed').append(item);
     }
