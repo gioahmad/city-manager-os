@@ -377,13 +377,15 @@ def _alert_filter(
     municipality: str = "",
     state: str = "all",
     window: str = "7d",
+    custom_hours: int | None = None,
     min_priority: int = 1,
 ) -> tuple[str, list, dict]:
     """Build the one Alert search contract used by the page and bulk actions."""
     where = []
     params = []
-    window = window if window in ALERT_WINDOWS else "7d"
-    window_hours = ALERT_WINDOWS[window]
+    window = window if window in ALERT_WINDOWS or window == "custom" else "7d"
+    custom_hours = max(1, min(int(custom_hours or 12), 24 * 365))
+    window_hours = custom_hours if window == "custom" else ALERT_WINDOWS[window]
     if window_hours is not None:
         where.append("a.received_at>=now()-(%s * interval '1 hour')")
         params.append(window_hours)
@@ -422,6 +424,7 @@ def _alert_filter(
         "municipality": municipality.strip(),
         "state": state,
         "window": window,
+        "custom_hours": custom_hours,
         "min_priority": min_priority,
     }
     return (f"WHERE {' AND '.join(where)}" if where else ""), params, filters
@@ -1181,6 +1184,7 @@ def alerts_page(
     municipality: str = "",
     state: str = "all",
     window: str = "7d",
+    custom_hours: int | None = None,
     min_priority: int = 1,
     page: int = 1,
     msg: str = "",
@@ -1193,6 +1197,7 @@ def alerts_page(
         municipality=municipality,
         state=state,
         window=window,
+        custom_hours=custom_hours,
         min_priority=min_priority,
     )
     q = filters["q"]
@@ -1201,6 +1206,7 @@ def alerts_page(
     municipality = filters["municipality"]
     state = filters["state"]
     window = filters["window"]
+    custom_hours = filters["custom_hours"]
     min_priority = filters["min_priority"]
     result_total = int(
         query_one(f"SELECT count(*) AS total FROM alerts a {clause}", params).get("total") or 0
@@ -1333,6 +1339,7 @@ def alerts_page(
             "municipality": municipality,
             "state": state,
             "window": window,
+            "custom_hours": custom_hours,
             "min_priority": min_priority,
             "current_page": page,
             "total_pages": total_pages,
@@ -1377,6 +1384,7 @@ def alerts_bulk_action(
     municipality: str = Form(""),
     state: str = Form("all"),
     window: str = Form("7d"),
+    custom_hours: int = Form(12),
     min_priority: int = Form(1),
 ):
     try:
@@ -1407,6 +1415,7 @@ def alerts_bulk_action(
                 municipality=municipality,
                 state=state,
                 window=window,
+                custom_hours=custom_hours,
                 min_priority=min_priority,
             )
             narrowed = any(
