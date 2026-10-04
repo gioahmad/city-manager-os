@@ -16,23 +16,36 @@
     {% endfor %}
   </section>
 
+  <section class="context-metrics" aria-label="At a glance">
+    {% for metric in metrics %}
+    <div><span>{{ metric.label }}</span><strong>{{ metric.value }}</strong></div>
+    {% endfor %}
+  </section>
+
   <section class="context-grid">
     <article class="panel">
       <div class="panel-head"><div><div class="panel-kicker">SUMMARY</div><h2>Record</h2></div></div>
       <div class="panel-body context-summary">
         {% if item.body %}<p>{{ item.body }}</p>{% endif %}
         <dl class="context-facts">
-          {% for key,value in item.metadata.items() %}
-            {% if value is not none and value != '' and key not in ['outlook_url','attributes'] %}
-            <div><dt>{{ key|replace('_',' ')|title }}</dt><dd>{{ value }}</dd></div>
-            {% endif %}
-          {% endfor %}
           {% if item.metadata.attributes %}
             {% for key,value in item.metadata.attributes.items() %}
               {% if value is not none and value != '' %}<div><dt>{{ key|replace('_',' ')|title }}</dt><dd>{{ value }}</dd></div>{% endif %}
             {% endfor %}
+          {% else %}
+            {% for key in ['source','category','subtype','priority','assigned_to','waiting_on','next_action','address','municipality','starts_at','ends_at','matched_watches'] %}
+              {% set value=item.metadata.get(key) %}
+              {% if value is not none and value != '' %}<div><dt>{{ key|replace('_',' ')|title }}</dt><dd>{{ value }}</dd></div>{% endif %}
+            {% endfor %}
           {% endif %}
         </dl>
+        <details class="context-technical"><summary>Technical details</summary><dl class="context-facts">
+          {% for key,value in item.metadata.items() %}
+            {% if value is not none and value != '' and key not in ['outlook_url','attributes','source','category','subtype','priority','assigned_to','waiting_on','next_action','address','municipality','starts_at','ends_at','matched_watches'] %}
+            <div><dt>{{ key|replace('_',' ')|title }}</dt><dd>{{ value }}</dd></div>
+            {% endif %}
+          {% endfor %}
+        </dl></details>
       </div>
     </article>
 
@@ -47,6 +60,21 @@
       </div>
     </article>
   </section>
+
+  {% if evidence %}
+  <section class="panel context-relationships">
+    <div class="panel-head"><div><div class="panel-kicker">OPERATIONAL EVIDENCE</div><h2>What connects to this record</h2></div><span class="count-pill">{{ evidence|length }}</span></div>
+    <div class="panel-body context-timeline">
+      {% for row in evidence %}
+      <a href="{{ row.url }}" {% if row.url.startswith('/context/') %}data-cmos-quicklook data-cmos-title="{{ row.title }}"{% endif %}>
+        <span class="cmos-action-kind {{ row.kind|lower }}">{{ row.kind }}</span>
+        <span><strong>{{ row.title }}</strong><small>{{ row.detail }}</small></span>
+        <time>{{ row.happened_at.strftime('%m/%d/%Y %I:%M %p') if row.happened_at and row.happened_at.strftime is defined else row.happened_at or '' }}</time>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 
   {% if item.links %}
   <section class="panel context-relationships">
