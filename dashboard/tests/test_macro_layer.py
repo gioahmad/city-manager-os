@@ -61,3 +61,18 @@ def test_map_keeps_existing_power_and_opens_actions_in_context():
     ):
         assert phrase in page
     assert "dataset.cmosQuicklook" in page
+
+
+def test_dashboard_spatial_operating_picture():
+    operations=(ROOT/"operations_app.py").read_text()
+    page=(ROOT/"templates"/"index.html").read_text()
+    assert "spatial_status = query_one(" in operations
+    for field in (
+        "mapped_alerts_24h","total_alerts_24h","active_spatial_watches",
+        "active_references","active_map_layers","parcels_ready",
+        "addresses_ready","flood_ready",
+    ):
+        assert field in operations
+        assert field in page
+    assert "Mapping &amp; Spatial Intelligence" in page
+    assert 'data-cmos-quicklook data-cmos-title="Mapping Center"' in page
