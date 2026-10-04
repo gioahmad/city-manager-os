@@ -45,9 +45,40 @@ def _link_row(owner: str, kind: str, record_id: UUID) -> list[dict]:
                 "status": target["status"],
                 "visibility": target["visibility"],
                 "route": target["route"],
+                "updated_at": target.get("updated_at"),
+                "snippet": str(target.get("body") or "")[:220],
             }
         )
     return linked
+
+
+def _alert_record(owner: str, record_id: UUID) -> dict:
+    row = query_one(
+        """SELECT a.id,a.alert_id,a.title,a.message,a.status,a.priority,a.source,a.category,a.subtype,
+                  a.municipality,a.county,a.received_at,a.updated_at,
+                  coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address','')) AS address,
+                  coalesce((SELECT count(*) FROM alert_watch_matches m WHERE m.alert_id=a.id),0) AS match_count,
+                  coalesce((SELECT count(*) FROM deliveries d WHERE d.alert_id=a.id),0) AS delivery_count,
+                  coalesce((SELECT string_agg(DISTINCT w.display_name,', ' ORDER BY w.display_name)
+                            FROM alert_watch_matches m JOIN watch_items w ON w.id=m.watch_item_id
+                            WHERE m.alert_id=a.id),'') AS matched_watches
+           FROM alerts a WHERE a.id=%s""",
+        (record_id,),
+    )
+    if not row:
+        raise HTTPException(404, "Alert not found")
+    return {
+        "kind": "ALERT",
+        "id": row["id"],
+        "title": row["title"],
+        "body": row.get("message") or "",
+        "status": row.get("status") or "",
+        "visibility": "WORK",
+        "updated_at": row.get("updated_at") or row.get("received_at"),
+        "metadata": row,
+        "route": f"/alerts?q={row['alert_id']}&window=all&state=all",
+        "links": _link_row(owner, "ALERT", record_id),
+    }
 
 
 def _hub_record(owner: str, kind: str, record_id: UUID) -> dict:
@@ -131,7 +162,9 @@ def context_page(request: Request, item_kind: str, item_id: str):
     owner = _owner(request)
     kind = item_kind.strip().upper()
     record_id = _uid(item_id)
-    if kind in workspace_hub.KINDS:
+    if kind == "ALERT":
+        item = _alert_record(owner, record_id)
+    elif kind in workspace_hub.KINDS:
         item = _hub_record(owner, kind, record_id)
     elif kind == "WATCH":
         item = _watch_record(record_id)
