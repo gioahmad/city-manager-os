@@ -343,3 +343,134 @@ html[data-color-mode=dark] .cmos-rail-more-menu a:hover{background:#29344a;color
   body:not(.cmos-embedded)>.topbar{padding:14px 15px 12px!important;min-height:80px}
   body:not(.cmos-embedded)>main{padding:16px 13px 88px!important}
 }
+
+
+/* Product cohesion pass v2 */
+:root{--cmos-rail-w:190px;--cmos-bar-h:46px}
+
+/* Rail: more Macro-like, less admin-console. */
+.cmos-rail{padding:11px 9px 10px;background:#0d1218;border-right-color:#1b242d}
+.cmos-rail-brand{padding:2px 4px 11px}
+.cmos-rail-mark{width:27px;height:27px;border-radius:6px}
+.cmos-rail-home strong{font-size:11px}
+.cmos-rail-home small{font-size:7.5px}
+.cmos-rail .cmos-command-trigger{min-height:33px;margin-bottom:9px;padding:0 7px;font-size:9.5px}
+.cmos-rail-nav a{min-height:31px;padding:6px 8px;font-size:10.5px;border-radius:5px}
+.cmos-rail-nav.compact a{min-height:27px;font-size:9.5px}
+.cmos-rail-label{padding:13px 8px 4px;font-size:7.5px}
+.cmos-rail-footer{font-size:7.5px}
+
+/* Global bar: command/search owns the center, chrome recedes. */
+.cmos-global-bar{height:46px;padding:0 10px;background:#fbfcfd}
+.cmos-global-page{min-width:90px;font-size:9px;text-transform:uppercase;letter-spacing:.06em}
+.cmos-global-search-button{
+  height:30px;max-width:620px;border-color:#dce3e9;background:#fff;
+  box-shadow:0 1px 2px rgba(20,38,55,.03)
+}
+.cmos-global-actions a{font-size:8.5px}
+
+/* Existing module topbars become compact module mastheads, not a second app header. */
+body:not(.cmos-embedded)>.topbar{
+  min-height:0!important;
+  padding:16px 26px 13px!important;
+  align-items:flex-end!important;
+  background:#fff!important;
+  border-bottom:1px solid #e2e7ec!important;
+  box-shadow:none!important;
+}
+body:not(.cmos-embedded)>.topbar .brand{display:block}
+body:not(.cmos-embedded)>.topbar .eyebrow{font-size:8px!important;letter-spacing:.12em!important;color:#7f8c99!important}
+body:not(.cmos-embedded)>.topbar h1{font-size:23px!important;line-height:1.08!important;margin:3px 0 1px!important;font-weight:660!important;letter-spacing:-.03em!important}
+body:not(.cmos-embedded)>.topbar .tagline{font-size:10px!important;color:#7a8997!important}
+body:not(.cmos-embedded)>.topbar .private-badge{font-size:7.5px!important;padding:3px 6px!important}
+body:not(.cmos-embedded)>.topbar .header-status{font-size:9px!important}
+body:not(.cmos-embedded)>.topbar .system-live{font-size:8px!important;margin-bottom:3px!important}
+body:not(.cmos-embedded)>.topbar .timestamp{font-size:8.5px!important}
+body:not(.cmos-embedded)>.topbar .refresh-link{font-size:9px!important;margin-top:3px!important}
+
+/* Content density: less floating-card dashboard, more professional workspace. */
+body:not(.cmos-embedded)>main{padding:18px 24px 38px!important}
+.metrics{gap:9px!important}
+.metric{padding:14px 15px!important;border-radius:8px!important;box-shadow:none!important}
+.metric strong{font-size:28px!important}
+.metric span{font-size:8.5px!important}
+.metric small{font-size:9.5px!important}
+.section-label{margin:20px 1px 8px!important;font-size:8px!important}
+.grid{gap:11px!important}
+.stack{gap:11px!important}
+.panel{border-radius:8px!important;box-shadow:none!important}
+.panel-head{padding:12px 14px!important;background:#fff!important}
+.panel-head h2{font-size:14px!important}
+.panel-kicker{font-size:8px!important}
+.panel-body{padding:7px 14px 13px!important}
+.feed-row{padding:9px 1px!important}
+.feed-row strong{font-size:11px!important}
+.meta{font-size:9px!important}
+.alert{margin-top:8px!important;padding:11px 12px!important;border-radius:8px!important}
+.alert-title-wrap strong{font-size:12px!important}
+.alert p{font-size:10.5px!important;margin:7px 0!important}
+.received-time{font-size:8px!important}
+
+/* Controls and forms share one product language. */
+:is(.primary-button,.secondary-button,.button-link){border-radius:6px!important;min-height:34px!important;padding:7px 10px!important;font-size:10px!important}
+:is(input:not([type=checkbox]):not([type=radio]),select,textarea){border-radius:6px!important}
+.filter-bar,.watch-filters,.alert-global-search{gap:8px!important}
+.watch-card,.setup-card,.staff-card,.data-profile{border-radius:8px!important;box-shadow:none!important}
+
+/* Quick Look behaves like a real second pane. */
+.cmos-sidecar{width:min(640px,46vw);box-shadow:-12px 0 38px rgba(15,31,48,.16)}
+.cmos-sidecar.focused{width:calc(100vw - var(--cmos-rail-w) - 18px)}
+.cmos-sidecar-bar{height:42px;padding:5px 7px 5px 10px}
+.cmos-sidecar-title{font-size:9.5px}
+.cmos-sidecar-bar button,.cmos-sidecar-bar a{min-width:28px;height:28px;border-radius:5px}
+body.cmos-sidecar-open:not(.cmos-sidecar-pinned) .cmos-sidecar-backdrop{background:rgba(12,24,36,.05)}
+
+/* Embedded full modules should read like a pane, not a page inside a page. */
+body.cmos-embedded>main{padding:12px!important;background:#fff}
+body.cmos-embedded .panel{border-radius:7px!important}
+body.cmos-embedded .panel-head{padding:11px 13px!important}
+body.cmos-embedded .panel-body{padding:7px 13px 12px!important}
+body.cmos-embedded .section-label{margin-top:14px!important}
+body.cmos-embedded .map-main{background:#0f1822!important}
+body.cmos-embedded .map-shell{border-radius:0!important}
+
+/* Dashboard spatial section becomes a native operating strip. */
+.cmos-spatial-panel{border-color:#d6e0e8!important}
+.cmos-spatial-grid{gap:7px}
+.cmos-spatial-stat{padding:10px 11px;border-radius:7px;background:#fbfcfd}
+.cmos-spatial-stat strong{font-size:20px}
+.cmos-spatial-stat small{font-size:8.5px}
+.cmos-spatial-ready{margin-top:9px;padding-top:9px}
+
+/* Better selected/hover affordance everywhere. */
+[data-cmos-context]{position:relative}
+[data-cmos-context]:hover{box-shadow:inset 0 0 0 1px rgba(53,95,145,.18)!important}
+.feed-row[data-cmos-context]:hover{padding-left:6px!important;padding-right:6px!important;margin-left:-6px;margin-right:-6px}
+.alert[data-cmos-context]:hover{background:#fbfdff}
+.cmos-context-hint{opacity:.7}
+
+/* Keep dense tables usable and more application-like. */
+.table-wrap{border:1px solid #e0e6eb;border-radius:7px;overflow:auto}
+.ops-table thead th,.table-wrap table thead th{
+  position:sticky;top:0;z-index:2;background:#f7f9fb!important;
+  color:#677687!important;font-size:8px!important;text-transform:uppercase;letter-spacing:.05em
+}
+.ops-table td,.ops-table th,.table-wrap td,.table-wrap th{padding-top:8px!important;padding-bottom:8px!important}
+
+/* Dark mode follows the same hierarchy. */
+html[data-color-mode=dark] .cmos-global-bar{background:#181c23}
+html[data-color-mode=dark] body:not(.cmos-embedded)>.topbar{background:#1b1f28!important;border-color:#303642!important}
+html[data-color-mode=dark] body.cmos-embedded>main{background:#1b1f28}
+html[data-color-mode=dark] .cmos-spatial-stat{background:#202630;border-color:#303642;color:#e2e7ef}
+html[data-color-mode=dark] .cmos-spatial-stat strong{color:#eef1f7}
+
+@media(max-width:1050px){
+  .cmos-sidecar{width:min(600px,58vw)}
+  .primary-grid,.secondary-grid{grid-template-columns:1fr!important}
+}
+@media(max-width:840px){
+  :root{--cmos-rail-w:0px}
+  body:not(.cmos-embedded)>.topbar{padding:13px 14px 11px!important}
+  body:not(.cmos-embedded)>main{padding:13px 12px 88px!important}
+  .cmos-sidecar{width:100vw}
+}
