@@ -23,7 +23,7 @@ from workspace_engine import FAMILY, RELATIONS, briefing_dates, derive_relations
 KINDS={'PERSON','ORGANIZATION','BUILDING','STREET','PROJECT','DOCUMENT'}
 DEFAULT_CONFIG={'name':'City Manager OS','organization':'Weehawken','timezone':'America/New_York',
                 'template':'CITY','personal':True,'water_ml':None,'protein_g':None}
-WINDOWS={'6h':'6 hours','12h':'12 hours','24h':'24 hours','7d':'7 days','30d':'30 days','all':None}
+WINDOWS={'1h':'1 hour','2h':'2 hours','4h':'4 hours','6h':'6 hours','12h':'12 hours','24h':'24 hours','3d':'3 days','7d':'7 days','30d':'30 days','all':None}
 
 
 def config():
