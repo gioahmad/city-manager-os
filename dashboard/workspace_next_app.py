@@ -204,25 +204,27 @@ async def workspace_next_action(request: Request):
         if requested not in {"pause","activate","reactivate"}:
             raise HTTPException(400,"Choose Pause or Reactivate")
         with db_conn() as conn:
-            row=conn.execute(
-                "SELECT active,expires_at FROM watch_items WHERE id=%s FOR UPDATE",
-                (watch_id,),
-            ).fetchone()
-            if not row:
-                raise HTTPException(404,"Watch not found")
-            next_active=requested in {"activate","reactivate"}
-            clear_expired=bool(
-                next_active and row.get("expires_at") and row["expires_at"]<=datetime.now(timezone.utc)
-            )
-            conn.execute(
-                """UPDATE watch_items SET active=%s,
-                   starts_at=CASE WHEN %s THEN NULL ELSE starts_at END,
-                   expires_at=CASE WHEN %s THEN NULL ELSE expires_at END,
-                   updated_at=now() WHERE id=%s""",
-                (next_active,clear_expired,clear_expired,watch_id),
-            )
-            if next_active:
-                require_watch_recipients(conn,[watch_id])
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT active,expires_at FROM watch_items WHERE id=%s FOR UPDATE",
+                    (watch_id,),
+                )
+                row=cur.fetchone()
+                if not row:
+                    raise HTTPException(404,"Watch not found")
+                next_active=requested in {"activate","reactivate"}
+                clear_expired=bool(
+                    next_active and row.get("expires_at") and row["expires_at"]<=datetime.now(timezone.utc)
+                )
+                cur.execute(
+                    """UPDATE watch_items SET active=%s,
+                       starts_at=CASE WHEN %s THEN NULL ELSE starts_at END,
+                       expires_at=CASE WHEN %s THEN NULL ELSE expires_at END,
+                       updated_at=now() WHERE id=%s""",
+                    (next_active,clear_expired,clear_expired,watch_id),
+                )
+                if next_active:
+                    require_watch_recipients(cur,[watch_id])
         return _json({"ok":True,"message":"Watch is on" if next_active else "Watch paused."})
 
     if action=="INBOX_HANDLE":
