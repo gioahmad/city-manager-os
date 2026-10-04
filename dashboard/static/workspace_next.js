@@ -20,6 +20,8 @@
   function setNav(view){
     state.view=view;
     document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
+    const workbench=document.querySelector('.workbench');
+    if(workbench)workbench.classList.toggle('map-mode',view==='map');
     document.body.classList.remove('nav-open');
     $('rail-backdrop').hidden=true;
   }
@@ -196,6 +198,13 @@
     $('search-page-query').focus();
   }
 
+  function renderMap(){
+    setNav('map');
+    $('canvas').innerHTML='<iframe class="map-frame" src="/map?embed=1" title="City Manager OS Mapping Center"></iframe>';
+    $('context').classList.remove('open');
+    $('context').innerHTML='';
+  }
+
   async function renderOperations(){
     setNav('operations');
     $('canvas').innerHTML=head('MUNICIPAL OPERATIONS','Operations','Spatial intelligence, alerts, Watches, events and service health stay connected here.')+
@@ -214,10 +223,13 @@
         '<div class="card-empty">No records.</div>')+'</section>';
       $('ops-grid').innerHTML=card('Live alerts','ALERT',alerts.items||[])+card('Active Watches','WATCH',watches.items||[])+
         card('Events','EVENT',events.items||[])+
+        '<section class="ops-card"><div class="card-head"><h2>Spatial operations</h2><button data-open-map>Open live map</button></div><p class="muted small">Parcels, addresses, alerts, Watches, work, events, transit, flood and your custom GIS layers remain available together.</p></section>'+
         '<section class="ops-card"><h2>System health</h2><p class="muted small">'+esc(home.counts?.unhealthy_sources||0)+' unhealthy sources · '+
         esc(home.counts?.failed_24h||0)+' failed deliveries in 24h</p><p class="muted small">Map, parcels, flood, transit, PSEG and routing remain backed by the existing operational engines.</p></section>';
       bindObjects();
       document.querySelectorAll('[data-kind-open]').forEach(b=>b.addEventListener('click',()=>loadKind(b.dataset.kindOpen,'operations')));
+      const mapButton=document.querySelector('[data-open-map]');
+      if(mapButton)mapButton.addEventListener('click',renderMap);
     }catch(e){$('ops-grid').innerHTML='<div class="placeholder">'+esc(e.message)+'</div>';}
   }
 
@@ -277,6 +289,7 @@
     if(view==='work')return loadKind('WORK','work');
     if(view==='people')return loadKind('PERSON','people');
     if(view==='places')return loadKind('PLACE','places');
+    if(view==='map')return renderMap();
     if(view==='documents')return renderDocuments();
     if(view==='operations')return renderOperations();
     if(view==='admin')return renderAdmin();
