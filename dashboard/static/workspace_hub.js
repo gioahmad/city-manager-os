@@ -26,6 +26,9 @@
       const data=await json('/workspace/api/hub?'+new URLSearchParams(params),{signal:controller.signal});
       if(version!==sequence || view!==current)return;
       items=append?[...items,...data.items]:data.items;more=data.has_more;renderList();
+      $('local-answer-status').textContent=data.local_answers?'Local answers available':'Source evidence available · local model optional';
+      $('library-ask').querySelector('button').textContent=data.local_answers?'Ask with sources':'Find evidence';
+      if(selected&&!pendingOpen){const row=items.find(r=>r.id===selected.id&&r.kind===selected.kind);if(row)await open(row,false);else closePreview();}
       if(!append&&pendingOpen){
         const wanted=pendingOpen;
         pendingOpen=null;
@@ -33,9 +36,6 @@
         if(existing)await open(existing,true);
         else await openExact(wanted.kind,wanted.id);
       }
-      $('local-answer-status').textContent=data.local_answers?'Local answers available':'Source evidence available · local model optional';
-      $('library-ask').querySelector('button').textContent=data.local_answers?'Ask with sources':'Find evidence';
-      if(selected){const row=items.find(r=>r.id===selected.id&&r.kind===selected.kind);if(row)await open(row,false);else closePreview();}
       schedulePoll();
       return data;
     } catch(e) {if(e.name!=='AbortError')throw e;} finally {if(version===sequence)$('loading-indicator').hidden=true;}
