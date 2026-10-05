@@ -101,7 +101,7 @@
     for (const work of rows) {
       const row = node('div', undefined, compact ? 'entry' : 'panel');
       const content = node('div'); content.append(node('h3', work.title), node('p', work.next_action || work.address || 'No next action recorded', 'muted small'), node('span', pretty(work.status), 'badge'));
-      const actions = node('div', undefined, 'row'); actions.append(link('Open work', '/issues?q=' + encodeURIComponent(work.title)));
+      const actions = node('div', undefined, 'row'); actions.append(link('Open work', '/issues?focus=' + encodeURIComponent(work.id) + '&state=all'),link('Context', '/context/WORK/' + encodeURIComponent(work.id)));
       if (!readonly && !compact) actions.append(button('Create request link', () => safely(async () => {
         if (!confirm('Share this work title, status, and public conversation through a 30-day request link?')) return;
         const result = await act('PORTAL', {issue_id: work.id});
@@ -122,7 +122,7 @@
       const item = node('article', undefined, 'alert'); item.dataset.priority = alert.priority;
       const meta = node('div', undefined, 'row'); meta.append(node('span', alert.source, 'badge'), node('span', alert.municipality || 'Location not recorded', 'muted small'));
       item.append(meta, node('h3', alert.title), node('div', pretty(alert.status) + ' · activity ' + formatTime(alert.activity_at || alert.received_at), 'muted small'));
-      if (!display) item.append(link('Open alert controls', '/alerts?q=' + encodeURIComponent(alert.alert_id)));
+      if (!display) item.append(link('Open alert', '/context/ALERT/' + encodeURIComponent(alert.id)),link('Alert controls', '/alerts?q=' + encodeURIComponent(alert.alert_id) + '&window=all&state=all'));
       $('alert-feed').append(item);
     }
     if (!display) renderTownNotices(town, search);
@@ -193,7 +193,7 @@
     if (!notes.length) empty($('brain-list'), 'No matching recent captures. Use full Brain search for older records.');
     for (const note of notes) {
       const item = node('article', undefined, 'panel');
-      item.append(node('span', pretty(note.kind), 'badge'), node('p', note.body, 'preserve'), node('div', (note.tags || []).map(t => '#' + t).join(' '), 'muted small'));
+      item.append(node('span', pretty(note.kind), 'badge'), node('p', note.body, 'preserve'), node('div', (note.tags || []).map(t => '#' + t).join(' '), 'muted small'),link('Open capture','/context/BRAIN/'+encodeURIComponent(note.id)));
       if (note.truncated) item.append(link('Read the full capture in Brain', '/brain'));
       $('brain-list').append(item);
     }
@@ -309,6 +309,7 @@
       body.append(node('h3',reminder.name),node('p',reminder.label + ' · ' + reminder.occurrence + (reminder.overdue ? ' · overdue' : ''),'muted small'));
       if(reminder.context) body.append(node('p',reminder.context,'muted small'));
       const controls=node('div',undefined,'row');
+      controls.append(link('Person / record','/context/RECORD/'+encodeURIComponent(reminder.entity_id)));
       if(!readonly) controls.append(button('Draft text',()=>compose({id:reminder.entity_id,name:reminder.name,attributes:reminder.attributes},reminder)),button('Handled',()=>safely(()=>act('DATE_DONE',{id:reminder.id}))));
       item.append(body,controls);target.append(item);
     }
@@ -375,14 +376,14 @@
       const row=node('div',undefined,'calendar-entry'),body=node('div');
       row.append(node('span',event.all_day?'All day':appointmentTime(event.starts_at),'calendar-time'));
       body.append(node('h3',event.title));if(event.location)body.append(node('p',event.location,'muted small'));
-      if(event.outlook_url)body.append(externalLink('Open in Outlook ↗',event.outlook_url));row.append(body);target.append(row);
+      const actions=node('div',undefined,'row');actions.append(link('Open in Intake','/intake?kind=CALENDAR&id='+encodeURIComponent(event.id)));if(event.outlook_url)actions.append(externalLink('Outlook ↗',event.outlook_url));body.append(actions);row.append(body);target.append(row);
     }
     target.append(node('p','Last Outlook sync: '+formatTime(state.calendar.last_sync_at),'muted small'));
   }
   function renderTownNotices(town, search) {
     const target=$('town-notices');target.replaceChildren();
     const rows=(state.notices || []).filter(r=>(!town || (r.municipality || '').toLocaleLowerCase()===town) && (!search || [r.title,r.municipality,r.source_name].join(' ').toLocaleLowerCase().includes(search)));
-    if(!rows.length) {target.append(node('p','No matching notices from connected sources. Add official town feeds in Connections.','muted'),link('Connect town feeds ↗','/workspace#settings'));return;}
+    if(!rows.length) {target.append(node('p','No matching notices from connected sources. Add official town feeds in Connections.','muted'),link('Connect town feeds ↗','/workspace?view=settings'));return;}
     for(const r of rows) {const row=node('article',undefined,'entry'),body=node('div');body.append(node('span',[r.municipality,r.source_name].filter(Boolean).join(' · '),'badge'),node('h3',r.title));if(r.starts_at)body.append(node('p',formatTime(r.starts_at),'muted small'));if(r.impact_summary)body.append(node('p',r.impact_summary,'muted small'));row.append(body);if(r.source_url)row.append(externalLink('Official source ↗',r.source_url));target.append(row);}
   }
   function renderConnections() {
