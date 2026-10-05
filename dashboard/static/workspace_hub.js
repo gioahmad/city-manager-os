@@ -2,7 +2,7 @@
   'use strict';
   const $=id=>document.getElementById(id),readonly=document.body.dataset.readonly==='true';
   const csrf=document.body.dataset.csrf;
-  let api,view,controller,detailController,pickerController,sequence=0,detailSequence=0,selected=null,items=[],more=false,busy=false,timer;
+  let api,view,controller,detailController,pickerController,sequence=0,detailSequence=0,selected=null,items=[],more=false,busy=false,timer,pendingOpen=null;
   const labels={MAIL:'Email',CALENDAR:'Calendar',CONTACT:'Contact import',DOCUMENT:'File',BRAIN:'Brain',TASK:'Personal task',WORK:'Work',EVENT:'Event',REQUEST:'Request',ALERT:'Area alert',RECORD:'Record'};
   const paths={MAIL:'M4 5h16v14H4z M4 6l8 6 8-6',CALENDAR:'M5 4h14v16H5z M8 2v4 M16 2v4 M5 9h14 M8 13h3 M13 13h3 M8 16h3',CONTACT:'M12 3a4 4 0 1 0 0 8 4 4 0 1 0 0-8 M4 21v-3a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v3',DOCUMENT:'M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6',BRAIN:'M12 3v18 M3 12h18 M5 5l14 14 M5 19L19 5',TASK:'M9 3H4v17h16v-8 M8 10l4 4 9-10',WORK:'M4 7h16v14H4z M8 7V3h8v4 M4 13h16 M10 11v4h4v-4',EVENT:'M5 4h14v16H5z M8 2v4 M16 2v4 M5 9h14',REQUEST:'M3 4h18v13H9l-6 4z M7 8h10 M7 12h7',ALERT:'M12 3L2 21h20z M12 9v5 M12 17v1',RECORD:'M12 2l9 5v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10'};
   function node(tag,value,cls) {const n=document.createElement(tag);if(value!==undefined)n.textContent=String(value);if(cls)n.className=cls;return n;}
@@ -26,6 +26,13 @@
       const data=await json('/workspace/api/hub?'+new URLSearchParams(params),{signal:controller.signal});
       if(version!==sequence || view!==current)return;
       items=append?[...items,...data.items]:data.items;more=data.has_more;renderList();
+      if(!append&&pendingOpen){
+        const wanted=pendingOpen;
+        pendingOpen=null;
+        const existing=items.find(r=>r.kind===wanted.kind&&r.id===wanted.id);
+        if(existing)await open(existing,true);
+        else await openExact(wanted.kind,wanted.id);
+      }
       $('local-answer-status').textContent=data.local_answers?'Local answers available':'Source evidence available · local model optional';
       $('library-ask').querySelector('button').textContent=data.local_answers?'Ask with sources':'Find evidence';
       if(selected){const row=items.find(r=>r.id===selected.id&&r.kind===selected.kind);if(row)await open(row,false);else closePreview();}
@@ -65,6 +72,14 @@
     $(view+'-layout').classList.remove('preview-open');
     const p=node('p','Choose a record.','preview-empty');p.append(node('br'),node('span','Its source, follow-ups, and connections appear here.'));$(view+'-preview').replaceChildren(p);
     renderList();
+  }
+  async function openExact(kind,id) {
+    detailController?.abort();detailController=new AbortController();const version=++detailSequence,current=view;
+    const data=await json('/workspace/api/hub/detail/'+encodeURIComponent(kind)+'/'+encodeURIComponent(id),{signal:detailController.signal});
+    if(version!==detailSequence||view!==current)return;
+    selected={kind:data.item.kind,id:data.item.id,title:data.item.title,status:data.item.status,visibility:data.item.visibility,route:data.item.route,handled:false};
+    $(view+'-layout').classList.add('preview-open');renderList();renderPreview(data);
+    if(window.matchMedia('(max-width:900px)').matches)$(view+'-preview').scrollIntoView({block:'start'});
   }
   async function open(row,focus=true) {
     selected=row;detailController?.abort();detailController=new AbortController();const version=++detailSequence,current=view;
@@ -116,7 +131,7 @@
     }
     if(item.kind==='DOCUMENT')actions.append(link('Download original ↗','/workspace/documents/'+item.id+'/download'));
     else if(item.kind!=='MAIL'&&item.kind!=='CONTACT')actions.append(link('Open full controls ↗',item.kind==='WORK'?'/issues?q='+encodeURIComponent(item.title):item.route));
-    actions.append(link('Open connected context ↗','/context/'+item.kind+'/'+item.id));
+    actions.append(link('Open full record ↗','/context/'+item.kind+'/'+item.id));
     if(meta.outlook_url){try{const u=new URL(meta.outlook_url);if(u.protocol==='https:'){const a=link('Open in Outlook ↗',u.href);a.target='_blank';a.rel='noopener noreferrer';actions.append(a);}}catch{}}
     target.append(actions);
     if(!readonly){
@@ -187,6 +202,8 @@
   function init(callbacks) {
     api=callbacks;
     const incoming=new URLSearchParams(location.search);
+    const requestedKind=(incoming.get('kind')||'').toUpperCase(),requestedId=incoming.get('id')||'';
+    if(requestedKind&&requestedId)pendingOpen={kind:requestedKind,id:requestedId};
     const inboxFilters=$('inbox-filters');
     if(inboxFilters){
       const source=incoming.get('intake_source'),query=incoming.get('intake_q');
