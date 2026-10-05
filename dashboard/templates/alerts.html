@@ -51,11 +51,15 @@
           <select name="category"><option value="">All categories</option>{% for item in categories %}<option value="{{ item.category }}" {% if category == item.category %}selected{% endif %}>{{ item.category }} ({{ item.total }})</option>{% endfor %}</select>
         </label>
         <label>County
-          <select name="county"><option value="">All counties</option>{% for item in counties %}<option value="{{ item.county }}" {% if county|lower == item.county|lower %}selected{% endif %}>{{ item.county }} ({{ item.total }})</option>{% endfor %}</select>
+          <select name="county" id="alerts-county"><option value="">All counties</option>{% for item in counties %}<option value="{{ item.county }}" {% if county|lower == item.county|lower %}selected{% endif %}>{{ item.county }} ({{ item.total }})</option>{% endfor %}</select>
+          <span class="hint">Choosing a county narrows the municipality list below.</span>
         </label>
-        <label>Municipality
-          <select name="municipality"><option value="">All municipalities</option>{% for item in municipalities %}<option value="{{ item.municipality }}" {% if municipality|lower == item.municipality|lower %}selected{% endif %}>{{ item.municipality }} ({{ item.total }})</option>{% endfor %}</select>
-          <span class="hint">Names are combined case-insensitively, so WEehawken / WEEHAWKEN / Weehawken appear once.</span>
+        <label>Municipalities
+          <input type="hidden" name="municipality" id="alerts-municipality-value" value="{{ municipality }}">
+          <select id="alerts-municipalities" multiple size="5" aria-label="Municipalities">
+            {% for item in municipalities %}<option value="{{ item.municipality }}" data-county="{{ item.county }}">{{ item.municipality }}{% if item.county %} · {{ item.county }}{% endif %} ({{ item.total }})</option>{% endfor %}
+          </select>
+          <span class="hint">Choose one or several. Case/spelling variants are combined before display.</span>
         </label>
         <label>Status
           <select name="state">
@@ -280,6 +284,26 @@
   const windowSelect=document.getElementById('alerts-window'),customHours=document.getElementById('alerts-custom-hours'),customHint=document.getElementById('alerts-custom-hint');
   const syncCustom=()=>{const show=windowSelect?.value==='custom';if(customHours)customHours.hidden=!show;if(customHint)customHint.hidden=!show;};
   windowSelect?.addEventListener('change',syncCustom);syncCustom();
+
+  const county=document.getElementById('alerts-county');
+  const municipalitySelect=document.getElementById('alerts-municipalities');
+  const municipalityValue=document.getElementById('alerts-municipality-value');
+  const selectedMunicipalities=new Set((municipalityValue?.value||'').split('|').map(v=>v.trim()).filter(Boolean).map(v=>v.toLocaleLowerCase()));
+  if(municipalitySelect){
+    [...municipalitySelect.options].forEach(option=>{option.selected=selectedMunicipalities.has(option.value.toLocaleLowerCase());});
+    const syncMunicipalityOptions=()=>{
+      const wanted=(county?.value||'').toLocaleLowerCase();
+      [...municipalitySelect.options].forEach(option=>{
+        const matches=!wanted||(option.dataset.county||'').toLocaleLowerCase()===wanted;
+        option.hidden=!matches;
+        if(!matches)option.selected=false;
+      });
+      municipalityValue.value=[...municipalitySelect.selectedOptions].map(option=>option.value).join('|');
+    };
+    county?.addEventListener('change',syncMunicipalityOptions);
+    municipalitySelect.addEventListener('change',()=>{municipalityValue.value=[...municipalitySelect.selectedOptions].map(option=>option.value).join('|');});
+    syncMunicipalityOptions();
+  }
 
   document.querySelectorAll('[data-alert-watch-builder]').forEach((builder) => {
     builder.querySelector('[data-alert-watch-continue]')?.addEventListener('click', () => {
