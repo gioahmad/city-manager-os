@@ -117,8 +117,13 @@ def executive_intake_route(kind: str = '', id: str = ''):
 
 
 @app.get('/library')
-def workspace_library_route():
-    return RedirectResponse('/workspace?view=library',status_code=303)
+def workspace_library_route(kind: str = '', id: str = ''):
+    params=['view=library']
+    if kind:
+        params.append('kind='+quote_plus(kind.strip().upper()))
+    if id:
+        params.append('id='+quote_plus(id.strip()))
+    return RedirectResponse('/workspace?'+'&'.join(params),status_code=303)
 
 
 @app.get('/workspace',response_class=HTMLResponse)
