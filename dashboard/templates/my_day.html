@@ -268,7 +268,7 @@
         {% if a.message %}<div class="meta">{{ a.message }}</div>{% endif %}
       </div>
 
-      <time>{{ a.received_local.strftime('%m/%d %I:%M %p') if a.received_local else '' }}</time>
+      <time>Activity {{ a.activity_local.strftime('%m/%d %I:%M %p') if a.activity_local else '' }}</time>
     </div>
     {% else %}
     <div class="empty-state small"><strong>No active priority alerts</strong></div>
