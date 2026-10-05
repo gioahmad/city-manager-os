@@ -8,6 +8,16 @@ progress_step 0 8 "Checking release and current services"
 [[ -z "$(git status --porcelain)" ]] || { echo 'Repository must be clean'; exit 1; }
 [[ "$(git rev-parse HEAD)" == "$EXPECTED" ]] || { echo 'HEAD does not match expected commit'; exit 1; }
 COMPOSE=(docker compose -f "$REPO/dashboard/docker-compose.yml")
+TEST_MOUNTS=(
+  -v "$REPO/dashboard/tests:/app/tests:ro"
+  -v "$REPO/deploy:/deploy:ro"
+  -v "$REPO/docs:/docs:ro"
+  -v "$REPO/workflows:/workflows:ro"
+  -v "$REPO/dashboard:/dashboard:ro"
+  -v "$REPO/dashboard/Dockerfile:/app/Dockerfile:ro"
+  -v "$REPO/dashboard/docker-compose.yml:/app/docker-compose.yml:ro"
+  -v "$REPO/README.md:/README.md:ro"
+)
 OLD_IMAGE="$(docker inspect citymanager-dashboard --format '{{.Image}}')"
 OLD_IMAGE_NAME="$(docker inspect citymanager-dashboard --format '{{.Config.Image}}')"
 ROLLBACK_IMAGE="citymanager-dashboard:rollback-${EXPECTED:0:12}"
@@ -30,8 +40,7 @@ progress_step 3 8 "Building dashboard image"
 run_with_progress "Dashboard build" "" "${COMPOSE[@]}" build citymanager-dashboard
 progress_step 4 8 "Running release tests"
 run_with_progress "Release tests" "" "${COMPOSE[@]}" run --rm --no-deps -T \
-  -v "$REPO/dashboard/tests:/app/tests:ro" -v "$REPO/deploy:/deploy:ro" \
-  --entrypoint python citymanager-dashboard -m pytest -q tests
+  "${TEST_MOUNTS[@]}" --entrypoint python citymanager-dashboard -m pytest -q tests
 progress_step 5 8 "Checking database grants and private login"
 run_with_progress "Database/login preflight" "" "${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python citymanager-dashboard - <<'PY'
 from app import db_conn
