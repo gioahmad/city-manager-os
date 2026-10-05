@@ -167,7 +167,7 @@ def callback(request: Request, state: str='', code: str='', error: str=''):
             AND session_hash=%s AND expires_at>now() RETURNING verifier''',
             (hashlib.sha256(state.encode()).hexdigest(),owner,hashlib.sha256(request.cookies[COOKIE_NAME].encode()).hexdigest())).fetchone()
     if not pending:raise HTTPException(400,'Calendar sign-in expired. Start again.')
-    if error:return RedirectResponse('/workspace#settings',status_code=303)
+    if error:return RedirectResponse('/workspace?view=settings',status_code=303)
     if not code or len(code)>10000:raise HTTPException(400,'Calendar sign-in did not return a code')
     try:
         verifier=encrypt.decrypt(pending['verifier'].encode()).decode()
@@ -182,8 +182,8 @@ def callback(request: Request, state: str='', code: str='', error: str=''):
         sync(owner)
     except (httpx.HTTPError,ValueError,InvalidToken,HTTPException):
         # Keep provider response and token contents out of user-facing errors.
-        return RedirectResponse('/workspace#settings',status_code=303)
-    return RedirectResponse('/workspace#today',status_code=303)
+        return RedirectResponse('/workspace?view=settings',status_code=303)
+    return RedirectResponse('/workspace?view=today',status_code=303)
 
 
 def graph_pages(client,url,access,*,limit=1000,truncate=False,mail=False,deadline=None):
