@@ -1,0 +1,34 @@
+name: Dashboard regression
+on:
+  push:
+    branches: [workspace-cohesion-alert-geofilters]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dashboard-regression-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dashboard test dependencies
+        run: python -m pip install -r dashboard/requirements.txt
+      - name: Full dashboard regression
+        working-directory: dashboard
+        env:
+          DB_PASSWORD: ci-test-only
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python -m pytest -q -ra tests
+      - name: JavaScript syntax
+        run: |
+          node --check dashboard/static/workspace_hub.js
+          node --check dashboard/static/workspace.js
+          node --check dashboard/static/macro_layer.js
