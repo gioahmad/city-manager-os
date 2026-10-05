@@ -1,0 +1,700 @@
+/* Preserve-first Macro interaction layer for the existing City Manager OS. */
+:root{
+  --macro-panel:#fff;
+  --macro-ink:#172130;
+  --macro-muted:#6e7b89;
+  --macro-line:#dde4ea;
+  --macro-soft:#f6f8fa;
+  --macro-accent:#355f91;
+  --macro-shadow:0 22px 70px rgba(16,32,48,.22);
+}
+
+/* Keep the established municipal dashboard, but sharpen the product chrome. */
+body:not(.cmos-embedded)>.topbar{
+  padding-top:18px;
+  padding-bottom:18px;
+}
+body:not(.cmos-embedded)>.topbar h1{font-weight:680}
+.desktop-nav .cmos-command-trigger{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-height:34px;
+  margin-right:8px;
+  padding:0 11px;
+  border:1px solid var(--border,#dde4ea);
+  border-radius:7px;
+  background:#fff;
+  color:#445466;
+  font-size:11px;
+  font-weight:650;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.desktop-nav .cmos-command-trigger:hover{background:#f4f7fa;color:#203a5d}
+.desktop-nav .cmos-command-trigger kbd{
+  border:1px solid #d9e1e8;
+  border-radius:4px;
+  padding:2px 4px;
+  background:#f7f9fb;
+  color:#7a8795;
+  font-size:9px;
+}
+
+/* Dashboard records become obvious interactive objects without flattening the dashboard. */
+[data-cmos-context]{
+  cursor:pointer;
+  transition:background .14s ease,border-color .14s ease,box-shadow .14s ease,transform .14s ease;
+}
+[data-cmos-context]:hover{
+  border-color:#b9c9d7!important;
+  box-shadow:0 5px 18px rgba(22,48,73,.08);
+}
+.metric[data-cmos-context]:hover{transform:translateY(-1px)}
+.feed-row[data-cmos-context]:hover{background:#f8fafc}
+[data-cmos-context]:focus-visible{outline:2px solid #5d84ad;outline-offset:2px}
+.cmos-context-hint{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  margin-left:6px;
+  color:#7f8d9a;
+  font-size:9px;
+  font-weight:650;
+}
+
+/* Global command palette. */
+.cmos-command-dialog{
+  width:min(760px,calc(100vw - 28px));
+  max-height:min(720px,86vh);
+  border:1px solid #cfd9e2;
+  border-radius:13px;
+  background:#fff;
+  color:var(--macro-ink);
+  padding:0;
+  box-shadow:0 30px 90px rgba(10,25,40,.32);
+}
+.cmos-command-dialog::backdrop{background:rgba(12,22,32,.44);backdrop-filter:blur(2px)}
+.cmos-command-box{padding:12px;border-bottom:1px solid var(--macro-line)}
+.cmos-command-input{
+  width:100%;
+  min-height:46px;
+  border:1px solid #d6dfe7;
+  border-radius:9px;
+  padding:10px 12px;
+  background:#f9fafb;
+  color:#172130;
+  font-size:15px;
+  outline:none;
+}
+.cmos-command-input:focus{border-color:#7395b7;box-shadow:0 0 0 3px rgba(53,95,145,.10)}
+.cmos-command-meta{display:flex;justify-content:space-between;gap:12px;padding:8px 13px;color:#7e8a96;font-size:9px;border-bottom:1px solid #edf1f4}
+.cmos-command-list{display:grid;gap:2px;padding:7px;max-height:58vh;overflow:auto}
+.cmos-command-item{
+  display:grid;
+  grid-template-columns:32px minmax(0,1fr) auto;
+  align-items:center;
+  gap:9px;
+  width:100%;
+  border:0;
+  border-radius:8px;
+  padding:9px 10px;
+  background:#fff;
+  color:#263747;
+  text-align:left;
+}
+.cmos-command-item:hover,.cmos-command-item[aria-selected=true]{background:#eef3f8}
+.cmos-command-icon{
+  width:29px;height:29px;border-radius:7px;background:#f1f4f7;color:#4c647b;
+  display:grid;place-items:center;font-weight:800;font-size:11px
+}
+.cmos-command-copy strong{display:block;font-size:12px}
+.cmos-command-copy small{display:block;margin-top:2px;color:#7b8996;font-size:9px}
+.cmos-command-key{font-size:9px;color:#8b97a3}
+.cmos-command-empty{padding:28px;text-align:center;color:#778593;font-size:11px}
+.cmos-command-footer{display:flex;justify-content:space-between;gap:12px;padding:9px 13px;border-top:1px solid #edf1f4;color:#7e8a96;font-size:9px}
+
+/* Universal Quick Look / split panel. Existing pages run inside this pane. */
+.cmos-sidecar{
+  position:fixed;
+  top:0;right:0;bottom:0;
+  width:min(720px,52vw);
+  z-index:2400;
+  display:grid;
+  grid-template-rows:46px minmax(0,1fr);
+  background:#fff;
+  border-left:1px solid #cfd8e1;
+  box-shadow:-18px 0 52px rgba(15,31,48,.18);
+  transform:translateX(105%);
+  transition:transform .18s ease,width .18s ease;
+}
+body.cmos-sidecar-open .cmos-sidecar{transform:translateX(0)}
+.cmos-sidecar.focused{width:calc(100vw - 54px)}
+.cmos-sidecar-bar{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 9px 7px 12px;
+  background:#f8fafb;
+  border-bottom:1px solid #dbe3ea;
+}
+.cmos-sidecar-title{
+  min-width:0;flex:1;color:#586777;font-size:10px;font-weight:700;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.cmos-sidecar-bar button,.cmos-sidecar-bar a{
+  display:grid;place-items:center;min-width:30px;height:30px;
+  border:1px solid #d9e1e7;border-radius:6px;background:#fff;color:#566676;
+  text-decoration:none;font-size:11px
+}
+.cmos-sidecar-bar button:hover,.cmos-sidecar-bar a:hover{background:#eef3f7;color:#213d5c}
+.cmos-sidecar-frame{width:100%;height:100%;border:0;background:#fff}
+.cmos-sidecar-resize{
+  position:absolute;left:-5px;top:46px;bottom:0;width:10px;cursor:ew-resize
+}
+.cmos-sidecar-backdrop{
+  position:fixed;inset:0;z-index:2390;background:rgba(12,24,36,.10);
+  opacity:0;pointer-events:none;transition:opacity .18s
+}
+body.cmos-sidecar-open .cmos-sidecar-backdrop{opacity:1;pointer-events:auto}
+body.cmos-sidecar-open.cmos-sidecar-pinned .cmos-sidecar-backdrop{display:none}
+.cmos-sidecar-pin.active{background:#e8eef5!important;color:#244c78!important}
+
+/* Embedded mode strips only outer chrome; the real module remains intact. */
+body.cmos-embedded{background:#f4f7fa}
+body.cmos-embedded>.topbar,
+body.cmos-embedded>.desktop-nav,
+body.cmos-embedded>.mobile-nav,
+body.cmos-embedded>#qc-open,
+body.cmos-embedded>#qc-dialog,
+body.cmos-embedded>#share-dialog{display:none!important}
+body.cmos-embedded>main{
+  width:100%!important;
+  max-width:none!important;
+  margin:0!important;
+  padding:16px!important;
+}
+body.cmos-embedded .map-main{padding:0!important}
+body.cmos-embedded .map-shell{min-height:100vh!important;height:100vh!important}
+body.cmos-embedded .map-sidebar{max-height:100vh!important}
+body.cmos-embedded #city-map{min-height:100vh!important;height:100vh!important}
+
+/* Macro-inspired quick capture while preserving every field/action. */
+.qc-fab{background:#254766!important;border-color:#3c688d!important;box-shadow:0 10px 30px rgba(18,43,65,.22)!important}
+.qc-dialog,.share-dialog{background:#fff!important;color:#223244!important;border-color:#cfd9e2!important;box-shadow:0 24px 70px rgba(10,25,40,.28)!important}
+.qc-dialog::backdrop,.share-dialog::backdrop{background:rgba(12,24,36,.42)!important}
+.qc-head,.share-dialog-head{border-color:#e0e6eb!important}
+.qc-head .panel-kicker,.share-dialog-head .panel-kicker{color:#718090!important}
+.qc-close,.share-dialog-close{background:#f7f9fb!important;color:#485c6e!important;border-color:#d5dee6!important}
+.qc-form textarea,.qc-form input,.qc-form select,.share-dialog input,.share-dialog textarea{
+  background:#fff!important;color:#263747!important;border-color:#cfd9e2!important
+}
+.qc-form label,.share-dialog label{color:#607386!important}
+.qc-options,.share-dialog-contacts{border-color:#d9e2e9!important}
+.qc-save{background:#2b567d!important;border-color:#2b567d!important}
+.share-contact{background:#f7f9fb!important}
+
+/* Dark appearance still works. */
+html[data-color-mode=dark] .cmos-command-dialog,
+html[data-color-mode=dark] .cmos-command-item,
+html[data-color-mode=dark] .cmos-sidecar,
+html[data-color-mode=dark] .cmos-sidecar-frame,
+html[data-color-mode=dark] .cmos-sidecar-bar{
+  background:#1b1f28;color:#e2e7ef;border-color:#303642
+}
+html[data-color-mode=dark] .cmos-command-input{background:#151820;color:#e2e7ef;border-color:#303642}
+html[data-color-mode=dark] .cmos-command-item:hover,
+html[data-color-mode=dark] .cmos-command-item[aria-selected=true]{background:#29344a}
+html[data-color-mode=dark] .cmos-command-icon{background:#242b37;color:#b6c7dd}
+html[data-color-mode=dark] .cmos-sidecar-bar button,
+html[data-color-mode=dark] .cmos-sidecar-bar a{background:#242b37;color:#c9d4e0;border-color:#303642}
+
+@media(max-width:1050px){
+  .cmos-sidecar{width:min(680px,68vw)}
+}
+@media(max-width:840px){
+  .desktop-nav .cmos-command-trigger{display:none}
+  .cmos-sidecar{width:100vw}
+  .cmos-sidecar.focused{width:100vw}
+  .cmos-sidecar-resize{display:none}
+}
+
+
+/* Spatial operating picture: compact dashboard presence for the full GIS stack. */
+.cmos-spatial-panel{margin-top:0}
+.cmos-spatial-actions{display:flex;gap:7px;flex-wrap:wrap}
+.cmos-spatial-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding-top:8px}
+.cmos-spatial-stat{
+  min-width:0;text-align:left;border:1px solid #dce4eb;border-radius:9px;background:#f9fbfc;
+  padding:13px 14px;color:#263747
+}
+.cmos-spatial-stat:hover{background:#f2f6f9;border-color:#b8c9d8}
+.cmos-spatial-stat span{display:block;color:#687b8d;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.cmos-spatial-stat strong{display:block;margin:6px 0 4px;color:#12253a;font-size:24px;letter-spacing:-.035em}
+.cmos-spatial-stat small{display:block;color:#7b8b99;font-size:9px;line-height:1.45}
+.cmos-spatial-ready{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:12px;padding-top:11px;border-top:1px solid #e4e9ee}
+.cmos-spatial-ready span,.cmos-spatial-ready a{
+  border-radius:999px;padding:5px 8px;font-size:9px;font-weight:750;text-decoration:none
+}
+.cmos-spatial-ready span.ready{background:#eaf7f1;color:#176a4e}
+.cmos-spatial-ready span.missing{background:#fff0f2;color:#a32f3c}
+.cmos-spatial-ready a{background:#eef4fa;color:#315d83}
+.cmos-spatial-ready a:hover{background:#e2edf6}
+@media(max-width:1000px){.cmos-spatial-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.cmos-spatial-grid{grid-template-columns:1fr}.cmos-spatial-actions{display:grid;grid-template-columns:1fr 1fr}}
+
+
+/* Persistent preserve-first product rail */
+:root{--cmos-rail-w:206px;--cmos-bar-h:48px}
+body:not(.cmos-embedded){padding-left:var(--cmos-rail-w);padding-top:var(--cmos-bar-h)}
+body:not(.cmos-embedded)>.topbar{
+  margin:0!important;
+  padding:16px 28px 14px!important;
+  min-height:94px;
+  border-bottom:1px solid var(--border,#dde4ea);
+  background:#fff!important;
+  color:var(--text,#172130)!important;
+}
+body:not(.cmos-embedded)>.topbar :is(.eyebrow,.tagline,.timestamp,.header-status){color:var(--muted,#6e7b89)!important}
+body:not(.cmos-embedded)>.topbar .system-live{color:#2b7257!important}
+body:not(.cmos-embedded)>.topbar .private-badge{color:#31684e!important;background:#eef6f1!important;border-color:#d5e8dc!important}
+body:not(.cmos-embedded)>.topbar .refresh-link{color:var(--macro-accent)!important}
+body:not(.cmos-embedded)>main{width:100%!important;max-width:none!important;margin:0!important;padding:22px 28px 44px!important}
+
+.cmos-rail{
+  position:fixed;inset:0 auto 0 0;width:var(--cmos-rail-w);z-index:2100;
+  display:flex;flex-direction:column;background:#10161e;color:#dbe3eb;
+  border-right:1px solid #202b36;padding:13px 10px 11px
+}
+.cmos-rail-brand{padding:2px 5px 12px}
+.cmos-rail-home{display:flex;align-items:center;gap:9px;color:#fff;text-decoration:none}
+.cmos-rail-home>span:last-child strong,.cmos-rail-home>span:last-child small{display:block}
+.cmos-rail-home strong{font-size:12px;letter-spacing:-.01em}
+.cmos-rail-home small{margin-top:1px;color:#76889a;font-size:8px}
+.cmos-rail-mark{
+  width:29px;height:29px;border-radius:7px;background:#d4b56d;color:#172130;
+  display:grid;place-items:center;font-size:9px;font-weight:900;flex:none
+}
+.cmos-rail .cmos-command-trigger{
+  display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:7px;
+  width:100%;min-height:35px;margin:0 0 11px;padding:0 8px;border:1px solid #2a3744;border-radius:7px;
+  background:#171f29;color:#b9c6d3;text-align:left;font-size:10px
+}
+.cmos-rail .cmos-command-trigger:hover{background:#1c2732;color:#fff}
+.cmos-rail .cmos-command-trigger kbd{border-color:#334454;background:#0f151c;color:#778a9d}
+.cmos-rail-nav{display:grid;gap:1px}
+.cmos-rail-nav a{
+  display:flex;align-items:center;gap:8px;min-height:34px;padding:7px 9px;border-radius:6px;
+  color:#9daab7;text-decoration:none;font-size:11px;font-weight:600
+}
+.cmos-rail-nav a>span{width:15px;text-align:center;color:#6f8193}
+.cmos-rail-nav a:hover{background:#17212b;color:#fff}
+.cmos-rail-nav a.active{background:#1c2a39;color:#fff;box-shadow:inset 2px 0 #d4b56d}
+.cmos-rail-nav a.active>span{color:#d4b56d}
+.cmos-rail-nav.compact a{min-height:29px;padding-top:5px;padding-bottom:5px;font-size:10px}
+.cmos-rail-label{padding:14px 9px 5px;color:#56697b;font-size:8px;font-weight:850;letter-spacing:.12em}
+.cmos-rail-more{margin-top:9px;border-top:1px solid #202a35;padding-top:8px;position:relative}
+.cmos-rail-more>summary{list-style:none;cursor:pointer;padding:7px 9px;border-radius:6px;color:#8494a4;font-size:10px;font-weight:650}
+.cmos-rail-more>summary::-webkit-details-marker{display:none}
+.cmos-rail-more>summary:hover{background:#17212b;color:#fff}
+.cmos-rail-more-menu{
+  position:absolute;left:calc(100% + 8px);bottom:0;width:210px;max-height:68vh;overflow:auto;
+  display:grid;gap:2px;padding:7px;background:#fff;border:1px solid #d8e0e7;border-radius:9px;
+  box-shadow:0 18px 50px rgba(13,28,42,.25)
+}
+.cmos-rail-more-menu a{padding:7px 8px;border-radius:6px;color:#405266;text-decoration:none;font-size:10px}
+.cmos-rail-more-menu a:hover{background:#f1f5f8;color:#1e3b59}
+.cmos-rail-footer{margin-top:auto;padding:10px 7px 2px;border-top:1px solid #202a35;color:#617385;font-size:8px;display:flex;align-items:center;gap:6px}
+.cmos-rail-live{width:6px;height:6px;border-radius:50%;background:#54a47a;box-shadow:0 0 0 3px rgba(84,164,122,.12)}
+.cmos-global-bar{
+  position:fixed;top:0;left:var(--cmos-rail-w);right:0;height:var(--cmos-bar-h);z-index:2050;
+  display:flex;align-items:center;gap:10px;padding:0 14px;background:#fff;border-bottom:1px solid #dce3e9;
+  box-shadow:0 1px 0 rgba(23,42,59,.02)
+}
+.cmos-global-page{min-width:110px;color:#697786;font-size:10px;font-weight:700}
+.cmos-global-search-button{
+  margin:0 auto;min-width:250px;max-width:520px;flex:1;height:32px;border:1px solid #d8e0e7;border-radius:7px;
+  background:#f8fafb;color:#667687;font-size:10px;text-align:left;padding:0 10px
+}
+.cmos-global-search-button:hover{background:#f2f5f8;color:#274767}
+.cmos-global-search-button kbd{float:right;border:1px solid #d9e1e8;border-radius:4px;padding:2px 4px;background:#fff;color:#8793a0;font-size:8px}
+.cmos-global-actions{display:flex;gap:4px}
+.cmos-global-actions a{padding:6px 7px;border-radius:5px;color:#768493;text-decoration:none;font-size:9px}
+.cmos-global-actions a:hover{background:#f2f5f8;color:#284967}
+.cmos-mobile-rail-toggle{display:none;border:0;background:transparent;color:#586777;width:30px;height:30px}
+.cmos-rail-backdrop{position:fixed;inset:0;background:rgba(7,18,29,.42);z-index:2090}
+
+html[data-color-mode=dark] .cmos-global-bar{background:#1b1f28;border-color:#303642}
+html[data-color-mode=dark] .cmos-global-search-button{background:#151820;color:#a7b1bf;border-color:#303642}
+html[data-color-mode=dark] .cmos-global-search-button kbd{background:#242b37;border-color:#303642;color:#98a5b3}
+html[data-color-mode=dark] body:not(.cmos-embedded)>.topbar{background:#1b1f28!important;color:#e2e7ef!important;border-color:#303642}
+html[data-color-mode=dark] .cmos-rail-more-menu{background:#1b1f28;border-color:#303642}
+html[data-color-mode=dark] .cmos-rail-more-menu a{color:#c7d1dc}
+html[data-color-mode=dark] .cmos-rail-more-menu a:hover{background:#29344a;color:#fff}
+
+@media(max-width:840px){
+  :root{--cmos-rail-w:0px}
+  body:not(.cmos-embedded){padding-left:0}
+  .cmos-rail{left:-216px;width:206px;transition:left .18s}
+  body.cmos-mobile-nav-open .cmos-rail{left:0}
+  .cmos-mobile-rail-toggle{display:grid;place-items:center}
+  .cmos-global-bar{left:0;padding-left:8px}
+  .cmos-global-page{display:none}
+  .cmos-global-search-button{min-width:0;max-width:none}
+  .cmos-global-actions{display:none}
+  body:not(.cmos-embedded)>.topbar{padding:14px 15px 12px!important;min-height:80px}
+  body:not(.cmos-embedded)>main{padding:16px 13px 88px!important}
+}
+
+
+/* Product cohesion pass v2 */
+:root{--cmos-rail-w:190px;--cmos-bar-h:46px}
+
+/* Rail: more Macro-like, less admin-console. */
+.cmos-rail{padding:11px 9px 10px;background:#0d1218;border-right-color:#1b242d}
+.cmos-rail-brand{padding:2px 4px 11px}
+.cmos-rail-mark{width:27px;height:27px;border-radius:6px}
+.cmos-rail-home strong{font-size:11px}
+.cmos-rail-home small{font-size:7.5px}
+.cmos-rail .cmos-command-trigger{min-height:33px;margin-bottom:9px;padding:0 7px;font-size:9.5px}
+.cmos-rail-nav a{min-height:31px;padding:6px 8px;font-size:10.5px;border-radius:5px}
+.cmos-rail-nav.compact a{min-height:27px;font-size:9.5px}
+.cmos-rail-label{padding:13px 8px 4px;font-size:7.5px}
+.cmos-rail-footer{font-size:7.5px}
+
+/* Global bar: command/search owns the center, chrome recedes. */
+.cmos-global-bar{height:46px;padding:0 10px;background:#fbfcfd}
+.cmos-global-page{min-width:90px;font-size:9px;text-transform:uppercase;letter-spacing:.06em}
+.cmos-global-search-button{
+  height:30px;max-width:620px;border-color:#dce3e9;background:#fff;
+  box-shadow:0 1px 2px rgba(20,38,55,.03)
+}
+.cmos-global-actions a{font-size:8.5px}
+
+/* Existing module topbars become compact module mastheads, not a second app header. */
+body:not(.cmos-embedded)>.topbar{
+  min-height:0!important;
+  padding:16px 26px 13px!important;
+  align-items:flex-end!important;
+  background:#fff!important;
+  border-bottom:1px solid #e2e7ec!important;
+  box-shadow:none!important;
+}
+body:not(.cmos-embedded)>.topbar .brand{display:block}
+body:not(.cmos-embedded)>.topbar .eyebrow{font-size:8px!important;letter-spacing:.12em!important;color:#7f8c99!important}
+body:not(.cmos-embedded)>.topbar h1{font-size:23px!important;line-height:1.08!important;margin:3px 0 1px!important;font-weight:660!important;letter-spacing:-.03em!important}
+body:not(.cmos-embedded)>.topbar .tagline{font-size:10px!important;color:#7a8997!important}
+body:not(.cmos-embedded)>.topbar .private-badge{font-size:7.5px!important;padding:3px 6px!important}
+body:not(.cmos-embedded)>.topbar .header-status{font-size:9px!important}
+body:not(.cmos-embedded)>.topbar .system-live{font-size:8px!important;margin-bottom:3px!important}
+body:not(.cmos-embedded)>.topbar .timestamp{font-size:8.5px!important}
+body:not(.cmos-embedded)>.topbar .refresh-link{font-size:9px!important;margin-top:3px!important}
+
+/* Content density: less floating-card dashboard, more professional workspace. */
+body:not(.cmos-embedded)>main{padding:18px 24px 38px!important}
+.metrics{gap:9px!important}
+.metric{padding:14px 15px!important;border-radius:8px!important;box-shadow:none!important}
+.metric strong{font-size:28px!important}
+.metric span{font-size:8.5px!important}
+.metric small{font-size:9.5px!important}
+.section-label{margin:20px 1px 8px!important;font-size:8px!important}
+.grid{gap:11px!important}
+.stack{gap:11px!important}
+.panel{border-radius:8px!important;box-shadow:none!important}
+.panel-head{padding:12px 14px!important;background:#fff!important}
+.panel-head h2{font-size:14px!important}
+.panel-kicker{font-size:8px!important}
+.panel-body{padding:7px 14px 13px!important}
+.feed-row{padding:9px 1px!important}
+.feed-row strong{font-size:11px!important}
+.meta{font-size:9px!important}
+.alert{margin-top:8px!important;padding:11px 12px!important;border-radius:8px!important}
+.alert-title-wrap strong{font-size:12px!important}
+.alert p{font-size:10.5px!important;margin:7px 0!important}
+.received-time{font-size:8px!important}
+
+/* Controls and forms share one product language. */
+:is(.primary-button,.secondary-button,.button-link){border-radius:6px!important;min-height:34px!important;padding:7px 10px!important;font-size:10px!important}
+:is(input:not([type=checkbox]):not([type=radio]),select,textarea){border-radius:6px!important}
+.filter-bar,.watch-filters,.alert-global-search{gap:8px!important}
+.watch-card,.setup-card,.staff-card,.data-profile{border-radius:8px!important;box-shadow:none!important}
+
+/* Quick Look behaves like a real second pane. */
+.cmos-sidecar{width:min(640px,46vw);box-shadow:-12px 0 38px rgba(15,31,48,.16)}
+.cmos-sidecar.focused{width:calc(100vw - var(--cmos-rail-w) - 18px)}
+.cmos-sidecar-bar{height:42px;padding:5px 7px 5px 10px}
+.cmos-sidecar-title{font-size:9.5px}
+.cmos-sidecar-bar button,.cmos-sidecar-bar a{min-width:28px;height:28px;border-radius:5px}
+body.cmos-sidecar-open:not(.cmos-sidecar-pinned) .cmos-sidecar-backdrop{background:rgba(12,24,36,.05)}
+
+/* Embedded full modules should read like a pane, not a page inside a page. */
+body.cmos-embedded>main{padding:12px!important;background:#fff}
+body.cmos-embedded .panel{border-radius:7px!important}
+body.cmos-embedded .panel-head{padding:11px 13px!important}
+body.cmos-embedded .panel-body{padding:7px 13px 12px!important}
+body.cmos-embedded .section-label{margin-top:14px!important}
+body.cmos-embedded .map-main{background:#0f1822!important}
+body.cmos-embedded .map-shell{border-radius:0!important}
+
+/* Dashboard spatial section becomes a native operating strip. */
+.cmos-spatial-panel{border-color:#d6e0e8!important}
+.cmos-spatial-grid{gap:7px}
+.cmos-spatial-stat{padding:10px 11px;border-radius:7px;background:#fbfcfd}
+.cmos-spatial-stat strong{font-size:20px}
+.cmos-spatial-stat small{font-size:8.5px}
+.cmos-spatial-ready{margin-top:9px;padding-top:9px}
+
+/* Better selected/hover affordance everywhere. */
+[data-cmos-context]{position:relative}
+[data-cmos-context]:hover{box-shadow:inset 0 0 0 1px rgba(53,95,145,.18)!important}
+.feed-row[data-cmos-context]:hover{padding-left:6px!important;padding-right:6px!important;margin-left:-6px;margin-right:-6px}
+.alert[data-cmos-context]:hover{background:#fbfdff}
+.cmos-context-hint{opacity:.7}
+
+/* Keep dense tables usable and more application-like. */
+.table-wrap{border:1px solid #e0e6eb;border-radius:7px;overflow:auto}
+.ops-table thead th,.table-wrap table thead th{
+  position:sticky;top:0;z-index:2;background:#f7f9fb!important;
+  color:#677687!important;font-size:8px!important;text-transform:uppercase;letter-spacing:.05em
+}
+.ops-table td,.ops-table th,.table-wrap td,.table-wrap th{padding-top:8px!important;padding-bottom:8px!important}
+
+/* Dark mode follows the same hierarchy. */
+html[data-color-mode=dark] .cmos-global-bar{background:#181c23}
+html[data-color-mode=dark] body:not(.cmos-embedded)>.topbar{background:#1b1f28!important;border-color:#303642!important}
+html[data-color-mode=dark] body.cmos-embedded>main{background:#1b1f28}
+html[data-color-mode=dark] .cmos-spatial-stat{background:#202630;border-color:#303642;color:#e2e7ef}
+html[data-color-mode=dark] .cmos-spatial-stat strong{color:#eef1f7}
+
+@media(max-width:1050px){
+  .cmos-sidecar{width:min(600px,58vw)}
+  .primary-grid,.secondary-grid{grid-template-columns:1fr!important}
+}
+@media(max-width:840px){
+  :root{--cmos-rail-w:0px}
+  body:not(.cmos-embedded)>.topbar{padding:13px 14px 11px!important}
+  body:not(.cmos-embedded)>main{padding:13px 12px 88px!important}
+  .cmos-sidecar{width:100vw}
+}
+
+
+/* Workflow hierarchy pass */
+.cmos-flow-header{
+  display:flex;align-items:center;justify-content:space-between;gap:18px;
+  margin:10px 0 14px;padding:12px 14px;border:1px solid #dce4ea;border-radius:8px;
+  background:#f8fafc
+}
+.cmos-flow-header>div:first-child{min-width:0}
+.cmos-flow-kicker{
+  display:block;margin-bottom:3px;color:#738496;font-size:7.5px;font-weight:850;letter-spacing:.12em
+}
+.cmos-flow-header strong{display:block;color:#203247;font-size:12px}
+.cmos-flow-header p{margin:2px 0 0;color:#718191;font-size:9px;line-height:1.45}
+.cmos-flow-actions{display:flex;gap:6px;flex-wrap:wrap;flex:none}
+.cmos-flow-actions button{
+  min-height:30px;border:1px solid #d2dce5;border-radius:6px;background:#fff;color:#425a70;
+  padding:6px 9px;font-size:9px;font-weight:700
+}
+.cmos-flow-actions button:first-child{background:#2c5377;border-color:#2c5377;color:#fff}
+.cmos-flow-actions button:hover{filter:brightness(.98);border-color:#aebfce}
+
+.cmos-secondary-workflow{margin-top:13px!important;border-style:dashed!important}
+.cmos-secondary-workflow>summary{background:#fafbfd;color:#526779!important}
+.cmos-secondary-workflow[open]>summary{border-bottom:1px solid #e2e7ec}
+
+.cmos-advanced-tools{
+  margin-top:12px;border:1px solid #dce4ea;border-radius:8px;background:#fafbfd;overflow:hidden
+}
+.cmos-advanced-tools>summary{
+  cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;
+  padding:11px 13px;color:#40566c
+}
+.cmos-advanced-tools>summary::-webkit-details-marker{display:none}
+.cmos-advanced-tools>summary:after{content:'＋';color:#8190a0;font-size:12px}
+.cmos-advanced-tools[open]>summary:after{content:'−'}
+.cmos-advanced-tools>summary span strong,.cmos-advanced-tools>summary span small{display:block}
+.cmos-advanced-tools>summary strong{font-size:10.5px}
+.cmos-advanced-tools>summary small{margin-top:2px;color:#7d8996;font-size:8.5px;font-weight:500}
+.cmos-advanced-tools-body{display:grid;gap:10px;padding:0 10px 10px}
+.cmos-advanced-tools-body>.panel{margin:0!important}
+
+.cmos-inline-advanced{
+  margin:7px 0 10px;border:1px solid #e0e6eb;border-radius:7px;background:#fafbfd
+}
+.cmos-inline-advanced>summary{cursor:pointer;padding:8px 10px;color:#566b80;font-size:9px;font-weight:700}
+.cmos-inline-advanced-body{padding:0 9px 9px}
+
+/* Command: queue is the work surface; creation is secondary. */
+body:not(.cmos-embedded) .command-tabs{
+  margin-bottom:9px;padding:3px 0 7px!important;border-bottom:1px solid #e3e8ed
+}
+.command-tabs a{
+  background:#fff!important;color:#637587!important;border-color:#dbe3ea!important;
+  padding:6px 9px!important;font-size:9px!important
+}
+.command-tabs a:hover,.command-tabs a.active{
+  background:#eaf0f6!important;color:#294d72!important;border-color:#c5d3df!important
+}
+.command-list{gap:6px!important}
+.work-card{
+  background:#fff!important;border-color:#dce4ea!important;border-radius:7px!important;color:#263747!important
+}
+.work-card>summary{padding:10px 11px!important}
+.work-name{color:#203247!important;font-size:11.5px!important}
+.work-context{color:#788896!important;font-size:9px!important}
+.work-next{color:#42576b!important;font-size:9.5px!important}
+.work-card-body{border-top-color:#e2e7ec!important;background:#fbfcfd!important;padding:11px!important}
+.type-chip,.attention-chip{
+  font-size:7.5px!important;padding:2px 5px!important;background:#f0f4f7!important;
+  border-color:#d6e0e7!important;color:#5a7084!important
+}
+
+/* Alerts: review content first; management is subordinate. */
+.alert-search-panel{margin-bottom:11px!important}
+.alert-search-results .data-row{
+  border:1px solid #e0e6eb!important;border-radius:7px!important;margin:7px 0!important;padding:11px!important;background:#fff!important
+}
+.alert-search-results .data-main{min-width:0}
+.alert-search-results .data-side{min-width:118px}
+.alert-why{margin-top:7px!important;padding:7px 8px!important;border-radius:6px!important;background:#f7f9fb!important;font-size:9px!important}
+.row-message{font-size:10.5px!important;line-height:1.5!important;color:#405365!important}
+.alert-reference{opacity:.7}
+
+/* Spatial catalog: search + catalog become the primary workflow. */
+body:not(.cmos-embedded) .cmos-advanced-tools #adopt-form{margin-top:8px}
+body:not(.cmos-embedded) .cmos-advanced-tools .table-wrap{margin-top:6px}
+
+/* Watches: primary editor + saved list stay visible; specialist tools recede. */
+.watch-layout{margin-top:11px!important}
+.watch-health-panel{margin-top:0!important}
+.watch-health-grid{padding-top:10px!important;gap:7px!important}
+.watch-health-grid div{padding:8px 9px!important}
+.watch-health-grid strong{font-size:17px!important}
+.watch-step{padding:11px 0!important;grid-template-columns:27px minmax(0,1fr)!important;gap:9px!important}
+.watch-step-number{width:25px!important;height:25px!important;font-size:10px!important}
+.watch-step-content h3{font-size:12px!important}
+.watch-editor{gap:8px!important}
+.watch-mode-card{padding:8px!important}
+.watch-mode-card strong{font-size:10.5px!important}
+.watch-mode-card small{font-size:8.5px!important}
+
+html[data-color-mode=dark] .cmos-flow-header,
+html[data-color-mode=dark] .cmos-advanced-tools,
+html[data-color-mode=dark] .cmos-inline-advanced,
+html[data-color-mode=dark] .work-card,
+html[data-color-mode=dark] .alert-search-results .data-row{
+  background:#1d222b!important;border-color:#303642!important;color:#e2e7ef!important
+}
+html[data-color-mode=dark] .cmos-flow-header strong,
+html[data-color-mode=dark] .work-name{color:#eef1f7!important}
+html[data-color-mode=dark] .cmos-flow-header p,
+html[data-color-mode=dark] .work-context{color:#9ca7b5!important}
+html[data-color-mode=dark] .work-card-body,
+html[data-color-mode=dark] .alert-why{background:#202630!important;border-color:#303642!important}
+
+@media(max-width:760px){
+  .cmos-flow-header{align-items:flex-start;flex-direction:column;gap:9px}
+  .cmos-flow-actions{width:100%}
+  .cmos-flow-actions button{flex:1}
+}
+
+
+/* Executive action center */
+.cmos-action-grid{grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr)}
+.cmos-action-panel .panel-body,.cmos-recent-panel .panel-body{padding-top:1px!important}
+.cmos-action-row{border-left:3px solid transparent;padding-left:8px!important}
+.cmos-action-row:hover{border-left-color:#5c7fa1}
+.cmos-action-kind{
+  flex:none;display:inline-flex;align-items:center;border-radius:999px;padding:2px 5px;
+  font-size:7px;font-weight:900;letter-spacing:.06em;background:#eef2f6;color:#5e7185
+}
+.cmos-action-kind.work{background:#eef3fa;color:#365f8d}
+.cmos-action-kind.alert{background:#fff1ec;color:#a35231}
+.cmos-action-kind.watch{background:#f3eef9;color:#6d4e91}
+.cmos-action-kind.source{background:#fff7df;color:#8c6b1e}
+.cmos-action-kind.event{background:#edf6f2;color:#327058}
+.cmos-action-kind.delivery{background:#f0f2f5;color:#5d6975}
+.cmos-recent-activity{max-height:420px;overflow:auto}
+
+/* Make dense dashboard sections breathe by grouping rather than adding more cards. */
+.cmos-action-grid+.section-label{margin-top:24px!important}
+.cmos-action-panel,.cmos-recent-panel{min-height:0}
+
+/* Command palette quick actions */
+.cmos-command-item.action .cmos-command-icon{background:#e8eef6;color:#315c88}
+.cmos-command-item.action .cmos-command-copy strong{color:#1d3f62}
+
+@media(max-width:1050px){.cmos-action-grid{grid-template-columns:1fr}}
+
+
+/* Executive Intake dashboard */
+.cmos-intake-panel{margin-bottom:0}
+.cmos-intake-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:4px 0 10px}
+.cmos-intake-metrics>a{display:grid;gap:2px;padding:10px 11px;border:1px solid #dfe6ec;border-radius:7px;background:#fafbfd;color:#263747;text-decoration:none}
+.cmos-intake-metrics>a:hover{background:#f3f7fa;border-color:#c6d4df}
+.cmos-intake-metrics span{font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#718291}
+.cmos-intake-metrics strong{font-size:22px;color:#18314a}
+.cmos-intake-metrics small{font-size:8.5px;color:#778895;line-height:1.4}
+.cmos-intake-list{display:grid;border-top:1px solid #e5eaee}
+.cmos-intake-list>a{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:8px;padding:8px 1px;border-bottom:1px solid #e9edf1;color:#263747;text-decoration:none}
+.cmos-intake-list>a:hover{background:#f8fafc;padding-left:6px;padding-right:6px;margin-left:-6px;margin-right:-6px}
+.cmos-intake-list>a>span:nth-child(2){display:grid;gap:2px}
+.cmos-intake-list strong{font-size:10.5px}
+.cmos-intake-list small,.cmos-intake-list time{font-size:8.5px;color:#788895}
+html[data-color-mode=dark] .cmos-intake-metrics>a{background:#202630;border-color:#303642;color:#e2e7ef}
+html[data-color-mode=dark] .cmos-intake-metrics strong{color:#eef1f7}
+@media(max-width:650px){.cmos-intake-metrics{grid-template-columns:1fr}.cmos-intake-list>a{grid-template-columns:auto minmax(0,1fr)}.cmos-intake-list time{display:none}}
+
+
+/* Alert chronology polish */
+.alert-time-stack{display:grid;gap:2px;min-width:150px}
+.alert-time-stack time{display:block!important;font-size:8.5px!important;white-space:nowrap;color:#778795}
+.alert-time-stack time:first-child{color:#2a4258}
+.alert-time-stack time strong,.alert-time-stack time span{font-size:7.5px;text-transform:uppercase;letter-spacing:.04em;margin-right:3px}
+.alert-time-correction{width:100%;margin-top:4px;border:1px solid #e0e6eb;border-radius:6px;background:#fafbfd}
+.alert-time-correction>summary{cursor:pointer;padding:6px 8px;font-size:8.5px;font-weight:750;color:#536b80}
+.alert-time-correction form{padding:7px 8px!important;margin:0!important}
+.alert-bulk-time-panel{display:grid;gap:7px;min-width:240px;padding:8px;border:1px solid #dce4ea;border-radius:7px;background:#fafbfd}
+.alert-bulk-time-panel[hidden]{display:none!important}
+.alert-bulk-time-panel details{margin:0}
+html[data-color-mode=dark] .alert-time-correction,
+html[data-color-mode=dark] .alert-bulk-time-panel{background:#202630;border-color:#303642}
+html[data-color-mode=dark] .alert-time-stack time:first-child{color:#e2e7ef}
+
+
+/* Bulk Alert timeline editor */
+.alert-bulk-edit-dialog{width:min(1180px,calc(100vw - 28px));max-height:88vh;border:1px solid #cfd9e2;border-radius:12px;padding:0;background:#fff;color:#263747;box-shadow:0 24px 70px rgba(12,28,42,.25)}
+.alert-bulk-edit-dialog::backdrop{background:rgba(12,24,36,.45)}
+.alert-bulk-edit-dialog form{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;max-height:88vh}
+.alert-bulk-edit-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;padding:16px 18px;border-bottom:1px solid #e1e7ec}
+.alert-bulk-edit-head h2{margin:2px 0 4px;font-size:20px}
+.alert-bulk-edit-head p{margin:0;color:#738392;font-size:10px;line-height:1.45}
+.alert-bulk-edit-tools{display:grid;grid-template-columns:minmax(220px,1fr) auto minmax(220px,1fr) auto;gap:8px;align-items:end;padding:10px 14px;background:#f7f9fb;border-bottom:1px solid #e2e7ec}
+.alert-bulk-edit-tools label{display:grid;gap:4px;font-size:8.5px;color:#67798b}
+.alert-bulk-edit-rows{overflow:auto;padding:0 14px}
+.alert-bulk-edit-row{display:grid;grid-template-columns:minmax(190px,1.2fr) minmax(170px,.8fr) minmax(150px,.7fr) minmax(170px,.8fr) minmax(180px,1fr);gap:8px;align-items:end;padding:10px 0;border-bottom:1px solid #e6ebef}
+.alert-bulk-edit-info{display:grid;gap:2px;align-self:center;min-width:0}
+.alert-bulk-edit-info strong{font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.alert-bulk-edit-info small{font-size:8.5px;color:#7b8996}
+.alert-bulk-edit-row label{display:grid;gap:4px;font-size:8px;text-transform:uppercase;letter-spacing:.04em;color:#718091}
+.alert-bulk-edit-row input,.alert-bulk-edit-row select,.alert-bulk-edit-tools input{width:100%;box-sizing:border-box;min-height:34px;border:1px solid #cfd8e0;border-radius:6px;background:#fff;color:#263747;padding:7px 8px;font-size:10px}
+.alert-bulk-edit-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-top:1px solid #e2e7ec;background:#fbfcfd}
+html[data-color-mode=dark] .alert-bulk-edit-dialog{background:#1b1f28;color:#e2e7ef;border-color:#303642}
+html[data-color-mode=dark] .alert-bulk-edit-tools,html[data-color-mode=dark] .alert-bulk-edit-footer{background:#202630;border-color:#303642}
+html[data-color-mode=dark] .alert-bulk-edit-row{border-color:#303642}
+html[data-color-mode=dark] .alert-bulk-edit-row input,html[data-color-mode=dark] .alert-bulk-edit-row select,html[data-color-mode=dark] .alert-bulk-edit-tools input{background:#171c24;border-color:#3a4350;color:#eef1f7}
+@media(max-width:900px){.alert-bulk-edit-tools{grid-template-columns:1fr 1fr}.alert-bulk-edit-row{grid-template-columns:1fr 1fr}.alert-bulk-edit-info{grid-column:1/-1}}
+@media(max-width:560px){.alert-bulk-edit-tools,.alert-bulk-edit-row{grid-template-columns:1fr}.alert-bulk-edit-footer{align-items:stretch;flex-direction:column}.alert-bulk-edit-footer .primary-button{width:100%}}
+
+/* Alert timeline repair console */
+.alert-bulk-edit-dialog{width:min(1320px,calc(100vw - 24px))}
+.alert-bulk-edit-tools{grid-template-columns:repeat(4,minmax(0,1fr));align-items:stretch}
+.alert-bulk-tool-group{display:grid;align-content:start;gap:7px;padding:10px;border:1px solid #dde5eb;border-radius:8px;background:#fff}
+.alert-bulk-tool-group>strong{font-size:8px;text-transform:uppercase;letter-spacing:.07em;color:#5e7183}
+.alert-bulk-tool-group label{display:grid;gap:4px;font-size:8px;color:#758493}
+.alert-bulk-tool-group .secondary-button{width:100%;justify-content:center}
+.alert-bulk-shift-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
+.alert-bulk-original{color:#8a98a5!important;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.alert-bulk-edit-row:focus-within{background:#f8fbfd}
+html[data-color-mode=dark] .alert-bulk-tool-group{background:#171c24;border-color:#303642}
+html[data-color-mode=dark] .alert-bulk-edit-row:focus-within{background:#202630}
+@media(max-width:1100px){.alert-bulk-edit-tools{grid-template-columns:1fr 1fr}}
+@media(max-width:650px){.alert-bulk-edit-tools{grid-template-columns:1fr}.alert-bulk-shift-grid{grid-template-columns:1fr 1fr 1fr}}

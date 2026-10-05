@@ -167,7 +167,7 @@ def callback(request: Request, state: str='', code: str='', error: str=''):
             AND session_hash=%s AND expires_at>now() RETURNING verifier''',
             (hashlib.sha256(state.encode()).hexdigest(),owner,hashlib.sha256(request.cookies[COOKIE_NAME].encode()).hexdigest())).fetchone()
     if not pending:raise HTTPException(400,'Calendar sign-in expired. Start again.')
-    if error:return RedirectResponse('/workspace#settings',status_code=303)
+    if error:return RedirectResponse('/workspace?view=settings',status_code=303)
     if not code or len(code)>10000:raise HTTPException(400,'Calendar sign-in did not return a code')
     try:
         verifier=encrypt.decrypt(pending['verifier'].encode()).decode()
@@ -182,8 +182,8 @@ def callback(request: Request, state: str='', code: str='', error: str=''):
         sync(owner)
     except (httpx.HTTPError,ValueError,InvalidToken,HTTPException):
         # Keep provider response and token contents out of user-facing errors.
-        return RedirectResponse('/workspace#settings',status_code=303)
-    return RedirectResponse('/workspace#today',status_code=303)
+        return RedirectResponse('/workspace?view=settings',status_code=303)
+    return RedirectResponse('/workspace?view=today',status_code=303)
 
 
 def graph_pages(client,url,access,*,limit=1000,truncate=False,mail=False,deadline=None):
@@ -248,10 +248,22 @@ def sync(owner):
                         '$select':'id,displayName,givenName,surname,emailAddresses,mobilePhone,businessPhones,homePhones,businessAddress,homeAddress,companyName,jobTitle,birthday'})
                     contacts=[contact_row(owner,e) for e in graph_pages(client,url,tokens['access_token'],limit=500,truncate=True,deadline=deadline)]
             c.execute('SAVEPOINT microsoft_snapshot',());snapshot=True
-            c.execute('DELETE FROM workspace_calendar_events WHERE owner_username=%s',(owner,))
+            calendar_keys=[]
             for row in rows:
+                calendar_keys.append(row[1])
                 c.execute('''INSERT INTO workspace_calendar_events(owner_username,event_key,title,starts_at,ends_at,location,all_day,outlook_url)
-                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(owner_username,event_key) DO NOTHING''',row)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT(owner_username,event_key) DO UPDATE SET
+                      title=EXCLUDED.title,starts_at=EXCLUDED.starts_at,ends_at=EXCLUDED.ends_at,
+                      location=EXCLUDED.location,all_day=EXCLUDED.all_day,outlook_url=EXCLUDED.outlook_url''',row)
+            c.execute('''DELETE FROM workspace_calendar_events e
+                WHERE e.owner_username=%s AND NOT(e.event_key=ANY(%s::text[]))
+                  AND NOT EXISTS(
+                    SELECT 1 FROM workspace_context_links l
+                    WHERE l.owner_username=e.owner_username
+                      AND ((l.source_kind='CALENDAR' AND l.source_id=e.id)
+                        OR (l.target_kind='CALENDAR' AND l.target_id=e.id))
+                  )''',(owner,calendar_keys))
             if mails is not None:
                 replace_mail(c,owner,mails)
             if contacts is not None:

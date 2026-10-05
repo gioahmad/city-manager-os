@@ -356,9 +356,13 @@ SEARCH_SECTION_ORDER = (
 ALERT_BULK_LIMIT = 100
 ALERT_FILTERED_BULK_LIMIT = 5000
 ALERT_WINDOWS = {
+    "1h": 1,
+    "2h": 2,
+    "4h": 4,
     "6h": 6,
     "12h": 12,
     "24h": 24,
+    "3d": 72,
     "7d": 168,
     "30d": 720,
     "all": None,
@@ -373,15 +377,17 @@ def _alert_filter(
     municipality: str = "",
     state: str = "all",
     window: str = "7d",
+    custom_hours: int | None = None,
     min_priority: int = 1,
 ) -> tuple[str, list, dict]:
     """Build the one Alert search contract used by the page and bulk actions."""
     where = []
     params = []
-    window = window if window in ALERT_WINDOWS else "7d"
-    window_hours = ALERT_WINDOWS[window]
+    window = window if window in ALERT_WINDOWS or window == "custom" else "7d"
+    custom_hours = max(1, min(int(custom_hours or 12), 24 * 365))
+    window_hours = custom_hours if window == "custom" else ALERT_WINDOWS[window]
     if window_hours is not None:
-        where.append("a.received_at>=now()-(%s * interval '1 hour')")
+        where.append("coalesce(a.observed_at,a.received_at)>=now()-(%s * interval '1 hour')")
         params.append(window_hours)
     state = state if state in {"active", "resolved", "all"} else "all"
     if state == "active":
@@ -418,6 +424,7 @@ def _alert_filter(
         "municipality": municipality.strip(),
         "state": state,
         "window": window,
+        "custom_hours": custom_hours,
         "min_priority": min_priority,
     }
     return (f"WHERE {' AND '.join(where)}" if where else ""), params, filters
@@ -463,22 +470,24 @@ def operations_home(request: Request):
 
     active_alerts = query_all(
         """
-        SELECT alert_id, source, category, subtype, status, event_action,
-               title, message, priority, municipality, received_at, click_url
+        SELECT id,alert_id,source,category,subtype,status,event_action,
+               title,message,priority,municipality,
+               coalesce(observed_at,received_at) AS activity_at,received_at,click_url
         FROM alerts
         WHERE status <> 'RESOLVED'
           AND (expires_at IS NULL OR expires_at > now())
-        ORDER BY priority DESC, received_at DESC
+        ORDER BY coalesce(observed_at,received_at) DESC, priority DESC, received_at DESC
         LIMIT 12
         """
     )
 
     intelligence_feed = query_all(
         """
-        SELECT alert_id, source, category, subtype, status, event_action,
-               title, priority, municipality, received_at
+        SELECT id,alert_id,source,category,subtype,status,event_action,
+               title,priority,municipality,
+               coalesce(observed_at,received_at) AS activity_at,received_at
         FROM alerts
-        ORDER BY received_at DESC
+        ORDER BY coalesce(observed_at,received_at) DESC,received_at DESC
         LIMIT 20
         """
     )
@@ -492,11 +501,33 @@ def operations_home(request: Request):
         """
     )
 
+    spatial_status = query_one(
+        """
+        SELECT
+          (SELECT count(*) FROM alerts a
+             LEFT JOIN geo_entity_resolutions r
+               ON r.entity_type='ALERT' AND r.entity_id=a.id::text AND r.status='RESOLVED'
+             WHERE a.received_at >= now()-interval '24 hours'
+               AND coalesce(a.geom,r.geom) IS NOT NULL) AS mapped_alerts_24h,
+          (SELECT count(*) FROM alerts
+             WHERE received_at >= now()-interval '24 hours') AS total_alerts_24h,
+          (SELECT count(*) FROM watch_items
+             WHERE active=true
+               AND (spatial_geom IS NOT NULL OR spatial_target_geom IS NOT NULL OR geom IS NOT NULL))
+             AS active_spatial_watches,
+          (SELECT count(*) FROM spatial_reference_entities WHERE active=true) AS active_references,
+          (SELECT count(*) FROM map_layers WHERE active=true) AS active_map_layers,
+          EXISTS(SELECT 1 FROM gis_parcels WHERE geom IS NOT NULL LIMIT 1) AS parcels_ready,
+          EXISTS(SELECT 1 FROM gis_addresses WHERE geom IS NOT NULL LIMIT 1) AS addresses_ready,
+          EXISTS(SELECT 1 FROM gis_flood_zones WHERE geom IS NOT NULL LIMIT 1) AS flood_ready
+        """
+    )
+
     recent_deliveries = query_all(
         """
-        SELECT d.status, d.ntfy_topic, d.sent_at, d.attempted_at,
-               s.subscriber_id, s.name AS subscriber_name,
-               a.title AS alert_title, a.source
+        SELECT d.id AS delivery_id,d.status,d.ntfy_topic,d.sent_at,d.attempted_at,
+               s.subscriber_id,s.name AS subscriber_name,
+               a.id AS alert_uuid,a.title AS alert_title,a.source
         FROM deliveries d
         JOIN subscribers s ON s.id = d.subscriber_id
         JOIN alerts a ON a.id = d.alert_id
@@ -559,6 +590,243 @@ def operations_home(request: Request):
         """
     )
 
+    action_center = query_all(
+        """
+        SELECT * FROM (
+          SELECT 'WORK'::text AS kind,
+                 i.id::text AS record_id,
+                 i.title,
+                 CASE
+                   WHEN i.due_at IS NOT NULL AND i.due_at < now() THEN 'Overdue'
+                   WHEN i.follow_up_at IS NOT NULL AND i.follow_up_at < now() THEN 'Follow-up due'
+                   WHEN nullif(trim(i.waiting_on),'') IS NOT NULL THEN 'Waiting on ' || i.waiting_on
+                   WHEN nullif(trim(i.next_action),'') IS NULL THEN 'No next action'
+                   ELSE 'Needs review'
+                 END AS reason,
+                 i.priority,
+                 i.updated_at AS happened_at,
+                 '/context/WORK/' || i.id::text AS url
+          FROM issues i
+          WHERE i.status NOT IN ('RESOLVED','CLOSED')
+            AND (
+              (i.due_at IS NOT NULL AND i.due_at < now())
+              OR (i.follow_up_at IS NOT NULL AND i.follow_up_at < now())
+              OR nullif(trim(i.waiting_on),'') IS NOT NULL
+              OR nullif(trim(i.next_action),'') IS NULL
+            )
+
+          UNION ALL
+
+          SELECT 'ALERT',
+                 a.id::text,
+                 a.title,
+                 CASE
+                   WHEN coalesce(a.geom,r.geom) IS NULL THEN 'Important alert is not mapped'
+                   ELSE 'High-priority active alert'
+                 END,
+                 a.priority,
+                 coalesce(a.observed_at,a.received_at),
+                 '/context/ALERT/' || a.id::text
+          FROM alerts a
+          LEFT JOIN geo_entity_resolutions r
+            ON r.entity_type='ALERT' AND r.entity_id=a.id::text AND r.status='RESOLVED'
+          WHERE a.status <> 'RESOLVED'
+            AND (a.expires_at IS NULL OR a.expires_at > now())
+            AND (
+              a.priority >= 4
+              OR coalesce(a.geom,r.geom) IS NULL
+            )
+
+          UNION ALL
+
+          SELECT 'WATCH',
+                 w.id::text,
+                 w.display_name,
+                 CASE
+                   WHEN w.active=true AND NOT EXISTS (
+                     SELECT 1
+                     FROM watch_item_recipients wir
+                     JOIN subscribers s ON s.id=wir.subscriber_id
+                     WHERE wir.watch_item_id=w.id AND wir.active=true AND s.active=true
+                   ) THEN 'Active Watch has no Recipient'
+                   WHEN EXISTS (
+                     SELECT 1 FROM deliveries d
+                     WHERE d.status='FAILED'
+                       AND d.created_at>=now()-interval '24 hours'
+                       AND d.matched_watch_ids ? w.watch_id
+                   ) THEN 'Recent delivery problem'
+                   ELSE 'Watch needs review'
+                 END,
+                 4,
+                 w.updated_at,
+                 '/context/WATCH/' || w.id::text
+          FROM watch_items w
+          WHERE (
+            w.active=true AND NOT EXISTS (
+              SELECT 1
+              FROM watch_item_recipients wir
+              JOIN subscribers s ON s.id=wir.subscriber_id
+              WHERE wir.watch_item_id=w.id AND wir.active=true AND s.active=true
+            )
+          ) OR EXISTS (
+            SELECT 1 FROM deliveries d
+            WHERE d.status='FAILED'
+              AND d.created_at>=now()-interval '24 hours'
+              AND d.matched_watch_ids ? w.watch_id
+          )
+
+          UNION ALL
+
+          SELECT 'SOURCE',
+                 h.source_id,
+                 h.source_id,
+                 coalesce(nullif(h.last_error,''),'Source health is ' || h.status),
+                 4,
+                 h.updated_at,
+                 '/source-health'
+          FROM source_health h
+          WHERE upper(h.status) NOT IN ('OK','HEALTHY')
+        ) x
+        ORDER BY priority DESC,happened_at DESC
+        LIMIT 24
+        """
+    )
+
+    recent_activity = query_all(
+        """
+        SELECT * FROM (
+          SELECT 'ALERT'::text AS kind,
+                 a.id::text AS record_id,
+                 a.title,
+                 concat_ws(' · ',a.source,a.category,nullif(a.municipality,'')) AS detail,
+                 a.received_at AS happened_at,
+                 '/alerts?q=' || replace(a.alert_id,' ',chr(37)||'20') || '&window=all&state=all' AS url
+          FROM alerts a
+          WHERE a.received_at>=now()-interval '7 days'
+
+          UNION ALL
+
+          SELECT 'WORK',
+                 i.id::text,
+                 i.title,
+                 concat_ws(' · ',i.item_type,i.status,nullif(i.assigned_to,'')) AS detail,
+                 i.updated_at,
+                 '/context/WORK/' || i.id::text
+          FROM issues i
+          WHERE i.updated_at>=now()-interval '7 days'
+
+          UNION ALL
+
+          SELECT 'EVENT',
+                 e.id::text,
+                 e.title,
+                 concat_ws(' · ',e.category,nullif(e.municipality,''),e.event_status) AS detail,
+                 e.updated_at,
+                 '/context/EVENT/' || e.id::text
+          FROM operational_events e
+          WHERE e.updated_at>=now()-interval '14 days'
+
+          UNION ALL
+
+          SELECT 'DELIVERY',
+                 d.id::text,
+                 a.title,
+                 s.name || ' · ' || d.status,
+                 coalesce(d.sent_at,d.attempted_at,d.created_at),
+                 '/deliveries?focus=' || d.id::text
+          FROM deliveries d
+          JOIN alerts a ON a.id=d.alert_id
+          JOIN subscribers s ON s.id=d.subscriber_id
+          WHERE d.created_at>=now()-interval '7 days'
+        ) x
+        ORDER BY happened_at DESC
+        LIMIT 30
+        """
+    )
+
+    intake_summary = {
+        "connected": False,
+        "mail_pending": 0,
+        "calendar_pending": 0,
+        "last_sync_at": None,
+        "sync_error": False,
+        "items": [],
+    }
+    account = getattr(request.state, "cmos_account", None)
+    owner = str(getattr(account, "username", "") or "").casefold()
+    if owner and owner != "automation":
+        connection = query_one(
+            """SELECT last_sync_at,sync_error
+               FROM workspace_calendar_connections WHERE owner_username=%s""",
+            (owner,),
+        )
+        if connection:
+            intake_summary["connected"] = True
+            intake_summary["last_sync_at"] = connection.get("last_sync_at")
+            intake_summary["sync_error"] = bool(connection.get("sync_error"))
+            counts = query_one(
+                """SELECT
+                     (SELECT count(*) FROM workspace_microsoft_mail m
+                      WHERE m.owner_username=%s
+                        AND NOT EXISTS (
+                          SELECT 1 FROM workspace_inbox_handled h
+                          WHERE h.owner_username=m.owner_username AND h.kind='MAIL' AND h.item_id=m.id
+                        )
+                        AND NOT EXISTS (
+                          SELECT 1 FROM workspace_inbox_snoozed z
+                          WHERE z.owner_username=m.owner_username AND z.kind='MAIL' AND z.item_id=m.id
+                            AND z.snoozed_until>now()
+                        )) AS mail_pending,
+                     (SELECT count(*) FROM workspace_calendar_events e
+                      WHERE e.owner_username=%s AND e.ends_at>=now()
+                        AND NOT EXISTS (
+                          SELECT 1 FROM workspace_inbox_handled h
+                          WHERE h.owner_username=e.owner_username AND h.kind='CALENDAR' AND h.item_id=e.id
+                        )
+                        AND NOT EXISTS (
+                          SELECT 1 FROM workspace_inbox_snoozed z
+                          WHERE z.owner_username=e.owner_username AND z.kind='CALENDAR' AND z.item_id=e.id
+                            AND z.snoozed_until>now()
+                        )) AS calendar_pending""",
+                (owner, owner),
+            ) or {}
+            intake_summary["mail_pending"] = int(counts.get("mail_pending") or 0)
+            intake_summary["calendar_pending"] = int(counts.get("calendar_pending") or 0)
+            intake_summary["items"] = query_all(
+                """SELECT * FROM (
+                     SELECT 'MAIL'::text AS kind,m.id,m.title,
+                            concat_ws(' · ',nullif(m.sender_name,''),nullif(m.sender_email,'')) AS detail,
+                            m.received_at AS happened_at
+                     FROM workspace_microsoft_mail m
+                     WHERE m.owner_username=%s
+                       AND NOT EXISTS (
+                         SELECT 1 FROM workspace_inbox_handled h
+                         WHERE h.owner_username=m.owner_username AND h.kind='MAIL' AND h.item_id=m.id
+                       )
+                       AND NOT EXISTS (
+                         SELECT 1 FROM workspace_inbox_snoozed z
+                         WHERE z.owner_username=m.owner_username AND z.kind='MAIL' AND z.item_id=m.id
+                           AND z.snoozed_until>now()
+                       )
+                     UNION ALL
+                     SELECT 'CALENDAR',e.id,e.title,
+                            concat_ws(' · ',nullif(e.location,''),to_char(e.starts_at AT TIME ZONE current_setting('TimeZone'),'MM/DD HH12:MI AM')),
+                            e.starts_at
+                     FROM workspace_calendar_events e
+                     WHERE e.owner_username=%s AND e.ends_at>=now()
+                       AND NOT EXISTS (
+                         SELECT 1 FROM workspace_inbox_handled h
+                         WHERE h.owner_username=e.owner_username AND h.kind='CALENDAR' AND h.item_id=e.id
+                       )
+                       AND NOT EXISTS (
+                         SELECT 1 FROM workspace_inbox_snoozed z
+                         WHERE z.owner_username=e.owner_username AND z.kind='CALENDAR' AND z.item_id=e.id
+                           AND z.snoozed_until>now()
+                       )
+                   ) x ORDER BY happened_at DESC LIMIT 8""",
+                (owner, owner),
+            )
+
     happening_now = query_all(
         """
         SELECT id, title, category, location_name, address, municipality,
@@ -600,9 +868,13 @@ def operations_home(request: Request):
             "active_alerts": active_alerts,
             "intelligence_feed": intelligence_feed,
             "source_health": source_health,
+            "spatial_status": spatial_status,
             "recent_deliveries": recent_deliveries,
             "command_center": command_center,
             "command_counts": command_counts,
+            "action_center": action_center,
+            "recent_activity": recent_activity,
+            "intake_summary": intake_summary,
             "happening_now": happening_now,
             "generated_at": datetime.now(),
             "page": "overview",
@@ -934,6 +1206,7 @@ def alerts_page(
     municipality: str = "",
     state: str = "all",
     window: str = "7d",
+    custom_hours: int | None = None,
     min_priority: int = 1,
     page: int = 1,
     msg: str = "",
@@ -946,6 +1219,7 @@ def alerts_page(
         municipality=municipality,
         state=state,
         window=window,
+        custom_hours=custom_hours,
         min_priority=min_priority,
     )
     q = filters["q"]
@@ -954,6 +1228,7 @@ def alerts_page(
     municipality = filters["municipality"]
     state = filters["state"]
     window = filters["window"]
+    custom_hours = filters["custom_hours"]
     min_priority = filters["min_priority"]
     result_total = int(
         query_one(f"SELECT count(*) AS total FROM alerts a {clause}", params).get("total") or 0
@@ -965,7 +1240,10 @@ def alerts_page(
         f"""
         SELECT a.id AS alert_uuid,a.alert_id,a.source,a.category,a.subtype,a.status,a.event_action,
                a.title,a.message,a.priority,a.county,a.municipality,a.received_at,a.updated_at,
-               a.observed_at,a.click_url,a.tags,
+               a.observed_at,coalesce(a.observed_at,a.received_at) AS activity_at,
+               to_char(coalesce(a.observed_at,a.received_at) AT TIME ZONE current_setting('TimeZone'),'YYYY-MM-DD"T"HH24:MI') AS activity_local_value,
+               to_char(a.received_at AT TIME ZONE current_setting('TimeZone'),'YYYY-MM-DD"T"HH24:MI') AS received_local_value,
+               a.click_url,a.tags,
                coalesce(
                  CASE WHEN r.match_type='MANUAL_COORDINATE_CORRECTION' THEN r.resolved_label END,
                  nullif(a.location->>'label',''),nullif(a.location->>'address',''),r.resolved_label
@@ -1014,7 +1292,7 @@ def alerts_page(
           ) m
         ) wm ON true
         {clause}
-        ORDER BY a.received_at DESC,a.id
+        ORDER BY coalesce(a.observed_at,a.received_at) DESC,a.received_at DESC,a.id
         LIMIT %s OFFSET %s
         """,
         [*params, per_page, offset],
@@ -1086,6 +1364,7 @@ def alerts_page(
             "municipality": municipality,
             "state": state,
             "window": window,
+            "custom_hours": custom_hours,
             "min_priority": min_priority,
             "current_page": page,
             "total_pages": total_pages,
@@ -1098,6 +1377,8 @@ def alerts_page(
             or getattr(request.state, "cmos_role", None) == "EXECUTIVE",
             "can_correct_alert_locations": getattr(request.state, "cmos_role", None)
             != "READ_ONLY",
+            "can_correct_alert_times": str(getattr(request.state, "cmos_role", "") or "").upper()
+            == "EXECUTIVE",
             "page": "alerts",
         },
     )
@@ -1116,6 +1397,170 @@ def _alerts_redirect(return_to: str, *, message: str = "", error: str = "") -> R
     return RedirectResponse(f"{target}{separator}{query}" if query else target, status_code=303)
 
 
+@app.post("/alerts/{alert_uuid}/time-correction")
+def alert_time_correction(
+    alert_uuid: uuid.UUID,
+    request: Request,
+    activity_at: str = Form(...),
+    received_at: str = Form(""),
+    correct_received: str | None = Form(None),
+    reason: str = Form(""),
+    return_to: str = Form("/alerts"),
+):
+    role = str(getattr(request.state, "cmos_role", "") or "").upper()
+    if role != "EXECUTIVE":
+        raise HTTPException(403, "Only an Executive user can correct stored Alert times")
+    activity_at = activity_at.strip()
+    received_at = received_at.strip()
+    reason = reason.strip()[:500]
+    if not activity_at:
+        raise HTTPException(400, "Choose the corrected activity date and time")
+    if correct_received is not None and not received_at:
+        raise HTTPException(400, "Choose the corrected received date and time")
+    actor = str(getattr(request.state, "cmos_user", "") or "executive")[:120]
+    row = query_one(
+        """
+        WITH prior AS (
+          SELECT id,observed_at,received_at,metadata
+          FROM alerts
+          WHERE id=%s
+          FOR UPDATE
+        ), changed AS (
+          UPDATE alerts a SET
+            observed_at=%s::timestamp AT TIME ZONE current_setting('TimeZone'),
+            received_at=CASE WHEN %s THEN %s::timestamp AT TIME ZONE current_setting('TimeZone')
+                             ELSE a.received_at END,
+            metadata=jsonb_set(
+              coalesce(a.metadata,'{}'::jsonb),
+              '{time_corrections}',
+              coalesce(a.metadata->'time_corrections','[]'::jsonb) ||
+                jsonb_build_array(jsonb_build_object(
+                  'corrected_at',now(),
+                  'corrected_by',%s,
+                  'reason',%s,
+                  'prior_observed_at',(SELECT observed_at FROM prior),
+                  'prior_received_at',(SELECT received_at FROM prior),
+                  'new_activity_at',%s::timestamp AT TIME ZONE current_setting('TimeZone'),
+                  'new_received_at',CASE WHEN %s THEN %s::timestamp AT TIME ZONE current_setting('TimeZone')
+                                         ELSE (SELECT received_at FROM prior) END
+                )),
+              true
+            ),
+            updated_at=now()
+          FROM prior
+          WHERE a.id=prior.id
+          RETURNING a.id,a.alert_id,a.observed_at,a.received_at
+        )
+        SELECT * FROM changed
+        """,
+        (
+            alert_uuid,
+            activity_at,
+            correct_received is not None,
+            received_at or activity_at,
+            actor,
+            reason or "Manual timeline correction",
+            activity_at,
+            correct_received is not None,
+            received_at or activity_at,
+        ),
+    )
+    if not row:
+        raise HTTPException(404, "Alert not found")
+    return _alerts_redirect(
+        return_to,
+        message=f"Corrected activity time for {row['alert_id']}. Original timestamps were retained in the Alert audit metadata.",
+    )
+
+
+@app.post("/alerts/bulk-time-edit")
+def alerts_bulk_time_edit(
+    request: Request,
+    alert_ids: list[uuid.UUID] = Form([]),
+    activity_times: list[str] = Form([]),
+    received_modes: list[str] = Form([]),
+    received_times: list[str] = Form([]),
+    reasons: list[str] = Form([]),
+    return_to: str = Form("/alerts"),
+):
+    role = str(getattr(request.state, "cmos_role", "") or "").upper()
+    if role != "EXECUTIVE":
+        raise HTTPException(403, "Only an Executive user can correct stored Alert times")
+    count = len(alert_ids)
+    if not count:
+        return _alerts_redirect(return_to, error="Choose at least one alert to edit")
+    if count > ALERT_BULK_LIMIT:
+        return _alerts_redirect(return_to, error=f"Choose {ALERT_BULK_LIMIT} or fewer alerts at a time")
+    if not (len(activity_times)==len(received_modes)==len(received_times)==len(reasons)==count):
+        return _alerts_redirect(return_to, error="The bulk time editor was incomplete. Reopen it and try again.")
+    actor = str(getattr(request.state, "cmos_user", "") or "executive")[:120]
+    changed = 0
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                for alert_id,activity_at,received_mode,received_at,reason in zip(
+                    alert_ids,activity_times,received_modes,received_times,reasons
+                ):
+                    activity_at = activity_at.strip()
+                    received_mode = received_mode.strip().lower()
+                    received_at = received_at.strip()
+                    reason = reason.strip()[:500]
+                    if not activity_at:
+                        raise HTTPException(400, "Every selected alert needs an Activity date and time")
+                    if received_mode not in {"keep","set"}:
+                        raise HTTPException(400, "Choose whether to keep or change Received Time")
+                    if received_mode == "set" and not received_at:
+                        raise HTTPException(400, "Choose the Received date and time for rows marked to change it")
+                    cur.execute(
+                        """
+                        UPDATE alerts a SET
+                          observed_at=%s::timestamp AT TIME ZONE current_setting('TimeZone'),
+                          received_at=CASE WHEN %s='set'
+                                           THEN %s::timestamp AT TIME ZONE current_setting('TimeZone')
+                                           ELSE a.received_at END,
+                          metadata=jsonb_set(
+                            coalesce(a.metadata,'{}'::jsonb),
+                            '{time_corrections}',
+                            coalesce(a.metadata->'time_corrections','[]'::jsonb) ||
+                              jsonb_build_array(jsonb_build_object(
+                                'corrected_at',now(),
+                                'corrected_by',%s,
+                                'reason',%s,
+                                'prior_observed_at',a.observed_at,
+                                'prior_received_at',a.received_at,
+                                'new_activity_at',%s::timestamp AT TIME ZONE current_setting('TimeZone'),
+                                'new_received_at',CASE WHEN %s='set'
+                                                       THEN %s::timestamp AT TIME ZONE current_setting('TimeZone')
+                                                       ELSE a.received_at END,
+                                'bulk_editor',true
+                              )),
+                            true
+                          ),
+                          updated_at=now()
+                        WHERE a.id=%s
+                        RETURNING a.id
+                        """,
+                        (
+                            activity_at,received_mode,received_at or activity_at,
+                            actor,reason or "Bulk selected alert time correction",
+                            activity_at,received_mode,received_at or activity_at,alert_id,
+                        ),
+                    )
+                    if cur.fetchone():
+                        changed += 1
+            conn.commit()
+        return _alerts_redirect(
+            return_to,
+            message=f"Updated timeline on {changed} selected alert{'s' if changed != 1 else ''}. Original timestamps were retained in audit metadata.",
+        )
+    except HTTPException as exc:
+        return _alerts_redirect(return_to, error=str(exc.detail))
+    except Exception:
+        incident_id = uuid.uuid4().hex[:10].upper()
+        LOGGER.exception("Bulk alert time edit failed incident=%s", incident_id)
+        return _alerts_redirect(return_to, error=f"The alert times were not changed. Reference {incident_id}.")
+
+
 @app.post("/alerts/bulk-action")
 def alerts_bulk_action(
     request: Request,
@@ -1130,18 +1575,40 @@ def alerts_bulk_action(
     municipality: str = Form(""),
     state: str = Form("all"),
     window: str = Form("7d"),
+    custom_hours: int = Form(12),
     min_priority: int = Form(1),
+    shift_minutes: int = Form(0),
+    bulk_activity_at: str = Form(""),
+    bulk_received_at: str = Form(""),
+    bulk_correct_received: str | None = Form(None),
+    bulk_time_reason: str = Form(""),
 ):
     try:
         action = action.strip().lower()
-        if action not in {"resolve", "delete"}:
-            raise HTTPException(400, "Choose Mark Resolved or Delete Permanently")
+        if action not in {"resolve", "delete", "shift_time", "set_time"}:
+            raise HTTPException(400, "Choose Mark Resolved, Shift Activity Time, Set Activity Time, or Delete Permanently")
         selection_scope = selection_scope.strip().lower()
         if selection_scope not in {"selected", "matching"}:
             raise HTTPException(400, "Choose selected alerts or all matching search results")
         role = str(getattr(request.state, "cmos_role", "") or "").upper()
-        if action == "delete" and role and role != "EXECUTIVE":
-            raise HTTPException(403, "Only an Executive user can permanently delete alerts")
+        if action in {"delete","shift_time","set_time"} and role != "EXECUTIVE":
+            raise HTTPException(403, "Only an Executive user can permanently delete alerts or correct stored alert times")
+        if action == "shift_time":
+            shift_minutes = max(-43200, min(int(shift_minutes), 43200))
+            if shift_minutes == 0:
+                raise HTTPException(400, "Enter a non-zero number of minutes to shift selected alerts")
+            if selection_scope != "selected":
+                raise HTTPException(400, "Time shifting is limited to explicitly selected alerts")
+        if action == "set_time":
+            bulk_activity_at = bulk_activity_at.strip()
+            bulk_received_at = bulk_received_at.strip()
+            bulk_time_reason = bulk_time_reason.strip()[:500]
+            if selection_scope != "selected":
+                raise HTTPException(400, "Exact time correction is limited to explicitly selected alerts")
+            if not bulk_activity_at:
+                raise HTTPException(400, "Choose the Activity date and time for the selected alerts")
+            if bulk_correct_received is not None and not bulk_received_at:
+                raise HTTPException(400, "Choose the Received date and time for the selected alerts")
 
         selected = list(dict.fromkeys(alert_ids))
         clause = ""
@@ -1160,6 +1627,7 @@ def alerts_bulk_action(
                 municipality=municipality,
                 state=state,
                 window=window,
+                custom_hours=custom_hours,
                 min_priority=min_priority,
             )
             narrowed = any(
@@ -1190,7 +1658,7 @@ def alerts_bulk_action(
                     cur.execute(
                         f"""
                         SELECT a.id FROM alerts a {clause}
-                        ORDER BY a.received_at DESC,a.id
+                        ORDER BY coalesce(a.observed_at,a.received_at) DESC,a.received_at DESC,a.id
                         LIMIT %s FOR UPDATE
                         """,
                         [*filter_params, ALERT_FILTERED_BULK_LIMIT + 1],
@@ -1219,6 +1687,74 @@ def alerts_bulk_action(
                         ([str(alert_id) for alert_id in found],),
                     )
                     cur.execute("DELETE FROM alerts WHERE id=ANY(%s::uuid[])", (found,))
+                elif action == "shift_time":
+                    delivery_total = 0
+                    actor = str(getattr(request.state, "cmos_user", "") or "executive")[:120]
+                    cur.execute(
+                        """
+                        UPDATE alerts a SET
+                          observed_at=coalesce(a.observed_at,a.received_at)+(%s * interval '1 minute'),
+                          metadata=jsonb_set(
+                            coalesce(a.metadata,'{}'::jsonb),
+                            '{time_corrections}',
+                            coalesce(a.metadata->'time_corrections','[]'::jsonb) ||
+                              jsonb_build_array(jsonb_build_object(
+                                'corrected_at',now(),
+                                'corrected_by',%s,
+                                'reason','Bulk activity-time shift',
+                                'shift_minutes',%s,
+                                'prior_observed_at',a.observed_at,
+                                'prior_received_at',a.received_at,
+                                'new_activity_at',coalesce(a.observed_at,a.received_at)+(%s * interval '1 minute'),
+                                'new_received_at',a.received_at
+                              )),
+                            true
+                          ),
+                          updated_at=now()
+                        WHERE a.id=ANY(%s::uuid[])
+                        """,
+                        (shift_minutes, actor, shift_minutes, shift_minutes, found),
+                    )
+                elif action == "set_time":
+                    delivery_total = 0
+                    actor = str(getattr(request.state, "cmos_user", "") or "executive")[:120]
+                    cur.execute(
+                        """
+                        UPDATE alerts a SET
+                          observed_at=%s::timestamp AT TIME ZONE current_setting('TimeZone'),
+                          received_at=CASE WHEN %s THEN %s::timestamp AT TIME ZONE current_setting('TimeZone')
+                                           ELSE a.received_at END,
+                          metadata=jsonb_set(
+                            coalesce(a.metadata,'{}'::jsonb),
+                            '{time_corrections}',
+                            coalesce(a.metadata->'time_corrections','[]'::jsonb) ||
+                              jsonb_build_array(jsonb_build_object(
+                                'corrected_at',now(),
+                                'corrected_by',%s,
+                                'reason',%s,
+                                'prior_observed_at',a.observed_at,
+                                'prior_received_at',a.received_at,
+                                'new_activity_at',%s::timestamp AT TIME ZONE current_setting('TimeZone'),
+                                'new_received_at',CASE WHEN %s THEN %s::timestamp AT TIME ZONE current_setting('TimeZone')
+                                                       ELSE a.received_at END
+                              )),
+                            true
+                          ),
+                          updated_at=now()
+                        WHERE a.id=ANY(%s::uuid[])
+                        """,
+                        (
+                            bulk_activity_at,
+                            bulk_correct_received is not None,
+                            bulk_received_at or bulk_activity_at,
+                            actor,
+                            bulk_time_reason or 'Bulk exact time correction',
+                            bulk_activity_at,
+                            bulk_correct_received is not None,
+                            bulk_received_at or bulk_activity_at,
+                            found,
+                        ),
+                    )
                 else:
                     delivery_total = 0
                     cur.execute(
@@ -1237,6 +1773,12 @@ def alerts_bulk_action(
                 f"{delivery_total} related Notification record{'s' if delivery_total != 1 else ''}. "
                 "A live source may send the alert again."
             )
+        elif action == "shift_time":
+            direction = "forward" if shift_minutes > 0 else "back"
+            message = f"Shifted activity time {direction} {abs(shift_minutes)} minute{'s' if abs(shift_minutes) != 1 else ''} on {len(found)} alert{'s' if len(found) != 1 else ''}. Received timestamps were not changed."
+        elif action == "set_time":
+            received_note = " Received times were also corrected." if bulk_correct_received is not None else " Received times were not changed."
+            message = f"Set Activity Time on {len(found)} selected alert{'s' if len(found) != 1 else ''}.{received_note} Original timestamps were retained in audit metadata."
         else:
             message = f"Marked {len(found)} alert{'s' if len(found) != 1 else ''} resolved. History was kept."
         return _alerts_redirect(return_to, message=message)
@@ -1271,12 +1813,12 @@ def _global_search_rows(q: str, scope: str):
         SELECT 'Alerts'::text AS section, 'ALERT'::text AS result_type,
                a.title, left(a.message,240) AS summary,
                concat_ws(' · ',a.source,a.category,nullif(a.municipality,'')) AS context,
-               a.alert_id AS result_id, a.received_at AS happened_at
+               a.id::text AS result_id, coalesce(a.observed_at,a.received_at) AS happened_at
         FROM alerts a
         WHERE coalesce(a.search_text,'') ILIKE %s OR a.title ILIKE %s
            OR a.message ILIKE %s OR a.source ILIKE %s OR a.category ILIKE %s
            OR coalesce(a.municipality,'') ILIKE %s OR a.alert_id ILIKE %s
-        ORDER BY a.received_at DESC
+        ORDER BY coalesce(a.observed_at,a.received_at) DESC,a.received_at DESC
         LIMIT 12
         """,
         [needle] * 7,
@@ -1308,7 +1850,7 @@ def _global_search_rows(q: str, scope: str):
                     ELSE 'Location Watch' END AS summary,
                concat_ws(' · ',CASE WHEN w.active THEN 'Watching' ELSE 'Paused' END,
                          nullif(w.municipality,''),nullif(w.address,'')) AS context,
-               w.watch_id AS result_id, w.updated_at AS happened_at
+               w.id::text AS result_id, w.updated_at AS happened_at
         FROM watch_items w
         WHERE w.display_name ILIKE %s OR w.search_term ILIKE %s
            OR array_to_string(w.aliases,' ') ILIKE %s OR array_to_string(w.tags,' ') ILIKE %s
@@ -1638,30 +2180,37 @@ def _global_search_rows(q: str, scope: str):
 def _global_result_url(row, q):
     query = urlencode({"q": q})
     result_type = row.get("result_type")
-    if result_type == "ALERT":
-        return f"/alerts?{urlencode({'q': q, 'window': 'all'})}"
-    if result_type == "WORK_ITEM":
-        return f"/issues?{urlencode({'q': q, 'state': 'all'})}"
-    if result_type == "WATCH":
-        return f"/watchlist?{query}"
-    if result_type == "NOTIFICATION":
-        return f"/deliveries?{query}"
-    if result_type == "MANAGED_EVENT":
-        return f"/schedule?{urlencode({'q': q, 'state': 'all'})}"
-    if result_type == "EVENT_INTELLIGENCE":
-        return f"/event-intelligence?{urlencode({'q': q, 'horizon': 'all'})}"
-    if result_type in {"TRANSIT_OBSERVATION", "TRANSIT_ASSET"}:
+    result_id = str(row.get("result_id") or "").strip()
+    if result_type == "ALERT" and result_id:
+        return f"/context/ALERT/{result_id}"
+    if result_type == "WORK_ITEM" and result_id:
+        return f"/issues?{urlencode({'focus': result_id, 'state': 'all'})}"
+    if result_type == "WATCH" and result_id:
+        return f"/watchlist?{urlencode({'focus': result_id})}"
+    if result_type == "NOTIFICATION" and result_id:
+        return f"/deliveries?{urlencode({'focus': result_id})}"
+    if result_type == "MANAGED_EVENT" and result_id:
+        return f"/schedule?{urlencode({'focus': result_id, 'state': 'all'})}"
+    if result_type == "EVENT_INTELLIGENCE" and result_id:
+        return f"/event-intelligence?{urlencode({'focus': result_id, 'horizon': 'all'})}"
+    if result_type == "TRANSIT_OBSERVATION" and result_id:
+        return f"/transit?{urlencode({'focus': result_id})}"
+    if result_type == "TRANSIT_ASSET":
         return f"/transit?{query}"
-    if result_type in {"ADDRESS", "PARCEL", "REFERENCE", "MAP_FEATURE"}:
+    if result_type == "REFERENCE" and result_id:
+        return f"/context/REFERENCE/{result_id}"
+    if result_type in {"ADDRESS", "PARCEL", "MAP_FEATURE"}:
         return f"/map?{query}"
     if result_type == "INTEGRATION":
-        return "/integrations"
-    if result_type == "RECIPIENT":
-        return f"/subscribers?{query}"
-    if result_type in {"STAFF_MEMBER", "MANAGED_LOCATION"}:
+        return f"/integrations?{urlencode({'q': row.get('title') or q})}"
+    if result_type == "RECIPIENT" and result_id:
+        return f"/subscribers?{urlencode({'manage': result_id})}#recipient-{result_id}"
+    if result_type == "STAFF_MEMBER" and result_id:
+        return f"/staff-admin?{urlencode({'employee': result_id})}"
+    if result_type == "MANAGED_LOCATION":
         return "/staff-admin"
-    if result_type == "ROUTINE":
-        return "/operations-routines"
+    if result_type == "ROUTINE" and result_id:
+        return f"/operations-routines?{urlencode({'focus': result_id})}"
     if result_type == "RULE_GROUP":
         return f"/watchlist?{query}"
     if result_type == "MAP_LAYER":
@@ -1671,7 +2220,6 @@ def _global_result_url(row, q):
     if result_type == "UTILITY_STATE":
         return "/integrations/pseg"
     return "/source-health"
-
 
 @app.get("/search", response_class=HTMLResponse)
 def global_search_page(request: Request, q: str = "", scope: str = "all"):
@@ -1718,7 +2266,20 @@ def source_health_page(request: Request):
         ORDER BY source_id
         """
     )
-    return templates.TemplateResponse(request=request, name="source_health.html", context={"rows": rows, "page": "source-health"})
+    counts = {
+        "total": len(rows),
+        "healthy": sum(1 for row in rows if str(row.get("status") or "").upper() in {"OK","HEALTHY","ACTIVE"}),
+        "attention": sum(1 for row in rows if str(row.get("status") or "").upper() not in {"OK","HEALTHY","ACTIVE"}),
+        "errors": sum(1 for row in rows if str(row.get("status") or "").upper() in {"ERROR","FAILED","DOWN","UNHEALTHY"}),
+    }
+    for row in rows:
+        row["alerts_url"] = f"/alerts?{urlencode({'source': row['source_id'], 'window': '7d', 'state': 'all'})}"
+        row["search_url"] = f"/search?{urlencode({'q': row['source_id']})}"
+    return templates.TemplateResponse(
+        request=request,
+        name="source_health.html",
+        context={"rows": rows, "counts": counts, "page": "source-health"},
+    )
 
 
 def _humanize_match_reason(reason):
@@ -1796,9 +2357,16 @@ def _delivery_evidence(row):
 
 
 @app.get("/deliveries", response_class=HTMLResponse)
-def deliveries_page(request: Request, status: str = "", q: str = ""):
+def deliveries_page(request: Request, status: str = "", q: str = "", focus: str = ""):
     where = []
     params = []
+    if focus.strip():
+        try:
+            focus_id = uuid.UUID(focus.strip())
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid Notification record identifier") from exc
+        where.append("d.id=%s")
+        params.append(focus_id)
     if status.strip():
         where.append("upper(d.status) = upper(%s)")
         params.append(status.strip())
@@ -1817,7 +2385,7 @@ def deliveries_page(request: Request, status: str = "", q: str = ""):
                d.error_message, d.matched_watch_ids, d.match_reasons,
                coalesce(mw.matched_watches,'[]'::jsonb) AS matched_watches,
                s.name AS subscriber_name, s.subscriber_id,
-               a.title AS alert_title, a.source, a.alert_id
+               a.id AS alert_uuid,a.title AS alert_title, a.source, a.alert_id
         FROM deliveries d
         JOIN subscribers s ON s.id = d.subscriber_id
         JOIN alerts a ON a.id = d.alert_id
@@ -1847,10 +2415,22 @@ def deliveries_page(request: Request, status: str = "", q: str = ""):
         """,
         params,
     )
+    delivery_counts = query_one(
+        """SELECT count(*) AS total,
+                  count(*) FILTER (WHERE upper(status)='SENT') AS sent,
+                  count(*) FILTER (WHERE upper(status)='FAILED') AS failed,
+                  count(*) FILTER (WHERE upper(status)='SUPPRESSED') AS suppressed
+           FROM deliveries
+           WHERE created_at>=now()-interval '24 hours'"""
+    )
     for row in rows:
         row["evidence"] = _delivery_evidence(row)
         row["track_alert_url"] = f"/issues?{urlencode({'from_alert': row['alert_id']})}"
-    return templates.TemplateResponse(request=request, name="deliveries.html", context={"rows": rows, "status": status, "q": q, "page": "deliveries"})
+    return templates.TemplateResponse(
+        request=request,
+        name="deliveries.html",
+        context={"rows": rows, "delivery_counts": delivery_counts, "status": status, "q": q, "page": "deliveries"},
+    )
 
 
 @app.get("/subscribers", response_class=HTMLResponse)

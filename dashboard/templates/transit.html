@@ -25,8 +25,8 @@
       <div><div class="panel-kicker">OVERVIEW</div><h2>Regional Transit State</h2></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a class="secondary-button button-link" href="/integrations?q=TRANSIT">Transit Integrations</a>
-        <a class="secondary-button button-link" href="/map">Mapping Center</a>
-        <a class="secondary-button button-link" href="/event-intelligence?scope=transit&horizon=7d">Event Transit Context</a>
+        <a class="secondary-button button-link" href="/map" data-cmos-quicklook data-cmos-title="Mapping Center">Mapping Center</a>
+        <a class="secondary-button button-link" href="/event-intelligence?scope=transit&horizon=7d" data-cmos-quicklook data-cmos-title="Transit Event Context">Event Transit Context</a>
       </div>
     </div>
     <div class="panel-body">
@@ -63,7 +63,7 @@
 
       <div class="watch-list">
         {% for o in observations %}
-        <article class="watch-card">
+        <article class="watch-card" {% if focus_id and o.id == focus_id %}data-focused-record="true"{% endif %}>
           <div class="watch-card-body">
             <div style="display:flex;justify-content:space-between;gap:14px;align-items:flex-start">
               <div>

@@ -1,6 +1,6 @@
 # City Manager OS Roadmap
 
-_Last reconciled with production/main: September 4, 2026._
+_Last reconciled with the preserve-first production release: October 4, 2026._
 
 ## Core platform - COMPLETE
 
@@ -139,115 +139,69 @@ City Manager OS should now be treated primarily as a production operating system
 
 # Active Next Phase
 
-The next phase prioritizes ease of administration and operational value over additional raw feature volume.
+The previously planned administration, Events, Integrations, transit and executive-operating work is now substantially implemented. The next phase is **product cohesion and operational intelligence**, not another parallel subsystem.
 
-## Priority 1 - Web Administration v2
+## Priority 1 - Context Everywhere
 
-### Watchlists / Subscribers / Routing
-- Improve the existing web UI rather than replacing the working routing architecture.
-- Make create/edit/activate/deactivate flows simpler and more obvious.
-- Make recipient assignment and routing relationships easier to understand at a glance.
-- Add concise inline instructions and examples.
-- Preserve all PostgreSQL-backed dynamic routing and existing matcher behavior.
+- Continue the Universal Context Inspector as the common drill-down for Alerts, Watches, Work, Events, Microsoft Intake and confirmed People / Places / Projects.
+- Reuse `workspace_context_links`; do not create a second graph model.
+- Make records answer: what is this, what changed, what is connected, and what can I do next?
+- Keep inferred/suggested relationships separate from confirmed facts.
 
-### Integrations Center
-Create one authenticated web location for managing external APIs and data sources.
+## Priority 2 - Executive Exception Layer
 
-The center should eventually support:
-- integration name and type
-- source identifier
-- base URL / endpoint metadata
-- authentication method metadata without exposing secrets
-- enable / disable
-- test connection
-- last successful run
-- last failure / error summary
-- polling cadence or webhook mode
-- normalization target
-- source-health status
-- links to related watchlists / rules
-- notes and ownership
+- Continue What Changed as an exception brief, not another activity feed.
+- Surface failed Notifications, source problems, overdue follow-ups, Waiting On items, high-priority alerts and new Watch matches.
+- Use Activity Time for operational alert chronology while retaining Received Time as ingestion evidence.
+- Improve ranking and reduce noise before adding more categories.
 
-Secrets remain in protected server configuration or secret storage, never committed to GitHub or casually displayed in the browser.
+## Priority 3 - Alert / Watch / Map Cohesion
 
-## Priority 2 - Events Center
+- Maintain the audited Alert Timeline Repair workflow for delayed or seeded data.
+- Continue Map / Alert / Watch handoffs and selected-record Quick Look.
+- Improve Watch coverage visualization, match explanations and current-vs-previous activity comparisons only where they reduce operator effort.
+- Preserve the full Mapping Center and all existing spatial controls.
 
-Add a first-class Events area for municipal events, meetings, deadlines, hearings, ribbon cuttings, construction milestones and other scheduled activity.
+## Priority 4 - Living People / Places / Projects
 
-Events should support:
-- title
-- date / time
-- location
-- owner
-- status
-- people / agencies involved
-- preparation checklist
-- notes
-- related documents / links
-- related existing Command Center issues
-- reminders / follow-up
+- Treat confirmed workspace records as operational launch points.
+- Connect records to existing Work, Alerts, meetings, documents, Brain and map context through existing links and relationships.
+- Do not auto-promote suggestions into facts.
+- Improve project and place pages before creating new CRM-style modules.
 
-An event should not automatically become an issue. Action items created from an event must use the existing Command Center / `issues` source of truth.
+## Priority 5 - Reliability / Lifecycle / Maintenance
 
-## Priority 3 - Transit / External Intelligence Expansion
+- Keep all Python application services on one tested release image.
+- Maintain guarded rollback, health checks, bounded local database backups and GIS staging cleanup.
+- Continue monitoring database growth, source health, delivery failures and GIS lifecycle state.
+- Avoid blind package, image, volume or data pruning.
 
-### NJ Transit
-Add NJ Transit feeds using the Integrations Center pattern.
+## Implemented since the September roadmap
 
-Operational goal:
-- surface service disruptions that matter to Weehawken
-- normalize actionable disruptions into the existing Standard Alert Schema where appropriate
-- use current watchlist / subscriber routing
-- summarize routine service information rather than generating alert noise
-- support location / route / station / service-area context where available
-
-### Additional sources after NJ Transit
-Potential future sources include NJ 511, PATH, Port Authority, traffic, road closures and other authoritative regional feeds. Add only when operational value is clear.
-
-## Priority 4 - Executive Operating Layer
-
-Improve the existing executive features rather than creating a parallel task system.
-
-Focus areas:
-- Daily Manager Brief
-- "What changed" since prior review
-- Waiting On / commitments
-- approaching deadlines
-- exception visibility
-- meaningful escalation
-- meeting preparation context
-
-## Priority 5 - In-App Instructions
-
-Add short, practical help directly to administrative pages.
-
-Preferred format:
-- What this page does
-- How to use it
-- 1-3 concrete examples
-
-Avoid long manuals inside the working UI.
-
-## Deferred - Obsidian / Local Documents
-
-Obsidian or local-document integration is intentionally deferred until the web administration, Events Center, Integrations Center and NJ Transit work are stable.
-
-When revisited, Obsidian should function as a knowledge/document source, not as a replacement for Command Center operational records.
+- [x] Watchlist / Subscriber administration simplification
+- [x] Events Center and event intelligence workflows
+- [x] Integrations Center / source onboarding
+- [x] Transit intelligence
+- [x] Executive Intake for Microsoft mail/calendar/contact staging
+- [x] What Changed / executive exception workflow
+- [x] Waiting On / commitments / follow-up workflows
+- [x] Universal Context Inspector using existing context links
+- [x] Macro-inspired command/search, Quick Look and sidecar interaction layer
+- [x] Regional / statewide GIS expansion and refreshed Mapping Center
+- [x] Alert Activity Time chronology and audited multi-record timeline repair
+- [x] Full-system image convergence / rollback / safe maintenance tooling
+- [x] In-app operator help on specialist administration pages
 
 ## Architecture rules for all next-phase work
 
-- inspect production and repository state before changes
-- do not rebuild accepted features
-- smallest sensible change
-- preserve operational data
-- `issues` remains the only operational issue/task source of truth
-- dynamic PostgreSQL subscriber routing remains authoritative
-- n8n remains the automation engine, not the main UI
-- move frequently changed operational configuration into authenticated web UI
-- no fake recurring municipal work
-- do not casually alter frozen navigation / palette
-- back up before significant changes
-- health and functional verification after changes
-- clean synthetic test data
-- successful production changes are committed and pushed to `main`
-- long-running scripts must clearly end with `COMPLETE: PASS` or `COMPLETE: FAIL`
+- Pre-Macro City Manager OS remains the base product; Macro is an interaction layer.
+- Wrap first. Replace nothing unless a verified defect requires it.
+- Preserve every accepted route, Mapping Center capability, Watch behavior, alert function and operational workflow.
+- `issues` remains the only operational issue/task source of truth.
+- `workspace_context_links` remains the generic context graph.
+- Microsoft integration remains read-only unless a separate deliberate write capability is approved.
+- Dynamic PostgreSQL subscriber routing remains authoritative.
+- n8n remains the automation engine, not the main UI.
+- Prefer better context and fewer clicks over new modules.
+- Back up before significant changes and verify health afterward.
+- Keep synthetic/test records out of production.

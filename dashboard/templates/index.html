@@ -24,12 +24,12 @@
 
   <main>
     <section class="metrics metrics-six" aria-label="System summary">
-      <div class="metric metric-alerts"><span>Active Alerts</span><strong>{{ metrics.active_alerts or 0 }}</strong><small>Current unresolved alerts</small></div>
-      <div class="metric"><span>Watches</span><strong>{{ metrics.active_watch_items or 0 }}</strong><small>Active monitoring rules</small></div>
-      <div class="metric"><span>Recipients</span><strong>{{ metrics.active_subscribers or 0 }}</strong><small>Available Notification destinations</small></div>
-      <div class="metric"><span>Open Issues</span><strong>{{ metrics.open_issues or 0 }}</strong><small>Operational follow-up</small></div>
-      <div class="metric"><span>Sent / 24h</span><strong>{{ metrics.sent_24h or 0 }}</strong><small>Notifications delivered</small></div>
-      <div class="metric {% if metrics.unhealthy_sources %}metric-warning{% endif %}"><span>Source Warnings</span><strong>{{ metrics.unhealthy_sources or 0 }}</strong><small>Collectors needing attention</small></div>
+      <div class="metric metric-alerts" data-cmos-context="/alerts?state=active&window=all" data-cmos-title="Active Alerts" role="button" tabindex="0"><span>Active Alerts</span><strong>{{ metrics.active_alerts or 0 }}</strong><small>Current unresolved alerts · click to inspect</small></div>
+      <div class="metric" data-cmos-context="/watchlist" data-cmos-title="Watches" role="button" tabindex="0"><span>Watches</span><strong>{{ metrics.active_watch_items or 0 }}</strong><small>Active monitoring rules · click to inspect</small></div>
+      <div class="metric" data-cmos-context="/subscribers" data-cmos-title="Recipients" role="button" tabindex="0"><span>Recipients</span><strong>{{ metrics.active_subscribers or 0 }}</strong><small>Notification destinations · click to inspect</small></div>
+      <div class="metric" data-cmos-context="/issues?state=open" data-cmos-title="Open Work" role="button" tabindex="0"><span>Open Issues</span><strong>{{ metrics.open_issues or 0 }}</strong><small>Operational follow-up · click to inspect</small></div>
+      <div class="metric" data-cmos-context="/deliveries" data-cmos-title="Notification History" role="button" tabindex="0"><span>Sent / 24h</span><strong>{{ metrics.sent_24h or 0 }}</strong><small>Notifications delivered · click to inspect</small></div>
+      <div class="metric {% if metrics.unhealthy_sources %}metric-warning{% endif %}" data-cmos-context="/source-health" data-cmos-title="Source Health" role="button" tabindex="0"><span>Source Warnings</span><strong>{{ metrics.unhealthy_sources or 0 }}</strong><small>Collectors needing attention · click to inspect</small></div>
     </section>
 
     <section class="section-label"><span>WHAT'S HAPPENING NOW</span><span class="section-rule"></span></section>
@@ -41,7 +41,7 @@
       <div class="panel-body compact-list">
         {% if happening_now %}
           {% for e in happening_now %}
-          <div class="feed-row">
+          <div class="feed-row" data-cmos-context="/context/EVENT/{{ e.id }}" data-cmos-title="{{ e.title|e }}" role="button" tabindex="0">
             <div class="feed-main">
               <div class="feed-title-row">
                 {% if e.timing_status == 'NOW' %}<span class="status healthy">NOW</span>{% elif e.timing_status == 'NEXT' %}<span class="status warning">NEXT</span>{% else %}<span class="status">UPCOMING</span>{% endif %}
@@ -64,6 +64,82 @@
       </div>
     </section>
 
+    <section class="section-label"><span>MICROSOFT INTAKE</span><span class="section-rule"></span><a class="text-link" href="/intake">Open Intake</a></section>
+    <section class="panel cmos-intake-panel">
+      <div class="panel-head">
+        <div><div class="panel-kicker">EMAIL · CALENDAR · SELECTIVE PROMOTION</div><h2>Executive Intake</h2></div>
+        {% if intake_summary.connected %}
+          <span class="status {{ 'warning' if intake_summary.sync_error else 'healthy' }}">{{ 'SYNC NEEDS ATTENTION' if intake_summary.sync_error else 'CONNECTED' }}</span>
+        {% else %}
+          <a class="secondary-button" href="/workspace?view=settings">Connect Microsoft 365</a>
+        {% endif %}
+      </div>
+      <div class="panel-body">
+        {% if intake_summary.connected %}
+        <div class="cmos-intake-metrics">
+          <a href="/intake"><span>Email to review</span><strong>{{ intake_summary.mail_pending }}</strong><small>Choose what becomes Work, Brain, Event, follow-up, or context.</small></a>
+          <a href="/intake"><span>Calendar to review</span><strong>{{ intake_summary.calendar_pending }}</strong><small>Bring only relevant meetings into Events or linked context.</small></a>
+        </div>
+        <div class="cmos-intake-list">
+          {% for item in intake_summary.items %}
+          <a href="/intake?kind={{ item.kind|urlencode }}&id={{ item.id }}">
+            <span class="cmos-action-kind {{ item.kind|lower }}">{{ item.kind }}</span>
+            <span><strong>{{ item.title }}</strong><small>{{ item.detail }}</small></span>
+            <time>{{ item.happened_at.strftime('%m/%d %I:%M %p') if item.happened_at else '' }}</time>
+          </a>
+          {% else %}
+          <div class="empty-state small"><strong>Nothing waiting for review</strong><span>Your Microsoft snapshot is connected and current.</span></div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state small"><strong>Microsoft 365 is not connected</strong><span>Connect it once to privately stage email, contacts, and calendar for selective review.</span></div>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="section-label"><span>ACTION CENTER</span><span class="section-rule"></span></section>
+    <section class="grid cmos-action-grid">
+      <article class="panel cmos-action-panel">
+        <div class="panel-head">
+          <div><div class="panel-kicker">NEEDS ATTENTION</div><h2>What needs me now</h2></div>
+          <span class="count-pill">{{ action_center|length }}</span>
+        </div>
+        <div class="panel-body compact-list">
+          {% for item in action_center %}
+          <div class="feed-row cmos-action-row" data-cmos-context="{{ item.url }}" data-cmos-title="{{ item.title|e }}" role="button" tabindex="0">
+            <div class="feed-main">
+              <div class="feed-title-row">
+                <span class="cmos-action-kind {{ item.kind|lower }}">{{ item.kind }}</span>
+                <strong>{{ item.title }}</strong>
+              </div>
+              <div class="meta">{{ item.reason }}</div>
+            </div>
+            <span class="priority-chip p{{ item.priority }}">P{{ item.priority }}</span>
+          </div>
+          {% else %}
+          <div class="empty-state small"><strong>No immediate exceptions</strong><span>Nothing currently meets the attention rules.</span></div>
+          {% endfor %}
+        </div>
+      </article>
+
+      <article class="panel cmos-recent-panel">
+        <div class="panel-head"><div><div class="panel-kicker">RECENT</div><h2>Activity</h2></div><a class="text-link" href="/what-changed" data-cmos-quicklook data-cmos-title="What Changed">What changed</a></div>
+        <div class="panel-body compact-list cmos-recent-activity">
+          {% for item in recent_activity %}
+          <div class="feed-row" data-cmos-context="{{ item.url }}" data-cmos-title="{{ item.title|e }}" role="button" tabindex="0">
+            <div class="feed-main">
+              <div class="feed-title-row"><span class="cmos-action-kind {{ item.kind|lower }}">{{ item.kind }}</span><strong>{{ item.title }}</strong></div>
+              <div class="meta">{{ item.detail }}</div>
+            </div>
+            <time>{{ item.happened_at.strftime('%m/%d %H:%M') if item.happened_at else '' }}</time>
+          </div>
+          {% else %}
+          <div class="empty-state small"><strong>No recent activity</strong></div>
+          {% endfor %}
+        </div>
+      </article>
+    </section>
+
     <section class="section-label"><span>OPERATING PICTURE</span><span class="section-rule"></span></section>
     <section class="grid primary-grid">
       <article class="panel">
@@ -71,7 +147,7 @@
         <div class="panel-body">
           {% if active_alerts %}
             {% for a in active_alerts %}
-            <div class="alert priority-{{ a.priority }}">
+            <div class="alert priority-{{ a.priority }}" data-cmos-context="/context/ALERT/{{ a.id }}" data-cmos-title="{{ a.title|e }}" role="button" tabindex="0">
               <div class="alert-top"><div class="alert-title-wrap"><span class="priority-chip p{{ a.priority }}">P{{ a.priority }}</span><strong>{{ a.title }}</strong></div>{% if a.click_url %}<a class="open-link" href="{{ a.click_url }}" target="_blank" rel="noopener">Open</a>{% endif %}</div>
               <div class="meta-row"><span class="source-chip">{{ a.source }}</span><span>{{ a.category }}</span>{% if a.municipality %}<span>{{ a.municipality }}</span>{% endif %}<span>{{ a.event_action }}</span></div>
               <p>{{ a.message }}</p>
@@ -97,7 +173,7 @@
 
           {% if command_center %}
             {% for i in command_center %}
-            <div class="feed-row">
+            <div class="feed-row" data-cmos-context="/context/WORK/{{ i.id }}" data-cmos-title="{{ i.title|e }}" role="button" tabindex="0">
               <div class="feed-main">
                 <div class="feed-title-row">
                   <span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span>
@@ -134,12 +210,54 @@
       </article>
     </section>
 
+    <section class="section-label lower-label"><span>SPATIAL OPERATING PICTURE</span><span class="section-rule"></span></section>
+    <section class="panel cmos-spatial-panel">
+      <div class="panel-head">
+        <div><div class="panel-kicker">POSTGIS · PARCELS · WATCH GEOMETRY</div><h2>Mapping &amp; Spatial Intelligence</h2></div>
+        <div class="cmos-spatial-actions">
+          <a class="secondary-button" href="/map" data-cmos-quicklook data-cmos-title="Mapping Center">Open Live Map</a>
+          <a class="secondary-button" href="/spatial-reference" data-cmos-quicklook data-cmos-title="Reference Catalog">Reference Catalog</a>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="cmos-spatial-grid">
+          <button type="button" data-cmos-context="/map" data-cmos-title="Mapped Alerts" class="cmos-spatial-stat">
+            <span>Mapped Alerts · 24h</span>
+            <strong>{{ spatial_status.mapped_alerts_24h or 0 }}/{{ spatial_status.total_alerts_24h or 0 }}</strong>
+            <small>Alert locations available to spatial matching and map review</small>
+          </button>
+          <button type="button" data-cmos-context="/watchlist" data-cmos-title="Spatial Watches" class="cmos-spatial-stat">
+            <span>Spatial Watches</span>
+            <strong>{{ spatial_status.active_spatial_watches or 0 }}</strong>
+            <small>Active Watches with effective geometry or map position</small>
+          </button>
+          <button type="button" data-cmos-context="/spatial-reference" data-cmos-title="Reference Places" class="cmos-spatial-stat">
+            <span>Reference Places</span>
+            <strong>{{ spatial_status.active_references or 0 }}</strong>
+            <small>Canonical places, corridors and parcel-linked references</small>
+          </button>
+          <button type="button" data-cmos-context="/map" data-cmos-title="GIS Layers" class="cmos-spatial-stat">
+            <span>GIS Layers</span>
+            <strong>{{ spatial_status.active_map_layers or 0 }}</strong>
+            <small>Active system and custom operational map layers</small>
+          </button>
+        </div>
+        <div class="cmos-spatial-ready">
+          <span class="{{ 'ready' if spatial_status.parcels_ready else 'missing' }}">Parcels {{ 'ready' if spatial_status.parcels_ready else 'missing' }}</span>
+          <span class="{{ 'ready' if spatial_status.addresses_ready else 'missing' }}">Addresses {{ 'ready' if spatial_status.addresses_ready else 'missing' }}</span>
+          <span class="{{ 'ready' if spatial_status.flood_ready else 'missing' }}">Flood zones {{ 'ready' if spatial_status.flood_ready else 'missing' }}</span>
+          <a href="/flood" data-cmos-quicklook data-cmos-title="Flood Intelligence">Flood Intelligence</a>
+          <a href="/transit" data-cmos-quicklook data-cmos-title="Transit Intelligence">Transit</a>
+        </div>
+      </div>
+    </section>
+
     <section class="section-label lower-label"><span>MONITORING</span><span class="section-rule"></span></section>
     <section class="grid secondary-grid">
       <article class="panel">
         <div class="panel-head"><div><div class="panel-kicker">RECENT</div><h2>Intelligence Feed</h2></div><a class="text-link" href="/alerts?state=all">Full history</a></div>
         <div class="panel-body compact-list scroll-panel">
-          {% for f in intelligence_feed %}<div class="feed-row"><div class="feed-main"><div class="feed-title-row"><span class="priority-dot p{{ f.priority }}"></span><strong>{{ f.title }}</strong></div><div class="meta">{{ f.source }} · {{ f.category }}{% if f.municipality %} · {{ f.municipality }}{% endif %} · {{ f.event_action }}</div></div><time>{{ f.received_at.strftime('%m/%d %H:%M') if f.received_at else '' }}</time></div>{% else %}<div class="empty-state small"><strong>No intelligence recorded yet</strong></div>{% endfor %}
+          {% for f in intelligence_feed %}<div class="feed-row" data-cmos-context="/context/ALERT/{{ f.id }}" data-cmos-title="{{ f.title|e }}" role="button" tabindex="0"><div class="feed-main"><div class="feed-title-row"><span class="priority-dot p{{ f.priority }}"></span><strong>{{ f.title }}</strong></div><div class="meta">{{ f.source }} · {{ f.category }}{% if f.municipality %} · {{ f.municipality }}{% endif %} · {{ f.event_action }}</div></div><time>{{ f.activity_at.strftime('%m/%d %H:%M') if f.activity_at else '' }}</time></div>{% else %}<div class="empty-state small"><strong>No intelligence recorded yet</strong></div>{% endfor %}
         </div>
       </article>
 
@@ -147,13 +265,13 @@
         <article class="panel">
           <div class="panel-head"><div><div class="panel-kicker">COLLECTORS</div><h2>Source Health</h2></div><a class="text-link" href="/source-health">Details</a></div>
           <div class="panel-body compact-list">
-            {% for s in source_health %}<div class="feed-row"><div class="feed-main"><strong>{{ s.source_id }}</strong><div class="meta">{% if s.last_error %}{{ s.last_error }}{% elif s.last_success_at %}Last success {{ s.last_success_at.strftime('%m/%d %H:%M') }}{% else %}No successful poll recorded{% endif %}</div></div><span class="status {{ (s.status or 'unknown')|lower }}">{{ s.status }}</span></div>{% else %}<div class="empty-state small"><strong>No source-health records yet</strong></div>{% endfor %}
+            {% for s in source_health %}<div class="feed-row" data-cmos-context="/source-health" data-cmos-title="{{ s.source_id|e }}" role="button" tabindex="0"><div class="feed-main"><strong>{{ s.source_id }}</strong><div class="meta">{% if s.last_error %}{{ s.last_error }}{% elif s.last_success_at %}Last success {{ s.last_success_at.strftime('%m/%d %H:%M') }}{% else %}No successful poll recorded{% endif %}</div></div><span class="status {{ (s.status or 'unknown')|lower }}">{{ s.status }}</span></div>{% else %}<div class="empty-state small"><strong>No source-health records yet</strong></div>{% endfor %}
           </div>
         </article>
         <article class="panel">
           <div class="panel-head"><div><div class="panel-kicker">AUDIT</div><h2>Recent Deliveries</h2></div><a class="text-link" href="/deliveries">Details</a></div>
           <div class="panel-body compact-list">
-            {% for d in recent_deliveries %}<div class="feed-row"><div class="feed-main"><strong>{{ d.alert_title }}</strong><div class="meta">{{ d.subscriber_name }} · {{ d.ntfy_topic }}{% if d.sent_at %} · {{ d.sent_at.strftime('%m/%d %H:%M') }}{% endif %}</div></div><span class="status {{ (d.status or 'unknown')|lower }}">{{ d.status }}</span></div>{% else %}<div class="empty-state small"><strong>No deliveries logged yet</strong></div>{% endfor %}
+            {% for d in recent_deliveries %}<div class="feed-row" data-cmos-context="/deliveries?focus={{ d.delivery_id }}" data-cmos-title="{{ d.alert_title|e }}" role="button" tabindex="0"><div class="feed-main"><strong>{{ d.alert_title }}</strong><div class="meta">{{ d.subscriber_name }} · {{ d.ntfy_topic }}{% if d.sent_at %} · {{ d.sent_at.strftime('%m/%d %H:%M') }}{% endif %}</div></div><span class="status {{ (d.status or 'unknown')|lower }}">{{ d.status }}</span></div>{% else %}<div class="empty-state small"><strong>No deliveries logged yet</strong></div>{% endfor %}
           </div>
         </article>
       </div>

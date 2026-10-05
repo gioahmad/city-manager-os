@@ -1,10 +1,13 @@
+import logging
 import os
 import re
+import time
 import uuid
 from datetime import datetime
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,21 +16,37 @@ from fastapi.templating import Jinja2Templates
 app = FastAPI(title="City Manager OS Dashboard", version="0.1")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+LOGGER = logging.getLogger(__name__)
+_POOL = None
 
 MATCH_MODES = {"FIELD", "CONTAINS", "WORD", "EXACT"}
 WATCH_TYPES = ["ADDRESS", "FACILITY", "AREA", "PHRASE", "SOURCE", "INCIDENT_TYPE", "OTHER"]
 
 
+def _db_pool():
+    global _POOL
+    if _POOL is None:
+        _POOL = ConnectionPool(
+            conninfo="",
+            kwargs={
+                "host": os.getenv("DB_HOST", "citymanager-postgis"),
+                "port": int(os.getenv("DB_PORT", "5432")),
+                "dbname": os.getenv("DB_NAME", "citymanager"),
+                "user": os.getenv("DB_USER", "citymanager_app"),
+                "password": os.environ["DB_PASSWORD"],
+                "row_factory": dict_row,
+                "connect_timeout": 5,
+            },
+            min_size=max(0, int(os.getenv("DB_POOL_MIN", "1"))),
+            max_size=max(2, int(os.getenv("DB_POOL_MAX", "10"))),
+            timeout=float(os.getenv("DB_POOL_TIMEOUT", "5")),
+            open=True,
+        )
+    return _POOL
+
+
 def db_conn():
-    return psycopg.connect(
-        host=os.getenv("DB_HOST", "citymanager-postgis"),
-        port=int(os.getenv("DB_PORT", "5432")),
-        dbname=os.getenv("DB_NAME", "citymanager"),
-        user=os.getenv("DB_USER", "citymanager_app"),
-        password=os.environ["DB_PASSWORD"],
-        row_factory=dict_row,
-        connect_timeout=5,
-    )
+    return _db_pool().connection()
 
 
 def query_all(sql, params=None):
@@ -67,6 +86,25 @@ def validate_watch(match_mode: str, match_field: str | None, min_priority: int):
         raise HTTPException(status_code=400, detail="FIELD match mode requires match_field")
     if min_priority < 1 or min_priority > 5:
         raise HTTPException(status_code=400, detail="Priority must be between 1 and 5")
+
+
+@app.middleware("http")
+async def response_timing(request: Request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    response.headers["Server-Timing"] = f"app;dur={elapsed_ms:.1f}"
+    response.headers["X-CMOS-Response-Ms"] = f"{elapsed_ms:.1f}"
+    threshold = float(os.getenv("CMOS_SLOW_REQUEST_MS", "750"))
+    if elapsed_ms >= threshold and not request.url.path.startswith("/static/"):
+        LOGGER.warning(
+            "slow_request method=%s path=%s status=%s duration_ms=%.1f",
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+        )
+    return response
 
 
 @app.get("/health")

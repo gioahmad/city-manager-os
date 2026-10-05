@@ -34,7 +34,7 @@ def test_contact_directory_is_shared_with_alert_share_and_existing_recipients():
     assert '@app.get("/contacts"' in source
     assert '@app.get("/api/share/context")' in source
     assert "contact_ids: list[uuid.UUID]" in source
-    assert nav.count('href="/contacts"') == 2
+    assert nav.count('href="/contacts"') == 1
     assert 'a[href^="/share?"]' in dialog
     assert "dialog.showModal()" in dialog
     assert "All authenticated staff" in contacts

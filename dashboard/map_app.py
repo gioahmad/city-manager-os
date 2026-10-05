@@ -21,9 +21,9 @@ SYSTEM_LAYERS = [
     {"key": "parcels", "name": "Parcels", "endpoint": "/map/system/parcels.geojson", "default_visible": False, "style": {"color": "#7fb3d5"}, "viewport": True},
     {"key": "addresses", "name": "NG911 Addresses", "endpoint": "/map/system/addresses.geojson", "default_visible": False, "point": True, "viewport": True},
     {"key": "watchlist", "name": "Watch Locations", "endpoint": "/map/system/watchlist.geojson", "default_visible": True, "point": True, "viewport": True},
-    {"key": "spatial-references", "name": "Regional References", "endpoint": "/map/system/spatial-references.geojson", "default_visible": True, "style": {"color": "#9b7ede"}, "viewport": True},
+    {"key": "spatial-references", "name": "Regional References", "endpoint": "/map/system/spatial-references.geojson", "default_visible": False, "style": {"color": "#9b7ede"}, "viewport": True},
     {"key": "alerts", "name": "Alerts", "endpoint": "/map/system/alerts.geojson?hours=12", "default_visible": True, "point": True, "viewport": True},
-    {"key": "operations", "name": "Operations / Work Items", "endpoint": "/map/system/issues.geojson", "default_visible": True, "point": True, "viewport": True},
+    {"key": "operations", "name": "Operations / Work Items", "endpoint": "/map/system/issues.geojson", "default_visible": False, "point": True, "viewport": True},
     {"key": "event-intelligence", "name": "Event Intelligence", "endpoint": "/map/system/events.geojson", "default_visible": False, "point": True, "viewport": True},
     {"key": "managed-events", "name": "Managed Events", "endpoint": "/map/system/managed-events.geojson", "default_visible": False, "point": True},
     {"key": "transit-intelligence", "name": "Transit Intelligence", "endpoint": "/map/system/transit.geojson", "default_visible": False, "point": True},
@@ -174,6 +174,18 @@ def mapping_center(request: Request, msg: str = ""):
         FROM e WHERE b IS NOT NULL
         """
     )
+    local_bounds = query_one(
+        """
+        SELECT ST_XMin(b) AS minx,ST_YMin(b) AS miny,ST_XMax(b) AS maxx,ST_YMax(b) AS maxy
+        FROM (
+          SELECT ST_Extent(geom) AS b
+          FROM gis_parcels
+          WHERE geom IS NOT NULL
+            AND position('WEEHAWKEN' in upper(coalesce(mun_name,'')))=1
+        ) x
+        WHERE b IS NOT NULL
+        """
+    )
     custom_layers = query_all(
         """
         SELECT l.id,l.layer_key,l.name,l.layer_type,l.source_url,l.attribution,
@@ -188,7 +200,12 @@ def mapping_center(request: Request, msg: str = ""):
     )
     editable_layers = [x for x in custom_layers if x["layer_type"] == "CUSTOM_GEOJSON" and x["active"]]
     alert_sources = query_all(
-        "SELECT DISTINCT source FROM alerts WHERE nullif(trim(source),'') IS NOT NULL ORDER BY source"
+        """SELECT source,count(*) AS total,
+                  count(*) FILTER (WHERE received_at>=now()-interval '24 hours') AS recent_24h
+           FROM alerts
+           WHERE nullif(trim(source),'') IS NOT NULL
+           GROUP BY source
+           ORDER BY source"""
     )
     alert_categories = query_all(
         "SELECT DISTINCT category FROM alerts WHERE nullif(trim(category),'') IS NOT NULL ORDER BY category"
@@ -200,6 +217,7 @@ def mapping_center(request: Request, msg: str = ""):
             "page": "map",
             "msg": msg,
             "bounds": bounds,
+            "local_bounds": local_bounds,
             "system_layers": SYSTEM_LAYERS,
             "custom_layers": custom_layers,
             "editable_layers": editable_layers,
@@ -699,11 +717,15 @@ def map_alerts_geojson(
     active_only: bool = False,
     q: str = "",
     source: str = "",
+    sources: str = "",
     category: str = "",
+    custom_hours: int | None = None,
 ):
     # Keep the older `hours` and `days` URLs working while the map uses the same
     # named history windows as the full Alert search page.
-    if window:
+    if window.strip().lower() == "custom":
+        window_hours = max(1, min(int(custom_hours or 12), 24 * 365))
+    elif window:
         window_hours = ALERT_WINDOWS.get(window.strip().lower(), 12)
     elif days is not None:
         window_hours = max(24, min(int(days), 365) * 24)
@@ -717,9 +739,13 @@ def map_alerts_geojson(
         "coalesce(a.geom,r.geom) IS NOT NULL",
     ]
     if window_hours is not None:
-        where.insert(0, "a.received_at >= now()-(%s * interval '1 hour')")
+        where.insert(0, "coalesce(a.observed_at,a.received_at) >= now()-(%s * interval '1 hour')")
         params.insert(0, window_hours)
-    if source.strip():
+    selected_sources = [item.strip() for item in sources.split(",") if item.strip()]
+    if selected_sources:
+        where.append("upper(a.source)=ANY(%s)")
+        params.append([item.upper() for item in selected_sources])
+    elif source.strip():
         where.append("upper(a.source)=upper(%s)")
         params.append(source.strip())
     if category.strip():
@@ -749,7 +775,7 @@ def map_alerts_geojson(
                     THEN coalesce(r.resolved_label,nullif(a.location->>'label',''),nullif(a.location->>'address',''))
                     ELSE coalesce(nullif(a.location->>'label',''),nullif(a.location->>'address',''),r.resolved_label)
                END AS mapped_address,
-               a.observed_at,a.received_at,a.click_url,
+               a.observed_at,a.received_at,coalesce(a.observed_at,a.received_at) AS activity_at,a.click_url,
                r.status AS resolution_status,r.match_type,r.confidence,
                r.spatial_precision,(a.geom IS NULL) AS approximate,
                ST_AsGeoJSON(coalesce(a.geom,r.geom))::json AS geometry
@@ -776,7 +802,7 @@ def map_alerts_geojson(
           ) m
         ) wm ON true
         WHERE {' AND '.join(where)}
-        ORDER BY a.priority DESC,a.received_at DESC
+        ORDER BY coalesce(a.observed_at,a.received_at) DESC,a.priority DESC,a.received_at DESC
         LIMIT 5000
         """,
         tuple(params),

@@ -140,9 +140,11 @@ def test_sync_success_replaces_only_the_owner_snapshot(monkeypatch,configured):
     monkeypatch.setattr(calendar,'graph_pages',pages)
     assert calendar.sync('gio')['message'].startswith('Outlook refreshed')
     deletes=[p for s,p in statements if s.startswith('DELETE FROM workspace_calendar_events')]
-    assert deletes==[('gio',)]
-    inserts=[p for s,p in statements if 'INSERT INTO workspace_calendar_events' in s]
-    assert len(inserts)==1 and inserts[0][:3]==('gio','meeting','Appointment')
+    assert len(deletes)==1 and deletes[0][0]=='gio' and deletes[0][1]==['meeting']
+    inserts=[(s,p) for s,p in statements if 'INSERT INTO workspace_calendar_events' in s]
+    assert len(inserts)==1 and inserts[0][1][:3]==('gio','meeting','Appointment')
+    assert 'ON CONFLICT(owner_username,event_key) DO UPDATE' in inserts[0][0]
+    assert 'workspace_context_links' in next(s for s,p in statements if s.startswith('DELETE FROM workspace_calendar_events'))
     assert 'sync_error=false' in statements[-1][0] and statements[-1][1]==('gio',)
 
 

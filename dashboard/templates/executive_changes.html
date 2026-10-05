@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <style>
     .change-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.change-list{display:grid;gap:7px}.change-row{border:1px solid #263a4c;background:#101a25;border-radius:9px;padding:10px}.change-title{font-weight:800}.change-meta{font-size:.76rem;color:#97acbc;margin-top:4px}.review-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.review-window{color:#a9bac9;font-size:.82rem}.empty-change{padding:22px;text-align:center;color:#9eb0bf}@media(max-width:850px){.change-grid{grid-template-columns:1fr}.review-bar{display:block}.review-bar form{margin-top:9px}}
-  </style>
+      .attention-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 14px}.attention-card{border:1px solid #334d62;background:#101a25;border-radius:10px;padding:12px;text-decoration:none;color:inherit}.attention-card strong{display:block;font-size:1.35rem;margin:3px 0}.attention-card span{font-size:.72rem;color:#9eb0bf}.attention-card.urgent{border-color:#71434a;background:#25161a}.change-row{position:relative}.change-row>a.stretch{position:absolute;inset:0;border-radius:9px}.change-row:hover{border-color:#496a82;background:#142231}.change-row .change-actions{position:relative;z-index:2;margin-top:7px;display:flex;gap:8px;flex-wrap:wrap}.change-row .change-actions a{font-size:.72rem}.change-time{font-size:.7rem;color:#7890a2;margin-top:4px}.exception-section{margin-bottom:12px}@media(max-width:850px){.attention-grid{grid-template-columns:1fr}.change-grid{grid-template-columns:1fr}.review-bar{display:block}.review-bar form{margin-top:9px}}</style>
 </head>
 <body>
 <header class="topbar"><div class="brand"><div class="eyebrow">REVIEW · CHANGE · EXCEPTION</div><div class="brand-row"><h1>What Changed</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Only what moved since your last review</div></div></header>
@@ -19,20 +19,26 @@
     <form method="post" action="/what-changed/mark-reviewed"><button class="primary-button" type="submit">Mark Everything Reviewed Now</button></form>
   </div>
 
+  <section class="attention-grid" aria-label="Needs your attention">
+    <a class="attention-card {{ 'urgent' if change_counts.delivery_failures else '' }}" href="#delivery-failures"><span>DELIVERY FAILURES</span><strong>{{ change_counts.delivery_failures }}</strong><span>{{ 'Needs review now' if change_counts.delivery_failures else 'No failed notifications' }}</span></a>
+    <a class="attention-card {{ 'urgent' if change_counts.overdue_work else '' }}" href="#overdue-work"><span>OVERDUE / WAITING</span><strong>{{ change_counts.overdue_work }}</strong><span>Open loops that may need a chase</span></a>
+    <a class="attention-card" href="#watch-matches"><span>NEW WATCH MATCHES</span><strong>{{ change_counts.watch_matches }}</strong><span>Confirmed matches since your checkpoint</span></a>
+  </section>
+
   <section class="metrics">
     <div class="metric"><span>Total Changes</span><strong>{{ change_counts.total }}</strong><small>Across tracked executive sources</small></div>
     <div class="metric"><span>Work Items</span><strong>{{ change_counts.issues }}</strong><small>New, updated or closed</small></div>
-    <div class="metric"><span>Alerts</span><strong>{{ change_counts.alerts }}</strong><small>Received since checkpoint</small></div>
+    <div class="metric"><span>Alerts</span><strong>{{ change_counts.alerts }}</strong><small>Activity since checkpoint</small></div>
     <div class="metric"><span>Events</span><strong>{{ change_counts.events }}</strong><small>Regional event intelligence changes</small></div>
   </section>
 
   <div class="change-grid">
     <section class="panel"><div class="panel-head"><div><div class="panel-kicker">COMMAND CENTER</div><h2>Work Item Changes</h2></div><span class="count-pill">{{ changed_issues|length }}</span></div><div class="panel-body change-list">
-      {% for i in changed_issues %}<div class="change-row"><div class="change-title">{{ i.change_type }} · {{ i.title }}</div><div class="change-meta">{{ i.item_type|replace('_',' ') }} · P{{ i.priority }} · {{ i.status }}{% if i.assigned_to %} · {{ i.assigned_to }}{% endif %}{% if i.waiting_on %} · Waiting on {{ i.waiting_on }}{% endif %}</div></div>{% else %}<div class="empty-change">No work item changes.</div>{% endfor %}
+      {% for i in changed_issues %}<div class="change-row"><a class="stretch" href="/context/WORK/{{ i.id }}" aria-label="Open {{ i.title }}"></a><div class="change-title">{{ i.change_type }} · {{ i.title }}</div><div class="change-meta">{{ i.item_type|replace('_',' ') }} · P{{ i.priority }} · {{ i.status }}{% if i.assigned_to %} · {{ i.assigned_to }}{% endif %}{% if i.waiting_on %} · Waiting on {{ i.waiting_on }}{% endif %}</div><div class="change-actions"><a href="/context/WORK/{{ i.id }}" data-cmos-quicklook data-cmos-title="{{ i.title }}">Quick Look</a><a href="/issues?q={{ i.title|urlencode }}">Command Center</a></div></div>{% else %}<div class="empty-change">No work item changes.</div>{% endfor %}
     </div></section>
 
     <section class="panel"><div class="panel-head"><div><div class="panel-kicker">ALERT PIPELINE</div><h2>New Alerts</h2></div><span class="count-pill">{{ changed_alerts|length }}</span></div><div class="panel-body change-list">
-      {% for a in changed_alerts %}<div class="change-row"><div class="change-title">{{ a.source }} · {{ a.title }}</div><div class="change-meta">P{{ a.priority }} · {{ a.category }}{% if a.municipality %} · {{ a.municipality }}{% endif %} · {{ a.received_at.strftime('%m/%d %I:%M %p') if a.received_at else '' }}</div></div>{% else %}<div class="empty-change">No new alerts.</div>{% endfor %}
+      {% for a in changed_alerts %}<div class="change-row"><a class="stretch" href="/context/ALERT/{{ a.id }}" aria-label="Open {{ a.title }}"></a><div class="change-title">{{ a.source }} · {{ a.title }}</div><div class="change-meta">P{{ a.priority }} · {{ a.category }}{% if a.municipality %} · {{ a.municipality }}{% endif %}</div><div class="change-time">Activity {{ a.activity_at.strftime('%m/%d %I:%M %p') if a.activity_at else '' }}{% if a.received_at and a.activity_at and a.received_at != a.activity_at %} · Received {{ a.received_at.strftime('%m/%d %I:%M %p') }}{% endif %}</div><div class="change-actions"><a href="/context/ALERT/{{ a.id }}" data-cmos-quicklook data-cmos-title="{{ a.title }}">Quick Look</a><a href="/map?q={{ a.alert_id|urlencode }}">Map</a></div></div>{% else %}<div class="empty-change">No new alerts.</div>{% endfor %}
     </div></section>
 
     <section class="panel"><div class="panel-head"><div><div class="panel-kicker">EVENT INTELLIGENCE</div><h2>Event Changes</h2></div><span class="count-pill">{{ changed_events|length }}</span></div><div class="panel-body change-list">
@@ -43,6 +49,18 @@
       {% for s in source_warnings %}<div class="change-row"><div class="change-title">{{ s.source_id }} · {{ s.status }}</div><div class="change-meta">{{ s.last_error or 'Source health changed' }}</div></div>{% else %}<div class="empty-change">No new source warnings.</div>{% endfor %}
     </div></section>
   </div>
+
+  <section class="panel exception-section" id="overdue-work"><div class="panel-head"><div><div class="panel-kicker">NEEDS YOUR ATTENTION</div><h2>Overdue / Waiting On</h2></div><span class="count-pill">{{ overdue_work|length }}</span></div><div class="panel-body change-list">
+    {% for i in overdue_work %}<div class="change-row"><a class="stretch" href="/context/WORK/{{ i.id }}"></a><div class="change-title">{{ i.attention_type|replace('_',' ') }} · {{ i.title }}</div><div class="change-meta">P{{ i.priority }} · {{ i.status }}{% if i.assigned_to %} · {{ i.assigned_to }}{% endif %}{% if i.waiting_on %} · Waiting on {{ i.waiting_on }}{% endif %}{% if i.next_action %} · Next: {{ i.next_action }}{% endif %}</div><div class="change-actions"><a href="/context/WORK/{{ i.id }}" data-cmos-quicklook data-cmos-title="{{ i.title }}">Open Context</a></div></div>{% else %}<div class="empty-change">No overdue follow-ups or stale Waiting On items.</div>{% endfor %}
+  </div></section>
+
+  <section class="panel exception-section" id="watch-matches"><div class="panel-head"><div><div class="panel-kicker">WATCH INTELLIGENCE</div><h2>New Watch Matches</h2></div><span class="count-pill">{{ watch_matches|length }}</span></div><div class="panel-body change-list">
+    {% for m in watch_matches %}<div class="change-row"><div class="change-title">{{ m.display_name }} → {{ m.title }}</div><div class="change-meta">{{ m.source }} · P{{ m.priority }}{% if m.match_reason %} · {{ m.match_reason }}{% endif %}</div><div class="change-time">Matched {{ m.matched_at.strftime('%m/%d %I:%M %p') if m.matched_at else '' }}</div><div class="change-actions"><a href="/context/WATCH/{{ m.watch_uuid }}" data-cmos-quicklook data-cmos-title="{{ m.display_name }}">Watch</a><a href="/context/ALERT/{{ m.alert_uuid }}" data-cmos-quicklook data-cmos-title="{{ m.title }}">Alert</a></div></div>{% else %}<div class="empty-change">No new Watch matches.</div>{% endfor %}
+  </div></section>
+
+  <section class="panel exception-section" id="delivery-failures"><div class="panel-head"><div><div class="panel-kicker">DELIVERY EXCEPTIONS</div><h2>Failed Notifications</h2></div><span class="count-pill">{{ delivery_failures|length }}</span></div><div class="panel-body change-list">
+    {% for d in delivery_failures %}<div class="change-row"><div class="change-title">{{ d.source }} · {{ d.title }}</div><div class="change-meta">{{ d.subscriber_name or 'Recipient' }}{% if d.ntfy_topic %} · {{ d.ntfy_topic }}{% endif %}{% if d.error_message %} · {{ d.error_message }}{% endif %}</div><div class="change-time">{{ d.attempted_at.strftime('%m/%d %I:%M %p') if d.attempted_at else '' }}</div><div class="change-actions"><a href="/context/ALERT/{{ d.alert_uuid }}" data-cmos-quicklook data-cmos-title="{{ d.title }}">Alert Context</a><a href="/deliveries">Notification History</a></div></div>{% else %}<div class="empty-change">No failed notifications since your checkpoint.</div>{% endfor %}
+  </div></section>
 </main>
 </body>
 </html>

@@ -38,7 +38,7 @@
     {% for key,label in views %}<a href="/issues?state={{ key }}" class="{{ 'active' if state == key else '' }}">{{ label }}</a>{% endfor %}
   </nav>
 
-  <details class="panel command-capture" style="margin-bottom:14px" {% if prefill %}open{% endif %}>
+  <details id="new-work" class="panel command-capture" style="margin-bottom:14px" {% if prefill %}open{% endif %}>
     <summary>{% if prefill %}+ Track Alert as Work Item{% else %}+ New Work Item{% endif %} <span class="muted" style="font-weight:500">{% if prefill %}Review the Alert details, assign it, then create the Work Item.{% else %}Capture something to do, decide, chase, communicate or keep accountable.{% endif %}</span></summary>
     <div class="panel-body form-panel">
       <form method="post" action="/issues/create" class="watch-form">
@@ -75,7 +75,7 @@
 
       <div class="command-list">
       {% for i in items %}
-        <details class="work-card {% if i.status in ['RESOLVED','CLOSED'] %}inactive{% endif %}">
+        <details class="work-card {% if i.status in ['RESOLVED','CLOSED'] %}inactive{% endif %}" {% if focus_id and i.id == focus_id %}open{% endif %}>
           <summary>
             <div class="work-title">
               <span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span>
@@ -98,6 +98,7 @@
             </div>
           </summary>
           <div class="work-card-body">
+            <div class="quick-actions"><a class="secondary-button" href="/context/WORK/{{ i.id }}" data-cmos-quicklook data-cmos-title="{{ i.title|e }}">Open Context</a></div>
             {% if i.waiting_on %}<div class="quick-actions"><form method="post" action="/issues/{{ i.id }}/waiting/chased"><button class="secondary-button" type="submit">Chased Today</button></form><form method="post" action="/issues/{{ i.id }}/waiting/response"><button class="secondary-button" type="submit">Response Received</button></form></div>{% endif %}
             {% if not i.waiting_on and i.status not in ['RESOLVED','CLOSED'] %}
             <details class="optional-block" style="margin-bottom:12px">

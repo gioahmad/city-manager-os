@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+REPO="${CMOS_REPO:-/opt/city-manager-os}"
+MODE="${1:-audit}"
+cd "$REPO"
+[[ "$MODE" == "audit" || "$MODE" == "apply" ]] || { echo "usage: $0 [audit|apply]"; exit 2; }
+
+db(){
+  docker exec -i citymanager-postgis sh -lc 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+}
+
+echo "=== GIS CLEANUP PREFLIGHT ==="
+echo "Mode: $MODE"
+
+# Production must exist and statewide dataset versions must be ACTIVE.
+STATE="$(db -At <<'SQL'
+SELECT
+  to_regclass('public.gis_parcels') IS NOT NULL,
+  to_regclass('public.gis_addresses') IS NOT NULL,
+  coalesce((SELECT bool_and(upper(status)='ACTIVE')
+            FROM gis_dataset_versions
+            WHERE dataset_id LIKE 'NJOGIS_%'),false);
+SQL
+)"
+echo "production_state=$STATE"
+[[ "$STATE" == "t|t|t" ]] || { echo "Refusing cleanup: production statewide GIS is not fully ACTIVE"; exit 1; }
+
+# Do not clean while a refresh/import is active.
+RUNNING="$(db -At <<'SQL'
+SELECT count(*) FROM pg_stat_activity
+WHERE pid<>pg_backend_pid()
+  AND state<>'idle'
+  AND (
+    query ILIKE '%stg_nj_%'
+    OR query ILIKE '%stg_hudson_%'
+    OR query ILIKE '%ogr2ogr%'
+  );
+SQL
+)"
+echo "active_staging_sessions=$RUNNING"
+[[ "$RUNNING" == "0" ]] || { echo "Refusing cleanup: GIS staging/import activity is running"; exit 1; }
+
+echo
+echo "Candidate tables:"
+db <<'SQL'
+SELECT c.relname AS table_name,pg_size_pretty(pg_total_relation_size(c.oid)) AS total_size
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname='public' AND c.relkind='r'
+  AND (c.relname LIKE 'stg_nj_%' OR c.relname LIKE 'stg_hudson_%')
+ORDER BY pg_total_relation_size(c.oid) DESC;
+SQL
+
+[[ "$MODE" == "apply" ]] || {
+  echo
+  echo "AUDIT ONLY. Run '$0 apply' only after reviewing the candidates above."
+  exit 0
+}
+
+echo
+echo "Creating a fresh validated database backup before removing staging..."
+bash deploy/postgis/backup.sh
+
+echo
+echo "Dropping staging tables only. Production gis_* tables are untouched."
+db <<'SQL'
+DROP TABLE IF EXISTS
+  stg_nj_parcels,
+  stg_nj_addresses,
+  stg_nj_parcel_blocks,
+  stg_nj_road_aliases,
+  stg_nj_landmark_aliases,
+  stg_hudson_parcels,
+  stg_hudson_addresses;
+SQL
+
+echo
+echo "GIS staging cleanup complete."

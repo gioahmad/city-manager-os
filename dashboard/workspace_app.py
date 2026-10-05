@@ -8,6 +8,7 @@ import re
 import secrets
 from datetime import date, datetime, timezone
 from uuid import UUID, uuid4
+from urllib.parse import quote_plus
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Form, HTTPException, Request
@@ -23,7 +24,7 @@ from workspace_engine import FAMILY, RELATIONS, briefing_dates, derive_relations
 KINDS={'PERSON','ORGANIZATION','BUILDING','STREET','PROJECT','DOCUMENT'}
 DEFAULT_CONFIG={'name':'City Manager OS','organization':'Weehawken','timezone':'America/New_York',
                 'template':'CITY','personal':True,'water_ml':None,'protein_g':None}
-WINDOWS={'6h':'6 hours','12h':'12 hours','24h':'24 hours','7d':'7 days','30d':'30 days','all':None}
+WINDOWS={'1h':'1 hour','2h':'2 hours','4h':'4 hours','6h':'6 hours','12h':'12 hours','24h':'24 hours','3d':'3 days','7d':'7 days','30d':'30 days','all':None}
 
 
 def config():
@@ -94,13 +95,50 @@ def attributes(data):
 def intelligence(window='24h'):
     if window not in WINDOWS:
         raise HTTPException(400,'Choose a valid time window')
-    where='TRUE' if window=='all' else 'received_at >= now()-%s::interval'
-    rows=query_all(f'''SELECT id,alert_id,title,source,municipality,priority,status,received_at
-        FROM alerts WHERE {where} ORDER BY received_at DESC LIMIT 80''',
+    where='TRUE' if window=='all' else 'coalesce(observed_at,received_at) >= now()-%s::interval'
+    rows=query_all(f'''SELECT id,alert_id,title,source,municipality,priority,status,
+               coalesce(observed_at,received_at) AS activity_at,received_at
+        FROM alerts WHERE {where}
+        ORDER BY coalesce(observed_at,received_at) DESC,received_at DESC LIMIT 80''',
         () if window=='all' else (WINDOWS[window],))
     health=query_all('''SELECT source_id,status,last_success_at,last_event_at FROM source_health
         ORDER BY source_id LIMIT 100''')
     return rows,health
+
+
+@app.get('/intake')
+def executive_intake_route(
+    kind: str = '',
+    id: str = '',
+    intake_source: str = '',
+    intake_q: str = '',
+    bucket: str = '',
+    scope: str = '',
+):
+    params=['view=inbox']
+    if kind:
+        params.append('kind='+quote_plus(kind.strip().upper()))
+    if id:
+        params.append('id='+quote_plus(id.strip()))
+    if intake_source:
+        params.append('intake_source='+quote_plus(intake_source.strip().upper()))
+    if intake_q:
+        params.append('intake_q='+quote_plus(intake_q.strip()[:500]))
+    if bucket in {'open','action','all','handled'}:
+        params.append('bucket='+quote_plus(bucket))
+    if scope in {'both','personal','work'}:
+        params.append('scope='+quote_plus(scope))
+    return RedirectResponse('/workspace?'+'&'.join(params),status_code=303)
+
+
+@app.get('/library')
+def workspace_library_route(kind: str = '', id: str = ''):
+    params=['view=library']
+    if kind:
+        params.append('kind='+quote_plus(kind.strip().upper()))
+    if id:
+        params.append('id='+quote_plus(id.strip()))
+    return RedirectResponse('/workspace?'+'&'.join(params),status_code=303)
 
 
 @app.get('/workspace',response_class=HTMLResponse)
@@ -182,7 +220,7 @@ def workspace_state(request: Request, display: bool=False, period: str='day', wi
         from workspace_calendar import status
         data['calendar']=status(owner,lookup=query_one)
     if wants('today'):
-        data['appointments']=query_all("""SELECT title,starts_at,ends_at,location,all_day,outlook_url
+        data['appointments']=query_all("""SELECT id,title,starts_at,ends_at,location,all_day,outlook_url
             FROM workspace_calendar_events WHERE owner_username=%s AND ends_at>=now()
             ORDER BY starts_at LIMIT 12""",(owner,))
     if wants('intelligence'):

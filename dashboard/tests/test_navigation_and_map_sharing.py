@@ -16,14 +16,15 @@ sys.path.insert(0, str(DASHBOARD_ROOT))
 
 def test_navigation_is_task_grouped_without_removing_destinations():
     nav = (TEMPLATES / "nav.html").read_text()
-    styles = (DASHBOARD_ROOT / "static" / "command_nav.css").read_text()
+    macro = (DASHBOARD_ROOT / "static" / "macro_layer.css").read_text()
 
-    assert "Admin / More" not in nav
-    assert "<summary>Operations</summary>" in nav
-    assert "<summary>Control Center</summary>" in nav
-    assert 'class="nav-group nav-operations' in nav
-    assert 'class="nav-group nav-control' in nav
-    assert nav.count('href="/integrations"') == 2
+    assert 'class="cmos-rail"' in nav
+    assert 'class="cmos-global-bar"' in nav
+    assert 'data-cmos-command-trigger' in nav
+    assert "Executive Intake" in nav
+    assert 'href="/intake"' in nav
+    assert "Quick Capture Inbox" in nav
+    assert "/workspace#inbox" not in nav
 
     for route in (
         "/my-day",
@@ -31,12 +32,9 @@ def test_navigation_is_task_grouped_without_removing_destinations():
         "/inbox",
         "/map",
         "/alerts",
-        "/search",
         "/staff-admin",
         "/schedule",
         "/event-intelligence",
-        "/today-board",
-        "/today-board/setup",
         "/transit",
         "/watchlist",
         "/subscribers",
@@ -50,8 +48,8 @@ def test_navigation_is_task_grouped_without_removing_destinations():
     for retired_route in ("/modules", "/rules", "/routing", "/alert-admin"):
         assert f'href="{retired_route}"' not in nav
 
-    assert ".desktop-nav .nav-control{margin-left:auto}" in styles
-    assert ".mobile-menu{max-height:calc(100vh - 96px);overflow-y:auto}" in styles
+    assert ".cmos-rail{" in macro
+    assert ".cmos-global-bar{" in macro
 
 
 def test_navigation_template_compiles():
@@ -147,7 +145,7 @@ def test_alert_layer_endpoint_applies_every_display_filter(monkeypatch):
 
     assert response.status_code == 200
     assert json.loads(response.body)["features"] == []
-    assert "a.received_at >= now()-(%s * interval '1 hour')" in captured["sql"]
+    assert "coalesce(a.observed_at,a.received_at) >= now()-(%s * interval '1 hour')" in captured["sql"]
     assert "upper(a.source)=upper(%s)" in captured["sql"]
     assert "upper(a.category)=upper(%s)" in captured["sql"]
     assert "a.status <> 'RESOLVED'" in captured["sql"]

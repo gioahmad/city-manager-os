@@ -11,7 +11,7 @@
 {% include "nav.html" %}
 <main>
   {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
-  <p><a href="/spatial-reference">← Back to Reference Catalog</a> · <a href="/map">Open Mapping Center</a> · <a href="/api/spatial-reference/{{ entity.entity_id }}/impact-buffer.geojson?radius_ft={{ radius_ft }}">Open Impact Buffer GeoJSON</a></p>
+  <p><a href="/spatial-reference">← Back to Reference Catalog</a> · <a href="/map" data-cmos-quicklook data-cmos-title="Mapping Center">Open Mapping Center</a> · <a href="/api/spatial-reference/{{ entity.entity_id }}/impact-buffer.geojson?radius_ft={{ radius_ft }}">Open Impact Buffer GeoJSON</a></p>
   <section class="metrics">
     <div class="metric"><span>Source</span><strong>{{ entity.source_provider }}</strong><small>{{ 'Authoritative' if entity.authoritative else 'Managed reference' }}</small></div>
     <div class="metric"><span>Importance</span><strong>{{ entity.importance_tier }}</strong><small>1 highest, 5 lowest</small></div>

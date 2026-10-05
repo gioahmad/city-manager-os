@@ -52,11 +52,22 @@ def _parse_event_checklist(raw: str) -> str:
 
 
 @app.get("/schedule", response_class=HTMLResponse)
-def schedule_page(request: Request, state: str = "upcoming", q: str = "", msg: str = ""):
+def schedule_page(request: Request, state: str = "upcoming", q: str = "", msg: str = "", focus: str = ""):
     where = []
     params = []
+    focus_id = None
+    if focus.strip():
+        try:
+            focus_id = uuid.UUID(focus.strip())
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid Event record identifier") from exc
+        state = "all"
+        where.append("id=%s")
+        params.append(focus_id)
 
-    if state == "upcoming":
+    if focus_id is not None:
+        pass
+    elif state == "upcoming":
         where.append("active = true AND event_status NOT IN ('COMPLETED','CANCELLED') AND COALESCE(ends_at, starts_at + interval '2 hours') >= now()")
     elif state == "week":
         where.append("""
@@ -212,6 +223,7 @@ def schedule_page(request: Request, state: str = "upcoming", q: str = "", msg: s
             "q": q,
             "msg": msg,
             "page": "schedule",
+            "focus_id": focus_id,
         },
     )
 
@@ -552,41 +564,29 @@ def schedule_toggle(event_id: uuid.UUID):
 
 
 @app.post("/my-day/reviewed")
-def my_day_mark_reviewed():
-    response = RedirectResponse(
-        url="/my-day",
-        status_code=303,
+def my_day_mark_reviewed(request: Request):
+    user=str(getattr(request.state,"cmos_user",None) or "local").strip() or "local"
+    execute(
+        """INSERT INTO executive_review_state(username,last_reviewed_at,updated_at)
+           VALUES(%s,now(),now())
+           ON CONFLICT(username) DO UPDATE
+           SET last_reviewed_at=EXCLUDED.last_reviewed_at,updated_at=now()""",
+        (user,),
     )
-    response.set_cookie(
-        "cmos_my_day_reviewed",
-        datetime.now().astimezone().isoformat(),
-        max_age=31536000,
-        httponly=True,
-        samesite="lax",
-    )
-    return response
+    return RedirectResponse(url="/my-day",status_code=303)
 
 
 @app.get("/my-day", response_class=HTMLResponse)
 def my_day(request: Request):
-    raw_reviewed = request.cookies.get(
-        "cmos_my_day_reviewed",
-        "",
+    user=str(getattr(request.state,"cmos_user",None) or "local").strip() or "local"
+    stored_review=query_one(
+        "SELECT last_reviewed_at FROM executive_review_state WHERE username=%s",
+        (user,),
     )
-
-    try:
-        review_since = datetime.fromisoformat(
-            raw_reviewed
-        )
-        if review_since.tzinfo is None:
-            raise ValueError(
-                "review timestamp requires timezone"
-            )
-    except (TypeError, ValueError):
-        review_since = (
-            datetime.now().astimezone()
-            - timedelta(hours=24)
-        )
+    review_since=(stored_review or {}).get("last_reviewed_at")
+    review_is_default=not bool(review_since)
+    if review_since is None:
+        review_since=datetime.now().astimezone()-timedelta(hours=24)
 
     schedule = query_all(
         """
@@ -641,6 +641,7 @@ def my_day(request: Request):
               ELSE alert_id
             END
           )
+            id,
             alert_id,
             source,
             category,
@@ -651,6 +652,7 @@ def my_day(request: Request):
             municipality,
             event_action,
             click_url,
+            observed_at,
             received_at
           FROM alerts
           WHERE status <> 'RESOLVED'
@@ -674,9 +676,11 @@ def my_day(request: Request):
                      )
               ELSE alert_id
             END,
+            coalesce(observed_at,received_at) DESC,
             received_at DESC
         )
         SELECT
+          id,
           alert_id,
           source,
           category,
@@ -687,12 +691,16 @@ def my_day(request: Request):
           municipality,
           event_action,
           click_url,
+          coalesce(observed_at,received_at) AT TIME ZONE
+            'America/New_York'
+            AS activity_local,
           received_at AT TIME ZONE
             'America/New_York'
             AS received_local
         FROM current_alerts
         ORDER BY
           priority DESC,
+          coalesce(observed_at,received_at) DESC,
           received_at DESC
         LIMIT 8
         """
@@ -1105,13 +1113,13 @@ def my_day(request: Request):
 
           SELECT
             'ALERT'::text,
-            alert_id::text,
+            id::text,
             title,
             source::text,
             priority,
-            received_at
+            coalesce(observed_at,received_at)
           FROM alerts
-          WHERE received_at > %s
+          WHERE coalesce(observed_at,received_at) > %s
             AND source NOT IN (
               'EXEC_ASSISTANT',
               'SYSTEM_TEST'
@@ -1339,7 +1347,7 @@ def my_day(request: Request):
             (
               SELECT count(*)
               FROM alerts
-              WHERE received_at > %s
+              WHERE coalesce(observed_at,received_at) > %s
                 AND source NOT IN (
                   'EXEC_ASSISTANT',
                   'SYSTEM_TEST'
@@ -1450,7 +1458,7 @@ def my_day(request: Request):
 
     review_state = {
         "since": review_since.astimezone(),
-        "is_default": not bool(raw_reviewed),
+        "is_default": review_is_default,
     }
 
     return templates.TemplateResponse(

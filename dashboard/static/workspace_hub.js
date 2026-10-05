@@ -2,9 +2,9 @@
   'use strict';
   const $=id=>document.getElementById(id),readonly=document.body.dataset.readonly==='true';
   const csrf=document.body.dataset.csrf;
-  let api,view,controller,detailController,pickerController,sequence=0,detailSequence=0,selected=null,items=[],more=false,busy=false,timer;
-  const labels={MAIL:'Email',CONTACT:'Contact import',DOCUMENT:'File',BRAIN:'Brain',TASK:'Personal task',WORK:'Work',REQUEST:'Request',ALERT:'Area alert',RECORD:'Record'};
-  const paths={MAIL:'M4 5h16v14H4z M4 6l8 6 8-6',CONTACT:'M12 3a4 4 0 1 0 0 8 4 4 0 1 0 0-8 M4 21v-3a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v3',DOCUMENT:'M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6',BRAIN:'M12 3v18 M3 12h18 M5 5l14 14 M5 19L19 5',TASK:'M9 3H4v17h16v-8 M8 10l4 4 9-10',WORK:'M4 7h16v14H4z M8 7V3h8v4 M4 13h16 M10 11v4h4v-4',REQUEST:'M3 4h18v13H9l-6 4z M7 8h10 M7 12h7',ALERT:'M12 3L2 21h20z M12 9v5 M12 17v1',RECORD:'M12 2l9 5v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10'};
+  let api,view,controller,detailController,pickerController,sequence=0,detailSequence=0,selected=null,items=[],more=false,busy=false,timer,pendingOpen=null;
+  const labels={MAIL:'Email',CALENDAR:'Calendar',CONTACT:'Contact import',DOCUMENT:'File',BRAIN:'Brain',TASK:'Personal task',WORK:'Work',EVENT:'Event',REQUEST:'Request',ALERT:'Area alert',RECORD:'Record'};
+  const paths={MAIL:'M4 5h16v14H4z M4 6l8 6 8-6',CALENDAR:'M5 4h14v16H5z M8 2v4 M16 2v4 M5 9h14 M8 13h3 M13 13h3 M8 16h3',CONTACT:'M12 3a4 4 0 1 0 0 8 4 4 0 1 0 0-8 M4 21v-3a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v3',DOCUMENT:'M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6',BRAIN:'M12 3v18 M3 12h18 M5 5l14 14 M5 19L19 5',TASK:'M9 3H4v17h16v-8 M8 10l4 4 9-10',WORK:'M4 7h16v14H4z M8 7V3h8v4 M4 13h16 M10 11v4h4v-4',EVENT:'M5 4h14v16H5z M8 2v4 M16 2v4 M5 9h14',REQUEST:'M3 4h18v13H9l-6 4z M7 8h10 M7 12h7',ALERT:'M12 3L2 21h20z M12 9v5 M12 17v1',RECORD:'M12 2l9 5v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10'};
   function node(tag,value,cls) {const n=document.createElement(tag);if(value!==undefined)n.textContent=String(value);if(cls)n.className=cls;return n;}
   function button(label,fn,cls='') {const b=node('button',label,cls);b.type='button';b.addEventListener('click',()=>safe(fn));return b;}
   function link(label,url) {const a=node('a',label,'button');a.href=url;return a;}
@@ -28,7 +28,14 @@
       items=append?[...items,...data.items]:data.items;more=data.has_more;renderList();
       $('local-answer-status').textContent=data.local_answers?'Local answers available':'Source evidence available · local model optional';
       $('library-ask').querySelector('button').textContent=data.local_answers?'Ask with sources':'Find evidence';
-      if(selected){const row=items.find(r=>r.id===selected.id&&r.kind===selected.kind);if(row)await open(row,false);else closePreview();}
+      if(selected&&!pendingOpen){const row=items.find(r=>r.id===selected.id&&r.kind===selected.kind);if(row)await open(row,false);else closePreview();}
+      if(!append&&pendingOpen){
+        const wanted=pendingOpen;
+        pendingOpen=null;
+        const existing=items.find(r=>r.kind===wanted.kind&&r.id===wanted.id);
+        if(existing)await open(existing,true);
+        else await openExact(wanted.kind,wanted.id);
+      }
       schedulePoll();
       return data;
     } catch(e) {if(e.name!=='AbortError')throw e;} finally {if(version===sequence)$('loading-indicator').hidden=true;}
@@ -39,7 +46,7 @@
     const processing=items.some(r=>r.kind==='DOCUMENT'&&['QUEUED','PROCESSING'].includes(r.status));
     timer=setTimeout(async()=>{
       if(view!==current)return;
-      const editing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||$(view+'-preview').querySelector('.hub-task-form:not([hidden]),.context-picker');
+      const editing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||$(view+'-preview').querySelector('.hub-task-form:not([hidden]),.hub-event-form:not([hidden]),.context-picker');
       if(!document.hidden&&!busy&&!editing&&items.length<=60)await safe(()=>load(current,true));
       else schedulePoll();
     },processing?6000:60000);
@@ -66,6 +73,14 @@
     const p=node('p','Choose a record.','preview-empty');p.append(node('br'),node('span','Its source, follow-ups, and connections appear here.'));$(view+'-preview').replaceChildren(p);
     renderList();
   }
+  async function openExact(kind,id) {
+    detailController?.abort();detailController=new AbortController();const version=++detailSequence,current=view;
+    const data=await json('/workspace/api/hub/detail/'+encodeURIComponent(kind)+'/'+encodeURIComponent(id),{signal:detailController.signal});
+    if(version!==detailSequence||view!==current)return;
+    selected={kind:data.item.kind,id:data.item.id,title:data.item.title,status:data.item.status,visibility:data.item.visibility,route:data.item.route,handled:false};
+    $(view+'-layout').classList.add('preview-open');renderList();renderPreview(data);
+    if(window.matchMedia('(max-width:900px)').matches)$(view+'-preview').scrollIntoView({block:'start'});
+  }
   async function open(row,focus=true) {
     selected=row;detailController?.abort();detailController=new AbortController();const version=++detailSequence,current=view;
     $(view+'-layout').classList.add('preview-open');renderList();
@@ -90,8 +105,8 @@
     } finally {busy=false;document.body.classList.remove('hub-saving');}
   }
   function renderPreview(data) {
-    const {item,links,suggestions}=data,target=$(view+'-preview');target.replaceChildren();
-    const row=items.find(r=>r.kind===item.kind&&r.id===item.id) || {};
+    const {item,links,suggestions,inbox_state={}}=data,target=$(view+'-preview');target.replaceChildren();
+    const row=items.find(r=>r.kind===item.kind&&r.id===item.id) || {handled:Boolean(inbox_state.handled),snoozed_until:inbox_state.snoozed_until};
     const head=node('div',undefined,'preview-top');head.append(button('← Back',()=>closePreview(),'preview-back'),node('span',item.visibility==='PRIVATE'?'Private · only you':'Internal work','badge'));target.append(head);
     target.append(node('span',labels[item.kind],'eyebrow'),node('h2',item.title,'preview-title'),node('p',time(item.updated_at)+' · '+item.status.replaceAll('_',' ').toLowerCase(),'muted small'));
     const meta=item.metadata;
@@ -103,12 +118,24 @@
     const actions=node('div',undefined,'preview-actions');
     if(!readonly){
       actions.append(button('Make a follow-up',()=>{const form=target.querySelector('.hub-task-form');form.hidden=!form.hidden;if(!form.hidden)form.elements.title.focus();},'primary'));
+      if(['MAIL','CALENDAR'].includes(item.kind)){
+        actions.append(button('Bring into Work',()=>act('WORK',{title:item.title,item_type:'TASK',priority:3,next_action:'Review and determine the next municipal action.'})));
+        actions.append(button('Add to Brain',()=>act('BRAIN',{body:item.body||item.title})));
+        if(item.kind==='CALENDAR')actions.append(button('Bring into Events',()=>act('EVENT')));
+        else actions.append(button('Create Event',()=>{const form=target.querySelector('.hub-event-form');form.hidden=!form.hidden;if(!form.hidden)form.elements.starts_at.focus();}));
+      }
       actions.append(button(row.handled?'Return to inbox':'Mark handled',()=>act('HANDLE',{handled:!row.handled})));
+      if(!row.handled)actions.append(button('Snooze',()=>{const raw=prompt('Snooze for how many hours?','24');if(raw===null)return;const hours=Number(raw);if(!Number.isFinite(hours)||hours<1)throw new Error('Enter at least 1 hour.');return act('SNOOZE',{hours:Math.round(hours)});}));
       if(item.kind==='CONTACT'&&!meta.entity_id)actions.append(button('Import as private person',()=>act('IMPORT_CONTACT')));
       if(item.kind==='DOCUMENT'&&['FAILED','NEEDS_OCR'].includes(item.status))actions.append(button('Retry processing',()=>act('RETRY')));
     }
     if(item.kind==='DOCUMENT')actions.append(link('Download original ↗','/workspace/documents/'+item.id+'/download'));
-    else if(item.kind!=='MAIL'&&item.kind!=='CONTACT')actions.append(link('Open full controls ↗',item.kind==='WORK'?'/issues?q='+encodeURIComponent(item.title):item.route));
+    else if(item.kind==='WORK')actions.append(link('Open editable Work ↗','/issues?focus='+encodeURIComponent(item.id)+'&state=all'));
+    else if(item.kind==='EVENT')actions.append(link('Open editable Event ↗','/schedule?focus='+encodeURIComponent(item.id)+'&state=all'));
+    else if(item.kind==='ALERT'&&meta.alert_id)actions.append(link('Open Alert controls ↗','/alerts?q='+encodeURIComponent(meta.alert_id)+'&window=all&state=all'));
+    else if(item.kind==='REQUEST'&&meta.work_id)actions.append(link('Open related Work ↗','/issues?focus='+encodeURIComponent(meta.work_id)+'&state=all'));
+    else if(!['MAIL','CALENDAR','CONTACT','RECORD','TASK'].includes(item.kind)&&item.route)actions.append(link('Open controls ↗',item.route));
+    actions.append(link('Open full record ↗','/context/'+item.kind+'/'+item.id));
     if(meta.outlook_url){try{const u=new URL(meta.outlook_url);if(u.protocol==='https:'){const a=link('Open in Outlook ↗',u.href);a.target='_blank';a.rel='noopener noreferrer';actions.append(a);}}catch{}}
     target.append(actions);
     if(!readonly){
@@ -116,6 +143,15 @@
       const title=node('label','Private follow-up'),input=node('input');input.name='title';input.required=true;input.maxLength=500;input.value=item.title.slice(0,500);title.append(input);
       const due=node('label','Due date (optional)'),date=node('input');date.name='due_date';date.type='date';due.append(date);
       form.append(title,due,node('button','Create linked task','primary'));form.addEventListener('submit',e=>{e.preventDefault();safe(()=>act('TASK',Object.fromEntries(new FormData(form).entries())));});target.append(form);
+      if(item.kind==='MAIL'){
+        const eventForm=node('form',undefined,'hub-event-form');eventForm.hidden=true;
+        const startLabel=node('label','Event start'),start=document.createElement('input');start.name='starts_at';start.type='datetime-local';start.required=true;startLabel.append(start);
+        const endLabel=node('label','Event end (optional)'),end=document.createElement('input');end.name='ends_at';end.type='datetime-local';endLabel.append(end);
+        const locationLabel=node('label','Location (optional)'),location=document.createElement('input');location.name='location';location.maxLength=500;locationLabel.append(location);
+        eventForm.append(startLabel,endLabel,locationLabel,node('button','Create linked event','primary'));
+        eventForm.addEventListener('submit',e=>{e.preventDefault();safe(()=>act('EVENT',Object.fromEntries(new FormData(eventForm).entries())));});
+        target.append(eventForm);
+      }
     }
     if(item.kind==='DOCUMENT')renderProfile(target,meta.profile,item.status,meta.error);
     else if(item.kind==='CONTACT'||item.kind==='RECORD')renderAttributes(target,meta.attributes);
@@ -169,6 +205,18 @@
   }
   function init(callbacks) {
     api=callbacks;
+    const incoming=new URLSearchParams(location.search);
+    const requestedKind=(incoming.get('kind')||'').toUpperCase(),requestedId=incoming.get('id')||'';
+    if(requestedKind&&requestedId)pendingOpen={kind:requestedKind,id:requestedId};
+    const inboxFilters=$('inbox-filters');
+    if(inboxFilters){
+      const source=incoming.get('intake_source'),query=incoming.get('intake_q'),
+            bucket=incoming.get('bucket'),scope=incoming.get('scope');
+      if(source&&inboxFilters.elements.source)inboxFilters.elements.source.value=source;
+      if(query&&inboxFilters.elements.q)inboxFilters.elements.q.value=query;
+      if(bucket&&['open','action','all','handled'].includes(bucket)&&inboxFilters.elements.bucket)inboxFilters.elements.bucket.value=bucket;
+      if(scope&&['both','personal','work'].includes(scope)&&inboxFilters.elements.scope)inboxFilters.elements.scope.value=scope;
+    }
     for(const name of ['inbox','library']){
       const form=$(name+'-filters');let debounce;
       form.addEventListener('submit',e=>{e.preventDefault();safe(()=>load(name,true));});

@@ -167,10 +167,11 @@ def _change_window(request: Request) -> dict[str, Any]:
 
     alerts = query_all(
         """
-        SELECT alert_id,source,category,title,priority,status,municipality,received_at
+        SELECT id,alert_id,source,category,title,priority,status,municipality,
+               coalesce(observed_at,received_at) AS activity_at,received_at
         FROM alerts
-        WHERE received_at >= %s
-        ORDER BY received_at DESC
+        WHERE coalesce(observed_at,received_at) >= %s
+        ORDER BY coalesce(observed_at,received_at) DESC,received_at DESC
         LIMIT 60
         """,
         (cutoff,),
@@ -202,19 +203,80 @@ def _change_window(request: Request) -> dict[str, Any]:
         (cutoff,),
     )
 
+    watch_matches = query_all(
+        """
+        SELECT m.id,m.matched_at,m.match_type,m.match_reason,
+               w.id AS watch_uuid,w.watch_id,w.display_name,
+               a.id AS alert_uuid,a.alert_id,a.title,a.source,a.priority,
+               coalesce(a.observed_at,a.received_at) AS activity_at
+        FROM alert_watch_matches m
+        JOIN watch_items w ON w.id=m.watch_item_id
+        JOIN alerts a ON a.id=m.alert_id
+        WHERE m.matched_at >= %s
+        ORDER BY m.matched_at DESC
+        LIMIT 60
+        """,
+        (cutoff,),
+    )
+
+    delivery_failures = query_all(
+        """
+        SELECT d.id,d.attempted_at,d.error_message,d.ntfy_topic,
+               a.id AS alert_uuid,a.alert_id,a.title,a.source,
+               s.name AS subscriber_name
+        FROM deliveries d
+        JOIN alerts a ON a.id=d.alert_id
+        LEFT JOIN subscribers s ON s.id=d.subscriber_id
+        WHERE d.attempted_at >= %s AND upper(d.status)='FAILED'
+        ORDER BY d.attempted_at DESC
+        LIMIT 40
+        """,
+        (cutoff,),
+    )
+
+    overdue_work = query_all(
+        """
+        SELECT id,title,item_type,priority,status,assigned_to,waiting_on,next_action,due_at,follow_up_at,
+               CASE
+                 WHEN due_at IS NOT NULL AND due_at < now() THEN 'DUE'
+                 WHEN follow_up_at IS NOT NULL AND follow_up_at < now() THEN 'FOLLOW_UP'
+                 WHEN nullif(trim(waiting_on),'') IS NOT NULL THEN 'WAITING'
+                 ELSE 'ATTENTION'
+               END AS attention_type
+        FROM issues
+        WHERE status NOT IN ('RESOLVED','CLOSED','CANCELLED','DONE')
+          AND (
+            (due_at IS NOT NULL AND due_at < now())
+            OR (follow_up_at IS NOT NULL AND follow_up_at < now())
+            OR (nullif(trim(waiting_on),'') IS NOT NULL AND updated_at < now()-interval '24 hours')
+          )
+        ORDER BY priority DESC,
+                 least(coalesce(due_at,'infinity'::timestamptz),coalesce(follow_up_at,'infinity'::timestamptz)),
+                 updated_at
+        LIMIT 50
+        """
+    )
+
     counts = {
         "issues": len(changed_issues),
         "alerts": len(alerts),
         "events": len(events),
         "source_warnings": len(source_warnings),
+        "watch_matches": len(watch_matches),
+        "delivery_failures": len(delivery_failures),
+        "overdue_work": len(overdue_work),
     }
-    counts["total"] = sum(counts.values())
+    counts["total"] = counts["issues"] + counts["alerts"] + counts["events"] + counts["source_warnings"]
+    counts["needs_attention"] = len(delivery_failures) + len(overdue_work) + len([a for a in alerts if int(a.get("priority") or 0) >= 4])
     return {
         **state,
         "changed_issues": changed_issues,
         "changed_alerts": alerts,
         "changed_events": events,
         "source_warnings": source_warnings,
+        "watch_matches": watch_matches,
+        "delivery_failures": delivery_failures,
+        "overdue_work": overdue_work,
         "change_counts": counts,
     }
 

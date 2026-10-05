@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+REPO="${CMOS_REPO:-/opt/city-manager-os}"
+MODE="${1:-audit}"
+cd "$REPO"
+
+pass(){ printf 'PASS  %s\n' "$*"; }
+warn(){ printf 'WARN  %s\n' "$*"; }
+section(){ printf '\n=== %s ===\n' "$*"; }
+bytes(){ numfmt --to=iec-i --suffix=B "${1:-0}" 2>/dev/null || printf '%sB' "${1:-0}"; }
+
+if [[ "$MODE" != "audit" && "$MODE" != "clean" ]]; then
+  echo "Usage: $0 [audit|clean]"
+  exit 2
+fi
+
+section "CITY MANAGER OS MAINTENANCE"
+printf 'Mode: %s\n' "$MODE"
+printf 'Time: %s\n' "$(date --iso-8601=seconds)"
+printf 'Release: %s\n' "$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+printf 'Branch: %s\n' "$(git branch --show-current 2>/dev/null || echo unknown)"
+
+section "FILESYSTEM"
+df -h /
+df -ih /
+printf '\nLargest top-level paths under /opt /var/lib /var/backups:\n'
+du -xsh /opt/* /var/lib/* /var/backups/* 2>/dev/null | sort -h | tail -25 || true
+
+section "CITY MANAGER SERVICES"
+services=(citymanager-dashboard citymanager-staff citymanager-ops-engine citymanager-integration-engine citymanager-intake citymanager-postgis n8n ntfy)
+for name in "${services[@]}"; do
+  if docker inspect "$name" >/dev/null 2>&1; then
+    docker inspect "$name" --format '{{.Name}}  status={{.State.Status}}  restarts={{.RestartCount}}  image={{.Image}}'
+  else
+    warn "Container missing: $name"
+  fi
+done
+
+section "APPLICATION IMAGE PARITY"
+app_services=(citymanager-dashboard citymanager-staff citymanager-ops-engine citymanager-integration-engine citymanager-intake)
+declare -A app_images=()
+for name in "${app_services[@]}"; do
+  image_id="$(docker inspect "$name" --format '{{.Image}}' 2>/dev/null || true)"
+  [[ -n "$image_id" ]] && app_images["$name"]="$image_id"
+done
+printf '%-34s %s\n' SERVICE IMAGE
+for name in "${app_services[@]}"; do
+  printf '%-34s %s\n' "$name" "${app_images[$name]:-MISSING}"
+done
+unique_app_images="$(printf '%s\n' "${app_images[@]}" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')"
+if [[ "$unique_app_images" == "1" ]]; then
+  pass "All City Manager application services use one image"
+else
+  warn "Application services currently span $unique_app_images images"
+fi
+
+section "DOCKER STORAGE"
+docker system df
+printf '\nLargest images:\n'
+docker images --format '{{.Repository}}:{{.Tag}} {{.Size}} {{.ID}}' | sort -k2 -h | tail -20 || true
+printf '\nDangling images:\n'
+docker images -f dangling=true --format '{{.ID}} {{.Size}} {{.CreatedSince}}' || true
+printf '\nVolumes are report-only and are never pruned by this tool:\n'
+docker volume ls --format '{{.Name}}' | sed -n '1,80p'
+
+section "DATABASE CAPACITY"
+docker exec -i citymanager-postgis sh -lc 'psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<'SQL'
+SELECT 'database|'||pg_size_pretty(pg_database_size(current_database()));
+SELECT 'table|'||relname||'|'||pg_size_pretty(pg_total_relation_size(relid))
+FROM pg_catalog.pg_statio_user_tables
+ORDER BY pg_total_relation_size(relid) DESC
+LIMIT 20;
+SELECT 'dead_tuples|'||relname||'|'||n_dead_tup||'|'||n_live_tup
+FROM pg_stat_user_tables
+ORDER BY n_dead_tup DESC
+LIMIT 15;
+SQL
+
+section "GIS STAGING / ROLLBACK CAPACITY"
+docker exec -i citymanager-postgis sh -lc 'psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<'SQL'
+SELECT 'candidate|'||c.relname||'|'||pg_size_pretty(pg_total_relation_size(c.oid))
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname='public' AND c.relkind='r'
+  AND (
+    c.relname LIKE 'stg_nj_%'
+    OR c.relname LIKE 'stg_hudson_%'
+    OR c.relname LIKE 'gis_parcels_backup_%'
+    OR c.relname LIKE 'gis_addresses_backup_%'
+    OR c.relname LIKE 'gis_parcel_blocks_backup_%'
+    OR c.relname LIKE 'gis_road_aliases_backup_%'
+    OR c.relname LIKE 'gis_landmark_aliases_backup_%'
+  )
+ORDER BY pg_total_relation_size(c.oid) DESC;
+SELECT 'candidate_total|'||pg_size_pretty(coalesce(sum(pg_total_relation_size(c.oid)),0))
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname='public' AND c.relkind='r'
+  AND (
+    c.relname LIKE 'stg_nj_%'
+    OR c.relname LIKE 'stg_hudson_%'
+    OR c.relname LIKE 'gis_parcels_backup_%'
+    OR c.relname LIKE 'gis_addresses_backup_%'
+    OR c.relname LIKE 'gis_parcel_blocks_backup_%'
+    OR c.relname LIKE 'gis_road_aliases_backup_%'
+    OR c.relname LIKE 'gis_landmark_aliases_backup_%'
+  );
+SQL
+
+section "BACKUPS"
+if [[ -f deploy/postgis/.env ]]; then
+  set -a; source deploy/postgis/.env; set +a
+fi
+BACKUP_DIR="${BACKUP_DIR:-$REPO/deploy/postgis/backups}"
+RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+MAX_LOCAL_COUNT="${BACKUP_MAX_LOCAL_COUNT:-3}"
+printf 'Configured DB backup directory: %s\n' "$BACKUP_DIR"
+printf 'Configured retention: %s days\n' "$RETENTION_DAYS"
+du -sh "$BACKUP_DIR" 2>/dev/null || true
+find "$BACKUP_DIR" -maxdepth 1 -type f -name 'citymanager_*.dump' -printf '%TY-%Tm-%Td %TH:%TM %s %p\n' 2>/dev/null | sort -r | head -15 || true
+printf '\nOther City Manager backup trees:\n'
+du -xhd2 /var/backups/city-manager-os 2>/dev/null | sort -h | tail -30 || true
+
+section "N8N / INTAKE STORAGE"
+N8N_DIR="$(docker inspect n8n --format '{{range .Mounts}}{{if eq .Destination "/home/node/.n8n"}}{{.Source}}{{end}}{{end}}' 2>/dev/null || true)"
+if [[ -n "$N8N_DIR" ]]; then
+  du -sh "$N8N_DIR" 2>/dev/null || true
+  [[ -f "$N8N_DIR/database.sqlite" ]] && ls -lh "$N8N_DIR/database.sqlite"
+fi
+docker inspect citymanager-intake --format 'intake image={{.Image}} status={{.State.Status}} restarts={{.RestartCount}}' 2>/dev/null || true
+
+section "HOST UPDATE STATUS"
+if command -v apt-get >/dev/null 2>&1; then
+  apt-get -s upgrade 2>/dev/null | awk '/^Inst /{count++} END{print "Upgradeable packages:",count+0}'
+  [[ -f /var/run/reboot-required ]] && warn "Host reboot is required" || pass "No reboot-required marker"
+else
+  warn "APT not present; package-update audit skipped"
+fi
+
+section "LIVE HEALTH"
+if [[ -x deploy/cmos-health ]]; then
+  deploy/cmos-health || warn "cmos-health reported a problem; review before cleanup"
+else
+  warn "deploy/cmos-health not executable"
+fi
+
+if [[ "$MODE" == "clean" ]]; then
+  section "SAFE CLEANUP"
+  echo "Pruning only dangling images..."
+  docker image prune -f
+  echo
+  echo "Pruning BuildKit cache older than 7 days..."
+  docker builder prune -f --filter until=168h
+  echo
+  echo "Applying configured PostgreSQL backup retention only..."
+  if [[ -d "$BACKUP_DIR" ]]; then
+    find "$BACKUP_DIR" -type f -name 'citymanager_*.dump' -mtime "+$RETENTION_DAYS" -print -delete
+    find "$BACKUP_DIR" -type f -name 'citymanager_*.dump.sha256' -mtime "+$RETENTION_DAYS" -print -delete
+    if [[ "$MAX_LOCAL_COUNT" =~ ^[0-9]+$ ]] && (( MAX_LOCAL_COUNT > 0 )); then
+      mapfile -t stale_local < <(
+        find "$BACKUP_DIR" -maxdepth 1 -type f -name 'citymanager_*.dump' -printf '%T@ %p\n' 2>/dev/null |
+          sort -nr |
+          awk -v keep="$MAX_LOCAL_COUNT" 'NR>keep {sub(/^[^ ]+ /,""); print}'
+      )
+      for old_dump in "${stale_local[@]}"; do
+        echo "Removing excess local validated backup: $old_dump"
+        rm -f -- "$old_dump" "$old_dump.sha256"
+      done
+    fi
+  fi
+  echo
+  echo "No volumes, running containers, GIS artifacts, n8n data, staff uploads, or arbitrary /var/backups trees were deleted."
+fi
+
+section "FINAL STORAGE"
+df -h /
+docker system df

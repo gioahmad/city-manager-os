@@ -32,13 +32,15 @@ The system should now be treated as a production operating system with deliberat
 
 ## Active Next Phase
 
-1. **Watchlist / Subscriber Admin v2** - make existing watchlists, recipients and routing materially easier to manage from the web.
-2. **Events Center** - track municipal events, meetings, deadlines and operational preparation without turning every event into an issue.
-3. **Integrations Center** - web-based administration for APIs and external data sources, including connection testing, enable/disable controls, source health and configuration metadata.
-4. **NJ Transit Integration** - add useful NJ Transit operational feeds through the new integrations pattern and existing alert/watchlist pipeline.
-5. **Simple In-App Help** - short instructions and examples on administrative pages so normal use does not require CLI knowledge or a large manual.
-6. **Executive Operating Layer** - improve daily brief, waiting-on/commitments, exception visibility and "what changed" awareness.
-7. **Obsidian / Local Documents** - intentionally deferred until the operational and integration work above is complete.
+The core platform and the major administration/expansion work are now in place. Current work is focused on **cohesion, context and executive exception handling** rather than adding another parallel module.
+
+1. **Context Everywhere** - make Alerts, Watches, Work, Events, Microsoft Intake and confirmed People / Places / Projects open into one consistent connected context experience.
+2. **Executive Exception Layer** - improve What Changed, Waiting On, failed deliveries, source problems, high-priority alerts and Watch matches so the manager sees what needs attention first.
+3. **Alert / Watch / Map Cohesion** - preserve the full Mapping Center while tightening handoffs, chronology repair, match explanations and spatial context.
+4. **Living People / Places / Projects** - make confirmed records operational launch points connected to existing work, meetings, alerts, documents and map context.
+5. **Reliability / Lifecycle** - keep one tested application image system-wide, bounded backups, guarded GIS cleanup, health checks and safe maintenance.
+
+Implemented next-phase capabilities now include Watch/Recipient administration v2, Events, Integrations, Transit Intelligence, Microsoft Executive Intake, Universal Context, What Changed, Waiting On/commitments, the Macro-inspired shell/Quick Look layer, statewide GIS expansion, and audited Alert Timeline Repair.
 
 ## Non-Negotiable Architecture Rules
 

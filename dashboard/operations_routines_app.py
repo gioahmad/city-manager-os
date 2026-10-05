@@ -349,7 +349,13 @@ def phase3_my_day(request: Request):
 
 
 @app.get("/operations-routines", response_class=HTMLResponse)
-def operations_routines_page(request: Request, msg: str = ""):
+def operations_routines_page(request: Request, msg: str = "", focus: str = ""):
+    focus_id = None
+    if focus.strip():
+        try:
+            focus_id = uuid.UUID(focus.strip())
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid Routine record identifier") from exc
     context = {
         "request": request,
         "routines": _routines(),
@@ -359,6 +365,7 @@ def operations_routines_page(request: Request, msg: str = ""):
         "days": DAYS,
         "msg": msg,
         "page": "operations-routines",
+        "focus_id": focus_id,
     }
     context.update(_reference_data())
     return templates.TemplateResponse(

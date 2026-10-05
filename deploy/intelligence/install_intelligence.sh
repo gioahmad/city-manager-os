@@ -44,4 +44,4 @@ print('PRIVATE INTAKE: PASS — files process automatically; Microsoft sync runs
 PY
 trap - ERR
 progress_step 2 2 "Inbox and intelligence intake installed"
-echo 'Open /workspace#inbox and /workspace#library. Configure Microsoft 365 in Settings, then sign in once.'
+echo 'Open /intake and /library. Configure Microsoft 365 in Workspace Settings, then sign in once.'
