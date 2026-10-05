@@ -63,7 +63,7 @@
 
       <div class="watch-list">
         {% for o in observations %}
-        <article class="watch-card">
+        <article class="watch-card" {% if focus_id and o.id == focus_id %}data-focused-record="true"{% endif %}>
           <div class="watch-card-body">
             <div style="display:flex;justify-content:space-between;gap:14px;align-items:flex-start">
               <div>
