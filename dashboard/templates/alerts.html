@@ -59,7 +59,7 @@
           <select id="alerts-municipalities" multiple size="5" aria-label="Municipalities">
             {% for item in municipalities %}<option value="{{ item.municipality }}" data-county="{{ item.county }}">{{ item.municipality }}{% if item.county %} · {{ item.county }}{% endif %} ({{ item.total }})</option>{% endfor %}
           </select>
-          <span class="hint">Choose one or several. Case/spelling variants are combined before display.</span>
+          <span class="hint">Choose one or several. Names are combined case-insensitively so capitalization and spacing variants appear once.</span>
         </label>
         <label>Status
           <select name="state">
