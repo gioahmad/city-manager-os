@@ -12,6 +12,19 @@ jobs:
   regression:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      transitdb:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-test-only
+          POSTGRES_DB: cmos_tests
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cmos_tests"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -27,6 +40,10 @@ jobs:
           DB_PASSWORD: ci-test-only
           PYTHONDONTWRITEBYTECODE: '1'
         run: python -m pytest -q -ra tests
+      - name: Transit query on real PostgreSQL at scale
+        env:
+          CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
+        run: python ci/check_transit_query.py
       - name: JavaScript syntax
         run: |
           node --check dashboard/static/workspace_hub.js
