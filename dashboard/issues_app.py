@@ -109,13 +109,25 @@ def issues(
     state: str = "open",
     msg: str = "",
     from_alert: str = "",
+    focus: str = "",
 ):
     prefill = _alert_work_prefill(from_alert)
     where = []
     params = []
     post_filter = None
+    focus_id = None
+    if focus.strip():
+        try:
+            focus_id = uuid.UUID(focus.strip())
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid Work record identifier") from exc
+        state = "all"
+        where.append("id=%s")
+        params.append(focus_id)
 
-    if state == "open":
+    if focus_id is not None:
+        pass
+    elif state == "open":
         where.append(ACTIVE_WORK_SQL)
     elif state == "mine":
         where.append(ACTIVE_WORK_SQL)
@@ -254,6 +266,7 @@ def issues(
             "prefill": prefill,
             "prefill_error": "The selected Alert could not be found." if from_alert and not prefill else "",
             "issue_statuses": ISSUE_STATUSES,
+            "focus_id": focus_id,
         },
     )
 
