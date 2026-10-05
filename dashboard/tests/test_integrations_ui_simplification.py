@@ -7,7 +7,7 @@ TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
 def test_navigation_has_one_integrations_entry():
     nav = (TEMPLATES / "nav.html").read_text()
     assert "/integrations/onboarding" not in nav
-    assert nav.count('href="/integrations"') == 2  # desktop and mobile
+    assert nav.count('href="/integrations"') == 1  # one canonical persistent-rail entry
 
 
 def test_monitor_keeps_existing_controls_and_points_to_guided_setup():
@@ -51,4 +51,4 @@ def test_database_viewer_is_small_read_only_and_linked_once_per_navigation():
     assert "sql.Identifier(selected)" in source
     assert "@app.post(\"/database" not in source
     assert "READ ONLY" in template
-    assert nav.count('href="/database"') == 2
+    assert nav.count('href="/database"') == 1
