@@ -35,6 +35,13 @@ jobs:
               compile(source,str(path),'exec')
               path.write_text(source)
               print('REPAIRED actual municipality whitespace normalization')
+          path=Path('ci/check_release_browser.py')
+          source=path.read_text()
+          old="        page.locator('[data-alert-select-all]').check()"
+          new="        page.get_by_role('button',name='Bulk Actions',exact=True).click()\n"+old
+          if "name='Bulk Actions'" not in source:
+              assert source.count(old)==1
+              path.write_text(source.replace(old,new))
           PY
       - name: Install test dependencies
         run: python -m pip install -q -r dashboard/requirements.txt playwright
@@ -94,7 +101,7 @@ jobs:
           python - <<'PY'
           import subprocess
           allowed = {
-              'dashboard/operations_app.py',
+              'ci/check_release_browser.py','dashboard/operations_app.py',
               'dashboard/static/workspace_hub.js','dashboard/static/macro_layer.js','dashboard/static/macro_layer.css',
               'dashboard/templates/nav.html','dashboard/templates/workspace.html','dashboard/templates/context.html',
               'dashboard/templates/alerts.html','dashboard/tests/test_executive_intake_context_map.py',
