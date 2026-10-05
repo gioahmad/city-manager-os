@@ -103,7 +103,9 @@ done
 echo
 echo "===== AUTHENTICATED APPLICATION SMOKE ====="
 docker exec -i citymanager-dashboard python - <<'PY'
-import json,urllib.request
+import time
+import urllib.request
+from urllib.parse import urlsplit
 from private_auth import COOKIE_NAME,_accounts,_issue_session
 account=next(a for a in _accounts().values() if a.role=='EXECUTIVE')
 headers={'Cookie':COOKIE_NAME+'='+_issue_session(account)}
@@ -113,10 +115,17 @@ for path in (
     '/schedule','/event-intelligence','/transit','/spatial-reference',
     '/source-health','/deliveries','/staff-admin','/operations-routines'
 ):
+    started=time.monotonic()
+    print(f'CHECK {path}',flush=True)
     req=urllib.request.Request('http://127.0.0.1:8000'+path,headers=headers)
-    with urllib.request.urlopen(req,timeout=30) as r:
-        assert r.status==200,(path,r.status)
-        print(path,r.status)
+    try:
+        with urllib.request.urlopen(req,timeout=30) as r:
+            assert r.status==200,(path,r.status)
+            assert urlsplit(r.geturl()).path!='/login','Unexpected login redirect'
+            print(f'PASS {path} {r.status} ({time.monotonic()-started:.2f}s)',flush=True)
+    except Exception as exc:
+        print(f'FAIL {path} after {time.monotonic()-started:.2f}s: {type(exc).__name__}',flush=True)
+        raise
 PY
 
 docker exec -i citymanager-staff python - <<'PY'
