@@ -23,6 +23,13 @@ jobs:
       - name: Apply consolidated navigation repair
         run: |
           if test -f ci/apply_native_navigation.py; then python ci/apply_native_navigation.py; fi
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('dashboard/templates/context.html')
+          s=p.read_text()
+          s=s.replace('{% else %}data-cmos-quicklook data-cmos-title="{{ label }}"','')
+          p.write_text(s)
+          PY
           git diff --exit-code -- dashboard/private_auth.py dashboard/employee_public_app.py deploy/postgis
           git diff --check
       - name: Install test dependencies
