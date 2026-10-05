@@ -369,6 +369,11 @@ ALERT_WINDOWS = {
 }
 
 
+def _alert_place_values(value: str) -> list[str]:
+    """Normalize a compact multi-select value without changing stored alert data."""
+    return [part.strip() for part in str(value or "").split("|") if part.strip()][:100]
+
+
 def _alert_filter(
     *,
     q: str = "",
@@ -398,7 +403,6 @@ def _alert_filter(
     for value, column in (
         (source, "a.source"),
         (category, "a.category"),
-        (municipality, "a.municipality"),
         (county, "a.county"),
     ):
         if value.strip():
@@ -407,6 +411,16 @@ def _alert_filter(
                 "lower(regexp_replace(trim(%s), '[[:space:]]+', ' ', 'g'))"
             )
             params.append(value.strip())
+    municipality_values = _alert_place_values(municipality)
+    if municipality_values:
+        where.append(
+            "lower(regexp_replace(trim(coalesce(a.municipality,'')), '[[:space:]]+', ' ', 'g')) "
+            "= ANY(%s)"
+        )
+        params.append([
+            re.sub(r"\\s+", " ", item.strip()).casefold()
+            for item in municipality_values
+        ])
     min_priority = max(1, min(int(min_priority), 5))
     if min_priority > 1:
         where.append("a.priority >= %s")
@@ -1346,11 +1360,13 @@ def alerts_page(
     municipalities = query_all(
         """
         SELECT initcap(lower(regexp_replace(trim(municipality),'[[:space:]]+',' ','g'))) AS municipality,
+               initcap(lower(regexp_replace(trim(coalesce(county,'')),'[[:space:]]+',' ','g'))) AS county,
                count(*) AS total
         FROM alerts
         WHERE nullif(trim(municipality),'') IS NOT NULL
-        GROUP BY lower(regexp_replace(trim(municipality),'[[:space:]]+',' ','g'))
-        ORDER BY municipality
+        GROUP BY lower(regexp_replace(trim(municipality),'[[:space:]]+',' ','g')),
+                 lower(regexp_replace(trim(coalesce(county,'')),'[[:space:]]+',' ','g'))
+        ORDER BY county,municipality
         """
     )
     counties = query_all(
