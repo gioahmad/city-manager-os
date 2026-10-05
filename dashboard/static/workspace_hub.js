@@ -18,7 +18,7 @@
   function filters() {return Object.fromEntries(new FormData($(view+'-filters')).entries());}
   function leave() {controller?.abort();detailController?.abort();pickerController?.abort();clearTimeout(timer);view=undefined;sequence++;detailSequence++;}
   async function load(nextView,force=false,append=false) {
-    if(nextView!==view){leave();view=nextView;selected=null;items=[];closePreview();}
+    if(nextView!==view){leave();view=nextView;selected=null;items=[];closePreview(false);}
     controller?.abort();controller=new AbortController();const version=++sequence,current=view;
     $('loading-indicator').hidden=false;
     const params={view,...filters(),offset:String(append?items.length:0)};
@@ -66,8 +66,17 @@
       b.append(glyph,body,state);container.append(b);
     }
   }
-  function closePreview() {
+  function syncExactUrl(row) {
+    if(view!=='inbox'||location.pathname!=='/intake')return;
+    const params=new URLSearchParams(location.search);
+    if(row){params.set('kind',row.kind);params.set('id',row.id);}
+    else{params.delete('kind');params.delete('id');}
+    const query=params.toString();
+    history.replaceState(history.state,'',location.pathname+(query?'?'+query:'')+location.hash);
+  }
+  function closePreview(clearUrl=true) {
     selected=null;detailController?.abort();detailSequence++;
+    if(clearUrl)syncExactUrl(null);
     if(!view)return;
     $(view+'-layout').classList.remove('preview-open');
     const p=node('p','Choose a record.','preview-empty');p.append(node('br'),node('span','Its source, follow-ups, and connections appear here.'));$(view+'-preview').replaceChildren(p);
@@ -78,11 +87,12 @@
     const data=await json('/workspace/api/hub/detail/'+encodeURIComponent(kind)+'/'+encodeURIComponent(id),{signal:detailController.signal});
     if(version!==detailSequence||view!==current)return;
     selected={kind:data.item.kind,id:data.item.id,title:data.item.title,status:data.item.status,visibility:data.item.visibility,route:data.item.route,handled:false};
+    syncExactUrl(selected);
     $(view+'-layout').classList.add('preview-open');renderList();renderPreview(data);
     if(window.matchMedia('(max-width:900px)').matches)$(view+'-preview').scrollIntoView({block:'start'});
   }
   async function open(row,focus=true) {
-    selected=row;detailController?.abort();detailController=new AbortController();const version=++detailSequence,current=view;
+    selected=row;syncExactUrl(row);detailController?.abort();detailController=new AbortController();const version=++detailSequence,current=view;
     $(view+'-layout').classList.add('preview-open');renderList();
     if(focus)$(view+'-preview').replaceChildren(node('p','Loading source…','muted'));
     const data=await json('/workspace/api/hub/detail/'+row.kind+'/'+row.id,{signal:detailController.signal});
@@ -135,7 +145,11 @@
     else if(item.kind==='ALERT'&&meta.alert_id)actions.append(link('Open Alert controls ↗','/alerts?q='+encodeURIComponent(meta.alert_id)+'&window=all&state=all'));
     else if(item.kind==='REQUEST'&&meta.work_id)actions.append(link('Open related Work ↗','/issues?focus='+encodeURIComponent(meta.work_id)+'&state=all'));
     else if(!['MAIL','CALENDAR','CONTACT','RECORD','TASK'].includes(item.kind)&&item.route)actions.append(link('Open controls ↗',item.route));
-    actions.append(link('Open full record ↗','/context/'+item.kind+'/'+item.id));
+    if(['MAIL','CALENDAR','CONTACT'].includes(item.kind)){
+      actions.append(link('Open source context ↗','/context/'+item.kind+'/'+item.id));
+    }else{
+      actions.append(link('Open full record ↗','/context/'+item.kind+'/'+item.id));
+    }
     if(meta.outlook_url){try{const u=new URL(meta.outlook_url);if(u.protocol==='https:'){const a=link('Open in Outlook ↗',u.href);a.target='_blank';a.rel='noopener noreferrer';actions.append(a);}}catch{}}
     target.append(actions);
     if(!readonly){
