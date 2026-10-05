@@ -21,8 +21,10 @@ def test_navigation_is_task_grouped_without_removing_destinations():
     assert 'class="cmos-rail"' in nav
     assert 'class="cmos-global-bar"' in nav
     assert 'data-cmos-command-trigger' in nav
-    assert "Intake" in nav
-    assert "/workspace#inbox" in nav
+    assert "Executive Intake" in nav
+    assert 'href="/intake"' in nav
+    assert "Quick Capture Inbox" in nav
+    assert "/workspace#inbox" not in nav
 
     for route in (
         "/my-day",
