@@ -147,3 +147,16 @@ def test_dashboard_sql_avoids_percent_placeholder_collisions():
     operations=(ROOT/"operations_app.py").read_text()
     assert "%20" not in operations
     assert "chr(37)||'20'" in operations
+
+
+def test_executive_workspace_navigation_has_clear_information_architecture():
+    nav=(ROOT/"templates"/"nav.html").read_text()
+    css=(ROOT/"static"/"macro_layer.css").read_text()
+    for section in ("TODAY","WORK","INTELLIGENCE","PEOPLE &amp; PLACES","OPERATIONS","SYSTEM"):
+        assert section in nav
+    assert "Command Center" in nav
+    assert "Search / open anything" in nav
+    assert "Search records, people, places, alerts" in nav
+    assert ".cmos-rail-group" in css
+    assert "Executive workspace cohesion pass v3" in css
+    assert "body:not(.cmos-embedded)>.topbar .eyebrow" in css
