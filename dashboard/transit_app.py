@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import date, datetime
+from urllib.parse import urlencode
 
 from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -14,6 +15,29 @@ from app import execute, query_all, query_one, templates
 
 LEVELS = {"AWARENESS", "WATCH", "ALERT"}
 TARGET_TYPES = ["PROVIDER", "MODE", "ROUTE", "LINE", "STOP", "STATION", "TERMINAL", "CORRIDOR", "AREA"]
+
+
+# Aggregate each child table before joining providers. Joining raw assets and
+# observations together multiplies the rows per provider, even with DISTINCT.
+TRANSIT_PROVIDER_SUMMARY_SQL = """
+    SELECT p.*,
+           coalesce(a.asset_count,0) AS asset_count,
+           coalesce(o.active_impact_count,0) AS active_impact_count
+    FROM transit_providers p
+    LEFT JOIN (
+      SELECT provider_id,count(*) AS asset_count
+      FROM transit_assets
+      WHERE active=true
+      GROUP BY provider_id
+    ) a ON a.provider_id=p.id
+    LEFT JOIN (
+      SELECT provider_id,count(*) AS active_impact_count
+      FROM transit_observations
+      WHERE active=true AND impact_level IN ('WATCH','ALERT')
+      GROUP BY provider_id
+    ) o ON o.provider_id=p.id
+    ORDER BY p.phase,p.name
+"""
 
 
 def _feature_collection(rows):
@@ -92,28 +116,18 @@ def transit_center(
     metrics = query_one(
         """
         SELECT
-          count(*) FILTER (WHERE active AND impact_level='ALERT') AS alerts,
-          count(*) FILTER (WHERE active AND impact_level='WATCH') AS watches,
-          count(*) FILTER (WHERE active AND impact_level='AWARENESS') AS awareness,
-          count(*) FILTER (WHERE active AND last_seen_at >= now()-interval '60 minutes') AS fresh
+          count(*) FILTER (WHERE impact_level='ALERT') AS alerts,
+          count(*) FILTER (WHERE impact_level='WATCH') AS watches,
+          count(*) FILTER (WHERE impact_level='AWARENESS') AS awareness,
+          count(*) FILTER (WHERE last_seen_at >= now()-interval '60 minutes') AS fresh
         FROM transit_observations
+        WHERE active=true
         """
     )
     metrics["assets"] = query_one("SELECT count(*) AS n FROM transit_assets WHERE active=true").get("n", 0)
     metrics["watched"] = query_one("SELECT count(*) AS n FROM transit_watch_config WHERE active=true").get("n", 0)
 
-    providers = query_all(
-        """
-        SELECT p.*,
-               count(DISTINCT a.id) FILTER (WHERE a.active) AS asset_count,
-               count(DISTINCT o.id) FILTER (WHERE o.active AND o.impact_level IN ('WATCH','ALERT')) AS active_impact_count
-        FROM transit_providers p
-        LEFT JOIN transit_assets a ON a.provider_id=p.id
-        LEFT JOIN transit_observations o ON o.provider_id=p.id
-        GROUP BY p.id
-        ORDER BY p.phase,p.name
-        """
-    )
+    providers = query_all(TRANSIT_PROVIDER_SUMMARY_SQL)
 
     integrations = query_all(
         """
@@ -211,7 +225,7 @@ def transit_watch_create(
         INSERT INTO transit_watch_config(
           provider_id,active,target_type,target_key,display_name,municipality,corridor,min_impact_level,notes
         )
-        VALUES(%s,true,%s,%s,%s,%s,%s,%s,%s)
+        VALUES(%s,true,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT(provider_id,target_type,target_key) DO UPDATE SET
           active=true,
           display_name=EXCLUDED.display_name,
@@ -299,7 +313,7 @@ def transit_create_action(observation_id: uuid.UUID):
     if not row:
         raise HTTPException(404,"No active Command Center action is available for this transit record")
     return RedirectResponse(
-        "/issues?"+urllib.parse.urlencode({"focus":str(row["id"]),"state":"all","msg":"Transit action ready"}),
+        "/issues?"+urlencode({"focus":str(row["id"]),"state":"all","msg":"Transit action ready"}),
         status_code=303,
     )
 
