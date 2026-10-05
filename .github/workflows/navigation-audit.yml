@@ -2,22 +2,73 @@ name: Navigation audit
 on:
   push:
     branches: [workspace-cohesion-alert-geofilters]
-    paths: ['.github/workflows/navigation-audit.yml']
+    paths: ['.github/workflows/navigation-audit.yml', 'ci/apply_native_navigation.py', 'ci/check_authenticated_navigation.py']
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
+concurrency:
+  group: native-navigation-repair
+  cancel-in-progress: true
 jobs:
-  source:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Archive committed source for navigation review
-        run: git archive --format=zip HEAD -o navigation-source.zip
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          name: navigation-source
-          path: navigation-source.zip
-          retention-days: 1
+          python-version: '3.12'
+      - name: Apply consolidated navigation repair
+        run: |
+          if test -f ci/apply_native_navigation.py; then python ci/apply_native_navigation.py; fi
+          git diff --exit-code -- dashboard/private_auth.py dashboard/employee_public_app.py deploy/postgis
+          git diff --check
+      - name: Install test dependencies
+        run: python -m pip install -q -r dashboard/requirements.txt playwright
+      - name: Full dashboard regression
+        working-directory: dashboard
+        env:
+          DB_PASSWORD: ci-test-only
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python -m pytest -q -ra tests
+      - name: JavaScript syntax
+        run: |
+          node --check dashboard/static/macro_layer.js
+          node --check dashboard/static/workspace.js
+          node --check dashboard/static/workspace_hub.js
+      - name: Install Firefox and Chromium
+        run: python -m playwright install --with-deps firefox chromium > "$RUNNER_TEMP/browser-install.log" 2>&1 || { tail -80 "$RUNNER_TEMP/browser-install.log"; exit 1; }
+      - name: Existing browser regression
+        run: python ci/check_release_browser.py
+      - name: Actual templates and security in Firefox and Chromium
+        run: python ci/check_authenticated_navigation.py
+      - name: Save browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-navigation-browser-results
+          path: browser-check-results
+          retention-days: 3
+          if-no-files-found: ignore
+      - name: Commit tested navigation source only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! test -f ci/apply_native_navigation.py; then echo "Source already committed: $(git rev-parse HEAD)"; exit 0; fi
+          python - <<'PY'
+          import subprocess
+          allowed={'dashboard/static/macro_layer.js','dashboard/static/workspace.js','dashboard/static/workspace_hub.js','dashboard/static/workspace.css','dashboard/templates/nav.html','dashboard/templates/context.html','dashboard/templates/workspace.html','dashboard/workspace_app.py','dashboard/tests/test_workspace.py','dashboard/tests/test_macro_layer.py','ci/check_release_browser.py'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          assert changed<=allowed,changed-allowed
+          assert changed, 'No source repair was applied'
+          subprocess.run(['git','add','--',*sorted(changed)],check=True)
+          PY
+          git rm ci/apply_native_navigation.py
+          git config user.name 'City Manager OS Release Checks'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Use one shared Intake navigation and native full-page actions after Firefox security validation'
+          git -c 'credential.helper=!gh auth git-credential' push origin HEAD:refs/heads/workspace-cohesion-alert-geofilters
+          echo "VERIFIED_NAVIGATION_RELEASE=$(git rev-parse HEAD)"
