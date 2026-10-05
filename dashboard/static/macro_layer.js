@@ -228,13 +228,14 @@
     const url=target.dataset.cmosContext;
     if(!url)return;
     e.preventDefault();
+    if(target.dataset.cmosOpen==='full'){location.assign(url);return;}
     openSidecar(url,target.dataset.cmosTitle||target.querySelector('strong')?.textContent||'Quick Look');
   });
   document.addEventListener('keydown',e=>{
     if((e.metaKey||e.ctrlKey)&&!e.shiftKey&&e.key.toLowerCase()==='p'){e.preventDefault();openCommand()}
     if(e.key==='Escape'&&document.body.classList.contains('cmos-sidecar-open'))closeSidecar();
     const row=e.target.closest?.('[data-cmos-context]');
-    if(row&&(e.key==='Enter'||e.key===' ')){e.preventDefault();openSidecar(row.dataset.cmosContext,row.dataset.cmosTitle||'Quick Look')}
+    if(row&&(e.key==='Enter'||e.key===' ')){e.preventDefault();if(row.dataset.cmosOpen==='full')location.assign(row.dataset.cmosContext);else openSidecar(row.dataset.cmosContext,row.dataset.cmosTitle||'Quick Look')}
   });
 
   // Global route links can opt into Quick Look without losing their original href.
