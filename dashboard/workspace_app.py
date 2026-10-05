@@ -8,6 +8,7 @@ import re
 import secrets
 from datetime import date, datetime, timezone
 from uuid import UUID, uuid4
+from urllib.parse import quote_plus
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Form, HTTPException, Request
@@ -103,6 +104,21 @@ def intelligence(window='24h'):
     health=query_all('''SELECT source_id,status,last_success_at,last_event_at FROM source_health
         ORDER BY source_id LIMIT 100''')
     return rows,health
+
+
+@app.get('/intake')
+def executive_intake_route(kind: str = '', id: str = ''):
+    params=['view=inbox']
+    if kind:
+        params.append('kind='+quote_plus(kind.strip().upper()))
+    if id:
+        params.append('id='+quote_plus(id.strip()))
+    return RedirectResponse('/workspace?'+'&'.join(params),status_code=303)
+
+
+@app.get('/library')
+def workspace_library_route():
+    return RedirectResponse('/workspace?view=library',status_code=303)
 
 
 @app.get('/workspace',response_class=HTMLResponse)
