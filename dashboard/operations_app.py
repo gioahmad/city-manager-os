@@ -1811,7 +1811,7 @@ def _global_search_rows(q: str, scope: str):
         SELECT 'Alerts'::text AS section, 'ALERT'::text AS result_type,
                a.title, left(a.message,240) AS summary,
                concat_ws(' · ',a.source,a.category,nullif(a.municipality,'')) AS context,
-               a.alert_id AS result_id, coalesce(a.observed_at,a.received_at) AS happened_at
+               a.id::text AS result_id, coalesce(a.observed_at,a.received_at) AS happened_at
         FROM alerts a
         WHERE coalesce(a.search_text,'') ILIKE %s OR a.title ILIKE %s
            OR a.message ILIKE %s OR a.source ILIKE %s OR a.category ILIKE %s
@@ -1848,7 +1848,7 @@ def _global_search_rows(q: str, scope: str):
                     ELSE 'Location Watch' END AS summary,
                concat_ws(' · ',CASE WHEN w.active THEN 'Watching' ELSE 'Paused' END,
                          nullif(w.municipality,''),nullif(w.address,'')) AS context,
-               w.watch_id AS result_id, w.updated_at AS happened_at
+               w.id::text AS result_id, w.updated_at AS happened_at
         FROM watch_items w
         WHERE w.display_name ILIKE %s OR w.search_term ILIKE %s
            OR array_to_string(w.aliases,' ') ILIKE %s OR array_to_string(w.tags,' ') ILIKE %s
@@ -2178,27 +2178,32 @@ def _global_search_rows(q: str, scope: str):
 def _global_result_url(row, q):
     query = urlencode({"q": q})
     result_type = row.get("result_type")
-    if result_type == "ALERT":
-        return f"/alerts?{urlencode({'q': q, 'window': 'all'})}"
-    if result_type == "WORK_ITEM":
-        return f"/issues?{urlencode({'q': q, 'state': 'all'})}"
-    if result_type == "WATCH":
-        return f"/watchlist?{query}"
+    result_id = str(row.get("result_id") or "").strip()
+    if result_type == "ALERT" and result_id:
+        return f"/context/ALERT/{result_id}"
+    if result_type == "WORK_ITEM" and result_id:
+        return f"/issues?{urlencode({'focus': result_id, 'state': 'all'})}"
+    if result_type == "WATCH" and result_id:
+        return f"/watchlist?{urlencode({'focus': result_id})}"
     if result_type == "NOTIFICATION":
         return f"/deliveries?{query}"
-    if result_type == "MANAGED_EVENT":
-        return f"/schedule?{urlencode({'q': q, 'state': 'all'})}"
+    if result_type == "MANAGED_EVENT" and result_id:
+        return f"/schedule?{urlencode({'focus': result_id, 'state': 'all'})}"
     if result_type == "EVENT_INTELLIGENCE":
         return f"/event-intelligence?{urlencode({'q': q, 'horizon': 'all'})}"
     if result_type in {"TRANSIT_OBSERVATION", "TRANSIT_ASSET"}:
         return f"/transit?{query}"
-    if result_type in {"ADDRESS", "PARCEL", "REFERENCE", "MAP_FEATURE"}:
+    if result_type == "REFERENCE" and result_id:
+        return f"/context/REFERENCE/{result_id}"
+    if result_type in {"ADDRESS", "PARCEL", "MAP_FEATURE"}:
         return f"/map?{query}"
     if result_type == "INTEGRATION":
         return "/integrations"
-    if result_type == "RECIPIENT":
-        return f"/subscribers?{query}"
-    if result_type in {"STAFF_MEMBER", "MANAGED_LOCATION"}:
+    if result_type == "RECIPIENT" and result_id:
+        return f"/subscribers?{urlencode({'manage': result_id})}#recipient-{result_id}"
+    if result_type == "STAFF_MEMBER" and result_id:
+        return f"/staff-admin?{urlencode({'employee': result_id})}"
+    if result_type == "MANAGED_LOCATION":
         return "/staff-admin"
     if result_type == "ROUTINE":
         return "/operations-routines"
@@ -2211,7 +2216,6 @@ def _global_result_url(row, q):
     if result_type == "UTILITY_STATE":
         return "/integrations/pseg"
     return "/source-health"
-
 
 @app.get("/search", response_class=HTMLResponse)
 def global_search_page(request: Request, q: str = "", scope: str = "all"):
