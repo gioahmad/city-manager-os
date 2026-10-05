@@ -50,8 +50,12 @@
         <label>Category
           <select name="category"><option value="">All categories</option>{% for item in categories %}<option value="{{ item.category }}" {% if category == item.category %}selected{% endif %}>{{ item.category }} ({{ item.total }})</option>{% endfor %}</select>
         </label>
+        <label>County
+          <select name="county"><option value="">All counties</option>{% for item in counties %}<option value="{{ item.county }}" {% if county|lower == item.county|lower %}selected{% endif %}>{{ item.county }} ({{ item.total }})</option>{% endfor %}</select>
+        </label>
         <label>Municipality
-          <select name="municipality"><option value="">All municipalities</option>{% for item in municipalities %}<option value="{{ item.municipality }}" {% if municipality == item.municipality %}selected{% endif %}>{{ item.municipality }} ({{ item.total }})</option>{% endfor %}</select>
+          <select name="municipality"><option value="">All municipalities</option>{% for item in municipalities %}<option value="{{ item.municipality }}" {% if municipality|lower == item.municipality|lower %}selected{% endif %}>{{ item.municipality }} ({{ item.total }})</option>{% endfor %}</select>
+          <span class="hint">Names are combined case-insensitively, so WEehawken / WEEHAWKEN / Weehawken appear once.</span>
         </label>
         <label>Status
           <select name="state">
@@ -85,6 +89,7 @@
         <input type="hidden" name="source" value="{{ source }}">
         <input type="hidden" name="category" value="{{ category }}">
         <input type="hidden" name="municipality" value="{{ municipality }}">
+        <input type="hidden" name="county" value="{{ county }}">
         <input type="hidden" name="state" value="{{ state }}">
         <input type="hidden" name="window" value="{{ window }}">
         <input type="hidden" name="custom_hours" value="{{ custom_hours or 12 }}">
