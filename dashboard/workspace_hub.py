@@ -71,7 +71,7 @@ SOURCES='''WITH account AS (SELECT %s::text AS owner), items AS (
  WHERE NOT p.revoked
  UNION ALL
  SELECT 'ALERT',r.id,r.title,r.message,'WORK',coalesce(r.observed_at,r.received_at),r.priority>=4,r.status,('/context/ALERT/'||r.id::text),
-        jsonb_build_object('source',r.source,'municipality',r.municipality,'priority',r.priority)
+        jsonb_build_object('source',r.source,'municipality',r.municipality,'priority',r.priority,'alert_id',r.alert_id)
  FROM alerts r WHERE r.received_at>=now()-interval '30 days'
  UNION ALL
  SELECT 'RECORD',e.id,e.name,e.attributes::text,e.visibility,e.updated_at,false,e.kind,('/context/RECORD/'||e.id::text),
@@ -234,7 +234,13 @@ def detail(request:Request,item_kind:str,item_id:str):
     if item['kind']=='BRAIN':
         item['metadata']['attachments']=query_all('''SELECT a.id,a.filename,octet_length(a.content) AS byte_size FROM brain_attachments a
             JOIN brain_notes n ON n.id=a.note_id WHERE n.id=%s AND n.owner_username=%s AND n.deleted_at IS NULL''',(item['id'],owner))
-    return reply({'item':item,'links':linked,'suggestions':suggestions})
+    inbox_state=query_one("""SELECT
+        EXISTS(SELECT 1 FROM workspace_inbox_handled h
+               WHERE h.owner_username=%s AND h.kind=%s AND h.item_id=%s) AS handled,
+        (SELECT z.snoozed_until FROM workspace_inbox_snoozed z
+         WHERE z.owner_username=%s AND z.kind=%s AND z.item_id=%s) AS snoozed_until""",
+        (owner,item['kind'],item['id'],owner,item['kind'],item['id']))
+    return reply({'item':item,'links':linked,'suggestions':suggestions,'inbox_state':inbox_state})
 
 
 @app.post('/workspace/api/hub/action')
