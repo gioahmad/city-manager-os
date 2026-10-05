@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+REPO="${CMOS_REPO:-/opt/city-manager-os}"
+EXPECTED="${1:-$(git -C "$REPO" rev-parse HEAD)}"
+cd "$REPO"
+
+echo "============================================================"
+echo " CITY MANAGER OS RELEASE PREFLIGHT"
+echo "============================================================"
+echo "Expected release: $EXPECTED"
+
+[[ -z "$(git status --porcelain)" ]] || { echo "FAIL: repository is not clean"; exit 1; }
+[[ "$(git rev-parse HEAD)" == "$EXPECTED" ]] || { echo "FAIL: HEAD does not match expected release"; exit 1; }
+
+COMPOSE=(docker compose -f "$REPO/dashboard/docker-compose.yml")
+
+echo
+echo "[1/6] Compose validation"
+"${COMPOSE[@]}" config -q
+
+echo
+echo "[2/6] Shell syntax validation"
+for file in deploy/cmos-system-update deploy/cmos-maintenance deploy/cmos-health             deploy/cmos-performance-audit deploy/postgis/backup.sh             deploy/postgis/ensure-deploy-backup.sh deploy/workspace/install_workspace.sh; do
+  bash -n "$file"
+  echo "PASS $file"
+done
+
+echo
+echo "[3/6] Build candidate dashboard image"
+"${COMPOSE[@]}" build citymanager-dashboard
+
+echo
+echo "[4/6] Python compile check"
+"${COMPOSE[@]}" run --rm --no-deps -T   -v "$REPO/dashboard/tests:/app/tests:ro" -v "$REPO/deploy:/deploy:ro"   --entrypoint python citymanager-dashboard -m compileall -q /app
+
+echo
+echo "[5/6] Full dashboard regression suite"
+"${COMPOSE[@]}" run --rm --no-deps -T   -v "$REPO/dashboard/tests:/app/tests:ro" -v "$REPO/deploy:/deploy:ro"   --entrypoint python citymanager-dashboard -m pytest -q tests
+
+echo
+echo "[6/6] Final route composition check"
+"${COMPOSE[@]}" run --rm --no-deps -T   --entrypoint python citymanager-dashboard - <<'PY'
+from collections import Counter
+from phase3_app import app
+
+required = {
+    "/","/my-day","/what-changed","/issues","/inbox","/intake","/workspace",
+    "/map","/alerts","/watchlist","/subscribers","/schedule","/event-intelligence",
+    "/transit","/spatial-reference","/source-health","/deliveries","/staff-admin",
+    "/operations-routines","/context/{item_kind}/{item_id}","/records/{record_id}",
+}
+get_routes = [
+    getattr(route,"path","")
+    for route in app.routes
+    if "GET" in (getattr(route,"methods",set()) or set())
+]
+missing=sorted(required-set(get_routes))
+assert not missing, f"Missing required GET routes: {missing}"
+
+for path in ("/","/my-day","/issues","/intake","/workspace","/map","/alerts","/watchlist","/schedule"):
+    count=sum(1 for route in app.routes if getattr(route,"path","")==path and "GET" in (getattr(route,"methods",set()) or set()))
+    assert count==1, f"{path} has {count} GET handlers; expected exactly 1"
+
+print("ROUTE CONTRACT: PASS")
+print("Required routes:",len(required))
+PY
+
+echo
+echo "============================================================"
+echo " PREFLIGHT PASS — SAFE TO PROCEED TO SYSTEM UPDATE"
+echo " Release: $EXPECTED"
+echo " No production containers were replaced by this preflight."
+echo " No database migration or backup was performed."
+echo "============================================================"
