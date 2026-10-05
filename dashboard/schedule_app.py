@@ -641,6 +641,7 @@ def my_day(request: Request):
               ELSE alert_id
             END
           )
+            id,
             alert_id,
             source,
             category,
@@ -677,6 +678,7 @@ def my_day(request: Request):
             received_at DESC
         )
         SELECT
+          id,
           alert_id,
           source,
           category,
@@ -1105,7 +1107,7 @@ def my_day(request: Request):
 
           SELECT
             'ALERT'::text,
-            alert_id::text,
+            id::text,
             title,
             source::text,
             priority,
