@@ -47,7 +47,7 @@ def test_dashboard_is_drillable_without_losing_original_sections():
 
 def test_map_keeps_existing_power_and_opens_actions_in_context():
     page = (ROOT / "templates" / "map.html").read_text()
-    for label in ("Search", "Layers", "Import", "Draw", "Tools"):
+    for label in ("Search", "Activity", "Import", "Draw", "Tools"):
         assert f">{label}<" in page
     for phrase in (
         "Address / Parcel Search",
