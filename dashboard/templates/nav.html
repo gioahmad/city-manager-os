@@ -1,74 +1,100 @@
 <link rel="stylesheet" href="/static/ops.css?v=20260903-2">
 <link rel="stylesheet" href="/static/density.css?v=20260903-1">
 <link rel="stylesheet" href="/static/command_nav.css?v=20260921-1">
-
 <link rel="stylesheet" href="/static/product.css?v=20261003-1">
-<link rel="stylesheet" href="/static/macro_layer.css?v=20261004-3">
+<link rel="stylesheet" href="/static/macro_layer.css?v=20261005-1">
 <script src="/static/appearance.js?v=20261003-1" defer></script>
-<script src="/static/macro_layer.js?v=20261004-4" defer></script>
+<script src="/static/macro_layer.js?v=20261005-1" defer></script>
 
+{% set p = request.url.path %}
 <aside class="cmos-rail" aria-label="Primary navigation">
   <div class="cmos-rail-brand">
-    <a href="/" class="cmos-rail-home"><span class="cmos-rail-mark">CM</span><span><strong>City Manager OS</strong><small>Weehawken Operations</small></span></a>
+    <a href="/" class="cmos-rail-home"><span class="cmos-rail-mark">CM</span><span><strong>City Manager OS</strong><small>Weehawken · Executive Workspace</small></span></a>
   </div>
 
   <button type="button" class="cmos-command-trigger" data-cmos-command-trigger>
-    <span>⌕</span><span>Search &amp; Open</span><kbd>⌘P</kbd>
+    <span>⌕</span><span>Search / open anything</span><kbd>⌘P</kbd>
   </button>
 
-  <nav class="cmos-rail-nav">
-    <a href="/" class="{% if request.url.path == '/' %}active{% endif %}"><span>⌂</span>Overview</a>
-    <a href="/my-day" class="{% if request.url.path.startswith('/my-day') %}active{% endif %}"><span>◷</span>My Day</a>
-    <a href="/issues" class="{% if request.url.path.startswith('/issues') %}active{% endif %}"><span>✓</span>Command</a>
-    <a href="/intake" class="{% if request.url.path.startswith('/intake') or (request.url.path.startswith('/workspace') and request.query_params.get('view') == 'inbox') %}active{% endif %}"><span>▣</span>Executive Intake</a>
-    <a href="/inbox" class="{% if request.url.path.startswith('/inbox') %}active{% endif %}"><span>↳</span>Quick Capture Inbox</a>
-    <a href="/brain" class="{% if request.url.path.startswith('/brain') %}active{% endif %}"><span>◉</span>Brain</a>
-    <a href="/map" class="{% if request.url.path.startswith('/map') or request.url.path.startswith('/flood') %}active{% endif %}"><span>⌖</span>Map</a>
-    <a href="/alerts" class="{% if request.url.path.startswith('/alerts') %}active{% endif %}"><span>!</span>Alerts</a>
-    <a href="/watchlist" class="{% if request.url.path.startswith('/watchlist') %}active{% endif %}"><span>◎</span>Watches</a>
-  </nav>
+  <div class="cmos-nav-section">
+    <div class="cmos-rail-label">TODAY</div>
+    <nav class="cmos-rail-nav">
+      <a href="/" class="{% if p == '/' %}active{% endif %}"><span>⌂</span>Overview</a>
+      <a href="/my-day" class="{% if p.startswith('/my-day') %}active{% endif %}"><span>◷</span>My Day</a>
+      <a href="/intake" class="{% if p.startswith('/intake') %}active{% endif %}"><span>▣</span>Executive Intake</a>
+    </nav>
+  </div>
 
-  <div class="cmos-rail-label">OPERATIONS</div>
-  <nav class="cmos-rail-nav compact">
-    <a href="/staff-admin" class="{% if request.url.path.startswith('/staff-admin') %}active{% endif %}">Staff</a>
-    <a href="/schedule" class="{% if request.url.path.startswith('/schedule') %}active{% endif %}">Events</a>
-    <a href="/event-intelligence" class="{% if request.url.path.startswith('/event-intelligence') %}active{% endif %}">Event Intelligence</a>
-    <a href="/transit" class="{% if request.url.path.startswith('/transit') %}active{% endif %}">Transit</a>
-    <a href="/spatial-reference" class="{% if request.url.path.startswith('/spatial-reference') %}active{% endif %}">Places / References</a>
-  </nav>
+  <div class="cmos-nav-section">
+    <div class="cmos-rail-label">WORK</div>
+    <nav class="cmos-rail-nav">
+      <a href="/issues" class="{% if p.startswith('/issues') %}active{% endif %}"><span>✓</span>Command Center</a>
+      <a href="/inbox" class="{% if p.startswith('/inbox') %}active{% endif %}"><span>↳</span>Quick Capture Inbox</a>
+      <a href="/brain" class="{% if p.startswith('/brain') %}active{% endif %}"><span>◉</span>Brain</a>
+      <a href="/schedule" class="{% if p.startswith('/schedule') %}active{% endif %}"><span>◇</span>Events</a>
+    </nav>
+  </div>
 
-  <details class="cmos-rail-more">
-    <summary>More</summary>
-    <div class="cmos-rail-more-menu">
-      <a href="/share">Share / SMS</a>
-      <a href="/subscribers">Recipients</a>
-      <a href="/contacts">Contacts</a>
-      <a href="/today-board">Today Board</a>
-      <a href="/search">Search Everything</a>
-      <a href="/what-changed">What Changed</a>
-      <a href="/integrations">Integrations</a>
-      <a href="/source-health">Source Health</a>
-      <a href="/deliveries">Notification History</a>
-      <a href="/database">Database Viewer</a>
-      <a href="/api-lab">API Lab</a>
-      <a href="/admin-tools">Admin Tools</a>
-      <a href="/workspace?view=today">Workspace</a>
-      <a href="/logout">Sign Out</a>
-    </div>
+  <div class="cmos-nav-section">
+    <div class="cmos-rail-label">INTELLIGENCE</div>
+    <nav class="cmos-rail-nav">
+      <a href="/alerts" class="{% if p.startswith('/alerts') %}active{% endif %}"><span>!</span>Alerts</a>
+      <a href="/map" class="{% if p.startswith('/map') or p.startswith('/flood') %}active{% endif %}"><span>⌖</span>Mapping</a>
+      <a href="/watchlist" class="{% if p.startswith('/watchlist') %}active{% endif %}"><span>◎</span>Watches</a>
+      <a href="/event-intelligence" class="{% if p.startswith('/event-intelligence') %}active{% endif %}"><span>≋</span>Event Intelligence</a>
+      <a href="/transit" class="{% if p.startswith('/transit') %}active{% endif %}"><span>⇄</span>Transit</a>
+    </nav>
+  </div>
+
+  <details class="cmos-rail-section cmos-rail-group" {% if p.startswith('/contacts') or p.startswith('/subscribers') or p.startswith('/spatial-reference') %}open{% endif %}>
+    <summary><span>PEOPLE &amp; PLACES</span><span>›</span></summary>
+    <nav class="cmos-rail-nav compact">
+      <a href="/contacts" class="{% if p.startswith('/contacts') %}active{% endif %}">Contacts</a>
+      <a href="/subscribers" class="{% if p.startswith('/subscribers') %}active{% endif %}">Recipients</a>
+      <a href="/spatial-reference" class="{% if p.startswith('/spatial-reference') %}active{% endif %}">Places / References</a>
+    </nav>
   </details>
 
-  <div class="cmos-rail-footer"><span class="cmos-rail-live"></span><span>Operational systems connected</span></div>
+  <details class="cmos-rail-section cmos-rail-group" {% if p.startswith('/staff-admin') or p.startswith('/today-board') or p.startswith('/share') %}open{% endif %}>
+    <summary><span>OPERATIONS</span><span>›</span></summary>
+    <nav class="cmos-rail-nav compact">
+      <a href="/staff-admin" class="{% if p.startswith('/staff-admin') %}active{% endif %}">Staff</a>
+      <a href="/today-board" class="{% if p.startswith('/today-board') %}active{% endif %}">Today Board</a>
+      <a href="/share" class="{% if p.startswith('/share') %}active{% endif %}">Share / SMS</a>
+    </nav>
+  </details>
+
+  <details class="cmos-rail-section cmos-rail-group cmos-system-group" {% if p.startswith('/integrations') or p.startswith('/source-health') or p.startswith('/deliveries') or p.startswith('/database') or p.startswith('/api-lab') or p.startswith('/admin-tools') or p.startswith('/search') or p.startswith('/what-changed') or p.startswith('/workspace') %}open{% endif %}>
+    <summary><span>SYSTEM</span><span>›</span></summary>
+    <nav class="cmos-rail-nav compact">
+      <a href="/search" class="{% if p.startswith('/search') %}active{% endif %}">Search Everything</a>
+      <a href="/what-changed" class="{% if p.startswith('/what-changed') %}active{% endif %}">What Changed</a>
+      <a href="/integrations" class="{% if p.startswith('/integrations') %}active{% endif %}">Integrations</a>
+      <a href="/source-health" class="{% if p.startswith('/source-health') %}active{% endif %}">Source Health</a>
+      <a href="/deliveries" class="{% if p.startswith('/deliveries') %}active{% endif %}">Notification History</a>
+      <a href="/database" class="{% if p.startswith('/database') %}active{% endif %}">Database Viewer</a>
+      <a href="/api-lab" class="{% if p.startswith('/api-lab') %}active{% endif %}">API Lab</a>
+      <a href="/admin-tools" class="{% if p.startswith('/admin-tools') %}active{% endif %}">Admin Tools</a>
+      <a href="/workspace?view=today" class="{% if p.startswith('/workspace') %}active{% endif %}">Workspace</a>
+    </nav>
+  </details>
+
+  <div class="cmos-rail-footer">
+    <span class="cmos-rail-live"></span><span>Systems connected</span>
+    <a href="/logout">Sign out</a>
+  </div>
 </aside>
 
 <header class="cmos-global-bar">
   <button type="button" class="cmos-mobile-rail-toggle" aria-label="Open navigation">☰</button>
   <div class="cmos-global-page">
-    <span>{{ page|default('City Manager OS')|replace('-',' ')|title }}</span>
+    <span class="cmos-global-section">City Manager OS</span>
+    <strong>{{ page|default('Workspace')|replace('-',' ')|title }}</strong>
   </div>
-  <button type="button" class="cmos-global-search-button" data-cmos-command-trigger>⌕ Search &amp; Open <kbd>⌘P</kbd></button>
+  <button type="button" class="cmos-global-search-button" data-cmos-command-trigger>⌕ Search records, people, places, alerts… <kbd>⌘P</kbd></button>
   <div class="cmos-global-actions">
-    <a href="/what-changed" data-cmos-quicklook data-cmos-title="What Changed">What Changed</a>
-    <a href="/logout">Sign Out</a>
+    <button type="button" class="cmos-global-capture" onclick="document.getElementById('qc-open')?.click()">+ Capture</button>
+    <a href="/what-changed" data-cmos-quicklook data-cmos-title="What Changed">Changes</a>
   </div>
 </header>
 
