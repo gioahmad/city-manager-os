@@ -1144,9 +1144,18 @@ def spatial_watchlist(
     bulk_group_by: str = "",
     bulk_name_by: str = "",
     bulk_group_filter: str = "",
+    focus: str = "",
 ):
     where = []
     params = []
+    focus_id = None
+    if focus.strip():
+        try:
+            focus_id = uuid.UUID(focus.strip())
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid Watch record identifier") from exc
+        where.append("w.id=%s")
+        params.append(focus_id)
     if q.strip():
         needle = f"%{q.strip()}%"
         where.append(
@@ -1420,6 +1429,7 @@ def spatial_watchlist(
             "bulk_context": bulk_context,
             "bulk_watch_limit": BULK_WATCH_LIMIT,
             "prefill": prefill,
+            "focus_id": focus_id,
         },
     )
 
