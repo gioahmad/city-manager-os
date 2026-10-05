@@ -77,7 +77,7 @@
       if (b.dataset.view === view) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
     });
-    $('breadcrumb').textContent = ({inbox:'Executive Intake',library:'Library',today:'Today',intelligence:'Area intelligence',work:'Work & requests',brain:'Brain',people:'People & places',dates:'Important dates',settings:'Settings'})[view];
+    $('breadcrumb').textContent = ({inbox:'Executive Intake',library:'Library',today:'Today',intelligence:'Area intelligence',work:'Work & requests',brain:'Brain',people:'People, places & projects',dates:'Important dates',settings:'Settings'})[view];
     if (updateHash && !display && location.hash !== '#' + view) history.pushState(null, '', '#' + view);
     closeNavigation();
     return load();
@@ -479,5 +479,7 @@
   document.addEventListener('click',e=>{if(!e.target.closest('.all-tools'))$('all-tools').open=false;});
   window.addEventListener('popstate',()=>safely(()=>navigate(location.hash.slice(1),false)));
   if(display){all('.writable,.tools-link').forEach(n=>n.hidden=true);setInterval(()=>{if(!document.hidden)safely(()=>load(true));},60000);}
-  setInterval(updateTimer,30000);safely(()=>navigate(display?'intelligence':location.hash.slice(1)||'today',false));
+  setInterval(updateTimer,30000);
+  const incomingView=new URLSearchParams(location.search).get('view');
+  safely(()=>navigate(display?'intelligence':(views.includes(incomingView)?incomingView:location.hash.slice(1)||'today'),false));
 })();
