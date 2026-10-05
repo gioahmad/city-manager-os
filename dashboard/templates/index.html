@@ -41,7 +41,7 @@
       <div class="panel-body compact-list">
         {% if happening_now %}
           {% for e in happening_now %}
-          <div class="feed-row" data-cmos-context="/schedule" data-cmos-title="{{ e.title|e }}" role="button" tabindex="0">
+          <div class="feed-row" data-cmos-context="/context/EVENT/{{ e.id }}" data-cmos-title="{{ e.title|e }}" role="button" tabindex="0">
             <div class="feed-main">
               <div class="feed-title-row">
                 {% if e.timing_status == 'NOW' %}<span class="status healthy">NOW</span>{% elif e.timing_status == 'NEXT' %}<span class="status warning">NEXT</span>{% else %}<span class="status">UPCOMING</span>{% endif %}
@@ -64,7 +64,7 @@
       </div>
     </section>
 
-    <section class="section-label"><span>MICROSOFT INTAKE</span><span class="section-rule"></span><a class="text-link" href="/workspace#inbox">Open Intake</a></section>
+    <section class="section-label"><span>MICROSOFT INTAKE</span><span class="section-rule"></span><a class="text-link" href="/intake">Open Intake</a></section>
     <section class="panel cmos-intake-panel">
       <div class="panel-head">
         <div><div class="panel-kicker">EMAIL · CALENDAR · SELECTIVE PROMOTION</div><h2>Executive Intake</h2></div>
@@ -77,12 +77,12 @@
       <div class="panel-body">
         {% if intake_summary.connected %}
         <div class="cmos-intake-metrics">
-          <a href="/workspace#inbox"><span>Email to review</span><strong>{{ intake_summary.mail_pending }}</strong><small>Choose what becomes Work, Brain, Event, follow-up, or context.</small></a>
-          <a href="/workspace#inbox"><span>Calendar to review</span><strong>{{ intake_summary.calendar_pending }}</strong><small>Bring only relevant meetings into Events or linked context.</small></a>
+          <a href="/intake"><span>Email to review</span><strong>{{ intake_summary.mail_pending }}</strong><small>Choose what becomes Work, Brain, Event, follow-up, or context.</small></a>
+          <a href="/intake"><span>Calendar to review</span><strong>{{ intake_summary.calendar_pending }}</strong><small>Bring only relevant meetings into Events or linked context.</small></a>
         </div>
         <div class="cmos-intake-list">
           {% for item in intake_summary.items %}
-          <a href="/workspace#inbox">
+          <a href="/intake">
             <span class="cmos-action-kind {{ item.kind|lower }}">{{ item.kind }}</span>
             <span><strong>{{ item.title }}</strong><small>{{ item.detail }}</small></span>
             <time>{{ item.happened_at.strftime('%m/%d %I:%M %p') if item.happened_at else '' }}</time>
@@ -147,7 +147,7 @@
         <div class="panel-body">
           {% if active_alerts %}
             {% for a in active_alerts %}
-            <div class="alert priority-{{ a.priority }}" data-cmos-context="/alerts?q={{ a.alert_id|urlencode }}&window=all&state=all" data-cmos-title="{{ a.title|e }}" role="button" tabindex="0">
+            <div class="alert priority-{{ a.priority }}" data-cmos-context="/context/ALERT/{{ a.id }}" data-cmos-title="{{ a.title|e }}" role="button" tabindex="0">
               <div class="alert-top"><div class="alert-title-wrap"><span class="priority-chip p{{ a.priority }}">P{{ a.priority }}</span><strong>{{ a.title }}</strong></div>{% if a.click_url %}<a class="open-link" href="{{ a.click_url }}" target="_blank" rel="noopener">Open</a>{% endif %}</div>
               <div class="meta-row"><span class="source-chip">{{ a.source }}</span><span>{{ a.category }}</span>{% if a.municipality %}<span>{{ a.municipality }}</span>{% endif %}<span>{{ a.event_action }}</span></div>
               <p>{{ a.message }}</p>
@@ -173,7 +173,7 @@
 
           {% if command_center %}
             {% for i in command_center %}
-            <div class="feed-row" data-cmos-context="/issues?q={{ i.title|urlencode }}&state=all" data-cmos-title="{{ i.title|e }}" role="button" tabindex="0">
+            <div class="feed-row" data-cmos-context="/context/WORK/{{ i.id }}" data-cmos-title="{{ i.title|e }}" role="button" tabindex="0">
               <div class="feed-main">
                 <div class="feed-title-row">
                   <span class="priority-chip p{{ i.priority }}">P{{ i.priority }}</span>
