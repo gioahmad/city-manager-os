@@ -26,7 +26,8 @@ def test_executive_intake_is_first_class_and_selective():
     assert "Microsoft calendar" in template
     assert "Microsoft email" in template
     assert "EXECUTIVE INTAKE" in template
-    assert "/workspace#inbox" in nav and "Intake" in nav
+    assert 'href="/intake"' in nav and "Executive Intake" in nav
+    assert 'href="/inbox"' in nav and "Quick Capture Inbox" in nav
 
 
 def test_calendar_refresh_preserves_linkable_ids():
@@ -292,11 +293,11 @@ def test_workspace_polish_uses_current_assets_and_alert_windows():
         assert f"'{value}'" in app
         assert f'value="{value}"' in page
     assert "People, places &amp; projects" in page
-    assert "workspace.js?v=20261004-2" in page
-    assert "workspace_hub.js?v=20261004-2" in page
+    assert "workspace.js?v=20261004-4" in page
+    assert "workspace_hub.js?v=20261004-4" in page
     assert "workspace.css?v=20261004-2" in page
     assert "macro_layer.css?v=20261004-3" in nav
-    assert "macro_layer.js?v=20261004-2" in nav
+    assert "macro_layer.js?v=20261004-4" in nav
     assert "context.css?v=20261004-2" in context
 
 
@@ -392,3 +393,57 @@ def test_fast_release_backup_gate_and_runtime_performance_foundation():
     assert "CITY MANAGER OS PERFORMANCE AUDIT" in perf
     assert "Workspace Intelligence" in perf
     assert "cache_hit_pct" in perf
+
+
+def test_canonical_navigation_and_actionable_my_day_contract():
+    nav=(ROOT/"templates"/"nav.html").read_text()
+    workspace=(ROOT/"static"/"workspace.js").read_text()
+    hub=(ROOT/"workspace_hub.py").read_text()
+    hub_js=(ROOT/"static"/"workspace_hub.js").read_text()
+    macro=(ROOT/"static"/"macro_layer.js").read_text()
+    my_day=(ROOT/"templates"/"my_day.html").read_text()
+    overview=(ROOT/"templates"/"index.html").read_text()
+    ops_today=(ROOT/"templates"/"operations_my_day_insert.html").read_text()
+    workspace_app=(ROOT/"workspace_app.py").read_text()
+
+    assert "@app.get('/intake')" in workspace_app
+    assert "@app.get('/library')" in workspace_app
+    assert 'href="/intake"' in nav
+    assert "Executive Intake" in nav
+    assert "Quick Capture Inbox" in nav
+    assert "/workspace#inbox" not in nav
+    assert "/workspace#inbox" not in macro
+    assert "/workspace#inbox" not in hub
+    assert "/workspace#inbox" not in workspace
+    assert "['▣','Executive Intake'" in macro
+    assert "new URLSearchParams(location.search).get('view')" in workspace
+
+    assert "('/intake?kind=MAIL&id='||m.id::text)" in hub
+    assert "('/intake?kind=CALENDAR&id='||e.id::text)" in hub
+    assert "('/context/WORK/'||i.id::text)" in hub
+    assert "('/context/ALERT/'||r.id::text)" in hub
+    assert "('/context/RECORD/'||e.id::text)" in hub
+    assert "pendingOpen" in hub_js
+    assert "async function openExact(kind,id)" in hub_js
+    assert "Open full record" in hub_js
+
+    assert '<div class="feed-row">' not in my_day
+    assert "/context/WORK/" in my_day
+    assert "/context/EVENT/" in my_day
+    assert "/context/ALERT/" in my_day
+    assert 'data-cmos-open="full"' in my_day
+    assert 'data-cmos-open="full"' in ops_today
+    assert "target.dataset.cmosOpen==='full'" in macro
+
+    assert '/intake?kind={{ item.kind|urlencode }}&id={{ item.id }}' in overview
+    assert 'data-cmos-context="/context/EVENT/{{ e.id }}"' in overview
+    assert 'data-cmos-context="/context/WORK/{{ i.id }}"' in overview
+    assert 'data-cmos-context="/context/ALERT/{{ a.id }}"' in overview
+
+
+def test_intake_deep_link_does_not_close_when_source_is_outside_first_page():
+    hub_js=(ROOT/"static"/"workspace_hub.js").read_text()
+    pending=hub_js.index("if(!append&&pendingOpen)")
+    selected=hub_js.index("if(selected&&!pendingOpen)")
+    assert selected < pending
+    assert "else await openExact(wanted.kind,wanted.id)" in hub_js
