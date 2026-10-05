@@ -375,6 +375,7 @@ def _alert_filter(
     source: str = "",
     category: str = "",
     municipality: str = "",
+    county: str = "",
     state: str = "all",
     window: str = "7d",
     custom_hours: int | None = None,
@@ -398,9 +399,13 @@ def _alert_filter(
         (source, "a.source"),
         (category, "a.category"),
         (municipality, "a.municipality"),
+        (county, "a.county"),
     ):
         if value.strip():
-            where.append(f"upper({column}) = upper(%s)")
+            where.append(
+                f"lower(regexp_replace(trim(coalesce({column},'')), '\\s+', ' ', 'g')) = "
+                "lower(regexp_replace(trim(%s), '\\s+', ' ', 'g'))"
+            )
             params.append(value.strip())
     min_priority = max(1, min(int(min_priority), 5))
     if min_priority > 1:
@@ -422,6 +427,7 @@ def _alert_filter(
         "source": source.strip(),
         "category": category.strip(),
         "municipality": municipality.strip(),
+        "county": county.strip(),
         "state": state,
         "window": window,
         "custom_hours": custom_hours,
@@ -1204,6 +1210,7 @@ def alerts_page(
     source: str = "",
     category: str = "",
     municipality: str = "",
+    county: str = "",
     state: str = "all",
     window: str = "7d",
     custom_hours: int | None = None,
@@ -1217,6 +1224,7 @@ def alerts_page(
         source=source,
         category=category,
         municipality=municipality,
+        county=county,
         state=state,
         window=window,
         custom_hours=custom_hours,
@@ -1226,6 +1234,7 @@ def alerts_page(
     source = filters["source"]
     category = filters["category"]
     municipality = filters["municipality"]
+    county = filters["county"]
     state = filters["state"]
     window = filters["window"]
     custom_hours = filters["custom_hours"]
@@ -1335,7 +1344,24 @@ def alerts_page(
     sources = query_all("SELECT source,count(*) AS total FROM alerts GROUP BY source ORDER BY source")
     categories = query_all("SELECT category,count(*) AS total FROM alerts GROUP BY category ORDER BY category")
     municipalities = query_all(
-        "SELECT municipality,count(*) AS total FROM alerts WHERE nullif(trim(municipality),'') IS NOT NULL GROUP BY municipality ORDER BY municipality"
+        """
+        SELECT initcap(lower(regexp_replace(trim(municipality),'\\s+',' ','g'))) AS municipality,
+               count(*) AS total
+        FROM alerts
+        WHERE nullif(trim(municipality),'') IS NOT NULL
+        GROUP BY lower(regexp_replace(trim(municipality),'\\s+',' ','g'))
+        ORDER BY municipality
+        """
+    )
+    counties = query_all(
+        """
+        SELECT initcap(lower(regexp_replace(trim(county),'\\s+',' ','g'))) AS county,
+               count(*) AS total
+        FROM alerts
+        WHERE nullif(trim(county),'') IS NOT NULL
+        GROUP BY lower(regexp_replace(trim(county),'\\s+',' ','g'))
+        ORDER BY county
+        """
     )
     counts = query_one(
         """
@@ -1356,12 +1382,14 @@ def alerts_page(
             "sources": sources,
             "categories": categories,
             "municipalities": municipalities,
+            "counties": counties,
             "counts": counts,
             "result_total": result_total,
             "q": q,
             "source": source,
             "category": category,
             "municipality": municipality,
+            "county": county,
             "state": state,
             "window": window,
             "custom_hours": custom_hours,
@@ -1573,6 +1601,7 @@ def alerts_bulk_action(
     source: str = Form(""),
     category: str = Form(""),
     municipality: str = Form(""),
+    county: str = Form(""),
     state: str = Form("all"),
     window: str = Form("7d"),
     custom_hours: int = Form(12),
@@ -1625,6 +1654,7 @@ def alerts_bulk_action(
                 source=source,
                 category=category,
                 municipality=municipality,
+                county=county,
                 state=state,
                 window=window,
                 custom_hours=custom_hours,
@@ -1636,6 +1666,7 @@ def alerts_bulk_action(
                     filters["source"],
                     filters["category"],
                     filters["municipality"],
+                    filters["county"],
                     filters["state"] != "all",
                     filters["window"] != "all",
                     filters["min_priority"] > 1,
