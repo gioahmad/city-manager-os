@@ -317,7 +317,7 @@ def context_page(request: Request, item_kind: str, item_id: str):
         elif record_type in {"BUILDING","STREET"}:
             actions.append(("Nearby Activity", f"/map?q={address or item['title']}"))
     elif kind == "WATCH":
-        actions = [("Open Watch", item["route"]), ("Map", f"/map?map_view=1&layers=watchlist&selected_layer=watchlist&selected_id={metadata.get('watch_id','')}")]
+        actions = [("Open Watch", f"/watchlist?focus={record_id}"), ("Map", f"/map?map_view=1&layers=watchlist&selected_layer=watchlist&selected_id={metadata.get('watch_id','')}")]
     elif kind == "REFERENCE":
         actions = [("Open Reference", item["route"]), ("Map", f"/map?q={item['title']}")]
     elif kind == "BRAIN":
