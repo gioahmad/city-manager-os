@@ -302,6 +302,20 @@ def action(owner,values):
                 VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING''',(owner,*endpoints[0],*endpoints[1]))
             return {'message':'Private follow-up created and linked to its source.','id':task['id']}
         if action_name=='WORK':
+            existing=c.execute("""SELECT CASE
+                    WHEN source_kind='WORK' THEN source_id ELSE target_id END AS id
+                FROM workspace_context_links
+                WHERE owner_username=%s
+                  AND ((source_kind=%s AND source_id=%s AND target_kind='WORK')
+                    OR (target_kind=%s AND target_id=%s AND source_kind='WORK'))
+                ORDER BY created_at LIMIT 1""",
+                (owner,item_kind,item_id,item_kind,item_id)).fetchone()
+            if existing:
+                row=c.execute("SELECT id FROM issues WHERE id=%s",(existing['id'],)).fetchone()
+                if row:
+                    c.execute("""INSERT INTO workspace_inbox_handled(owner_username,kind,item_id) VALUES(%s,%s,%s)
+                        ON CONFLICT(owner_username,kind,item_id) DO UPDATE SET handled_at=now()""",(owner,item_kind,item_id))
+                    return {'message':'This source is already linked to Command Center.','id':row['id'],'existing':True}
             title=text(values.get('title') or item['title'],500,required=True)
             description=text(values.get('description') or item['body'],20000)
             next_action=text(values.get('next_action') or 'Review and determine the next municipal action.',1000)
@@ -328,6 +342,20 @@ def action(owner,values):
                 VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",(owner,*endpoints[0],*endpoints[1]))
             return {'message':'Saved to Brain and linked to its Microsoft source.','id':note['id']}
         if action_name=='EVENT':
+            existing=c.execute("""SELECT CASE
+                    WHEN source_kind='EVENT' THEN source_id ELSE target_id END AS id
+                FROM workspace_context_links
+                WHERE owner_username=%s
+                  AND ((source_kind=%s AND source_id=%s AND target_kind='EVENT')
+                    OR (target_kind=%s AND target_id=%s AND source_kind='EVENT'))
+                ORDER BY created_at LIMIT 1""",
+                (owner,item_kind,item_id,item_kind,item_id)).fetchone()
+            if existing:
+                row=c.execute("SELECT id FROM operational_events WHERE id=%s",(existing['id'],)).fetchone()
+                if row:
+                    c.execute("""INSERT INTO workspace_inbox_handled(owner_username,kind,item_id) VALUES(%s,%s,%s)
+                        ON CONFLICT(owner_username,kind,item_id) DO UPDATE SET handled_at=now()""",(owner,item_kind,item_id))
+                    return {'message':'This source is already linked to Events Center.','id':row['id'],'existing':True}
             meta=item.get('metadata') or {}
             starts=values.get('starts_at') or meta.get('starts_at')
             ends=values.get('ends_at') or meta.get('ends_at')
