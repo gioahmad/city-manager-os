@@ -469,3 +469,9 @@ def test_alert_place_filters_normalize_case_and_add_county():
     assert 'select name="county"' in template
     assert 'name="county" value="{{ county }}"' in template
     assert "case-insensitively" in template
+    assert "def _alert_place_values" in source
+    assert "municipality_values = _alert_place_values(municipality)" in source
+    assert 'id="alerts-municipalities" multiple' in template
+    assert 'id="alerts-county"' in template
+    assert "data-county" in template
+    assert "join('|')" in template
