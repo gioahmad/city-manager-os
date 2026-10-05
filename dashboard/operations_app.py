@@ -2355,9 +2355,16 @@ def _delivery_evidence(row):
 
 
 @app.get("/deliveries", response_class=HTMLResponse)
-def deliveries_page(request: Request, status: str = "", q: str = ""):
+def deliveries_page(request: Request, status: str = "", q: str = "", focus: str = ""):
     where = []
     params = []
+    if focus.strip():
+        try:
+            focus_id = uuid.UUID(focus.strip())
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid Notification record identifier") from exc
+        where.append("d.id=%s")
+        params.append(focus_id)
     if status.strip():
         where.append("upper(d.status) = upper(%s)")
         params.append(status.strip())
