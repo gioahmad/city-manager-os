@@ -31,8 +31,26 @@ echo "[3/6] Build candidate dashboard image"
 "${COMPOSE[@]}" build citymanager-dashboard
 
 echo
-echo "[4/6] Python compile check"
-"${COMPOSE[@]}" run --rm --no-deps -T   -v "$REPO/dashboard/tests:/app/tests:ro" -v "$REPO/deploy:/deploy:ro"   --entrypoint python citymanager-dashboard -m compileall -q /app
+echo "[4/6] Python syntax check (no bytecode writes)"
+"${COMPOSE[@]}" run --rm --no-deps -T   -v "$REPO/dashboard/tests:/app/tests:ro" -v "$REPO/deploy:/deploy:ro"   --entrypoint python citymanager-dashboard - <<'PY'
+from pathlib import Path
+
+failures=[]
+for path in sorted(Path("/app").rglob("*.py")):
+    if "__pycache__" in path.parts:
+        continue
+    try:
+        compile(path.read_text(encoding="utf-8"),str(path),"exec")
+    except Exception as exc:
+        failures.append((str(path),repr(exc)))
+
+if failures:
+    for path,error in failures:
+        print("FAIL",path,error)
+    raise SystemExit(1)
+
+print("PYTHON SYNTAX: PASS")
+PY
 
 echo
 echo "[5/6] Full dashboard regression suite"
