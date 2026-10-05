@@ -4,14 +4,15 @@ on:
     branches: [workspace-cohesion-alert-geofilters]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: dashboard-regression-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   regression:
+    if: github.ref == 'refs/heads/workspace-cohesion-alert-geofilters'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -19,8 +20,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install dashboard test dependencies
-        run: python -m pip install -r dashboard/requirements.txt
+      - name: Apply exact-match source repair
+        run: python ci/finalize_release.py
+      - name: Install test dependencies
+        run: python -m pip install -r dashboard/requirements.txt playwright
       - name: Full dashboard regression
         working-directory: dashboard
         env:
@@ -32,3 +35,51 @@ jobs:
           node --check dashboard/static/workspace_hub.js
           node --check dashboard/static/workspace.js
           node --check dashboard/static/macro_layer.js
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Browser behavior with synthetic data
+        run: python ci/check_release_browser.py
+      - name: Build actual dashboard image
+        run: docker build -t cmos-release-check ./dashboard
+      - name: Docker regression with release preflight mounts
+        run: |
+          docker run --rm --entrypoint python -e DB_PASSWORD=ci-test-only -e PYTHONDONTWRITEBYTECODE=1 \
+            -v "$PWD/dashboard/tests:/app/tests:ro" -v "$PWD/deploy:/deploy:ro" \
+            -v "$PWD/docs:/docs:ro" -v "$PWD/workflows:/workflows:ro" \
+            -v "$PWD/dashboard:/dashboard:ro" -v "$PWD/dashboard/Dockerfile:/app/Dockerfile:ro" \
+            -v "$PWD/dashboard/docker-compose.yml:/app/docker-compose.yml:ro" -v "$PWD/README.md:/README.md:ro" \
+            cmos-release-check -m pytest -q -ra -p no:cacheprovider tests
+      - name: Save browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-check-results
+          path: browser-check-results
+          retention-days: 3
+          if-no-files-found: ignore
+      - name: Commit only source changes that passed every gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- dashboard; then
+            echo "Source already verified: $(git rev-parse HEAD)"
+            exit 0
+          fi
+          python - <<'PY'
+          import subprocess
+          allowed = {
+              'dashboard/static/workspace_hub.js','dashboard/static/macro_layer.js','dashboard/static/macro_layer.css',
+              'dashboard/templates/nav.html','dashboard/templates/workspace.html','dashboard/templates/context.html',
+              'dashboard/templates/alerts.html','dashboard/tests/test_executive_intake_context_map.py',
+          }
+          changed = set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          assert changed <= allowed, f'Unexpected changes: {changed-allowed}'
+          subprocess.run(['git','add','--',*sorted(changed)],check=True)
+          PY
+          git config user.name 'City Manager OS Release Checks'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Repair Intake, cache versions, navigation and bulk forms after full browser and Docker checks'
+          git -c 'credential.helper=!gh auth git-credential' push origin HEAD:refs/heads/workspace-cohesion-alert-geofilters
+          echo "VERIFIED_RELEASE=$(git rev-parse HEAD)"
+          echo "Verified source: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
