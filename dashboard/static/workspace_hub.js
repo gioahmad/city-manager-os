@@ -105,8 +105,8 @@
     } finally {busy=false;document.body.classList.remove('hub-saving');}
   }
   function renderPreview(data) {
-    const {item,links,suggestions}=data,target=$(view+'-preview');target.replaceChildren();
-    const row=items.find(r=>r.kind===item.kind&&r.id===item.id) || {};
+    const {item,links,suggestions,inbox_state={}}=data,target=$(view+'-preview');target.replaceChildren();
+    const row=items.find(r=>r.kind===item.kind&&r.id===item.id) || {handled:Boolean(inbox_state.handled),snoozed_until:inbox_state.snoozed_until};
     const head=node('div',undefined,'preview-top');head.append(button('← Back',()=>closePreview(),'preview-back'),node('span',item.visibility==='PRIVATE'?'Private · only you':'Internal work','badge'));target.append(head);
     target.append(node('span',labels[item.kind],'eyebrow'),node('h2',item.title,'preview-title'),node('p',time(item.updated_at)+' · '+item.status.replaceAll('_',' ').toLowerCase(),'muted small'));
     const meta=item.metadata;
@@ -130,7 +130,11 @@
       if(item.kind==='DOCUMENT'&&['FAILED','NEEDS_OCR'].includes(item.status))actions.append(button('Retry processing',()=>act('RETRY')));
     }
     if(item.kind==='DOCUMENT')actions.append(link('Download original ↗','/workspace/documents/'+item.id+'/download'));
-    else if(item.kind!=='MAIL'&&item.kind!=='CONTACT')actions.append(link('Open full controls ↗',item.kind==='WORK'?'/issues?q='+encodeURIComponent(item.title):item.route));
+    else if(item.kind==='WORK')actions.append(link('Open editable Work ↗','/issues?focus='+encodeURIComponent(item.id)+'&state=all'));
+    else if(item.kind==='EVENT')actions.append(link('Open editable Event ↗','/schedule?focus='+encodeURIComponent(item.id)+'&state=all'));
+    else if(item.kind==='ALERT'&&meta.alert_id)actions.append(link('Open Alert controls ↗','/alerts?q='+encodeURIComponent(meta.alert_id)+'&window=all&state=all'));
+    else if(item.kind==='REQUEST'&&meta.work_id)actions.append(link('Open related Work ↗','/issues?focus='+encodeURIComponent(meta.work_id)+'&state=all'));
+    else if(!['MAIL','CALENDAR','CONTACT','RECORD','TASK'].includes(item.kind)&&item.route)actions.append(link('Open controls ↗',item.route));
     actions.append(link('Open full record ↗','/context/'+item.kind+'/'+item.id));
     if(meta.outlook_url){try{const u=new URL(meta.outlook_url);if(u.protocol==='https:'){const a=link('Open in Outlook ↗',u.href);a.target='_blank';a.rel='noopener noreferrer';actions.append(a);}}catch{}}
     target.append(actions);
