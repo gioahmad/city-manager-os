@@ -1,5 +1,5 @@
 <style>
-.changed-strip{margin:0 0 18px;border:1px solid #2b4053;border-radius:12px;background:#101b26;padding:12px}.changed-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.changed-head h2{margin:2px 0 0}.changed-counts{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.changed-chip{border:1px solid #35516a;background:#132332;border-radius:999px;padding:6px 9px;font-size:.78rem;color:#dbe8f1;text-decoration:none}.changed-chip strong{color:#fff}.changed-latest{display:grid;gap:5px;margin-top:9px}.changed-line{font-size:.8rem;color:#b9cbd8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.changed-actions{display:flex;gap:8px;align-items:center}.changed-actions form{margin:0}
+.changed-strip{margin:0 0 18px;border:1px solid #2b4053;border-radius:12px;background:#101b26;padding:12px}.changed-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.changed-head h2{margin:2px 0 0}.changed-counts{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.changed-chip{border:1px solid #35516a;background:#132332;border-radius:999px;padding:6px 9px;font-size:.78rem;color:#dbe8f1;text-decoration:none}.changed-chip strong{color:#fff}.changed-latest{display:grid;gap:5px;margin-top:9px}.changed-line{display:block;font-size:.8rem;color:#b9cbd8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:none}.changed-line:hover{color:#fff;text-decoration:underline}.changed-actions{display:flex;gap:8px;align-items:center}.changed-actions form{margin:0}
 </style>
 <section class="changed-strip">
   <div class="changed-head">
@@ -7,18 +7,18 @@
     <div class="changed-actions"><a class="text-link" href="/what-changed">Open details</a></div>
   </div>
   <div class="changed-counts">
-    <span class="changed-chip"><strong>{{ change_counts.total }}</strong> total</span>
-    <span class="changed-chip"><strong>{{ change_counts.issues }}</strong> work items</span>
-    <span class="changed-chip"><strong>{{ change_counts.alerts }}</strong> alerts</span>
-    <span class="changed-chip"><strong>{{ change_counts.events }}</strong> events</span>
+    <a class="changed-chip" href="/what-changed"><strong>{{ change_counts.total }}</strong> total</a>
+    <a class="changed-chip" href="/issues"><strong>{{ change_counts.issues }}</strong> work items</a>
+    <a class="changed-chip" href="/alerts"><strong>{{ change_counts.alerts }}</strong> alerts</a>
+    <a class="changed-chip" href="/schedule"><strong>{{ change_counts.events }}</strong> events</a>
     {% if change_counts.needs_attention %}<a class="changed-chip" href="/what-changed#overdue-work"><strong>{{ change_counts.needs_attention }}</strong> need attention</a>{% endif %}
     {% if change_counts.watch_matches %}<a class="changed-chip" href="/what-changed#watch-matches"><strong>{{ change_counts.watch_matches }}</strong> Watch matches</a>{% endif %}
     {% if change_counts.source_warnings %}<span class="changed-chip"><strong>{{ change_counts.source_warnings }}</strong> source warnings</span>{% endif %}
   </div>
   {% if first_review %}<div class="changed-line" style="margin-top:8px">First review uses the last 24 hours as the starting window.</div>{% endif %}
   <div class="changed-latest">
-    {% for i in changed_issues[:3] %}<div class="changed-line">{{ i.change_type }} · {{ i.title }}</div>{% endfor %}
-    {% for a in changed_alerts[:2] %}<div class="changed-line">ALERT · {{ a.source }} · {{ a.title }}</div>{% endfor %}
-    {% for w in watch_matches[:2] %}<div class="changed-line">MATCH · {{ w.display_name }} → {{ w.title }}</div>{% endfor %}
+    {% for i in changed_issues[:3] %}<a class="changed-line" href="/context/WORK/{{ i.id }}">{{ i.change_type }} · {{ i.title }}</a>{% endfor %}
+    {% for a in changed_alerts[:2] %}<a class="changed-line" href="/context/ALERT/{{ a.id }}">ALERT · {{ a.source }} · {{ a.title }}</a>{% endfor %}
+    {% for w in watch_matches[:2] %}<a class="changed-line" href="/context/ALERT/{{ w.alert_uuid }}">MATCH · {{ w.display_name }} → {{ w.title }}</a>{% endfor %}
   </div>
 </section>
