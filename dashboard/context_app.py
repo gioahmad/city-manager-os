@@ -294,21 +294,21 @@ def context_page(request: Request, item_kind: str, item_id: str):
                 ("Share", f"/share?alert={ref}"),
             ]
     elif kind == "WORK":
-        actions = [("Open Work", f"/issues?q={item['title']}&state=all"), ("Map", f"/map?q={item['title']}")]
+        actions = [("Open Work", f"/issues?focus={record_id}&state=all"), ("Map", f"/map?q={item['title']}")]
     elif kind == "EVENT":
-        actions = [("Open Event", f"/schedule?q={item['title']}&state=all"), ("Map", f"/map?q={item['title']}")]
+        actions = [("Open Event", f"/schedule?focus={record_id}&state=all"), ("Map", f"/map?q={item['title']}")]
     elif kind == "CALENDAR":
-        actions = [("Open Intake", "/workspace#inbox")]
+        actions = [("Open Intake", f"/intake?kind=CALENDAR&id={record_id}")]
         if metadata.get("outlook_url"):
             actions.append(("Open in Outlook", metadata["outlook_url"]))
     elif kind == "MAIL":
-        actions = [("Open Intake", "/workspace#inbox")]
+        actions = [("Open Intake", f"/intake?kind=MAIL&id={record_id}")]
         if metadata.get("outlook_url"):
             actions.append(("Open in Outlook", metadata["outlook_url"]))
     elif kind == "RECORD":
         attrs = metadata.get("attributes") or {}
         record_type = str(item.get("status") or "").upper()
-        actions = [("Open People & Places", "/workspace#people"), ("Search Everything", f"/search?q={item['title']}")]
+        actions = [("Open People, Places & Projects", "/workspace?view=people"), ("Search Everything", f"/search?q={item['title']}")]
         address = attrs.get("address")
         if address:
             actions.append(("Map Address", f"/map?q={address}"))
@@ -323,7 +323,7 @@ def context_page(request: Request, item_kind: str, item_id: str):
     elif kind == "BRAIN":
         actions = [("Open Brain", "/brain")]
     elif kind == "TASK":
-        actions = [("Open Today", "/workspace#today")]
+        actions = [("Open Today", "/workspace?view=today")]
 
     relationships = []
     if kind == "RECORD":
