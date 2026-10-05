@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="/static/product.css?v=20261003-1">
 <link rel="stylesheet" href="/static/macro_layer.css?v=9a3041fa85ca">
 <script src="/static/appearance.js?v=20261003-1" defer></script>
-<script src="/static/macro_layer.js?v=f5b1b372f65f" defer></script>
+<script src="/static/macro_layer.js?v=803508e70e30" defer></script>
 <style>
 /* Inactive controls must not be exposed by module grid/layout rules. */
 .bulk-action-toolbar [hidden], .alert-global-search [hidden] { display: none !important; }
@@ -34,6 +34,7 @@
     <nav class="cmos-rail-nav">
       <a href="/issues" class="{% if p.startswith('/issues') %}active{% endif %}"><span>✓</span>Command Center</a>
       <a href="/inbox" class="{% if p.startswith('/inbox') %}active{% endif %}"><span>↳</span>Quick Capture Inbox</a>
+      <a href="/library" class="{% if p.startswith('/library') %}active{% endif %}"><span>▤</span>Library</a>
       <a href="/brain" class="{% if p.startswith('/brain') %}active{% endif %}"><span>◉</span>Brain</a>
       <a href="/schedule" class="{% if p.startswith('/schedule') %}active{% endif %}"><span>◇</span>Events</a>
     </nav>
@@ -63,6 +64,7 @@
     <summary><span>OPERATIONS</span><span>›</span></summary>
     <nav class="cmos-rail-nav compact">
       <a href="/staff-admin" class="{% if p.startswith('/staff-admin') %}active{% endif %}">Staff</a>
+      <a href="/today-board/setup">Today Board Setup</a>
       <a href="/today-board" class="{% if p.startswith('/today-board') %}active{% endif %}">Today Board</a>
       <a href="/share" class="{% if p.startswith('/share') %}active{% endif %}">Share / SMS</a>
     </nav>
@@ -79,6 +81,8 @@
       <a href="/database" class="{% if p.startswith('/database') %}active{% endif %}">Database Viewer</a>
       <a href="/api-lab" class="{% if p.startswith('/api-lab') %}active{% endif %}">API Lab</a>
       <a href="/admin-tools" class="{% if p.startswith('/admin-tools') %}active{% endif %}">Admin Tools</a>
+      <a href="/workspace/display" target="_blank" rel="noopener">Area Display</a>
+      <a href="https://ops.nhnj.us/staff" target="_blank" rel="noopener">Employee Portal</a>
       <a href="/workspace?view=today" class="{% if p.startswith('/workspace') %}active{% endif %}">Workspace</a>
     </nav>
   </details>

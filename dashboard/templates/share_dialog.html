@@ -43,7 +43,7 @@
       form.querySelector('[data-dialog-smsgate]').disabled=!data.smsgate_configured;setStatus('Choose contacts or enter another recipient.');
     }catch(error){setStatus(error.message,true);}
   };
-  document.addEventListener('click',event=>{const link=event.target.closest('a[href^="/share?"]');if(!link)return;const url=new URL(link.href,location.origin),alert=url.searchParams.get('alert');if(!alert)return;event.preventDefault();show(alert);});
+  document.addEventListener('click',event=>{if(event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;const link=event.target.closest('a[href^="/share?"]');if(!link||link.dataset.cmosOpen==='full')return;const url=new URL(link.href,location.origin),alert=url.searchParams.get('alert');if(!alert)return;event.preventDefault();show(alert);});
   dialog.querySelector('[data-share-close]').addEventListener('click',()=>dialog.close());dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close();});
   search.addEventListener('input',()=>{const needle=search.value.trim().toLowerCase();contacts.querySelectorAll('.share-contact').forEach(row=>{row.hidden=Boolean(needle&&!row.textContent.toLowerCase().includes(needle));});});
   form.querySelector('[data-dialog-email]').addEventListener('click',()=>{const recipients=manual('emails','emails');if(!recipients.length){setStatus('Choose a contact with an email or enter an email address.',true);return;}location.href=`mailto:${encodeURIComponent(recipients.join(','))}?subject=${encodeURIComponent(field('subject')||'City Manager OS')}&body=${encodeURIComponent(field('message'))}`;});

@@ -12,7 +12,7 @@
 <main class="context-main">
   <section class="context-actions">
     {% for label,url in actions %}
-      <a class="{{ 'primary-button' if loop.first else 'secondary-button' }}" href="{{ url }}" {% if url.startswith('https://') %}target="_blank" rel="noopener"{% else %}data-cmos-quicklook data-cmos-title="{{ label }}"{% endif %}>{{ label }}</a>
+      <a class="{{ 'primary-button' if loop.first else 'secondary-button' }}" href="{{ url }}" data-cmos-open="full" {% if url.startswith('https://') %}target="_blank" rel="noopener"{% endif %}>{{ label }}</a>
     {% endfor %}
   </section>
 
@@ -53,7 +53,7 @@
       <div class="panel-head"><div><div class="panel-kicker">CONNECTED</div><h2>Linked context</h2></div><span class="count-pill">{{ item.links|length }}</span></div>
       <div class="panel-body context-list">
         {% for link in item.links %}
-        <a href="/context/{{ link.kind }}/{{ link.id }}" data-cmos-quicklook data-cmos-title="{{ link.title }}">
+        <a href="/context/{{ link.kind }}/{{ link.id }}">
           <span><strong>{{ link.title }}</strong><small>{{ link.kind }} · {{ link.status }}</small></span><span>›</span>
         </a>
         {% else %}<div class="empty-state small"><strong>No confirmed links yet</strong><span>Use Executive Intake or People &amp; Places to confirm relationships.</span></div>{% endfor %}
@@ -81,7 +81,7 @@
     <div class="panel-head"><div><div class="panel-kicker">CONTEXT TIMELINE</div><h2>Connected activity</h2></div></div>
     <div class="panel-body context-timeline">
       {% for link in item.links %}
-      <a href="/context/{{ link.kind }}/{{ link.id }}" data-cmos-quicklook data-cmos-title="{{ link.title }}">
+      <a href="/context/{{ link.kind }}/{{ link.id }}">
         <span class="cmos-action-kind {{ link.kind|lower }}">{{ link.kind }}</span>
         <span><strong>{{ link.title }}</strong><small>{{ link.status }}{% if link.snippet %} · {{ link.snippet }}{% endif %}</small></span>
         <time>{{ link.updated_at.strftime('%m/%d/%Y %I:%M %p') if link.updated_at else '' }}</time>
@@ -96,7 +96,7 @@
     <div class="panel-head"><div><div class="panel-kicker">RELATIONSHIPS</div><h2>People / places / projects</h2></div></div>
     <div class="panel-body context-list">
       {% for row in relationships %}
-      <a href="/context/RECORD/{{ row.other_id }}" data-cmos-quicklook data-cmos-title="{{ row.other_name }}">
+      <a href="/context/RECORD/{{ row.other_id }}">
         <span><strong>{{ row.other_name }}</strong><small>{{ row.other_kind }} · {{ row.relation|replace('_',' ') }}</small>{% if row.evidence %}<small>{{ row.evidence }}</small>{% endif %}</span><span>›</span>
       </a>
       {% endfor %}

@@ -1,8 +1,9 @@
 (()=>{
   const params=new URLSearchParams(location.search);
-  if(params.get('embed')==='1'){
-    document.body.classList.add('cmos-embedded');
-    return;
+  // Old embed bookmarks now open ordinary full pages.
+  if(params.has('embed')){
+    params.delete('embed');
+    history.replaceState(history.state,'',location.pathname+(params.size?'?'+params:'')+location.hash);
   }
 
   const quickActions=[
@@ -50,18 +51,11 @@
       localStorage.setItem(recentKey,JSON.stringify(rows.slice(0,8)));
     }catch{}
   };
-  const embedded=url=>{
-    const u=new URL(url,location.origin);
-    if(u.origin!==location.origin)return url;
-    u.searchParams.set('embed','1');
-    return u.pathname+u.search+u.hash;
-  };
-
   // Command palette.
   const dialog=document.createElement('dialog');
   dialog.className='cmos-command-dialog';
   dialog.innerHTML='<div class="cmos-command-box"><input class="cmos-command-input" autocomplete="off" placeholder="Search or open anything in City Manager OS…"></div>'+
-    '<div class="cmos-command-meta"><span>Open a module or search all records</span><span>↑↓ select · Enter open · Shift+Enter Quick Look</span></div>'+
+    '<div class="cmos-command-meta"><span>Open a module or search all records</span><span>↑↓ select · Enter open full page</span></div>'+
     '<div class="cmos-command-list"></div>'+
     '<div class="cmos-command-footer"><span>⌘/Ctrl P · Open</span><span>Quick Capture remains available from every page</span></div>';
   document.body.appendChild(dialog);
@@ -129,7 +123,7 @@
   function use(item,quick=false){
     if(!item){
       const route=smartCommandRoute(input.value);
-      if(route){dialog.close();quick?openSidecar(route.url,route.title):location.assign(route.url)}
+      if(route){dialog.close();navigatePage(route.url,route.title)}
       return;
     }
     if(item.url==='#quick-capture'){
@@ -139,7 +133,7 @@
     }
     remember(item.url,item.title);
     dialog.close();
-    quick?openSidecar(item.url,item.title):location.assign(item.url);
+    navigatePage(item.url,item.title);
   }
   input.addEventListener('input',()=>{selected=0;render()});
   input.addEventListener('keydown',e=>{
@@ -182,87 +176,47 @@
     if(capture){event.preventDefault();capture.click();}
   });
 
-  // Universal Quick Look sidecar.
-  const backdrop=document.createElement('div');
-  backdrop.className='cmos-sidecar-backdrop';
-  const sidecar=document.createElement('aside');
-  sidecar.className='cmos-sidecar';
-  sidecar.setAttribute('aria-label','Quick Look');
-  sidecar.innerHTML='<div class="cmos-sidecar-bar"><span class="cmos-sidecar-title">Quick Look</span>'+
-    '<button type="button" class="cmos-sidecar-pin" title="Keep open">◇</button>'+
-    '<button type="button" class="cmos-sidecar-focus" title="Focus">□</button>'+
-    '<a class="cmos-sidecar-open" target="_top" title="Open full page">↗</a>'+
-    '<button type="button" class="cmos-sidecar-close" title="Close">×</button></div>'+
-    '<div class="cmos-sidecar-resize"></div><iframe class="cmos-sidecar-frame" title="City Manager OS Quick Look"></iframe>';
-  document.body.append(backdrop,sidecar);
-  const frame=sidecar.querySelector('iframe');
-  const titleEl=sidecar.querySelector('.cmos-sidecar-title');
-  const openEl=sidecar.querySelector('.cmos-sidecar-open');
-  const pin=sidecar.querySelector('.cmos-sidecar-pin');
-  const focus=sidecar.querySelector('.cmos-sidecar-focus');
-
-  function openSidecar(url,title='Quick Look'){
-    const u=new URL(url,location.origin);
-    if(u.origin!==location.origin){location.href=url;return}
-    titleEl.textContent=title||'Quick Look';
-    openEl.href=u.pathname+u.search+u.hash;
-    frame.src=embedded(u.href);
-    document.body.classList.add('cmos-sidecar-open');
-    remember(u.pathname+u.search+u.hash,title||u.pathname);
+  // Private pages intentionally deny framing. Never embed login, editing,
+  // mapping or sharing routes in a blocked iframe.
+  function navigatePage(url,title=''){
+    const target=new URL(url,location.href);
+    if(!['http:','https:'].includes(target.protocol))return;
+    if(target.origin===location.origin){
+      target.searchParams.delete('embed');
+      remember(target.pathname+target.search+target.hash,title||target.pathname);
+    }
+    location.assign(target.href);
   }
-  function closeSidecar(){
-    document.body.classList.remove('cmos-sidecar-open','cmos-sidecar-pinned');
-    sidecar.classList.remove('focused');pin.classList.remove('active');
-    setTimeout(()=>{if(!document.body.classList.contains('cmos-sidecar-open'))frame.src='about:blank'},180);
-  }
-  backdrop.addEventListener('click',()=>{if(!document.body.classList.contains('cmos-sidecar-pinned'))closeSidecar()});
-  sidecar.querySelector('.cmos-sidecar-close').addEventListener('click',closeSidecar);
-  focus.addEventListener('click',()=>sidecar.classList.toggle('focused'));
-  pin.addEventListener('click',()=>{
-    document.body.classList.toggle('cmos-sidecar-pinned');
-    pin.classList.toggle('active',document.body.classList.contains('cmos-sidecar-pinned'));
-  });
-
-  // Resizable split.
-  const handle=sidecar.querySelector('.cmos-sidecar-resize');
-  let resizing=false;
-  handle.addEventListener('pointerdown',e=>{resizing=true;handle.setPointerCapture(e.pointerId);e.preventDefault()});
-  handle.addEventListener('pointermove',e=>{
-    if(!resizing||sidecar.classList.contains('focused'))return;
-    const width=Math.max(380,Math.min(innerWidth-80,innerWidth-e.clientX));
-    sidecar.style.width=width+'px';
-  });
-  handle.addEventListener('pointerup',()=>{resizing=false});
-
-  // Anything marked data-cmos-context opens the existing full module in Quick Look.
-  document.addEventListener('click',e=>{
-    const target=e.target.closest('[data-cmos-context]');
-    if(!target)return;
-    const interactive=e.target.closest('a,button,input,select,textarea,summary');
-    if(interactive&&interactive!==target)return;
+  // Compatibility for existing callers; no cmos-sidecar is constructed.
+  function openSidecar(url,title=''){navigatePage(url,title);}
+  // Anchors retain native behavior, including Ctrl-click and new tabs.
+  document.addEventListener('click',event=>{
+    if(event.defaultPrevented||event.button!==0)return;
+    const target=event.target.closest('[data-cmos-context]');
+    if(!target||event.target.closest('a,button,input,select,textarea,summary'))return;
     const url=target.dataset.cmosContext;
     if(!url)return;
-    e.preventDefault();
-    if(target.dataset.cmosOpen==='full'){location.assign(url);return;}
-    openSidecar(url,target.dataset.cmosTitle||target.querySelector('strong')?.textContent||'Quick Look');
+    event.preventDefault();
+    if(event.ctrlKey||event.metaKey||event.shiftKey){
+      const destination=new URL(url,location.href);
+      if(destination.origin===location.origin)window.open(destination.href,'_blank','noopener');
+      return;
+    }
+    if(target.dataset.cmosOpen==='full'){navigatePage(url,target.dataset.cmosTitle);return;}
+    navigatePage(url,target.dataset.cmosTitle);
   });
-  document.addEventListener('keydown',e=>{
-    if((e.metaKey||e.ctrlKey)&&!e.shiftKey&&e.key.toLowerCase()==='p'){e.preventDefault();openCommand()}
-    if(e.key==='Escape'&&document.body.classList.contains('cmos-sidecar-open'))closeSidecar();
-    const row=e.target.closest?.('[data-cmos-context]');
-    if(row&&(e.key==='Enter'||e.key===' ')){e.preventDefault();if(row.dataset.cmosOpen==='full')location.assign(row.dataset.cmosContext);else openSidecar(row.dataset.cmosContext,row.dataset.cmosTitle||'Quick Look')}
+  document.addEventListener('keydown',event=>{
+    if(event.defaultPrevented)return;
+    if((event.metaKey||event.ctrlKey)&&!event.shiftKey&&event.key.toLowerCase()==='p'){
+      event.preventDefault();openCommand();return;
+    }
+    if(event.key!=='Enter'&&event.key!==' ')return;
+    const row=event.target.closest?.('[data-cmos-context]');
+    if(!row||event.target.closest('a,button,input,select,textarea,summary,[contenteditable]'))return;
+    event.preventDefault();navigatePage(row.dataset.cmosContext,row.dataset.cmosTitle);
   });
-
-  // Global route links can opt into Quick Look without losing their original href.
-  document.addEventListener('click',e=>{
-    if(e.defaultPrevented)return;
-    const a=e.target.closest('a[data-cmos-quicklook]');
-    if(!a||e.button!==0||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;
-    e.preventDefault();
-    openSidecar(a.href,a.dataset.cmosTitle||a.textContent.trim());
-  });
-
-  window.CMOS={openSidecar,openCommand};
+  // Legacy data-cmos-quicklook anchors are metadata only, never intercepted.
+  window.CMOS={openSidecar,openCommand,navigatePage};
 
   // Reorganize inherited module layouts around the user's primary task.
   // Existing forms, routes, controls and data stay untouched; only presentation order changes.

@@ -18,11 +18,13 @@ def test_shared_nav_loads_preserve_first_macro_layer():
         assert route in nav
 
 
-def test_macro_layer_has_command_palette_and_quicklook():
+def test_macro_layer_has_command_palette_and_native_navigation():
     js = (ROOT / "static" / "macro_layer.js").read_text()
     css = (ROOT / "static" / "macro_layer.css").read_text()
     assert "cmos-command-dialog" in js
-    assert "cmos-sidecar" in js
+    assert "function navigatePage" in js
+    assert "<iframe" not in js
+    assert "frame.src" not in js
     assert "openSidecar" in js
     assert "data-cmos-context" in js
     assert "embed" in js

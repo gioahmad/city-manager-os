@@ -237,8 +237,9 @@ def test_all_original_navigation_links_survive_in_workspace(client,monkeypatch):
     assert '/workspace?view=today' in current
     assert 'Executive Intake' in response.text
     assert 'Quick Capture Inbox' in response.text
-    assert 'All tools' in response.text
-    assert 'Everything, still here.' in response.text
+    assert response.text.count('class="cmos-rail"') == 1
+    assert 'id="rail"' not in response.text
+    assert 'aria-label="Workspace sections"' in response.text
     assert 'Intake' in response.text
 
 

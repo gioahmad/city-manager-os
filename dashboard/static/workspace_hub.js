@@ -67,7 +67,7 @@
     }
   }
   function syncExactUrl(row) {
-    if(view!=='inbox'||location.pathname!=='/intake')return;
+    if(!((view==='inbox'&&location.pathname==='/intake')||(view==='library'&&location.pathname==='/library')))return;
     const params=new URLSearchParams(location.search);
     if(row){params.set('kind',row.kind);params.set('id',row.id);}
     else{params.delete('kind');params.delete('id');}
@@ -98,7 +98,7 @@
     const data=await json('/workspace/api/hub/detail/'+row.kind+'/'+row.id,{signal:detailController.signal});
     if(version!==detailSequence||view!==current)return;
     renderPreview(data);
-    if(focus&&window.matchMedia('(max-width:900px)').matches){const preview=$(view+'-preview');preview.style.scrollMarginTop=(document.querySelector('.topbar').offsetHeight+12)+'px';preview.scrollIntoView({block:'start'});preview.querySelector('button')?.focus({preventScroll:true});}
+    if(focus&&window.matchMedia('(max-width:900px)').matches){const preview=$(view+'-preview');preview.style.scrollMarginTop=((document.querySelector('.workspace-toolbar,.topbar')?.offsetHeight||50)+12)+'px';preview.scrollIntoView({block:'start'});preview.querySelector('button')?.focus({preventScroll:true});}
   }
   async function act(action,extra={}) {
     if(busy)throw new Error('Please wait for the current action.');

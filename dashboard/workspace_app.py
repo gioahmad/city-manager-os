@@ -107,47 +107,39 @@ def intelligence(window='24h'):
 
 
 @app.get('/intake')
-def executive_intake_route(
-    kind: str = '',
-    id: str = '',
-    intake_source: str = '',
-    intake_q: str = '',
-    bucket: str = '',
-    scope: str = '',
-):
-    params=['view=inbox']
-    if kind:
-        params.append('kind='+quote_plus(kind.strip().upper()))
-    if id:
-        params.append('id='+quote_plus(id.strip()))
-    if intake_source:
-        params.append('intake_source='+quote_plus(intake_source.strip().upper()))
-    if intake_q:
-        params.append('intake_q='+quote_plus(intake_q.strip()[:500]))
-    if bucket in {'open','action','all','handled'}:
-        params.append('bucket='+quote_plus(bucket))
-    if scope in {'both','personal','work'}:
-        params.append('scope='+quote_plus(scope))
-    return RedirectResponse('/workspace?'+'&'.join(params),status_code=303)
+def executive_intake_route(request: Request):
+    return _workspace_response(request, 'inbox')
 
 
 @app.get('/library')
-def workspace_library_route(kind: str = '', id: str = ''):
-    params=['view=library']
-    if kind:
-        params.append('kind='+quote_plus(kind.strip().upper()))
-    if id:
-        params.append('id='+quote_plus(id.strip()))
-    return RedirectResponse('/workspace?'+'&'.join(params),status_code=303)
+def workspace_library_route(request: Request):
+    return _workspace_response(request, 'library')
+
+
+def _workspace_response(request: Request, view: str):
+    _owner(request)
+    display = request.url.path.endswith('/display')
+    return templates.TemplateResponse(request=request, name='workspace.html', context={
+        'csrf': _csrf(request), 'display': display, 'initial_view': view,
+        'page': 'Executive Intake' if view == 'inbox' else 'Library' if view == 'library' else 'Workspace',
+        'readonly': request.state.cmos_role == 'READ_ONLY',
+        'username': request.state.cmos_account.username,
+    })
 
 
 @app.get('/workspace',response_class=HTMLResponse)
 @app.get('/workspace/display',response_class=HTMLResponse)
 def workspace_page(request: Request):
     _owner(request)
-    return templates.TemplateResponse(request=request,name='workspace.html',context={
-        'csrf':_csrf(request),'display':request.url.path.endswith('/display'),
-        'readonly':request.state.cmos_role=='READ_ONLY','username':request.state.cmos_account.username})
+    display = request.url.path.endswith('/display')
+    view = request.query_params.get('view', 'today')
+    # Saved links retain their exact source and filters on the canonical route.
+    if not display and view in {'inbox', 'library'}:
+        params = [(k, v) for k, v in request.query_params.multi_items() if k not in {'view', 'embed'}]
+        suffix = '&'.join(quote_plus(k)+'='+quote_plus(v) for k, v in params)
+        target = '/intake' if view == 'inbox' else '/library'
+        return RedirectResponse(target+('?' + suffix if suffix else ''), status_code=303)
+    return _workspace_response(request, 'intelligence' if display else view)
 
 
 @app.get('/workspace/api/state')
