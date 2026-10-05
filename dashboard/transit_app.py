@@ -39,9 +39,18 @@ def transit_center(
     provider: str = "all",
     q: str = "",
     msg: str = "",
+    focus: str = "",
 ):
     where = ["o.active=true"]
     params = []
+    focus_id = None
+    if focus.strip():
+        try:
+            focus_id = uuid.UUID(focus.strip())
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid Transit record identifier") from exc
+        where.append("o.id=%s")
+        params.append(focus_id)
 
     level = level.lower().strip()
     if level in {"awareness", "watch", "alert"}:
@@ -166,6 +175,7 @@ def transit_center(
             "event_context": event_context,
             "target_types": TARGET_TYPES,
             "levels": sorted(LEVELS),
+            "focus_id": focus_id,
         },
     )
 
@@ -283,8 +293,15 @@ def transit_create_action(observation_id: uuid.UUID):
         """,
         (observation_id,),
     )
-    return RedirectResponse("/issues?msg=Transit+action+ready", status_code=303)
-
+    row=query_one("""SELECT id FROM issues
+        WHERE transit_observation_id=%s AND status NOT IN ('RESOLVED','CLOSED')
+        ORDER BY updated_at DESC LIMIT 1""",(observation_id,))
+    if not row:
+        raise HTTPException(404,"No active Command Center action is available for this transit record")
+    return RedirectResponse(
+        "/issues?"+urllib.parse.urlencode({"focus":str(row["id"]),"state":"all","msg":"Transit action ready"}),
+        status_code=303,
+    )
 
 @app.get("/map/system/transit.geojson")
 def transit_map_geojson():
