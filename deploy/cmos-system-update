@@ -107,7 +107,12 @@ import json,urllib.request
 from private_auth import COOKIE_NAME,_accounts,_issue_session
 account=next(a for a in _accounts().values() if a.role=='EXECUTIVE')
 headers={'Cookie':COOKIE_NAME+'='+_issue_session(account)}
-for path in ('/','/map','/alerts?window=24h','/workspace','/workspace/api/hub','/source-health','/watchlist','/issues'):
+for path in (
+    '/','/my-day','/what-changed','/issues','/intake','/workspace?view=today',
+    '/workspace/api/hub','/map','/alerts?window=24h','/watchlist','/subscribers',
+    '/schedule','/event-intelligence','/transit','/spatial-reference',
+    '/source-health','/deliveries','/staff-admin','/operations-routines'
+):
     req=urllib.request.Request('http://127.0.0.1:8000'+path,headers=headers)
     with urllib.request.urlopen(req,timeout=30) as r:
         assert r.status==200,(path,r.status)
