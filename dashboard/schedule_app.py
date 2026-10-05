@@ -564,41 +564,29 @@ def schedule_toggle(event_id: uuid.UUID):
 
 
 @app.post("/my-day/reviewed")
-def my_day_mark_reviewed():
-    response = RedirectResponse(
-        url="/my-day",
-        status_code=303,
+def my_day_mark_reviewed(request: Request):
+    user=str(getattr(request.state,"cmos_user",None) or "local").strip() or "local"
+    execute(
+        """INSERT INTO executive_review_state(username,last_reviewed_at,updated_at)
+           VALUES(%s,now(),now())
+           ON CONFLICT(username) DO UPDATE
+           SET last_reviewed_at=EXCLUDED.last_reviewed_at,updated_at=now()""",
+        (user,),
     )
-    response.set_cookie(
-        "cmos_my_day_reviewed",
-        datetime.now().astimezone().isoformat(),
-        max_age=31536000,
-        httponly=True,
-        samesite="lax",
-    )
-    return response
+    return RedirectResponse(url="/my-day",status_code=303)
 
 
 @app.get("/my-day", response_class=HTMLResponse)
 def my_day(request: Request):
-    raw_reviewed = request.cookies.get(
-        "cmos_my_day_reviewed",
-        "",
+    user=str(getattr(request.state,"cmos_user",None) or "local").strip() or "local"
+    stored_review=query_one(
+        "SELECT last_reviewed_at FROM executive_review_state WHERE username=%s",
+        (user,),
     )
-
-    try:
-        review_since = datetime.fromisoformat(
-            raw_reviewed
-        )
-        if review_since.tzinfo is None:
-            raise ValueError(
-                "review timestamp requires timezone"
-            )
-    except (TypeError, ValueError):
-        review_since = (
-            datetime.now().astimezone()
-            - timedelta(hours=24)
-        )
+    review_since=(stored_review or {}).get("last_reviewed_at")
+    review_is_default=not bool(review_since)
+    if review_since is None:
+        review_since=datetime.now().astimezone()-timedelta(hours=24)
 
     schedule = query_all(
         """
@@ -1470,7 +1458,7 @@ def my_day(request: Request):
 
     review_state = {
         "since": review_since.astimezone(),
-        "is_default": not bool(raw_reviewed),
+        "is_default": review_is_default,
     }
 
     return templates.TemplateResponse(
