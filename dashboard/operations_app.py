@@ -2426,6 +2426,7 @@ def deliveries_page(request: Request, status: str = "", q: str = "", focus: str 
     for row in rows:
         row["evidence"] = _delivery_evidence(row)
         row["track_alert_url"] = f"/issues?{urlencode({'from_alert': row['alert_id']})}"
+        row["alert_context_url"] = f"/context/ALERT/{row['alert_uuid']}"
     return templates.TemplateResponse(
         request=request,
         name="deliveries.html",
