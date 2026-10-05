@@ -447,3 +447,25 @@ def test_intake_deep_link_does_not_close_when_source_is_outside_first_page():
     selected=hub_js.index("if(selected&&!pendingOpen)")
     assert selected < pending
     assert "else await openExact(wanted.kind,wanted.id)" in hub_js
+
+
+def test_intake_keeps_exact_record_in_url_and_preserves_deep_link_on_initial_load():
+    hub_js=(ROOT/"static"/"workspace_hub.js").read_text()
+    assert "function syncExactUrl(row)" in hub_js
+    assert "params.set('kind',row.kind)" in hub_js
+    assert "params.set('id',row.id)" in hub_js
+    assert "closePreview(false)" in hub_js
+    assert "syncExactUrl(selected)" in hub_js
+
+
+def test_alert_place_filters_normalize_case_and_add_county():
+    source=(ROOT/"operations_app.py").read_text()
+    template=(ROOT/"templates"/"alerts.html").read_text()
+    assert "county: str = \"\"" in source
+    assert "(county, \"a.county\")" in source
+    assert "[[:space:]]+" in source
+    assert "GROUP BY lower(regexp_replace(trim(municipality)" in source
+    assert "GROUP BY lower(regexp_replace(trim(county)" in source
+    assert 'select name="county"' in template
+    assert 'name="county" value="{{ county }}"' in template
+    assert "case-insensitively" in template
