@@ -21,9 +21,23 @@ jobs:
         with:
           python-version: '3.12'
       - name: Apply exact-match source repair
-        run: python ci/finalize_release.py
+        run: |
+          python ci/finalize_release.py
+          python - <<'PY'
+          from pathlib import Path
+          path=Path('dashboard/operations_app.py')
+          source=path.read_text()
+          if '" ".join(item.split()).casefold()' not in source:
+              start=source.index('        params.append([\n',source.index('municipality_values = _alert_place_values'))
+              end=source.index('    min_priority = ',start)
+              assert 'for item in municipality_values' in source[start:end]
+              source=source[:start]+'        params.append([" ".join(item.split()).casefold() for item in municipality_values])\n'+source[end:]
+              compile(source,str(path),'exec')
+              path.write_text(source)
+              print('REPAIRED actual municipality whitespace normalization')
+          PY
       - name: Install test dependencies
-        run: python -m pip install -r dashboard/requirements.txt playwright
+        run: python -m pip install -q -r dashboard/requirements.txt playwright
       - name: Full dashboard regression
         working-directory: dashboard
         env:
@@ -36,11 +50,11 @@ jobs:
           node --check dashboard/static/workspace.js
           node --check dashboard/static/macro_layer.js
       - name: Install Chromium
-        run: python -m playwright install --with-deps chromium
+        run: python -m playwright install --with-deps chromium > "$RUNNER_TEMP/browser-install.log" 2>&1 || { tail -80 "$RUNNER_TEMP/browser-install.log"; exit 1; }
       - name: Browser behavior with synthetic data
         run: python ci/check_release_browser.py
       - name: Build actual dashboard image
-        run: docker build -t cmos-release-check ./dashboard
+        run: docker build -t cmos-release-check ./dashboard > "$RUNNER_TEMP/image-build.log" 2>&1 || { tail -100 "$RUNNER_TEMP/image-build.log"; exit 1; }
       - name: Docker regression with release preflight mounts
         run: |
           docker run --rm --entrypoint python -e DB_PASSWORD=ci-test-only -e PYTHONDONTWRITEBYTECODE=1 \
@@ -49,6 +63,17 @@ jobs:
             -v "$PWD/dashboard:/dashboard:ro" -v "$PWD/dashboard/Dockerfile:/app/Dockerfile:ro" \
             -v "$PWD/dashboard/docker-compose.yml:/app/docker-compose.yml:ro" -v "$PWD/README.md:/README.md:ro" \
             cmos-release-check -m pytest -q -ra -p no:cacheprovider tests
+      - name: Actual image route composition
+        run: |
+          docker run --rm -i --entrypoint python -e DB_PASSWORD=ci-test-only cmos-release-check - <<'PY'
+          from phase3_app import app
+          required={'/','/my-day','/what-changed','/issues','/inbox','/intake','/workspace','/map','/alerts','/watchlist','/subscribers','/schedule','/event-intelligence','/transit','/spatial-reference','/source-health','/deliveries','/staff-admin','/operations-routines','/context/{item_kind}/{item_id}','/records/{record_id}'}
+          paths=[r.path for r in app.routes if 'GET' in (getattr(r,'methods',set()) or set())]
+          assert not required-set(paths),required-set(paths)
+          for path in ('/','/my-day','/issues','/intake','/workspace','/map','/alerts','/watchlist','/schedule'):
+              assert paths.count(path)==1,(path,paths.count(path))
+          print('ROUTE CONTRACT: PASS — 21 required routes, no duplicate core handlers')
+          PY
       - name: Save browser evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -69,17 +94,18 @@ jobs:
           python - <<'PY'
           import subprocess
           allowed = {
+              'dashboard/operations_app.py',
               'dashboard/static/workspace_hub.js','dashboard/static/macro_layer.js','dashboard/static/macro_layer.css',
               'dashboard/templates/nav.html','dashboard/templates/workspace.html','dashboard/templates/context.html',
               'dashboard/templates/alerts.html','dashboard/tests/test_executive_intake_context_map.py',
           }
-          changed = set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
-          assert changed <= allowed, f'Unexpected changes: {changed-allowed}'
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          assert changed<=allowed,f'Unexpected changes: {changed-allowed}'
           subprocess.run(['git','add','--',*sorted(changed)],check=True)
           PY
           git config user.name 'City Manager OS Release Checks'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Repair Intake, cache versions, navigation and bulk forms after full browser and Docker checks'
+          git commit -m 'Repair Intake, geography, cache, navigation and bulk forms after browser and Docker validation'
           git -c 'credential.helper=!gh auth git-credential' push origin HEAD:refs/heads/workspace-cohesion-alert-geofilters
           echo "VERIFIED_RELEASE=$(git rev-parse HEAD)"
           echo "Verified source: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
