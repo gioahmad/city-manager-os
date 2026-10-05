@@ -210,9 +210,12 @@
     if(requestedKind&&requestedId)pendingOpen={kind:requestedKind,id:requestedId};
     const inboxFilters=$('inbox-filters');
     if(inboxFilters){
-      const source=incoming.get('intake_source'),query=incoming.get('intake_q');
+      const source=incoming.get('intake_source'),query=incoming.get('intake_q'),
+            bucket=incoming.get('bucket'),scope=incoming.get('scope');
       if(source&&inboxFilters.elements.source)inboxFilters.elements.source.value=source;
       if(query&&inboxFilters.elements.q)inboxFilters.elements.q.value=query;
+      if(bucket&&['open','action','all','handled'].includes(bucket)&&inboxFilters.elements.bucket)inboxFilters.elements.bucket.value=bucket;
+      if(scope&&['both','personal','work'].includes(scope)&&inboxFilters.elements.scope)inboxFilters.elements.scope.value=scope;
     }
     for(const name of ['inbox','library']){
       const form=$(name+'-filters');let debounce;
