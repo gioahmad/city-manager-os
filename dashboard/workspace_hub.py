@@ -24,13 +24,13 @@ SOURCES='''WITH account AS (SELECT %s::text AS owner), items AS (
  SELECT 'MAIL'::text AS kind,m.id,m.title,m.body,'PRIVATE'::text AS visibility,
         m.received_at AS updated_at,NOT m.is_read AS attention,
         CASE WHEN m.is_read THEN 'Read' ELSE 'Unread' END::text AS status,
-        '/workspace#inbox'::text AS route,
+        ('/intake?kind=MAIL&id='||m.id::text)::text AS route,
         jsonb_build_object('sender_name',m.sender_name,'sender_email',m.sender_email,'recipients',m.recipients,
                            'outlook_url',m.outlook_url) AS metadata
  FROM workspace_microsoft_mail m,account a WHERE m.owner_username=a.owner
  UNION ALL
  SELECT 'CONTACT',m.id,m.name,m.attributes::text,'PRIVATE',m.updated_at,m.imported_entity_id IS NULL,
-        CASE WHEN m.imported_entity_id IS NULL THEN 'Ready to import' ELSE 'Imported' END,'/workspace#people',
+        CASE WHEN m.imported_entity_id IS NULL THEN 'Ready to import' ELSE 'Imported' END,('/intake?kind=CONTACT&id='||m.id::text),
         jsonb_build_object('attributes',m.attributes,'entity_id',m.imported_entity_id)
  FROM workspace_microsoft_contacts m,account a WHERE m.owner_username=a.owner
  UNION ALL
@@ -38,17 +38,17 @@ SOURCES='''WITH account AS (SELECT %s::text AS owner), items AS (
         concat_ws(E'\n',e.location,to_char(e.starts_at AT TIME ZONE current_setting('TimeZone'),'MM/DD/YYYY HH12:MI AM')),'PRIVATE',
         e.starts_at, e.ends_at>=now(),
         CASE WHEN e.ends_at<now() THEN 'Past' ELSE 'Upcoming' END,
-        '/workspace#today',
+        ('/intake?kind=CALENDAR&id='||e.id::text),
         jsonb_build_object('starts_at',e.starts_at,'ends_at',e.ends_at,'location',e.location,'all_day',e.all_day,'outlook_url',e.outlook_url)
  FROM workspace_calendar_events e,account a WHERE e.owner_username=a.owner
  UNION ALL
  SELECT 'EVENT',e.id,e.title,concat_ws(E'\n',e.notes,e.location_name,e.address),'WORK',
-        e.updated_at,e.active AND e.event_status NOT IN ('COMPLETED','CANCELLED'),e.event_status,'/schedule',
+        e.updated_at,e.active AND e.event_status NOT IN ('COMPLETED','CANCELLED'),e.event_status,('/context/EVENT/'||e.id::text),
         jsonb_build_object('starts_at',e.starts_at,'ends_at',e.ends_at,'location',coalesce(e.location_name,e.address),'municipality',e.municipality)
  FROM operational_events e
  UNION ALL
  SELECT 'DOCUMENT',d.id,d.filename,d.extracted_text,'PRIVATE',d.created_at,d.status IN ('FAILED','NEEDS_OCR'),
-        d.status,'/workspace#library',jsonb_build_object('profile',d.profile,'error',d.error,
+        d.status,('/library?kind=DOCUMENT&id='||d.id::text),jsonb_build_object('profile',d.profile,'error',d.error,
              'processing_status',d.status,'content_type',d.content_type,'bytes',octet_length(d.content))
  FROM workspace_documents d,account a WHERE d.owner_username=a.owner
  UNION ALL
@@ -57,24 +57,24 @@ SOURCES='''WITH account AS (SELECT %s::text AS owner), items AS (
  FROM brain_notes n,account a WHERE n.owner_username=a.owner AND n.deleted_at IS NULL
  UNION ALL
  SELECT 'TASK',t.id,t.title,t.title,'PRIVATE',t.created_at,NOT t.done,
-        CASE WHEN t.done THEN 'Completed' ELSE 'Open' END,'/workspace#today',jsonb_build_object('due_date',t.due_date,'done',t.done)
+        CASE WHEN t.done THEN 'Completed' ELSE 'Open' END,('/workspace?view=today'),jsonb_build_object('due_date',t.due_date,'done',t.done)
  FROM workspace_personal_tasks t,account a WHERE t.owner_username=a.owner
  UNION ALL
  SELECT 'WORK',i.id,i.title,concat_ws(E'\\n',i.description,i.address,i.municipality),'WORK',i.updated_at,
-        i.status NOT IN ('CLOSED','CANCELLED','DONE','RESOLVED'),i.status,'/issues',
+        i.status NOT IN ('CLOSED','CANCELLED','DONE','RESOLVED'),i.status,('/context/WORK/'||i.id::text),
         jsonb_build_object('assigned_to',i.assigned_to,'priority',i.priority,'address',i.address)
  FROM issues i
  UNION ALL
  SELECT 'REQUEST',m.id,left(m.body,120),m.body,'WORK',m.created_at,m.author='REQUESTER',m.author,
-        '/workspace#work',jsonb_build_object('work_id',p.issue_id,'work_title',i.title)
+        ('/context/WORK/'||p.issue_id::text),jsonb_build_object('work_id',p.issue_id,'work_title',i.title)
  FROM workspace_portal_messages m JOIN workspace_portals p ON p.id=m.portal_id JOIN issues i ON i.id=p.issue_id
  WHERE NOT p.revoked
  UNION ALL
- SELECT 'ALERT',r.id,r.title,r.message,'WORK',r.received_at,r.priority>=4,r.status,'/alerts',
+ SELECT 'ALERT',r.id,r.title,r.message,'WORK',coalesce(r.observed_at,r.received_at),r.priority>=4,r.status,('/context/ALERT/'||r.id::text),
         jsonb_build_object('source',r.source,'municipality',r.municipality,'priority',r.priority)
  FROM alerts r WHERE r.received_at>=now()-interval '30 days'
  UNION ALL
- SELECT 'RECORD',e.id,e.name,e.attributes::text,e.visibility,e.updated_at,false,e.kind,'/workspace#people',
+ SELECT 'RECORD',e.id,e.name,e.attributes::text,e.visibility,e.updated_at,false,e.kind,('/context/RECORD/'||e.id::text),
         jsonb_build_object('attributes',e.attributes)
  FROM workspace_entities e,account a WHERE (e.visibility='WORK' OR e.owner_username=a.owner)
    AND (e.contact_id IS NULL OR EXISTS(SELECT 1 FROM contacts c WHERE c.id=e.contact_id AND c.active AND c.visibility='ALL'))
