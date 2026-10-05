@@ -49,10 +49,12 @@ jobs:
           node --check dashboard/static/workspace_hub.js
           node --check dashboard/static/workspace.js
           node --check dashboard/static/macro_layer.js
-      - name: Install Chromium
-        run: python -m playwright install --with-deps chromium > "$RUNNER_TEMP/browser-install.log" 2>&1 || { tail -80 "$RUNNER_TEMP/browser-install.log"; exit 1; }
+      - name: Install Chromium and Firefox
+        run: python -m playwright install --with-deps chromium firefox > "$RUNNER_TEMP/browser-install.log" 2>&1 || { tail -80 "$RUNNER_TEMP/browser-install.log"; exit 1; }
       - name: Browser behavior with synthetic data
         run: python ci/check_release_browser.py
+      - name: Authenticated native navigation in Firefox and Chromium
+        run: python ci/check_authenticated_navigation.py
       - name: Build actual dashboard image
         run: docker build -t cmos-release-check ./dashboard > "$RUNNER_TEMP/image-build.log" 2>&1 || { tail -100 "$RUNNER_TEMP/image-build.log"; exit 1; }
       - name: Docker regression with release preflight mounts
