@@ -129,6 +129,7 @@ try:
         next_href=page.get_by_role('link',name='Next',exact=True).get_attribute('href')
         assert parse_qs(urlsplit(next_href).query)['municipality']==['Weehawken|Union City']
         passed('County cascade and multi-town selection survive Search and pagination URLs')
+        page.get_by_role('button',name='Bulk Actions',exact=True).click()
         page.locator('[data-alert-select-all]').check()
         assert page.locator('[data-alert-select]').count()==2
         assert page.locator('[data-alert-select]').evaluate_all('(els)=>els.every(e=>e.checked&&e.form.id==="alert-bulk-form")')

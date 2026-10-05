@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 from pathlib import Path
 
@@ -213,7 +214,7 @@ def test_filter_select_edit_alert_timeline_workflow():
 
 
 def test_system_update_converges_app_services_without_pruning_data():
-    deploy_root=Path("/deploy")
+    deploy_root=ROOT.parent/"deploy"
     updater=(deploy_root/"cmos-system-update").read_text()
     maintenance=(deploy_root/"cmos-maintenance").read_text()
 
@@ -293,12 +294,18 @@ def test_workspace_polish_uses_current_assets_and_alert_windows():
         assert f"'{value}'" in app
         assert f'value="{value}"' in page
     assert "People, places &amp; projects" in page
-    assert "workspace.js?v=20261004-4" in page
-    assert "workspace_hub.js?v=20261004-4" in page
-    assert "workspace.css?v=20261004-2" in page
-    assert "macro_layer.css?v=20261005-1" in nav
-    assert "macro_layer.js?v=20261004-4" in nav
-    assert "context.css?v=20261004-2" in context
+    # ASSET_CONTENT_CONTRACT: real files plus content-derived cache revisions.
+    for document, assets in (
+        (page, ('workspace.js', 'workspace_hub.js', 'workspace.css')),
+        (nav, ('macro_layer.css', 'macro_layer.js')),
+        (context, ('context.css',)),
+    ):
+        for asset in assets:
+            path = ROOT / 'static' / asset
+            assert path.is_file(), asset
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+            assert f'{asset}?v={digest}' in document, f'Stale or missing cache key: {asset}'
+
 
 
 def test_alert_timeline_editor_supports_date_time_shift_sequence_and_sort():

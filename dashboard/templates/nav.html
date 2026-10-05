@@ -2,12 +2,12 @@
 <link rel="stylesheet" href="/static/density.css?v=20260903-1">
 <link rel="stylesheet" href="/static/command_nav.css?v=20260921-1">
 <link rel="stylesheet" href="/static/product.css?v=20261003-1">
-<link rel="stylesheet" href="/static/macro_layer.css?v=20261005-1">
+<link rel="stylesheet" href="/static/macro_layer.css?v=9a3041fa85ca">
 <script src="/static/appearance.js?v=20261003-1" defer></script>
-<script src="/static/macro_layer.js?v=20261005-1" defer></script>
+<script src="/static/macro_layer.js?v=f5b1b372f65f" defer></script>
 
 {% set p = request.url.path %}
-<aside class="cmos-rail" aria-label="Primary navigation">
+<aside class="cmos-rail" id="cmos-primary-navigation" aria-label="Primary navigation">
   <div class="cmos-rail-brand">
     <a href="/" class="cmos-rail-home"><span class="cmos-rail-mark">CM</span><span><strong>City Manager OS</strong><small>Weehawken · Executive Workspace</small></span></a>
   </div>
@@ -80,20 +80,20 @@
   </details>
 
   <div class="cmos-rail-footer">
-    <span class="cmos-rail-live"></span><span>Systems connected</span>
+    <span aria-hidden="true">◈</span><span>Private workspace</span>
     <a href="/logout">Sign out</a>
   </div>
 </aside>
 
 <header class="cmos-global-bar">
-  <button type="button" class="cmos-mobile-rail-toggle" aria-label="Open navigation">☰</button>
+  <button type="button" class="cmos-mobile-rail-toggle" aria-controls="cmos-primary-navigation" aria-expanded="false" aria-label="Toggle navigation">☰</button>
   <div class="cmos-global-page">
     <span class="cmos-global-section">City Manager OS</span>
     <strong>{{ page|default('Workspace')|replace('-',' ')|title }}</strong>
   </div>
   <button type="button" class="cmos-global-search-button" data-cmos-command-trigger>⌕ Search records, people, places, alerts… <kbd>⌘P</kbd></button>
   <div class="cmos-global-actions">
-    <button type="button" class="cmos-global-capture" onclick="document.getElementById('qc-open')?.click()">+ Capture</button>
+    <a href="/inbox" class="cmos-global-capture" data-cmos-capture>+ Capture</a>
     <a href="/what-changed" data-cmos-quicklook data-cmos-title="What Changed">Changes</a>
   </div>
 </header>

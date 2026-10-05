@@ -417,10 +417,7 @@ def _alert_filter(
             "lower(regexp_replace(trim(coalesce(a.municipality,'')), '[[:space:]]+', ' ', 'g')) "
             "= ANY(%s)"
         )
-        params.append([
-            re.sub(r"\\s+", " ", item.strip()).casefold()
-            for item in municipality_values
-        ])
+        params.append([" ".join(item.split()).casefold() for item in municipality_values])
     min_priority = max(1, min(int(min_priority), 5))
     if min_priority > 1:
         where.append("a.priority >= %s")

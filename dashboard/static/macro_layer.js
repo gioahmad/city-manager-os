@@ -153,19 +153,34 @@
   // The shared preserve-first rail exposes command launchers on every module.
   document.querySelectorAll('[data-cmos-command-trigger]').forEach(trigger=>trigger.addEventListener('click',openCommand));
 
-  // Mobile rail.
+  // One mobile navigation state, with keyboard and focus recovery.
   const mobileToggle=document.querySelector('.cmos-mobile-rail-toggle');
   const railBackdrop=document.querySelector('.cmos-rail-backdrop');
+  const rail=document.querySelector('.cmos-rail');
+  function setMobileNavigation(open){
+    document.body.classList.toggle('cmos-mobile-nav-open',open);
+    if(railBackdrop)railBackdrop.hidden=!open;
+    if(mobileToggle)mobileToggle.setAttribute('aria-expanded',String(open));
+    if(open)rail?.querySelector('a.active,a')?.focus();
+    else mobileToggle?.focus();
+  }
   if(mobileToggle&&railBackdrop){
-    mobileToggle.addEventListener('click',()=>{
-      document.body.classList.add('cmos-mobile-nav-open');
-      railBackdrop.hidden=false;
+    mobileToggle.setAttribute('aria-expanded','false');
+    mobileToggle.addEventListener('click',()=>setMobileNavigation(!document.body.classList.contains('cmos-mobile-nav-open')));
+    railBackdrop.addEventListener('click',()=>setMobileNavigation(false));
+    document.addEventListener('keydown',event=>{
+      if(event.key==='Escape'&&document.body.classList.contains('cmos-mobile-nav-open')){
+        event.preventDefault();setMobileNavigation(false);
+      }
     });
-    railBackdrop.addEventListener('click',()=>{
-      document.body.classList.remove('cmos-mobile-nav-open');
-      railBackdrop.hidden=true;
+    matchMedia('(max-width:840px)').addEventListener('change',event=>{
+      if(!event.matches&&document.body.classList.contains('cmos-mobile-nav-open'))setMobileNavigation(false);
     });
   }
+  document.querySelector('[data-cmos-capture]')?.addEventListener('click',event=>{
+    const capture=document.getElementById('qc-open');
+    if(capture){event.preventDefault();capture.click();}
+  });
 
   // Universal Quick Look sidecar.
   const backdrop=document.createElement('div');
@@ -242,7 +257,7 @@
   document.addEventListener('click',e=>{
     if(e.defaultPrevented)return;
     const a=e.target.closest('a[data-cmos-quicklook]');
-    if(!a)return;
+    if(!a||e.button!==0||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;
     e.preventDefault();
     openSidecar(a.href,a.dataset.cmosTitle||a.textContent.trim());
   });

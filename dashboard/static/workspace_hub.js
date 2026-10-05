@@ -17,7 +17,7 @@
   }
   function filters() {return Object.fromEntries(new FormData($(view+'-filters')).entries());}
   function leave() {controller?.abort();detailController?.abort();pickerController?.abort();clearTimeout(timer);view=undefined;sequence++;detailSequence++;}
-  async function load(nextView,force=false,append=false) {
+  async function load(nextView,force=false,append=false,retainExact=false) {
     if(nextView!==view){leave();view=nextView;selected=null;items=[];closePreview(false);}
     controller?.abort();controller=new AbortController();const version=++sequence,current=view;
     $('loading-indicator').hidden=false;
@@ -28,7 +28,7 @@
       items=append?[...items,...data.items]:data.items;more=data.has_more;renderList();
       $('local-answer-status').textContent=data.local_answers?'Local answers available':'Source evidence available · local model optional';
       $('library-ask').querySelector('button').textContent=data.local_answers?'Ask with sources':'Find evidence';
-      if(selected&&!pendingOpen){const row=items.find(r=>r.id===selected.id&&r.kind===selected.kind);if(row)await open(row,false);else closePreview();}
+      if(selected&&!pendingOpen){const row=items.find(r=>r.id===selected.id&&r.kind===selected.kind);if(row)await open(row,false);else if(retainExact)await openExact(selected.kind,selected.id);else closePreview();}
       if(!append&&pendingOpen){
         const wanted=pendingOpen;
         pendingOpen=null;
@@ -47,7 +47,7 @@
     timer=setTimeout(async()=>{
       if(view!==current)return;
       const editing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||$(view+'-preview').querySelector('.hub-task-form:not([hidden]),.hub-event-form:not([hidden]),.context-picker');
-      if(!document.hidden&&!busy&&!editing&&items.length<=60)await safe(()=>load(current,true));
+      if(!document.hidden&&!busy&&!editing&&items.length<=60)await safe(()=>load(current,true,false,true));
       else schedulePoll();
     },processing?6000:60000);
   }
@@ -61,8 +61,8 @@
       b.dataset.kind=row.kind;b.dataset.id=row.id;b.setAttribute('aria-label',labels[row.kind]+': '+row.title);b.setAttribute('aria-pressed',String(selected?.id===row.id&&selected?.kind===row.kind));
       const glyph=icon(row.kind),body=node('span',undefined,'hub-item-body');
       const top=node('span',undefined,'hub-item-top');top.append(node('span',labels[row.kind],'hub-source'),node('span',row.visibility==='PRIVATE'?'Private':'Work','hub-privacy'),node('time',time(row.updated_at),'hub-time'));
-      body.append(top,node('strong',row.title,'hub-item-title'),node('span',row.snippet.replace(/\s+/g,' '),'hub-snippet'));
-      const state=node('span',row.status.replaceAll('_',' ').toLowerCase(),'hub-item-state'+(row.attention?' attention':''));
+      body.append(top,node('strong',row.title,'hub-item-title'),node('span',String(row.snippet||'').replace(/\s+/g,' '),'hub-snippet'));
+      const state=node('span',String(row.status||'').replaceAll('_',' ').toLowerCase(),'hub-item-state'+(row.attention?' attention':''));
       b.append(glyph,body,state);container.append(b);
     }
   }
@@ -118,11 +118,11 @@
     const {item,links,suggestions,inbox_state={}}=data,target=$(view+'-preview');target.replaceChildren();
     const row=items.find(r=>r.kind===item.kind&&r.id===item.id) || {handled:Boolean(inbox_state.handled),snoozed_until:inbox_state.snoozed_until};
     const head=node('div',undefined,'preview-top');head.append(button('← Back',()=>closePreview(),'preview-back'),node('span',item.visibility==='PRIVATE'?'Private · only you':'Internal work','badge'));target.append(head);
-    target.append(node('span',labels[item.kind],'eyebrow'),node('h2',item.title,'preview-title'),node('p',time(item.updated_at)+' · '+item.status.replaceAll('_',' ').toLowerCase(),'muted small'));
-    const meta=item.metadata;
+    target.append(node('span',labels[item.kind],'eyebrow'),node('h2',item.title,'preview-title'),node('p',time(item.updated_at)+' · '+String(item.status||'').replaceAll('_',' ').toLowerCase(),'muted small'));
+    const meta=item.metadata||{};
     if(item.kind==='MAIL'){
       target.append(node('p','From: '+[meta.sender_name,meta.sender_email].filter(Boolean).join(' · '),'small'));
-      if(meta.recipients.length)target.append(node('p','To: '+meta.recipients.map(r=>r.name||r.email).join(', '),'muted small'));
+      if(Array.isArray(meta.recipients)&&meta.recipients.length)target.append(node('p','To: '+meta.recipients.map(r=>r.name||r.email).join(', '),'muted small'));
     }
     if(meta.work_title)target.append(node('p','Work: '+meta.work_title,'muted small'));
     const actions=node('div',undefined,'preview-actions');
