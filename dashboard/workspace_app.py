@@ -107,12 +107,27 @@ def intelligence(window='24h'):
 
 
 @app.get('/intake')
-def executive_intake_route(kind: str = '', id: str = ''):
+def executive_intake_route(
+    kind: str = '',
+    id: str = '',
+    intake_source: str = '',
+    intake_q: str = '',
+    bucket: str = '',
+    scope: str = '',
+):
     params=['view=inbox']
     if kind:
         params.append('kind='+quote_plus(kind.strip().upper()))
     if id:
         params.append('id='+quote_plus(id.strip()))
+    if intake_source:
+        params.append('intake_source='+quote_plus(intake_source.strip().upper()))
+    if intake_q:
+        params.append('intake_q='+quote_plus(intake_q.strip()[:500]))
+    if bucket in {'open','action','all','handled'}:
+        params.append('bucket='+quote_plus(bucket))
+    if scope in {'both','personal','work'}:
+        params.append('scope='+quote_plus(scope))
     return RedirectResponse('/workspace?'+'&'.join(params),status_code=303)
 
 
@@ -205,7 +220,7 @@ def workspace_state(request: Request, display: bool=False, period: str='day', wi
         from workspace_calendar import status
         data['calendar']=status(owner,lookup=query_one)
     if wants('today'):
-        data['appointments']=query_all("""SELECT title,starts_at,ends_at,location,all_day,outlook_url
+        data['appointments']=query_all("""SELECT id,title,starts_at,ends_at,location,all_day,outlook_url
             FROM workspace_calendar_events WHERE owner_username=%s AND ends_at>=now()
             ORDER BY starts_at LIMIT 12""",(owner,))
     if wants('intelligence'):
