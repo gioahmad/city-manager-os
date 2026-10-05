@@ -754,9 +754,19 @@ def event_intelligence_page(
     changed: str = "all",
     q: str = "",
     msg: str = "",
+    focus: str = "",
 ):
     where = ["e.active=true"]
     params: list[Any] = []
+    focus_id = None
+    if focus.strip():
+        try:
+            focus_id = uuid.UUID(focus.strip())
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid Event Intelligence record identifier") from exc
+        where.append("e.id=%s")
+        params.append(focus_id)
+        horizon = "all"
 
     if level in {"AWARENESS", "WATCH", "ALERT"}:
         where.append("e.impact_level=%s")
@@ -1014,6 +1024,7 @@ def event_intelligence_page(
             "q": q,
             "msg": msg,
             "page": "event-intelligence",
+            "focus_id": focus_id,
         },
     )
 
@@ -1042,8 +1053,15 @@ def event_intelligence_promote(event_id: uuid.UUID):
         """,
         (event_id,),
     )
-    return RedirectResponse("/schedule?msg=External+event+promoted+to+managed+Events", status_code=303)
-
+    row=query_one("SELECT promoted_event_id FROM event_intelligence WHERE id=%s",(event_id,))
+    if not row:
+        raise HTTPException(404,"Event intelligence record not found")
+    target=row.get("promoted_event_id")
+    return RedirectResponse(
+        f"/schedule?{urllib.parse.urlencode({'focus': str(target), 'state': 'all', 'msg': 'External event tracked in Events Center'})}"
+        if target else "/event-intelligence?msg=Event+could+not+be+promoted",
+        status_code=303,
+    )
 
 @app.post("/event-intelligence/{event_id}/create-action")
 def event_intelligence_create_action(event_id: uuid.UUID):
@@ -1063,8 +1081,15 @@ def event_intelligence_create_action(event_id: uuid.UUID):
         """,
         (event_id,),
     )
-    return RedirectResponse("/issues?msg=Event+action+ready", status_code=303)
-
+    row=query_one("""SELECT id FROM issues
+        WHERE event_intelligence_id=%s AND status NOT IN ('RESOLVED','CLOSED')
+        ORDER BY updated_at DESC LIMIT 1""",(event_id,))
+    if not row:
+        raise HTTPException(404,"No active Command Center action is available for this event")
+    return RedirectResponse(
+        "/issues?"+urllib.parse.urlencode({"focus":str(row["id"]),"state":"all","msg":"Event action ready"}),
+        status_code=303,
+    )
 
 @app.post("/event-intelligence/{event_id}/level")
 def event_intelligence_level(event_id: uuid.UUID, impact_level: str = Form(...)):
