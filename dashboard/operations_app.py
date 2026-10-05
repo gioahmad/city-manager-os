@@ -403,8 +403,8 @@ def _alert_filter(
     ):
         if value.strip():
             where.append(
-                f"lower(regexp_replace(trim(coalesce({column},'')), '\\s+', ' ', 'g')) = "
-                "lower(regexp_replace(trim(%s), '\\s+', ' ', 'g'))"
+                f"lower(regexp_replace(trim(coalesce({column},'')), '[[:space:]]+', ' ', 'g')) = "
+                "lower(regexp_replace(trim(%s), '[[:space:]]+', ' ', 'g'))"
             )
             params.append(value.strip())
     min_priority = max(1, min(int(min_priority), 5))
@@ -1345,21 +1345,21 @@ def alerts_page(
     categories = query_all("SELECT category,count(*) AS total FROM alerts GROUP BY category ORDER BY category")
     municipalities = query_all(
         """
-        SELECT initcap(lower(regexp_replace(trim(municipality),'\\s+',' ','g'))) AS municipality,
+        SELECT initcap(lower(regexp_replace(trim(municipality),'[[:space:]]+',' ','g'))) AS municipality,
                count(*) AS total
         FROM alerts
         WHERE nullif(trim(municipality),'') IS NOT NULL
-        GROUP BY lower(regexp_replace(trim(municipality),'\\s+',' ','g'))
+        GROUP BY lower(regexp_replace(trim(municipality),'[[:space:]]+',' ','g'))
         ORDER BY municipality
         """
     )
     counties = query_all(
         """
-        SELECT initcap(lower(regexp_replace(trim(county),'\\s+',' ','g'))) AS county,
+        SELECT initcap(lower(regexp_replace(trim(county),'[[:space:]]+',' ','g'))) AS county,
                count(*) AS total
         FROM alerts
         WHERE nullif(trim(county),'') IS NOT NULL
-        GROUP BY lower(regexp_replace(trim(county),'\\s+',' ','g'))
+        GROUP BY lower(regexp_replace(trim(county),'[[:space:]]+',' ','g'))
         ORDER BY county
         """
     )
