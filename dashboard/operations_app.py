@@ -470,8 +470,9 @@ def operations_home(request: Request):
 
     active_alerts = query_all(
         """
-        SELECT alert_id, source, category, subtype, status, event_action,
-               title, message, priority, municipality, received_at, click_url
+        SELECT id,alert_id,source,category,subtype,status,event_action,
+               title,message,priority,municipality,
+               coalesce(observed_at,received_at) AS activity_at,received_at,click_url
         FROM alerts
         WHERE status <> 'RESOLVED'
           AND (expires_at IS NULL OR expires_at > now())
@@ -482,10 +483,11 @@ def operations_home(request: Request):
 
     intelligence_feed = query_all(
         """
-        SELECT alert_id, source, category, subtype, status, event_action,
-               title, priority, municipality, received_at
+        SELECT id,alert_id,source,category,subtype,status,event_action,
+               title,priority,municipality,
+               coalesce(observed_at,received_at) AS activity_at,received_at
         FROM alerts
-        ORDER BY coalesce(observed_at,received_at) DESC, received_at DESC
+        ORDER BY coalesce(observed_at,received_at) DESC,received_at DESC
         LIMIT 20
         """
     )
@@ -523,9 +525,9 @@ def operations_home(request: Request):
 
     recent_deliveries = query_all(
         """
-        SELECT d.status, d.ntfy_topic, d.sent_at, d.attempted_at,
-               s.subscriber_id, s.name AS subscriber_name,
-               a.title AS alert_title, a.source
+        SELECT d.id AS delivery_id,d.status,d.ntfy_topic,d.sent_at,d.attempted_at,
+               s.subscriber_id,s.name AS subscriber_name,
+               a.id AS alert_uuid,a.title AS alert_title,a.source
         FROM deliveries d
         JOIN subscribers s ON s.id = d.subscriber_id
         JOIN alerts a ON a.id = d.alert_id
@@ -603,7 +605,7 @@ def operations_home(request: Request):
                  END AS reason,
                  i.priority,
                  i.updated_at AS happened_at,
-                 '/issues?q=' || replace(i.title,' ',chr(37)||'20') || '&state=all' AS url
+                 '/context/WORK/' || i.id::text AS url
           FROM issues i
           WHERE i.status NOT IN ('RESOLVED','CLOSED')
             AND (
@@ -624,7 +626,7 @@ def operations_home(request: Request):
                  END,
                  a.priority,
                  coalesce(a.observed_at,a.received_at),
-                 '/alerts?q=' || replace(a.alert_id,' ',chr(37)||'20') || '&window=all&state=all'
+                 '/context/ALERT/' || a.id::text
           FROM alerts a
           LEFT JOIN geo_entity_resolutions r
             ON r.entity_type='ALERT' AND r.entity_id=a.id::text AND r.status='RESOLVED'
@@ -657,7 +659,7 @@ def operations_home(request: Request):
                  END,
                  4,
                  w.updated_at,
-                 '/watchlist?q=' || replace(w.display_name,' ',chr(37)||'20')
+                 '/context/WATCH/' || w.id::text
           FROM watch_items w
           WHERE (
             w.active=true AND NOT EXISTS (
@@ -709,7 +711,7 @@ def operations_home(request: Request):
                  i.title,
                  concat_ws(' · ',i.item_type,i.status,nullif(i.assigned_to,'')) AS detail,
                  i.updated_at,
-                 '/issues?q=' || replace(i.title,' ',chr(37)||'20') || '&state=all'
+                 '/context/WORK/' || i.id::text
           FROM issues i
           WHERE i.updated_at>=now()-interval '7 days'
 
@@ -720,7 +722,7 @@ def operations_home(request: Request):
                  e.title,
                  concat_ws(' · ',e.category,nullif(e.municipality,''),e.event_status) AS detail,
                  e.updated_at,
-                 '/schedule?q=' || replace(e.title,' ',chr(37)||'20') || '&state=all'
+                 '/context/EVENT/' || e.id::text
           FROM operational_events e
           WHERE e.updated_at>=now()-interval '14 days'
 
@@ -731,7 +733,7 @@ def operations_home(request: Request):
                  a.title,
                  s.name || ' · ' || d.status,
                  coalesce(d.sent_at,d.attempted_at,d.created_at),
-                 '/deliveries?q=' || replace(a.title,' ',chr(37)||'20')
+                 '/deliveries?focus=' || d.id::text
           FROM deliveries d
           JOIN alerts a ON a.id=d.alert_id
           JOIN subscribers s ON s.id=d.subscriber_id
