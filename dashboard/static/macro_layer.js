@@ -14,10 +14,11 @@
   ];
   const commands=[
     ['⌂','Overview','Executive operating picture','/'],
-    ['◫','Workspace','Inbox, documents, people and private context','/workspace'],
+    ['◫','Workspace','Today, documents, people, projects and private context','/workspace?view=today'],
     ['◷','My Day','Today, Waiting On and executive attention','/my-day'],
     ['✓','Command Center','Issues, commitments, decisions and follow-ups','/issues'],
-    ['▣','Inbox','Triage quick captures and incoming work','/inbox'],
+    ['▣','Executive Intake','Review Microsoft email, calendar and staged sources','/intake'],
+    ['↳','Quick Capture Inbox','Triage quick captures','/inbox'],
     ['◉','Brain','Private notes, ideas, tasks and links','/brain'],
     ['⌖','Mapping Center','Full GIS, parcels, alerts, Watches, layers, import and draw','/map'],
     ['!','Alerts','Search complete alert history and matched Watches','/alerts?window=all&state=all'],
@@ -99,12 +100,12 @@
     const stripTime=value=>value.replace(/\blast\s+\d+\s*(?:hour|hours|hr|hrs|day|days)\b/ig,'').replace(/\b(show|map|around|near|in)\b/ig,' ').replace(/\s+/g,' ').trim();
     if(/^(email|emails)\b/.test(lower)){
       const term=q.replace(/^(email|emails)(\s+from)?\s*/i,'').trim();
-      const url='/workspace?'+new URLSearchParams({intake_source:'MAIL',intake_q:term})+'#inbox';
+      const url='/intake?'+new URLSearchParams({intake_source:'MAIL',intake_q:term});
       return {url,title:'Executive Intake · Email'};
     }
     if(/^(calendar|meeting|meetings)\b/.test(lower)){
       const term=q.replace(/^(calendar|meeting|meetings)\s*/i,'').trim();
-      const url='/workspace?'+new URLSearchParams({intake_source:'CALENDAR',intake_q:term})+'#inbox';
+      const url='/intake?'+new URLSearchParams({intake_source:'CALENDAR',intake_q:term});
       return {url,title:'Executive Intake · Calendar'};
     }
     if(lower.startsWith('waiting on ')){
