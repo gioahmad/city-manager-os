@@ -87,7 +87,7 @@
     <div class="panel-body">
       <div class="watch-list">
         {% for e in rows %}
-        <details class="watch-card">
+        <details class="watch-card" {% if focus_id and e.id == focus_id %}open{% endif %}>
           <summary>
             <div class="watch-summary-main">
               <span class="status {% if e.impact_level=='ALERT' %}error{% elif e.impact_level=='WATCH' %}warning{% else %}active{% endif %}">{{ e.impact_level }}</span>
@@ -128,7 +128,7 @@
                 <select name="impact_level"><option value="AWARENESS" {% if e.impact_level=='AWARENESS' %}selected{% endif %}>Awareness</option><option value="WATCH" {% if e.impact_level=='WATCH' %}selected{% endif %}>Watch</option><option value="ALERT" {% if e.impact_level=='ALERT' %}selected{% endif %}>Alert</option></select>
                 <button class="secondary-button" type="submit">Set Level</button>
               </form>
-              {% if not e.promoted_event_id %}<form method="post" action="/event-intelligence/{{ e.id }}/promote"><button class="secondary-button" type="submit">Track in Events Center</button></form>{% else %}<a class="secondary-button button-link" href="/schedule">Tracked in Events Center</a>{% endif %}
+              {% if not e.promoted_event_id %}<form method="post" action="/event-intelligence/{{ e.id }}/promote"><button class="secondary-button" type="submit">Track in Events Center</button></form>{% else %}<a class="secondary-button button-link" href="/schedule?focus={{ e.promoted_event_id }}&state=all">Open Tracked Event</a>{% endif %}
               <form method="post" action="/event-intelligence/{{ e.id }}/create-action"><button class="secondary-button" type="submit">Create Command Task</button></form>
               <form method="post" action="/event-intelligence/{{ e.id }}/dismiss"><button class="secondary-button" type="submit">Dismiss</button></form>
             </div>
