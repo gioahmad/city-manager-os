@@ -131,9 +131,9 @@ def test_alert_map_restores_full_history_choices_without_destructive_actions():
     assert "coalesce(a.observed_at,a.received_at) >= now()-(%s * interval '1 hour')" in map_source
     for value in ('value="6h"', 'value="12h"', 'value="24h"', 'value="7d"', 'value="30d"', 'value="all"'):
         assert value in map_template
-    visible_controls = map_template.split('<details open>', 1)[0]
+    visible_controls = map_template.split('<details class="map-create" open>', 1)[0]
     assert 'id="alert-window"' in visible_controls
-    assert "<details open>" in map_template
+    assert '<details class="map-create" open>' in map_template
     assert "All mapped history" in map_template
     assert "addEventListener('change',()=>refreshAlertLayer(true))" in map_template
     assert "Search Visible Area" in map_template
