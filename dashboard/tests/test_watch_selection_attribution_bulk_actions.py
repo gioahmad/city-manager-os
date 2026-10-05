@@ -70,7 +70,7 @@ def test_alerts_explain_matches_and_guard_bulk_deletion():
     assert "item.watch_name" in template
     assert "item.reason" in template
     assert '@app.post("/alerts/bulk-action")' in source
-    assert 'action not in {"resolve", "delete"}' in source
+    assert 'action not in {"resolve", "delete", "shift_time", "set_time"}' in source
     assert "Only an Executive user can permanently delete alerts" in source
     assert 'expected_confirmation = "DELETE" if action == "delete" else ""' in source
     assert 'expected_confirmation = "DELETE ALL" if action == "delete" else "APPLY ALL"' in source
