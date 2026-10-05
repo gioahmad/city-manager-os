@@ -77,7 +77,7 @@
       if (b.dataset.view === view) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
     });
-    $('breadcrumb').textContent = ({inbox:'Executive Intake',library:'Library',today:'Today',intelligence:'Area intelligence',work:'Work & requests',brain:'Brain',people:'People, places & projects',dates:'Important dates',settings:'Settings'})[view];
+    $('breadcrumb').textContent = ({inbox:'Executive Intake',library:'Library',today:'Workspace Today',intelligence:'Area intelligence',work:'Work & requests',brain:'Brain',people:'People, places & projects',dates:'Important dates',settings:'Settings'})[view];
     if (updateHash && !display && location.hash !== '#' + view) history.pushState(null, '', '#' + view);
     closeNavigation();
     return load();
