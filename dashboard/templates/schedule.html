@@ -189,7 +189,7 @@
 
 <div class="watch-list">
 {% for e in rows %}
-<details class="watch-card {% if not e.active %}inactive{% endif %}">
+<details class="watch-card {% if not e.active %}inactive{% endif %}" {% if focus_id and e.id == focus_id %}open{% endif %}>
 <summary>
   <div class="watch-summary-main">
     {% if e.event_status == 'COMPLETED' %}
@@ -359,12 +359,12 @@ Active
       <div class="panel-kicker">COMMAND CENTER</div>
       <h3>Related Actions</h3>
     </div>
-    <a class="text-link" href="/issues">Open Command Center</a>
+    <a class="text-link" href="/issues?focus={{ e.linked_issues[0].id }}&state=all">Open First Related Action</a>
   </div>
 
   {% for issue in e.linked_issues %}
   <div class="meta" style="margin-top:6px">
-    <strong>{{ issue.title }}</strong>
+    <a class="text-link" href="/issues?focus={{ issue.id }}&state=all"><strong>{{ issue.title }}</strong></a>
     · {{ issue.status }}
     {% if issue.assigned_to %} · {{ issue.assigned_to }}{% endif %}
     {% if issue.next_action %} · Next: {{ issue.next_action }}{% endif %}
