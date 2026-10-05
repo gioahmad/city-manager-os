@@ -78,7 +78,13 @@
       else b.removeAttribute('aria-current');
     });
     $('breadcrumb').textContent = ({inbox:'Executive Intake',library:'Library',today:'Workspace Today',intelligence:'Area intelligence',work:'Work & requests',brain:'Brain',people:'People, places & projects',dates:'Important dates',settings:'Settings'})[view];
-    if (updateHash && !display && location.hash !== '#' + view) history.pushState(null, '', '#' + view);
+    if (updateHash && !display) {
+      const url=new URL(location.href);
+      url.searchParams.set('view',view);
+      for(const key of ['kind','id','intake_source','intake_q','bucket','scope'])url.searchParams.delete(key);
+      url.hash='';
+      history.pushState(null,'',url.pathname+'?'+url.searchParams.toString());
+    }
     closeNavigation();
     return load();
   }
@@ -478,9 +484,9 @@
   });
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){if($('all-tools').open){$('all-tools').open=false;$('all-tools').querySelector('summary').focus();}else closeNavigation();}});
   document.addEventListener('click',e=>{if(!e.target.closest('.all-tools'))$('all-tools').open=false;});
-  window.addEventListener('popstate',()=>safely(()=>navigate(location.hash.slice(1),false)));
+  window.addEventListener('popstate',()=>{const v=new URLSearchParams(location.search).get('view');safely(()=>navigate(views.includes(v)?v:'today',false));});
   if(display){all('.writable,.tools-link').forEach(n=>n.hidden=true);setInterval(()=>{if(!document.hidden)safely(()=>load(true));},60000);}
   setInterval(updateTimer,30000);
   const incomingView=new URLSearchParams(location.search).get('view');
-  safely(()=>navigate(display?'intelligence':(views.includes(incomingView)?incomingView:location.hash.slice(1)||'today'),false));
+  safely(()=>navigate(display?'intelligence':(views.includes(incomingView)?incomingView:'today'),false));
 })();
