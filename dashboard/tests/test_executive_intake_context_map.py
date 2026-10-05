@@ -22,7 +22,7 @@ def test_executive_intake_is_first_class_and_selective():
     assert "Create Event" in js
     assert "Mark handled" in js
     assert "Snooze" in js
-    assert "Open connected context" in js
+    assert "Open full record" in js
     assert "Microsoft calendar" in template
     assert "Microsoft email" in template
     assert "EXECUTIVE INTAKE" in template
