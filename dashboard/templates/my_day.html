@@ -127,7 +127,7 @@
 
   <div class="panel-body compact-list">
     {% for i in approaching[:12] %}
-    <div class="feed-row">
+    <div class="feed-row" data-cmos-context="/context/WORK/{{ i.id }}" data-cmos-open="full" data-cmos-title="{{ i.title|e }}" role="button" tabindex="0">
       <div class="feed-main">
 
         <div class="feed-title-row">
