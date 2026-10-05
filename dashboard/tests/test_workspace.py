@@ -231,9 +231,12 @@ def test_all_original_navigation_links_survive_in_workspace(client,monkeypatch):
         '/staff-admin','/schedule','/event-intelligence','/today-board',
         '/today-board/setup','/transit','/watchlist','/subscribers','/contacts',
         '/spatial-reference','/deliveries','/what-changed','/admin-tools',
-        '/integrations','/database','/source-health','/api-lab','/workspace','/logout',
+        '/integrations','/database','/source-health','/api-lab','/intake','/logout',
     ):
         assert route in current
+    assert '/workspace?view=today' in current
+    assert 'Executive Intake' in response.text
+    assert 'Quick Capture Inbox' in response.text
     assert 'All tools' in response.text
     assert 'Everything, still here.' in response.text
     assert 'Intake' in response.text
