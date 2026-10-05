@@ -306,7 +306,7 @@
   </div>
 </article>
 
-<section class="grid watch-layout" style="margin-top:16px">
+<section id="new-watch" class="grid watch-layout" style="margin-top:16px">
 <article class="panel">
   <div class="panel-head"><div><div class="panel-kicker">NEW WATCH</div><h2>Five simple steps</h2></div></div>
   <div class="panel-body form-panel">
@@ -501,7 +501,7 @@
           <span><strong>Recipients:</strong> {{ (w.recipient_names or [])|join(', ') if w.recipient_names else 'None selected' }}</span>
         </div>
 
-        <details class="watch-edit-panel">
+        <details class="watch-edit-panel" {% if focus_id and w.id == focus_id %}open{% endif %}>
           <summary>Edit Watch</summary>
           <form method="post" action="/watchlist/{{ w.id }}/update" class="watch-form compact watch-editor" data-mode-form>
             <input type="hidden" name="keep_state" value="1">
