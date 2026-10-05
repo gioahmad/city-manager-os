@@ -2207,8 +2207,8 @@ def _global_result_url(row, q):
         return f"/staff-admin?{urlencode({'employee': result_id})}"
     if result_type == "MANAGED_LOCATION":
         return "/staff-admin"
-    if result_type == "ROUTINE":
-        return "/operations-routines"
+    if result_type == "ROUTINE" and result_id:
+        return f"/operations-routines?{urlencode({'focus': result_id})}"
     if result_type == "RULE_GROUP":
         return f"/watchlist?{query}"
     if result_type == "MAP_LAYER":
