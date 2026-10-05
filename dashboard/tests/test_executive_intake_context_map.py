@@ -296,7 +296,7 @@ def test_workspace_polish_uses_current_assets_and_alert_windows():
     assert "workspace.js?v=20261004-4" in page
     assert "workspace_hub.js?v=20261004-4" in page
     assert "workspace.css?v=20261004-2" in page
-    assert "macro_layer.css?v=20261004-3" in nav
+    assert "macro_layer.css?v=20261005-1" in nav
     assert "macro_layer.js?v=20261004-4" in nav
     assert "context.css?v=20261004-2" in context
 
