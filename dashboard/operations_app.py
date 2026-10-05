@@ -2185,20 +2185,22 @@ def _global_result_url(row, q):
         return f"/issues?{urlencode({'focus': result_id, 'state': 'all'})}"
     if result_type == "WATCH" and result_id:
         return f"/watchlist?{urlencode({'focus': result_id})}"
-    if result_type == "NOTIFICATION":
-        return f"/deliveries?{query}"
+    if result_type == "NOTIFICATION" and result_id:
+        return f"/deliveries?{urlencode({'focus': result_id})}"
     if result_type == "MANAGED_EVENT" and result_id:
         return f"/schedule?{urlencode({'focus': result_id, 'state': 'all'})}"
-    if result_type == "EVENT_INTELLIGENCE":
-        return f"/event-intelligence?{urlencode({'q': q, 'horizon': 'all'})}"
-    if result_type in {"TRANSIT_OBSERVATION", "TRANSIT_ASSET"}:
+    if result_type == "EVENT_INTELLIGENCE" and result_id:
+        return f"/event-intelligence?{urlencode({'focus': result_id, 'horizon': 'all'})}"
+    if result_type == "TRANSIT_OBSERVATION" and result_id:
+        return f"/transit?{urlencode({'focus': result_id})}"
+    if result_type == "TRANSIT_ASSET":
         return f"/transit?{query}"
     if result_type == "REFERENCE" and result_id:
         return f"/context/REFERENCE/{result_id}"
     if result_type in {"ADDRESS", "PARCEL", "MAP_FEATURE"}:
         return f"/map?{query}"
     if result_type == "INTEGRATION":
-        return "/integrations"
+        return f"/integrations?{urlencode({'q': row.get('title') or q})}"
     if result_type == "RECIPIENT" and result_id:
         return f"/subscribers?{urlencode({'manage': result_id})}#recipient-{result_id}"
     if result_type == "STAFF_MEMBER" and result_id:
