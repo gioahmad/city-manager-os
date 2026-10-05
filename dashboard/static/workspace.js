@@ -391,7 +391,7 @@
     if(calendar.connected) {
       target.append(node('p',(calendar.mail_enabled?String(calendar.mail_count || 0)+' emails':'Email needs new consent')+' · '+(calendar.contacts_enabled?String(calendar.contact_count || 0)+' contact previews':'Contacts need new consent')+' · primary calendar','muted small'));
       if (!calendar.mail_enabled || !calendar.contacts_enabled)target.append(node('p','Reconnect to approve email and contact imports. Your existing calendar connection continues to work.','muted small'));
-      target.append(link('Review imports in Inbox →','/workspace#inbox'));
+      target.append(link('Review imports in Inbox →','/intake'));
     }
     if(calendar.sync_error)target.append(node('p','Outlook could not refresh. Retry or reconnect; the previous snapshot is retained.','muted small'));
     if(!readonly) {
