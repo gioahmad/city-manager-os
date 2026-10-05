@@ -31,12 +31,7 @@ run_with_progress "Dashboard build" "" "${COMPOSE[@]}" build citymanager-dashboa
 progress_step 4 8 "Running release tests"
 run_with_progress "Release tests" "" "${COMPOSE[@]}" run --rm --no-deps -T \
   -v "$REPO/dashboard/tests:/app/tests:ro" -v "$REPO/deploy:/deploy:ro" \
-  --entrypoint python citymanager-dashboard -m pytest -q \
-  tests/test_workspace.py tests/test_workspace_calendar.py tests/test_workspace_hub.py tests/test_workspace_ingest.py \
-  tests/test_brain.py tests/test_global_share.py \
-  tests/test_contact_directory_share.py tests/test_navigation_and_map_sharing.py \
-  tests/test_executive_workflow.py tests/test_today_board.py \
-  tests/test_executive_intake_context_map.py
+  --entrypoint python citymanager-dashboard -m pytest -q tests
 progress_step 5 8 "Checking database grants and private login"
 run_with_progress "Database/login preflight" "" "${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python citymanager-dashboard - <<'PY'
 from app import db_conn
