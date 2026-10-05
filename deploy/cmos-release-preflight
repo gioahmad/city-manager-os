@@ -14,6 +14,16 @@ echo "Expected release: $EXPECTED"
 [[ "$(git rev-parse HEAD)" == "$EXPECTED" ]] || { echo "FAIL: HEAD does not match expected release"; exit 1; }
 
 COMPOSE=(docker compose -f "$REPO/dashboard/docker-compose.yml")
+TEST_MOUNTS=(
+  -v "$REPO/dashboard/tests:/app/tests:ro"
+  -v "$REPO/deploy:/deploy:ro"
+  -v "$REPO/docs:/docs:ro"
+  -v "$REPO/workflows:/workflows:ro"
+  -v "$REPO/dashboard:/dashboard:ro"
+  -v "$REPO/dashboard/Dockerfile:/app/Dockerfile:ro"
+  -v "$REPO/dashboard/docker-compose.yml:/app/docker-compose.yml:ro"
+  -v "$REPO/README.md:/README.md:ro"
+)
 
 echo
 echo "[1/6] Compose validation"
@@ -32,7 +42,7 @@ echo "[3/6] Build candidate dashboard image"
 
 echo
 echo "[4/6] Python syntax check (no bytecode writes)"
-"${COMPOSE[@]}" run --rm --no-deps -T   -v "$REPO/dashboard/tests:/app/tests:ro" -v "$REPO/deploy:/deploy:ro"   --entrypoint python citymanager-dashboard - <<'PY'
+"${COMPOSE[@]}" run --rm --no-deps -T "${TEST_MOUNTS[@]}" --entrypoint python citymanager-dashboard - <<'PY'
 from pathlib import Path
 
 failures=[]
@@ -54,7 +64,7 @@ PY
 
 echo
 echo "[5/6] Full dashboard regression suite"
-"${COMPOSE[@]}" run --rm --no-deps -T   -v "$REPO/dashboard/tests:/app/tests:ro" -v "$REPO/deploy:/deploy:ro"   --entrypoint python citymanager-dashboard -m pytest -q tests
+"${COMPOSE[@]}" run --rm --no-deps -T "${TEST_MOUNTS[@]}" --entrypoint python citymanager-dashboard -m pytest -q tests
 
 echo
 echo "[6/6] Final route composition check"
