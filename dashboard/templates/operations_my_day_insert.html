@@ -7,7 +7,7 @@
   </div>
   <div class="panel-body ops-v3-list">
     {% for run in today_operations %}
-    <div class="ops-v3-row status-{{ run.status|lower }}" {% if run.issue_id or run.exception_issue_id %}data-cmos-context="/context/WORK/{{ run.issue_id or run.exception_issue_id }}" data-cmos-title="{{ run.name|e }}" role="button" tabindex="0"{% else %}data-cmos-context="/staff-admin" data-cmos-title="{{ run.name|e }}" role="button" tabindex="0"{% endif %}>
+    <div class="ops-v3-row status-{{ run.status|lower }}" {% if run.issue_id or run.exception_issue_id %}data-cmos-context="/context/WORK/{{ run.issue_id or run.exception_issue_id }}" data-cmos-open="full" data-cmos-title="{{ run.name|e }}" role="button" tabindex="0"{% else %}data-cmos-context="/staff-admin" data-cmos-open="full" data-cmos-title="{{ run.name|e }}" role="button" tabindex="0"{% endif %}>
       <div class="ops-v3-time">{{ run.scheduled_local.strftime('%I:%M %p') if run.scheduled_local else '' }}</div>
       <div class="ops-v3-main">
         <div class="ops-v3-title"><span class="priority-chip p{{ run.priority }}">P{{ run.priority }}</span><strong>{{ run.name }}</strong><span class="status">{{ run.status|replace('_',' ') }}</span></div>
