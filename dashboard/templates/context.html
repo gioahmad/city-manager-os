@@ -10,6 +10,8 @@
 <header class="topbar"><div class="brand"><div class="eyebrow">CONNECTED CONTEXT</div><div class="brand-row"><h1>{{ item.title }}</h1><span class="private-badge">{{ item.kind }}</span></div><div class="tagline">{{ item.status }}{% if item.visibility %} · {{ item.visibility }}{% endif %}</div></div></header>
 {% include "nav.html" %}
 <main class="context-main">
+  {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+  {% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
   <section class="context-actions">
     {% for label,url in actions %}
       <a class="{{ 'primary-button' if loop.first else 'secondary-button' }}" href="{{ url }}" data-cmos-open="full" {% if url.startswith('https://') %}target="_blank" rel="noopener"{% endif %}>{{ label }}</a>
@@ -21,6 +23,44 @@
     <div><span>{{ metric.label }}</span><strong>{{ metric.value }}</strong></div>
     {% endfor %}
   </section>
+
+  {% if item.kind in ['EVENT','CALENDAR'] %}
+  <section class="panel context-materials">
+    <div class="panel-head">
+      <div><div class="panel-kicker">EVENT MEMORY</div><h2>Programs, flyers &amp; materials</h2></div>
+      <span class="count-pill">{{ materials|length }}</span>
+    </div>
+    <div class="panel-body">
+      <p class="hint">The original file stays in your Google Drive. City Manager OS saves only this private link and your notes; no PDF or photo is copied to the VPS.</p>
+      <div class="context-list">
+        {% for material in materials %}
+        <div class="entry">
+          <span><strong>{{ material.title }}</strong><small>Google Drive{% if material.notes %} · {{ material.notes }}{% endif %}</small></span>
+          <span class="context-actions">
+            <a class="secondary-button" href="{{ material.url }}" target="_blank" rel="noopener noreferrer">Open in Google Drive</a>
+            {% if can_write %}<form method="post" action="/event-materials/{{ material.id }}/delete"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary-button" type="submit">Detach</button></form>{% endif %}
+          </span>
+        </div>
+        {% else %}
+        <div class="empty-state small"><strong>No event materials linked yet</strong><span>Upload or scan the file to Google Drive yourself, then paste its Drive link here.</span></div>
+        {% endfor %}
+      </div>
+      {% if can_write %}
+      <details class="context-technical"><summary>Add Google Drive material</summary>
+        <form method="post" action="/event-materials/add" class="watch-form compact">
+          <input type="hidden" name="source_kind" value="{{ item.kind }}">
+          <input type="hidden" name="source_id" value="{{ item.id }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label>Name<input name="title" maxlength="300" required placeholder="Program, invitation, flyer, photos…"></label>
+          <label>Google Drive link<input name="url" type="url" maxlength="3000" required placeholder="https://drive.google.com/..."></label>
+          <label>Notes<textarea name="notes" rows="2" maxlength="3000" placeholder="Optional private note about this material"></textarea></label>
+          <button class="primary-button" type="submit">Attach to this event</button>
+        </form>
+      </details>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
 
   <section class="context-grid">
     <article class="panel">
