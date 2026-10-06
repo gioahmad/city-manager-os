@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Event Memory · City Manager OS</title><link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/event_memory.css?v=1"></head>
+<body data-csrf="{{ csrf }}" data-memory-kind="{{ kind }}" data-memory-id="{{ item.id if item else '' }}">
+{% include "nav.html" %}
+<main class="event-memory-main">
+<header><p class="eyebrow">SECOND BRAIN · PRIVATE</p><h1>Event Memory</h1>
+<p>Programs, flyers and photos, linked to an event. Original files stay on your NAS—not on this VPS.</p></header>
+<p class="memory-status">{{ reason }}</p>
+<p class="hint">Private vault only. Township records need a separately approved records destination. Obsidian synchronization and backups are separate from NAS storage.</p>
+<div id="memory-notice" role="status" aria-live="polite"></div>
+{% if item %}
+<h2>{{ item.title }}</h2>
+<p><a href="/context/{{ kind }}/{{ item.id }}">Back to source event</a> · <a href="/event-memory">Choose another event</a></p>
+{% if enabled and can_write %}
+<form id="memory-upload">
+<label>PDF, JPEG or PNG · up to 5 MiB<input id="memory-file" type="file" accept="application/pdf,image/jpeg,image/png" required></label>
+<button type="submit">Attach to event</button>
+<p class="hint">For a multi-page program, scan it to PDF on your phone first. This framework does not perform OCR or automatic person extraction.</p>
+<progress id="memory-progress" max="100" value="0" hidden aria-label="NAS upload progress"></progress>
+</form>
+{% endif %}
+<section aria-label="Event materials" id="memory-materials">
+{% for r in records %}
+<article class="memory-material" data-material-id="{{ r.id }}">
+<strong>{{ r.filename }}</strong> <span>{{ r.state }}</span>
+<p class="hint">{{ r.bytes }} bytes · {% if r.state == 'READY' %}NAS receipt confirmed{% else %}Not yet confirmed saved. Keep the original on your device.{% endif %}</p>
+{% if r.obsidian_url %}<a href="{{ r.obsidian_url }}">Open in Obsidian</a>{% endif %}
+{% if enabled and can_write %}<button type="button" data-memory-action="{{ 'download' if r.state == 'READY' else 'check' }}">{{ 'Download from NAS' if r.state == 'READY' else 'Check NAS / recover link' }}</button>{% endif %}
+</article>
+{% else %}<p>No materials attached to this event yet.</p>{% endfor %}
+</section>
+{% elif enabled %}
+<form method="get"><label>Find an event or appointment<input type="search" name="q" value="{{ q }}" maxlength="200"></label><button>Search</button></form>
+<p class="hint">Up to 100 matching events, most recent first. Search by title for an older event.</p>
+<section aria-label="Choose event">{% for e in choices %}
+<p><a href="/event-memory?kind={{ e.kind }}&amp;id={{ e.id }}">{{ e.title }}</a> <small>{{ e.kind }} · {{ e.starts_at or '' }}</small></p>
+{% else %}<p>No matching events. Create an internal event or import a calendar appointment first.</p>{% endfor %}</section>
+{% endif %}
+</main><script src="/static/event_memory.js?v=1" defer></script></body></html>

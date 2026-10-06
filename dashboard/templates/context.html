@@ -11,6 +11,7 @@
 {% include "nav.html" %}
 <main class="context-main">
   <section class="context-actions">
+    {% if item.kind in ['EVENT','CALENDAR'] %}<a class="secondary-button" href="/event-memory?kind={{ item.kind }}&amp;id={{ item.id }}">Event Memory · Materials</a>{% endif %}
     {% for label,url in actions %}
       <a class="{{ 'primary-button' if loop.first else 'secondary-button' }}" href="{{ url }}" data-cmos-open="full" {% if url.startswith('https://') %}target="_blank" rel="noopener"{% endif %}>{{ label }}</a>
     {% endfor %}

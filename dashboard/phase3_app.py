@@ -34,3 +34,7 @@ from private_auth import configure_private_auth
 
 app = schedule_app.app
 configure_private_auth(app)
+
+# Private off-VPS Event Memory. Disabled until a NAS bridge is configured.
+import event_memory  # noqa: E402
+event_memory.install_security(app)

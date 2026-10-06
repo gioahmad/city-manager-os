@@ -189,6 +189,7 @@
 
 <div class="watch-list">
 {% for e in rows %}
+<p><a href="/event-memory?kind=EVENT&amp;id={{ e.id }}">Event Memory · Programs, flyers &amp; photos</a></p>
 <details class="watch-card {% if not e.active %}inactive{% endif %}" {% if focus_id and e.id == focus_id %}open{% endif %}>
 <summary>
   <div class="watch-summary-main">

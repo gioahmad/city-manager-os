@@ -29,7 +29,7 @@ progress_step 1 8 "Recovery point"
 PREVIOUS_RELEASE="${CMOS_PREVIOUS_RELEASE:-}"
 bash "$REPO/deploy/postgis/ensure-deploy-backup.sh" "$PREVIOUS_RELEASE" "$EXPECTED"
 progress_step 2 8 "Applying additive migrations"
-for migration in 036_brain.sql 037_workspace.sql 038_workspace_calendar.sql 039_workspace_inbox.sql 040_executive_intake.sql 041_performance_indexes.sql 042_microsoft_workspace.sql; do
+for migration in 036_brain.sql 037_workspace.sql 038_workspace_calendar.sql 039_workspace_inbox.sql 040_executive_intake.sql 041_performance_indexes.sql 042_microsoft_workspace.sql 043_event_memory.sql; do
   run_with_progress "Migration $migration" "" docker exec -i citymanager-postgis sh -lc \
     'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
     < "$REPO/deploy/postgis/init/$migration"

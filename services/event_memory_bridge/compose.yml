@@ -1,0 +1,27 @@
+# Run on NAS only. Place this behind a private HTTPS endpoint reachable by your phone.
+services:
+  event-memory-bridge:
+    build:
+      context: ../..
+      dockerfile: services/event_memory_bridge/Dockerfile
+    restart: unless-stopped
+    user: "${NAS_UID:-1000}:${NAS_GID:-1000}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    pids_limit: 80
+    env_file: .env
+    environment:
+      EVENT_MEMORY_STORAGE: /storage
+    ports:
+      - "${EVENT_MEMORY_BIND_IP:-127.0.0.1}:8099:8099"
+    volumes:
+      - "${EVENT_MEMORY_HOST_STORAGE:?Set a dedicated private NAS directory}:/storage"
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '2'
