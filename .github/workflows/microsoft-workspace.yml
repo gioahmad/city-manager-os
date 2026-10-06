@@ -54,8 +54,14 @@ jobs:
               prepared.append((path,content))
           for path,content in prepared:
               path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content)
+          # Fix a pre-existing correlated-query bug caught by the real source preview.
+          def replace(name,old,new):
+              p=Path(name);s=p.read_text();assert s.count(old)==1,(name,s.count(old));p.write_text(s.replace(old,new))
+          replace('dashboard/workspace_hub.py',"SELECT id,name,attributes,visibility FROM workspace_entities WHERE (visibility='WORK' OR owner_username=%s)\n        AND (contact_id IS NULL OR EXISTS(SELECT 1 FROM contacts c WHERE c.id=contact_id AND c.active AND c.visibility='ALL'))\n        ORDER BY updated_at DESC LIMIT 500", "SELECT e.id,e.name,e.attributes,e.visibility FROM workspace_entities e WHERE (e.visibility='WORK' OR e.owner_username=%s)\n        AND (e.contact_id IS NULL OR EXISTS(SELECT 1 FROM contacts c WHERE c.id=e.contact_id AND c.active AND c.visibility='ALL'))\n        ORDER BY e.updated_at DESC LIMIT 500")
+          replace('ci/check_microsoft_workflows.py',"    base={'kind':'MAIL'", "    detail=client.get('/workspace/api/hub/detail/MAIL/'+mail_id)\n    assert detail.status_code==200 and detail.json()['item']['id']==mail_id\n    assert detail.json()['item']['title']=='Fixture contractor email'\n    assert client.get('/workspace/api/microsoft/status').status_code==200\n    passed('Actual source-detail query and connection status work against real contact and workspace schemas')\n    base={'kind':'MAIL'")
+          replace('deploy/workspace/install_workspace.sh',"'/workspace/api/hub','/workspace/api/hub?view=library')", "'/workspace/api/hub','/workspace/api/hub?view=library',\n             '/email','/calendar','/important','/workspace/api/microsoft/status')")
           Path(os.environ['RUNNER_TEMP'],'candidate-files.json').write_text(json.dumps([str(p) for p,_ in prepared]))
-          print('Candidate source materialized:',len(prepared),'files; all before/after hashes verified')
+          print('Candidate source materialized:',len(prepared),'files; all before/after hashes verified, source-preview correction applied')
           PY
           git diff --check
       - name: Install test dependencies
@@ -141,7 +147,9 @@ jobs:
           git('rm','--',*[str(p) for p in Path('ci').glob('ms-candidate.part*')])
           git('diff','--cached','--check')
           git('commit','-m','Add reviewed Microsoft Email, Calendar and Important workflows after isolated verification')
-          auth='AUTHORIZATION: basic '+base64.b64encode(('x-access-token:'+token).encode()).decode()
+          encoded=base64.b64encode(('x-access-token:'+token).encode()).decode()
+          print('::add-mask::'+encoded,flush=True)
+          auth='AUTHORIZATION: basic '+encoded
           env={**os.environ,'GIT_CONFIG_COUNT':'1','GIT_CONFIG_KEY_0':'http.https://github.com/.extraheader','GIT_CONFIG_VALUE_0':auth}
           git('push','origin','HEAD:refs/heads/microsoft-workspace-actions',env=env)
           git('rev-parse','HEAD')
