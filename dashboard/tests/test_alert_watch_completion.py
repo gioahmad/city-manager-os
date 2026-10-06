@@ -44,7 +44,7 @@ def test_alert_card_chooses_mode_and_live_keywords_before_watch_setup():
     assert "fixed incident dictionary" in alert_source
     assert "alert_keyword_choices(alert)" in alert_source
     assert "selected_keywords: list[str] = Query(default=[])" in watch_source
-    assert "Create Watch From Alert" in alert_template
+    assert "Build a Watch From This Alert" in alert_template
     assert "This Location plus selected topics" in alert_template
     assert "Selected topics anywhere" in alert_template
     assert "Anything near this Location" in alert_template
