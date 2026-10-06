@@ -215,3 +215,42 @@ def test_full_microsoft_sync_is_private_and_atomic(monkeypatch,configured,fail_c
         assert deletes==['gio','gio','gio']
         assert not any('INSERT INTO contacts(' in s or 'subscribers' in s for s,p in statements)
     assert len(urls)==3
+
+
+def test_microsoft_callback_returns_to_email_with_simple_auth_state(monkeypatch,configured):
+    from types import SimpleNamespace
+    class Result:
+        def fetchone(self):
+            return {'verifier':'unused','requested_scopes':calendar.WRITE_SCOPE}
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self,*_): pass
+        def execute(self,sql,params): return Result()
+    monkeypatch.setattr(calendar,'db_conn',Connection)
+    monkeypatch.setattr(calendar,'_owner',lambda *a,**kw:'gio')
+    request=SimpleNamespace(cookies={COOKIE_NAME:'my-session'})
+    cancelled=calendar.callback(request,state='A'*43,error='access_denied')
+    assert cancelled.status_code==303
+    assert cancelled.headers['location']=='/email?auth=cancelled'
+    failed=calendar.callback(request,state='B'*43)
+    assert failed.status_code==303
+    assert failed.headers['location']=='/email?auth=failed'
+
+
+def test_microsoft_authentication_ui_is_one_guided_flow():
+    root=Path(__file__).resolve().parents[1]
+    api=(root/'microsoft_workspace.py').read_text()
+    ui=(root/'static/microsoft_workspace.js').read_text()
+    template=(root/'templates/microsoft_workspace.html').read_text()
+    workspace=(root/'static/workspace.js').read_text()
+    assert "'access_complete'" in api
+    assert "'connection_state'" in api
+    assert "'client_secret': bool(cfg.get('secret'))" in api
+    assert "'encryption_key': bool(cfg.get('key'))" in api
+    assert "'redirect_uri': cfg.get('redirect')" in api
+    assert "One Microsoft sign-in enables Email, Contacts, Calendar, Send, Drafts and calendar creation." in ui
+    assert "Finish Microsoft setup" in ui
+    assert "auth==='connected'" in ui and "auth==='cancelled'" in ui and "auth==='failed'" in ui
+    assert "Connect Microsoft 365" in template
+    assert "Continue to Microsoft sign-in" in template
+    assert "/email?setup=1" in workspace
