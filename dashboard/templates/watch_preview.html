@@ -65,7 +65,7 @@
                 <div class="meta">{{ a.source }} · {{ a.category }}{% if a.county %} · {{ a.county }} County{% endif %}{% if a.municipality %} · {{ a.municipality }}{% endif %}</div>
                 <div class="hint">{{ a.preview_reason }}</div>
                 {% if a.pipe_fields %}
-                <div class="hint">BNN fields: {{ a.pipe_fields.state }} | {{ a.pipe_fields.county }} | {{ a.pipe_fields.municipality }} | {{ a.pipe_fields.incident_type }} | {{ a.pipe_fields.location }}</div>
+                <div class="hint">BNN parsed fields:{% if a.pipe_fields.state %} State: {{ a.pipe_fields.state }}{% endif %}{% if a.pipe_fields.county %} · County: {{ a.pipe_fields.county }}{% endif %}{% if a.pipe_fields.incident_type %} · Type: {{ a.pipe_fields.incident_type }}{% endif %}{% if a.pipe_fields.location %} · Location: {{ a.pipe_fields.location }}{% endif %}</div>
                 {% endif %}
               </div>
             </div>
