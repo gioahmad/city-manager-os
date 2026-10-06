@@ -2,6 +2,7 @@
 import os
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -62,7 +63,20 @@ assert county.status_code == 200
 assert "BNN:pipe-nj-normal" in county.text and "BNN:pipe-nj-reordered" in county.text
 assert "FIELD county matched" in county.text
 assert "field=county" in county.text or "field%3Dcounty" in county.text
-print("WATCH PREVIEW PASS: structured Hudson County rule previews as FIELD county")
+builder_href = county.text.split('href="', 1)[1].split('"', 1)[0].replace('&amp;', '&')
+builder_query = parse_qs(urlparse(builder_href).query)
+assert builder_query["source_filter"] == ["BNN"]
+assert builder_query["match_field"] == ["county"]
+assert builder_query["match_mode"] == ["FIELD"]
+assert builder_query["search_term"] == ["Hudson"]
+watch_source = (ROOT / "dashboard/spatial_watch_app.py").read_text()
+watch_template = (ROOT / "dashboard/templates/watchlist.html").read_text()
+assert '"source_filter": source_filter.strip()' in watch_source
+assert '"alert_category_filter": alert_category_filter.strip()' in watch_source
+assert 'p == prefill.min_priority' in watch_template
+assert 'mm == prefill.match_mode' in watch_template
+assert 'value="{{ prefill.match_field }}"' in watch_template
+print("WATCH PREVIEW PASS: structured Hudson County rule previews as FIELD county and carries the exact proven rule into Watch Builder")
 
 ny = client.get("/watch-preview", params={
     "source": "BNN", "q": "Queens County", "window": "all"
