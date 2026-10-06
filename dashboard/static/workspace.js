@@ -408,7 +408,7 @@
     if(calendar.sync_error)target.append(node('p','Outlook could not refresh. Retry or reconnect; the previous snapshot is retained.','muted small'));
     if(!readonly) {
       const controls=node('div',undefined,'row');
-      if(calendar.ready)controls.append(button(calendar.connected?'Reconnect Microsoft 365':'Connect Microsoft 365',()=>safely(async()=>{const result=await act('MS_CALENDAR_CONNECT',{},false);location.assign(result.redirect_url);}), 'primary'));
+      if(calendar.ready)controls.append(link(calendar.connected?'Review Microsoft connection':'Connect Microsoft 365','/email?setup=1','primary'));
       if(calendar.connected)controls.append(button('Refresh Microsoft 365',()=>safely(()=>act('MS_CALENDAR_SYNC'))),button('Disconnect',()=>safely(async()=>{if(confirm('Disconnect Microsoft 365 and remove imported email, contact previews, and appointments? People and tasks you created will remain.'))await act('MS_CALENDAR_DISCONNECT');})));
       target.append(controls);
     }
