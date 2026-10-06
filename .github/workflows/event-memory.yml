@@ -41,7 +41,29 @@ jobs:
           patch=lzma.decompress(archive)
           subprocess.run(['git','apply','--check','-'],input=patch,check=True)
           subprocess.run(['git','apply','-'],input=patch,check=True)
-          print('Exact candidate source applied; no production or NAS access')
+          p=Path('ci/check_event_memory.py');s=p.read_text()
+          a=s.index("other_cookie = auth._issue_session");b=s.index("client.cookies.set(auth.COOKIE_NAME, auth._issue_session(auth.Account('Reader'",a)
+          s=s[:a]+'''# Exercise a genuinely registered second login, not a rejected session.
+          import hmac
+          os.environ.update(CMOS_SUPERVISOR_USERNAME='SomeoneElse', CMOS_SUPERVISOR_PASSWORD_HASH='unused')
+          other_cookie = auth._issue_session(auth.Account('SomeoneElse', 'SUPERVISOR', 'unused'))
+          client.cookies.clear()
+          client.cookies.set(auth.COOKIE_NAME, other_cookie)
+          other_csrf = hmac.new(auth._session_secret(), other_cookie.encode(), hashlib.sha256).hexdigest()
+          other_page = client.get('/event-memory?kind=EVENT&id='+str(event['id']), follow_redirects=False)
+          assert other_page.status_code == 200 and 'Program.pdf' not in other_page.text
+          assert client.post('/event-memory/api/grant', json={'id':values['id'],'csrf':csrf}).status_code == 403
+          # Even when this separate owner has a vault configured, rows/receipts remain owner-bound.
+          os.environ['EVENT_MEMORY_OWNER'] = 'SomeoneElse'
+          denied = client.post('/event-memory/api/grant', json={'id':values['id'],'purpose':'download','csrf':other_csrf})
+          assert denied.status_code == 404, (denied.status_code, denied.text)
+          denied = client.post('/event-memory/api/finalize', json={**receipt,'csrf':other_csrf})
+          assert denied.status_code == 403, (denied.status_code, denied.text)
+          print('EVENT MEMORY PASS: registered second owner cannot read metadata, redeem grants or finalize another owner receipt')
+          client.cookies.clear()
+          '''+s[b:]
+          p.write_text(s)
+          print('Exact candidate applied and registered-owner fixture corrected; production untouched')
           PY
           git diff --check
       - name: Install test dependencies
