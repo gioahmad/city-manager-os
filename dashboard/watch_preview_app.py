@@ -269,6 +269,7 @@ def watch_preview(
         "match_mode": rule["mode"],
         "match_field": rule["field"],
         "min_priority": str(rule["min_priority"]),
+        "previewed": "1",
     }
     builder_url = "/watchlist?" + urlencode(builder) + "#new-watch"
     return templates.TemplateResponse(
