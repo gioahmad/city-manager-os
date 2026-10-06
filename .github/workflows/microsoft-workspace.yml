@@ -63,6 +63,8 @@ jobs:
           node --check dashboard/static/workspace.js
           node --check dashboard/static/macro_layer.js
           bash -n deploy/workspace/install_workspace.sh
+          bash -n deploy/cmos-system-update
+          bash -n deploy/cmos-source
       - name: Install Firefox and Chromium
         run: python -m playwright install --with-deps firefox chromium > "$RUNNER_TEMP/browser-install.log" 2>&1 || { tail -80 "$RUNNER_TEMP/browser-install.log"; exit 1; }
       - name: Existing browser regression
