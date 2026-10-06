@@ -82,7 +82,7 @@ assert '"source_filter": source_filter.strip()' in watch_source
 assert '"alert_category_filter": alert_category_filter.strip()' in watch_source
 assert 'p == prefill.min_priority' in watch_template
 assert 'mm == prefill.match_mode' in watch_template
-assert 'value="{{ prefill.match_field }}"' in watch_template
+assert 'value="{{ prefill.match_field or \'\' }}"' in watch_template
 print("WATCH PREVIEW PASS: structured Hudson County rule previews as FIELD county and carries the exact proven rule into Watch Builder")
 
 ny = client.get("/watch-preview", params={
