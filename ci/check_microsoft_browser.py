@@ -35,6 +35,22 @@ with tempfile.TemporaryDirectory() as temp:
                 expect(page.locator('.cmos-rail')).to_have_count(1);expect(page.locator('iframe')).to_have_count(0)
                 page.screenshot(path=str(artifacts/(browser_name+'-email-actions.png')))
                 passed('Email page loads real saved source with shared navigation and private security')
+                # Prove a partial/read-only Microsoft connection is guided through one setup surface.
+                with core.db_conn() as db:
+                    db.execute('UPDATE workspace_calendar_connections SET scopes=%s WHERE owner_username=%s',(calendar.SCOPE,owner))
+                page.reload()
+                finish=page.get_by_role('button',name='Finish Microsoft setup',exact=True)
+                expect(finish).to_be_visible();finish.click()
+                expect(page.locator('#ms-consent-dialog')).to_be_visible()
+                expect(page.locator('#ms-consent-dialog')).to_contain_text('One Microsoft sign-in')
+                expect(page.locator('#ms-consent-dialog')).to_contain_text('Email & contacts')
+                expect(page.locator('#ms-consent-dialog')).to_contain_text('Send & drafts')
+                expect(page.locator('#ms-consent-dialog')).to_contain_text('Calendar')
+                page.locator('#ms-consent-dialog').get_by_role('button',name='Cancel',exact=True).click()
+                with core.db_conn() as db:
+                    db.execute('UPDATE workspace_calendar_connections SET scopes=%s WHERE owner_username=%s',(calendar.WRITE_SCOPE,owner))
+                page.reload();expect(page.locator('#ms-access')).to_contain_text('Ready')
+                passed('One guided Microsoft setup replaces separate read and write consent controls')
                 page.get_by_role('button',name='Add to my system',exact=True).click()
                 form=page.locator('#ms-capture-form');form.locator('[name=title]').fill(browser_name+' browser saved task')
                 form.locator('[name=due_date]').fill('2026-12-01');form.get_by_role('button',name='Save internally').click()
