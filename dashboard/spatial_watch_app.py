@@ -1144,6 +1144,7 @@ def spatial_watchlist(
     match_mode: str = "CONTAINS",
     match_field: str = "",
     min_priority: int = 1,
+    previewed: str = "",
     selected_keywords: list[str] = Query(default=[]),
     bulk_layer: str = "",
     bulk_parent_by: str = "",
@@ -1374,6 +1375,7 @@ def spatial_watchlist(
     needs_recipient_watches = [row for row in all_items if row["state_label"] == "Needs Recipient"]
     prefill = {
         "from_alert": "",
+        "previewed": previewed.strip() == "1",
         "source_alert_title": "",
         "suggested_source": "",
         "suggested_category": "",
