@@ -261,7 +261,8 @@ return $input.all().map((item) => {
   for (const segment of pipe) {
     const candidate = countyName(segment);
     if (candidateCountySets.some((set) => set.has(candidate))) {
-      detectedCounty = candidate.replace(/\b\w/g, (letter) => letter.toUpperCase())
+      detectedCounty = candidate.toLowerCase()
+        .replace(/\b\w/g, (letter) => letter.toUpperCase())
         .replace(/\s+/g, ' ');
       break;
     }
