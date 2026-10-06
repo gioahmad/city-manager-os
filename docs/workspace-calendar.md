@@ -1,3 +1,5 @@
+> Email / Calendar / Important and optional reviewed Microsoft actions are documented in [microsoft-workspace-actions.md](microsoft-workspace-actions.md). The read-only imports described below remain the default; the old `workspace#inbox` route is now `/intake`.
+
 # Private Microsoft 365 connector
 
 Our own connector imports email, contacts, and calendar events directly from Microsoft Graph.

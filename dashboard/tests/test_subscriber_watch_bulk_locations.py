@@ -43,6 +43,32 @@ def test_alert_keyword_choices_are_derived_from_each_alert():
     assert len(choices) <= 12
 
 
+def test_bnn_keyword_choices_never_cross_pipe_field_boundaries():
+    namespace = _load_pure(
+        {"ALERT_KEYWORD_STOPWORDS", "alert_keyword_choices"},
+        "operations_app.py",
+    )
+    choices = namespace["alert_keyword_choices"](
+        {
+            "source": "BNN",
+            "title": "BNN Incident",
+            "message": (
+                "10/06/2026 1:15 PM | NJ | Hudson | Jersey City | "
+                "Working Fire Alert | 100 Main St | Operations"
+            ),
+            "subtype": "INCIDENT",
+            "category": "PUBLIC_SAFETY",
+            "tags": ["bnn"],
+        },
+        limit=20,
+    )
+    normalized = {" ".join(value.upper().split()) for value in choices}
+    assert "HUDSON JERSEY" not in normalized
+    assert "JERSEY WORKING" not in normalized
+    assert "HUDSON" in normalized
+    assert "JERSEY CITY" in normalized
+
+
 def test_layer_field_inference_uses_imported_metadata():
     namespace = _load_pure({"_normalized_property_key", "_infer_property_key"})
     infer = namespace["_infer_property_key"]

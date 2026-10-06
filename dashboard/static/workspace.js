@@ -399,16 +399,17 @@
   }
   function renderConnections() {
     const target=$('calendar-connection');target.replaceChildren();const calendar=state.calendar;
-    target.append(node('p',calendar.connected?'Connected · last sync '+formatTime(calendar.last_sync_at):calendar.ready?'Ready to connect your Microsoft account.':'Microsoft app setup is required before you can connect.','connection-status'));
+    target.append(node('p',calendar.connected?'Microsoft 365 connected · last sync '+formatTime(calendar.last_sync_at):calendar.ready?'Microsoft 365 is ready to connect.':'Microsoft 365 needs one-time app setup before sign-in.','connection-status'));
     if(calendar.connected) {
-      target.append(node('p',(calendar.mail_enabled?String(calendar.mail_count || 0)+' emails':'Email needs new consent')+' · '+(calendar.contacts_enabled?String(calendar.contact_count || 0)+' contact previews':'Contacts need new consent')+' · primary calendar','muted small'));
-      if (!calendar.mail_enabled || !calendar.contacts_enabled)target.append(node('p','Reconnect to approve email and contact imports. Your existing calendar connection continues to work.','muted small'));
-      target.append(link('Review imports in Inbox →','/intake'));
+      target.append(node('p',(calendar.mail_enabled?String(calendar.mail_count || 0)+' retained emails':'Email permission needs attention')+' · '+(calendar.contacts_enabled?String(calendar.contact_count || 0)+' contact previews':'Contacts permission needs attention')+' · calendar imports','muted small'));
+      target.append(link('Open Email & Calendar →','/email'));
+    } else if(calendar.ready) {
+      target.append(node('p','Use the Microsoft workspace for one guided sign-in covering Email, Contacts, Calendar, Send and Drafts.','muted small'));
     }
-    if(calendar.sync_error)target.append(node('p','Outlook could not refresh. Retry or reconnect; the previous snapshot is retained.','muted small'));
+    if(calendar.sync_error)target.append(node('p','Microsoft could not refresh. Your previous snapshot is retained; use the setup screen to repair the connection.','muted small'));
     if(!readonly) {
       const controls=node('div',undefined,'row');
-      if(calendar.ready)controls.append(button(calendar.connected?'Reconnect Microsoft 365':'Connect Microsoft 365',()=>safely(async()=>{const result=await act('MS_CALENDAR_CONNECT',{},false);location.assign(result.redirect_url);}), 'primary'));
+      if(calendar.ready)controls.append(button(calendar.connected?'Microsoft setup / permissions':'Connect Microsoft 365',()=>location.assign('/email?setup=1'),'primary'));
       if(calendar.connected)controls.append(button('Refresh Microsoft 365',()=>safely(()=>act('MS_CALENDAR_SYNC'))),button('Disconnect',()=>safely(async()=>{if(confirm('Disconnect Microsoft 365 and remove imported email, contact previews, and appointments? People and tasks you created will remain.'))await act('MS_CALENDAR_DISCONNECT');})));
       target.append(controls);
     }

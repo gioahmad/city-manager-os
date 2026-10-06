@@ -1,4 +1,5 @@
 """One permission-filtered inbox/search over canonical records, with private context links."""
+from contextlib import nullcontext
 import json
 import ipaddress
 import os
@@ -39,7 +40,7 @@ SOURCES='''WITH account AS (SELECT %s::text AS owner), items AS (
         e.starts_at, e.ends_at>=now(),
         CASE WHEN e.ends_at<now() THEN 'Past' ELSE 'Upcoming' END,
         ('/intake?kind=CALENDAR&id='||e.id::text),
-        jsonb_build_object('starts_at',e.starts_at,'ends_at',e.ends_at,'location',e.location,'all_day',e.all_day,'outlook_url',e.outlook_url)
+        jsonb_build_object('starts_at',e.starts_at,'ends_at',e.ends_at,'location',e.location,'all_day',e.all_day,'outlook_url',e.outlook_url,'calendar_key',e.calendar_key,'calendar_name',e.calendar_name)
  FROM workspace_calendar_events e,account a WHERE e.owner_username=a.owner
  UNION ALL
  SELECT 'EVENT',e.id,e.title,concat_ws(E'\n',e.notes,e.location_name,e.address),'WORK',
@@ -208,9 +209,9 @@ def context(owner,item):
         except HTTPException:continue
         linked.append({'link_id':link['id'],**{k:record[k] for k in ('id','kind','title','visibility')}})
     # Exact known names or addresses in the source, and exact email matches, are suggestions only.
-    records=query_all('''SELECT id,name,attributes,visibility FROM workspace_entities WHERE (visibility='WORK' OR owner_username=%s)
-        AND (contact_id IS NULL OR EXISTS(SELECT 1 FROM contacts c WHERE c.id=contact_id AND c.active AND c.visibility='ALL'))
-        ORDER BY updated_at DESC LIMIT 500''',(owner,))
+    records=query_all('''SELECT e.id,e.name,e.attributes,e.visibility FROM workspace_entities e WHERE (e.visibility='WORK' OR e.owner_username=%s)
+        AND (e.contact_id IS NULL OR EXISTS(SELECT 1 FROM contacts c WHERE c.id=e.contact_id AND c.active AND c.visibility='ALL'))
+        ORDER BY e.updated_at DESC LIMIT 500''',(owner,))
     body=(item['title']+'\n'+item['body']).casefold();suggestions=[]
     sender=str(item['metadata'].get('sender_email') or '').casefold()
     for record in records:
@@ -255,9 +256,9 @@ async def hub_action(request:Request):
     return reply(await run_in_threadpool(action,owner,values))
 
 
-def action(owner,values):
+def action(owner,values,*,connection=None):
     action_name=values.get('action');item_kind=kind(values.get('kind'));item_id=uid(values.get('id'))
-    with db_conn() as c:
+    with (nullcontext(connection) if connection is not None else db_conn()) as c:
         item=find(owner,item_kind,item_id,connection=c)
         if action_name=='HANDLE':
             if values.get('handled') is not False:
@@ -317,13 +318,13 @@ def action(owner,values):
                         ON CONFLICT(owner_username,kind,item_id) DO UPDATE SET handled_at=now()""",(owner,item_kind,item_id))
                     return {'message':'This source is already linked to Command Center.','id':row['id'],'existing':True}
             title=text(values.get('title') or item['title'],500,required=True)
-            description=text(values.get('description') or item['body'],20000)
+            description=text(values['description'] if 'description' in values else item['body'],20000)
             next_action=text(values.get('next_action') or 'Review and determine the next municipal action.',1000)
-            work=c.execute("""INSERT INTO issues(title,description,source,status,priority,item_type,next_action)
-                VALUES(%s,%s,'MICROSOFT','OPEN',%s,%s,%s) RETURNING id""",
+            work=c.execute("""INSERT INTO issues(title,description,source,status,priority,item_type,next_action,assigned_to,due_at)
+                VALUES(%s,%s,'MICROSOFT','OPEN',%s,%s,%s,%s,%s) RETURNING id""",
                 (title,description,max(1,min(int(values.get('priority') or 3),5)),
                  values.get('item_type') if values.get('item_type') in {'ISSUE','TASK','FOLLOW_UP','DECISION','COMMITMENT','COMMUNICATION'} else 'TASK',
-                 next_action)).fetchone()
+                 next_action,text(values.get('assigned_to'),200) or None,values.get('due_at') or None)).fetchone()
             endpoints=sorted([(item_kind,str(item_id)),('WORK',str(work['id']))])
             c.execute("""INSERT INTO workspace_context_links(owner_username,source_kind,source_id,target_kind,target_id)
                 VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",(owner,*endpoints[0],*endpoints[1]))
@@ -367,7 +368,8 @@ def action(owner,values):
                 VALUES(%s,'MICROSOFT',%s,'Weehawken',%s,%s,3,'MICROSOFT',%s,
                        'PLANNING','MANAGED',%s,'CONFIRMED','NOT_STARTED')
                 RETURNING id""",
-                (item['title'],values.get('location') or meta.get('location') or None,starts,ends,item['body'] or None,meta.get('outlook_url') or None)).fetchone()
+                (text(values.get('title') or item['title'],500,required=True),values.get('location') or meta.get('location') or None,starts,ends,
+                 text(values['body'] if 'body' in values else item['body'],20000) or None,meta.get('outlook_url') or None)).fetchone()
             endpoints=sorted([(item_kind,str(item_id)),('EVENT',str(event['id']))])
             c.execute("""INSERT INTO workspace_context_links(owner_username,source_kind,source_id,target_kind,target_id)
                 VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",(owner,*endpoints[0],*endpoints[1]))

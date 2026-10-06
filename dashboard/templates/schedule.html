@@ -151,7 +151,7 @@
 
     <label>General Notes<textarea name="notes" rows="2"></textarea></label>
 
-    <label>Links / Documents<textarea name="reference_links" rows="2" placeholder="One URL per line or document reference"></textarea></label>
+    <label>Event Materials / Google Drive<textarea name="reference_links" rows="3" placeholder="Paste one Google Drive, iCloud, SharePoint, or other HTTPS document link per line"></textarea><span class="meta">The file stays in your cloud storage. City Manager OS keeps only the link with this event.</span></label>
 
     <label>Source URL<input name="source_url" placeholder="Optional source or reference URL"></label>
 
@@ -311,7 +311,7 @@
 <label>Decisions Needed<textarea name="decisions_needed" rows="2">{{ e.decisions_needed or '' }}</textarea></label>
 <label>Operational / Impact Notes<textarea name="impact_notes" rows="2">{{ e.impact_notes or '' }}</textarea></label>
 <label>General Notes<textarea name="notes" rows="2">{{ e.notes or '' }}</textarea></label>
-<label>Links / Documents<textarea name="reference_links" rows="2">{{ e.reference_links or '' }}</textarea></label>
+<label>Event Materials / Google Drive<textarea name="reference_links" rows="3">{{ e.reference_links or '' }}</textarea><span class="meta">Paste one document link per line. City Manager OS does not copy the file to the VPS.</span></label>
 <label>Source URL<input name="source_url" value="{{ e.source_url or '' }}"></label>
 
 <label>Reminder<input type="datetime-local" name="reminder_at" value="{{ e.reminder_local.strftime('%Y-%m-%dT%H:%M') if e.reminder_local else '' }}"></label>
@@ -413,6 +413,24 @@ Active
     </button>
   </form>
 </details>
+
+{% if e.reference_links %}
+<div class="manage-panel" style="margin-top:12px">
+  <div class="panel-kicker">EVENT MATERIALS</div>
+  {% for ref in e.reference_links.splitlines() %}
+    {% set material = ref.strip() %}
+    {% if material %}
+      <div class="meta" style="margin-top:6px">
+        {% if material.startswith('https://') %}
+          <a class="text-link" href="{{ material }}" target="_blank" rel="noopener">Open material {{ loop.index }} ↗</a>
+        {% else %}
+          {{ material }}
+        {% endif %}
+      </div>
+    {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
 
 <div class="quick-actions" style="margin-top:10px">
   {% if e.source_url %}

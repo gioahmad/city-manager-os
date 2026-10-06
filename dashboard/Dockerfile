@@ -23,7 +23,7 @@ COPY today_board_app.py .
 COPY executive_workflow_app.py .
 COPY brain_app.py .
 COPY workspace_app.py workspace_engine.py workspace_calendar.py workspace_hub.py workspace_ingest.py ./
-COPY context_app.py .
+COPY context_app.py microsoft_workspace.py ./
 COPY operations_occurrence_controls.py .
 COPY operations_engine.py .
 COPY flood_app.py .
@@ -31,6 +31,7 @@ COPY gis_import.py .
 COPY map_app.py .
 COPY spatial_reference_app.py .
 COPY spatial_watch_app.py .
+COPY watch_preview_app.py .
 COPY geo_resolver.py .
 COPY integration_runtime.py .
 COPY transcom_runtime.py .

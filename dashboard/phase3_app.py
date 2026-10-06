@@ -13,6 +13,7 @@ import map_app  # noqa: F401,E402
 import spatial_reference_app  # noqa: F401,E402
 # Activates #56 PostGIS spatial matching inside the existing Watchlist and routing path.
 import spatial_watch_app  # noqa: F401,E402
+import watch_preview_app  # noqa: F401,E402
 # Adds the next-phase web control plane: integrations, API Lab and regional event intelligence.
 import integrations_app  # noqa: F401,E402
 # Adds #47 web-managed source placeholders, read-only TEST gating and activation audit.
@@ -25,6 +26,7 @@ import today_board_app  # noqa: F401,E402
 import executive_workflow_app  # noqa: F401,E402
 import brain_app  # noqa: F401,E402
 import workspace_app  # noqa: F401,E402
+import microsoft_workspace
 import workspace_calendar  # noqa: F401,E402
 import workspace_hub  # noqa: F401,E402
 import context_app  # noqa: F401,E402

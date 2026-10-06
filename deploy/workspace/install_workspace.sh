@@ -29,7 +29,7 @@ progress_step 1 8 "Recovery point"
 PREVIOUS_RELEASE="${CMOS_PREVIOUS_RELEASE:-}"
 bash "$REPO/deploy/postgis/ensure-deploy-backup.sh" "$PREVIOUS_RELEASE" "$EXPECTED"
 progress_step 2 8 "Applying additive migrations"
-for migration in 036_brain.sql 037_workspace.sql 038_workspace_calendar.sql 039_workspace_inbox.sql 040_executive_intake.sql 041_performance_indexes.sql; do
+for migration in 036_brain.sql 037_workspace.sql 038_workspace_calendar.sql 039_workspace_inbox.sql 040_executive_intake.sql 041_performance_indexes.sql 042_microsoft_workspace.sql; do
   run_with_progress "Migration $migration" "" docker exec -i citymanager-postgis sh -lc \
     'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
     < "$REPO/deploy/postgis/init/$migration"
@@ -54,7 +54,8 @@ with db_conn() as c:
                   'workspace_calendar_auth','workspace_calendar_connections','workspace_calendar_events',
                   'workspace_config','workspace_portals','workspace_portal_messages','workspace_dismissed','brain_notes',
                   'workspace_documents','workspace_microsoft_mail','workspace_microsoft_contacts',
-                  'workspace_inbox_handled','workspace_inbox_snoozed','workspace_context_links'):
+                  'workspace_inbox_handled','workspace_inbox_snoozed','workspace_context_links',
+                  'workspace_important','workspace_capture_receipts','workspace_microsoft_calendars','workspace_microsoft_operations'):
         assert c.execute('SELECT to_regclass(%s) AS name',(table,)).fetchone()['name'], table
         assert c.execute('SELECT has_table_privilege(current_user,%s,%s) AS ok',
                          (table,'SELECT,INSERT,UPDATE,DELETE')).fetchone()['ok'], table
@@ -90,7 +91,8 @@ for attempt in range(30):
         time.sleep(1)
 for path in ('/','/map','/alerts?window=24h','/workspace','/workspace/display',
              '/workspace/api/state','/workspace/api/state?display=true',
-             '/workspace/api/hub','/workspace/api/hub?view=library'):
+             '/workspace/api/hub','/workspace/api/hub?view=library',
+             '/email','/calendar','/important','/workspace/api/microsoft/status'):
     req=urllib.request.Request('http://127.0.0.1:8000'+path,headers=headers)
     with urllib.request.urlopen(req,timeout=30) as r:
         body=r.read()

@@ -25,6 +25,9 @@
     <nav class="cmos-rail-nav">
       <a href="/" class="{% if p == '/' %}active{% endif %}"><span>⌂</span>Overview</a>
       <a href="/my-day" class="{% if p.startswith('/my-day') %}active{% endif %}"><span>◷</span>My Day</a>
+      <a href="/email" class="{% if p == '/email' %}active{% endif %}"><span>✉</span>Email</a>
+      <a href="/calendar" class="{% if p == '/calendar' %}active{% endif %}"><span>▦</span>Calendar</a>
+      <a href="/important" class="{% if p == '/important' %}active{% endif %}"><span>☆</span>Important</a>
       <a href="/intake" class="{% if p.startswith('/intake') %}active{% endif %}"><span>▣</span>Executive Intake</a>
     </nav>
   </div>

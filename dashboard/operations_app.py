@@ -253,7 +253,7 @@ ALERT_KEYWORD_STOPWORDS = {
 
 
 def alert_keyword_choices(alert: dict, limit: int = 12) -> list[str]:
-    """Suggest reusable phrases found in one Alert, never a fixed incident dictionary."""
+    """Suggest reusable phrases from each Alert, never a fixed incident dictionary or across source delimiters."""
     choices: list[str] = []
     seen: set[str] = set()
 
@@ -272,19 +272,36 @@ def alert_keyword_choices(alert: dict, limit: int = 12) -> list[str]:
         choices.append(text)
 
     for value in (alert.get("message"), alert.get("title")):
-        tokens = re.findall(r"[A-Za-z0-9]+(?:['/-][A-Za-z0-9]+)*", str(value or ""))
-        useful = [
-            (index, token)
-            for index, token in enumerate(tokens)
-            if len(token) >= 3
-            and not token.isdigit()
-            and token.casefold() not in ALERT_KEYWORD_STOPWORDS
-        ]
-        for (left_index, left), (right_index, right) in zip(useful, useful[1:]):
-            if right_index == left_index + 1:
-                add(f"{left} {right}")
-        for _, token in useful:
-            add(token)
+        raw = str(value or "")
+        # BNN and some other feeds use "|" as a field boundary. Never build
+        # keyword phrases across it; that can turn "Hudson | Jersey City"
+        # into the meaningless phrase "Hudson Jersey".
+        segments = [segment.strip() for segment in raw.split("|")] if "|" in raw else [raw]
+        if str(alert.get("source") or "").upper() == "BNN" and len(segments) >= 5:
+            # Prefer useful BNN classifier fields before individual words.
+            # Skip timestamp/state and compact terminal source identifiers.
+            for index, segment in enumerate(segments):
+                if not segment or index == 0:
+                    continue
+                if index == 1 and re.fullmatch(r"[A-Za-z]{2,3}", segment):
+                    continue
+                if re.fullmatch(r"[A-Za-z]{1,4}\d{1,8}", segment):
+                    continue
+                add(segment)
+        for segment in segments:
+            tokens = re.findall(r"[A-Za-z0-9]+(?:['/-][A-Za-z0-9]+)*", segment)
+            useful = [
+                (index, token)
+                for index, token in enumerate(tokens)
+                if len(token) >= 3
+                and not token.isdigit()
+                and token.casefold() not in ALERT_KEYWORD_STOPWORDS
+            ]
+            for (left_index, left), (right_index, right) in zip(useful, useful[1:]):
+                if right_index == left_index + 1:
+                    add(f"{left} {right}")
+            for _, token in useful:
+                add(token)
 
     for value in (alert.get("subtype"), alert.get("category"), *(alert.get("tags") or [])):
         add(value)
@@ -1387,6 +1404,16 @@ def alerts_page(
     total_pages = max(1, (result_total + per_page - 1) // per_page)
     previous_url = f"/alerts?{urlencode({**filters, 'page': page - 1})}" if page > 1 else ""
     next_url = f"/alerts?{urlencode({**filters, 'page': page + 1})}" if page < total_pages else ""
+    watch_preview_url = "/watch-preview?" + urlencode({
+        "q": q,
+        "source": source,
+        "category": category,
+        "municipality": municipality,
+        "county": county,
+        "window": window,
+        "custom_hours": custom_hours,
+        "min_priority": min_priority,
+    })
     return templates.TemplateResponse(
         request=request,
         name="alerts.html",
@@ -1411,6 +1438,7 @@ def alerts_page(
             "total_pages": total_pages,
             "previous_url": previous_url,
             "next_url": next_url,
+            "watch_preview_url": watch_preview_url,
             "current_url": f"/alerts?{urlencode({**filters, 'page': page})}",
             "msg": msg,
             "error": error,

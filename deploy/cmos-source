@@ -192,7 +192,7 @@ return $input.all().map((item) => {
     body.description2,
     body.description3
   ].find(looksSpatial);
-  const location = firstText(
+  const explicitLocation = firstText(
     body.address,
     body.incident_location,
     body.incidentLocation,
@@ -200,24 +200,89 @@ return $input.all().map((item) => {
     body.locationName,
     body.cross_streets,
     body.crossStreets,
-    describedLocation,
-    body.location
+    describedLocation
   );
-  const municipality = firstText(
+  let municipality = firstText(
     body.municipality,
     body.city,
     body.town,
     body.borough,
     body.townFull
   );
-  const county = firstText(body.county, body.county_name, body.countyName);
-  const state = firstText(body.state, body.state_code, body.stateCode);
+  let county = firstText(body.county, body.county_name, body.countyName);
+  let state = firstText(body.state, body.state_code, body.stateCode);
   const message = String(
     body.formatted_message ||
     body.message ||
     body.text ||
     ''
   ).trim();
+
+  // BNN pipe order varies by feed/state. "|" is a hard field boundary,
+  // but positions are not trusted. Classify segments by their contents.
+  const pipe = message.split('|').map((value) => value.trim()).filter(Boolean);
+  const norm = (value) => String(value || '').trim().toUpperCase()
+    .replace(/\./g, '').replace(/\s+/g, ' ');
+  const stateAliases = {
+    'NJ': 'NJ', 'NEW JERSEY': 'NJ',
+    'NY': 'NY', 'NEW YORK STATE': 'NY'
+  };
+  const counties = {
+    NJ: new Set([
+      'ATLANTIC','BERGEN','BURLINGTON','CAMDEN','CAPE MAY','CUMBERLAND','ESSEX',
+      'GLOUCESTER','HUDSON','HUNTERDON','MERCER','MIDDLESEX','MONMOUTH','MORRIS',
+      'OCEAN','PASSAIC','SALEM','SOMERSET','SUSSEX','UNION','WARREN'
+    ]),
+    NY: new Set([
+      'ALBANY','ALLEGANY','BRONX','BROOME','CATTARAUGUS','CAYUGA','CHAUTAUQUA',
+      'CHEMUNG','CHENANGO','CLINTON','COLUMBIA','CORTLAND','DELAWARE','DUTCHESS',
+      'ERIE','ESSEX','FRANKLIN','FULTON','GENESEE','GREENE','HAMILTON','HERKIMER',
+      'JEFFERSON','KINGS','LEWIS','LIVINGSTON','MADISON','MONROE','MONTGOMERY',
+      'NASSAU','NEW YORK','NIAGARA','ONEIDA','ONONDAGA','ONTARIO','ORANGE',
+      'ORLEANS','OSWEGO','OTSEGO','PUTNAM','QUEENS','RENSSELAER','RICHMOND',
+      'ROCKLAND','SARATOGA','SCHENECTADY','SCHOHARIE','SCHUYLER','SENECA',
+      'ST LAWRENCE','STEUBEN','SUFFOLK','SULLIVAN','TIOGA','TOMPKINS','ULSTER',
+      'WARREN','WASHINGTON','WAYNE','WESTCHESTER','WYOMING','YATES'
+    ])
+  };
+  const countyName = (value) => norm(value).replace(/\s+COUNTY$/, '').trim();
+  let detectedState = '';
+  for (const segment of pipe) {
+    const value = norm(segment);
+    if (stateAliases[value]) {
+      detectedState = stateAliases[value];
+      break;
+    }
+  }
+  let detectedCounty = '';
+  const candidateCountySets = detectedState
+    ? [counties[detectedState]]
+    : [counties.NJ, counties.NY];
+  for (const segment of pipe) {
+    const candidate = countyName(segment);
+    if (candidateCountySets.some((set) => set.has(candidate))) {
+      detectedCounty = candidate.toLowerCase()
+        .replace(/\b\w/g, (letter) => letter.toUpperCase())
+        .replace(/\s+/g, ' ');
+      break;
+    }
+  }
+  const pipeLocation = pipe.find((segment) => looksSpatial(segment)) || '';
+  const incidentPattern = /\b(ALERT|FIRE|MVA|MVC|ACCIDENT|POLICE|EMS|MEDICAL|HAZMAT|RESCUE|SHOOTING|STABBING|ALARM|ENTRAPMENT|MCI|MAYDAY|TRAFFIC)\b/i;
+  const pipeIncidentType = pipe.find((segment) => (
+    incidentPattern.test(segment)
+    && !looksSpatial(segment)
+    && !stateAliases[norm(segment)]
+    && !candidateCountySets.some((set) => set.has(countyName(segment)))
+  )) || '';
+  const pipeSourceCode = [...pipe].reverse().find((segment) => /^[A-Za-z]{1,4}\d{1,8}$/.test(segment)) || '';
+
+  state = state || detectedState;
+  county = county || detectedCounty;
+  if (county && /\s+county$/i.test(county)) county = county.replace(/\s+county$/i, '').trim();
+  // Do not infer municipality from a pipe position. The local GIS resolver
+  // validates municipality candidates from the full payload/message.
+  const location = explicitLocation || pipeLocation || firstText(body.location);
 
   const title = String(
     body.custom_title ||
@@ -272,13 +337,24 @@ return $input.all().map((item) => {
     expires_at: null,
     metadata: {
       original_location: location,
-      bnn_source_payload: body
+      bnn_source_payload: body,
+      bnn_pipe_fields: pipe.length ? {
+        segments: pipe,
+        state,
+        county,
+        municipality,
+        incident_type: pipeIncidentType,
+        location: pipeLocation,
+        source_code: pipeSourceCode,
+        order_trusted: false
+      } : null
     }
   };
 
   alert.search_text = [
     alert.source, alert.category, alert.subtype,
-    county, municipality, location, alert.title, alert.message,
+    state, county, county ? county + ' County' : '', municipality,
+    pipeIncidentType, location, alert.title, alert.message,
     ...alert.tags
   ].filter(Boolean).join(' ');
 

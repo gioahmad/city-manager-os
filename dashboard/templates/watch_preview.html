@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Preview Watch · City Manager OS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="eyebrow">TEST BEFORE TURNING IT ON</div>
+    <div class="brand-row"><h1>Preview Watch</h1><span class="private-badge">READ ONLY</span></div>
+    <div class="tagline">Run a proposed Watch against alerts already stored in City Manager OS</div>
+  </div>
+</header>
+{% include "nav.html" %}
+<main>
+  {% for warning in warnings %}
+  <div class="flash flash-error"><strong>Rule note:</strong> {{ warning }}</div>
+  {% endfor %}
+  {% if truncated %}
+  <div class="flash flash-error"><strong>Preview limited:</strong> More than {{ candidate_total }} candidate alerts were available. Narrow the time period before relying on the count.</div>
+  {% endif %}
+
+  <section class="metrics watch-metrics">
+    <div class="metric"><span>Would have matched</span><strong>{{ match_total }}</strong><small>Stored alerts in this preview</small></div>
+    <div class="metric"><span>Candidates checked</span><strong>{{ candidate_total }}</strong><small>No records changed</small></div>
+    <div class="metric"><span>Source</span><strong>{{ rule.source or 'ALL' }}</strong><small>Exact source filter</small></div>
+    <div class="metric"><span>Minimum</span><strong>P{{ rule.min_priority }}</strong><small>Alert priority</small></div>
+  </section>
+
+  <article class="panel">
+    <div class="panel-head">
+      <div><div class="panel-kicker">PROPOSED RULE</div><h2>What would trigger</h2></div>
+      <span class="status healthy">NO SENDS</span>
+    </div>
+    <div class="panel-body">
+      <div class="form-grid two-col">
+        <div><strong>{{ rule.field|replace('_',' ')|title }}</strong><div class="hint">{{ rule.mode }} “{{ rule.term }}”{% if rule.aliases %} · alternatives {{ rule.aliases|join(', ') }}{% endif %}</div></div>
+        <div><strong>Filters</strong><div class="hint">Source {{ rule.source or 'any' }} · Category {{ rule.category or 'any' }} · P{{ rule.min_priority }}+</div></div>
+      </div>
+      <p class="hint">This page does not create a Watch, Match, delivery, or Notification. It evaluates stored history only.</p>
+      <div class="watch-card-actions">
+        <a class="primary-button" href="{{ builder_url }}">Continue to Watch Builder</a>
+        <a class="secondary-button" href="/alerts">Back to Alerts</a>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel" style="margin-top:16px">
+    <div class="panel-head">
+      <div><div class="panel-kicker">HISTORICAL TEST</div><h2>Alerts this rule would have caught</h2></div>
+      <span class="count-pill">{{ match_total }}</span>
+    </div>
+    <div class="panel-body">
+      {% if matches %}
+      <div class="watch-list">
+        {% for a in matches %}
+        <article class="watch-card">
+          <div class="watch-card-summary">
+            <div class="watch-summary-main">
+              <span class="status active">P{{ a.priority }}</span>
+              <div>
+                <strong>{{ a.title }}</strong>
+                <div class="meta">{{ a.source }} · {{ a.category }}{% if a.county %} · {{ a.county }} County{% endif %}{% if a.municipality %} · {{ a.municipality }}{% endif %}</div>
+                <div class="hint">{{ a.preview_reason }}</div>
+                {% if a.pipe_fields %}
+                <div class="hint">BNN fields: {{ a.pipe_fields.state }} | {{ a.pipe_fields.county }} | {{ a.pipe_fields.municipality }} | {{ a.pipe_fields.incident_type }} | {{ a.pipe_fields.location }}</div>
+                {% endif %}
+              </div>
+            </div>
+            <div class="watch-card-actions"><a class="secondary-button" href="/alerts?q={{ a.alert_id }}&window=all&state=all">Open Alert</a></div>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% if match_total > matches|length %}<p class="hint">Showing the newest {{ matches|length }} of {{ match_total }} matches.</p>{% endif %}
+      {% else %}
+      <div class="empty-state"><strong>No historical matches.</strong><span>Change the rule before turning it on.</span></div>
+      {% endif %}
+    </div>
+  </article>
+</main>
+</body>
+</html>
