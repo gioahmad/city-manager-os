@@ -268,8 +268,10 @@ async def workspace_action(request: Request):
 def action(owner,d,request):
     kind=d.get('action')
     if kind in {'MS_CALENDAR_CONNECT','MS_CALENDAR_SYNC','MS_CALENDAR_DISCONNECT'}:
-        from workspace_calendar import begin,sync,disconnect
-        if kind=='MS_CALENDAR_CONNECT':return begin(owner,request)
+        from workspace_calendar import sync,disconnect
+        if kind=='MS_CALENDAR_CONNECT':
+            # Legacy callers are routed to the one reviewed Microsoft setup flow.
+            return {'redirect_url':'/email?setup=1'}
         if kind=='MS_CALENDAR_SYNC':return sync(owner)
         return disconnect(owner)
     with db_conn() as conn:
