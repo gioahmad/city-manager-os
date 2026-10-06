@@ -200,6 +200,31 @@ def status_page(request: Request):
     row = query_one('SELECT scopes,account_email FROM workspace_calendar_connections WHERE owner_username=%s', (owner,))
     status.update(capabilities((row or {}).get('scopes', '')))
     status['account_email'] = (row or {}).get('account_email')
+    status['access_complete'] = bool(
+        status.get('connected') and status.get('mail_read') and status.get('contacts_enabled')
+        and status.get('mail_send') and status.get('mail_draft') and status.get('calendar_write')
+    )
+    cfg = microsoft.settings()
+    origin = str(cfg.get('redirect') or '').removesuffix('/workspace/calendar/microsoft/callback')
+    status['setup'] = {
+        'public_https': bool(origin.startswith('https://')),
+        'client_id': bool(cfg.get('client')),
+        'client_secret': bool(cfg.get('secret')),
+        'encryption_key': bool(cfg.get('key')),
+        'tenant': bool(cfg.get('tenant')),
+        'redirect_uri': cfg.get('redirect') if origin.startswith('https://') else '',
+    }
+    status['connection_state'] = (
+        'SERVER_SETUP_REQUIRED' if not status.get('ready') else
+        'NOT_CONNECTED' if not status.get('connected') else
+        'SYNC_NEEDS_ATTENTION' if status.get('sync_error') else
+        'FULL' if status['access_complete'] else
+        'PERMISSIONS_INCOMPLETE'
+    )
+    status['requested_permissions'] = [
+        'Mail.Read', 'Contacts.Read', 'Calendars.ReadBasic',
+        'Mail.Send', 'Mail.ReadWrite', 'Calendars.ReadWrite',
+    ]
     status['calendars'] = query_all('SELECT calendar_key,name,can_edit,last_sync_at FROM workspace_microsoft_calendars WHERE owner_username=%s ORDER BY name', (owner,))
     status['operations'] = query_all('''SELECT id,operation,status,account_email,created_at,updated_at,result
         FROM workspace_microsoft_operations WHERE owner_username=%s AND status<>'REVIEW'
