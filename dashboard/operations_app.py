@@ -253,7 +253,7 @@ ALERT_KEYWORD_STOPWORDS = {
 
 
 def alert_keyword_choices(alert: dict, limit: int = 12) -> list[str]:
-    """Suggest reusable phrases without crossing structured source delimiters."""
+    """Suggest reusable phrases from each Alert, never a fixed incident dictionary or across source delimiters."""
     choices: list[str] = []
     seen: set[str] = set()
 
