@@ -105,7 +105,7 @@ def capabilities(scopes: str) -> dict[str, bool]:
 def require(scopes: str, operation: str) -> None:
     field = {'MAIL_SEND': 'mail_send', 'MAIL_DRAFT': 'mail_draft', 'CALENDAR_CREATE': 'calendar_write'}[operation]
     if not capabilities(scopes)[field]:
-        raise HTTPException(403, 'Approve the additional Microsoft permissions using Enable Microsoft actions. Existing read access remains available.')
+        raise HTTPException(403, 'Finish Microsoft setup from Email or Calendar to approve this permission. Existing read access remains available.')
 
 
 def request_graph(client: httpx.Client, method: str, path: str, token: str, *, payload=None) -> httpx.Response:
