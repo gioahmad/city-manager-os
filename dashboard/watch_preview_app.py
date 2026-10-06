@@ -33,24 +33,73 @@ def _normalize(value) -> str:
     return re.sub(r"[^A-Z0-9]+", " ", text).strip()
 
 
+STATE_ALIASES = {"NJ": "NJ", "NEW JERSEY": "NJ", "NY": "NY", "NEW YORK STATE": "NY"}
+COUNTIES = {
+    "NJ": {
+        "ATLANTIC","BERGEN","BURLINGTON","CAMDEN","CAPE MAY","CUMBERLAND","ESSEX",
+        "GLOUCESTER","HUDSON","HUNTERDON","MERCER","MIDDLESEX","MONMOUTH","MORRIS",
+        "OCEAN","PASSAIC","SALEM","SOMERSET","SUSSEX","UNION","WARREN",
+    },
+    "NY": {
+        "ALBANY","ALLEGANY","BRONX","BROOME","CATTARAUGUS","CAYUGA","CHAUTAUQUA",
+        "CHEMUNG","CHENANGO","CLINTON","COLUMBIA","CORTLAND","DELAWARE","DUTCHESS",
+        "ERIE","ESSEX","FRANKLIN","FULTON","GENESEE","GREENE","HAMILTON","HERKIMER",
+        "JEFFERSON","KINGS","LEWIS","LIVINGSTON","MADISON","MONROE","MONTGOMERY",
+        "NASSAU","NEW YORK","NIAGARA","ONEIDA","ONONDAGA","ONTARIO","ORANGE",
+        "ORLEANS","OSWEGO","OTSEGO","PUTNAM","QUEENS","RENSSELAER","RICHMOND",
+        "ROCKLAND","SARATOGA","SCHENECTADY","SCHOHARIE","SCHUYLER","SENECA",
+        "ST LAWRENCE","STEUBEN","SUFFOLK","SULLIVAN","TIOGA","TOMPKINS","ULSTER",
+        "WARREN","WASHINGTON","WAYNE","WESTCHESTER","WYOMING","YATES",
+    },
+}
+
+
+def _county_name(value: str) -> str:
+    return re.sub(r"\s+COUNTY$", "", _normalize(value), flags=re.I).strip()
+
+
 def _pipe_fields(alert: dict) -> dict:
+    """Read BNN pipe segments by semantic value; field order is intentionally ignored."""
     if str(alert.get("source") or "").upper() != "BNN":
         return {}
-    parts = [part.strip() for part in str(alert.get("message") or "").split("|")]
-    if len(parts) < 6 or not re.fullmatch(r"[A-Za-z]{2,3}", parts[1] or ""):
+    parts = [part.strip() for part in str(alert.get("message") or "").split("|") if part.strip()]
+    if len(parts) < 2:
         return {}
-    tail = parts[6:]
-    source_code = tail[-1] if tail and re.fullmatch(r"[A-Za-z]{1,4}\d{1,8}", tail[-1]) else ""
-    details = tail[:-1] if source_code else tail
+    state = next((STATE_ALIASES[_normalize(part)] for part in parts if _normalize(part) in STATE_ALIASES), "")
+    sets = [COUNTIES[state]] if state else [COUNTIES["NJ"], COUNTIES["NY"]]
+    county = next(
+        (_county_name(part).title() for part in parts if any(_county_name(part) in values for values in sets)),
+        "",
+    )
+    location = next(
+        (
+            part for part in parts
+            if re.search(r"^\d{1,6}[A-Z]?(?:-\d{1,6}[A-Z]?)?\s+|\s(?:&|@|/|AT|AND|X)\s", part, re.I)
+        ),
+        "",
+    )
+    incident = next(
+        (
+            part for part in parts
+            if re.search(r"\b(ALERT|FIRE|MVA|MVC|ACCIDENT|POLICE|EMS|MEDICAL|HAZMAT|RESCUE|SHOOTING|STABBING|ALARM|ENTRAPMENT|MCI|MAYDAY|TRAFFIC)\b", part, re.I)
+            and part != location
+            and _normalize(part) not in STATE_ALIASES
+            and not any(_county_name(part) in values for values in sets)
+        ),
+        "",
+    )
+    source_code = next(
+        (part for part in reversed(parts) if re.fullmatch(r"[A-Za-z]{1,4}\d{1,8}", part)),
+        "",
+    )
     return {
-        "timestamp": parts[0],
-        "state": parts[1],
-        "county": parts[2],
-        "municipality": parts[3],
-        "incident_type": parts[4],
-        "location": parts[5],
-        "details": " | ".join(part for part in details if part),
+        "segments": parts,
+        "state": state,
+        "county": county,
+        "incident_type": incident,
+        "location": location,
         "source_code": source_code,
+        "order_trusted": False,
     }
 
 
