@@ -115,12 +115,16 @@ def settings():
     secret=os.getenv('CMOS_MICROSOFT_CLIENT_SECRET','')
     key=os.getenv('CMOS_CALENDAR_KEY','')
     url=urlparse(origin)
-    ready=bool(client and secret and key and url.scheme=='https' and url.netloc and not url.path and not url.query and not url.fragment
-               and re.fullmatch(r'[A-Za-z0-9.-]+',tenant))
+    origin_ready=bool(url.scheme=='https' and url.netloc and not url.path and not url.query and not url.fragment)
+    tenant_ready=bool(re.fullmatch(r'[A-Za-z0-9.-]+',tenant))
+    key_ready=True
     try:Fernet(key.encode())
-    except (ValueError,TypeError):ready=False
-    return {'ready':ready,'client':client,'secret':secret,'key':key,'tenant':tenant,
-            'redirect':origin+'/workspace/calendar/microsoft/callback'}
+    except (ValueError,TypeError):key_ready=False
+    ready=bool(client and secret and key_ready and origin_ready and tenant_ready)
+    redirect=(origin+'/workspace/calendar/microsoft/callback') if origin_ready else ''
+    return {'ready':ready,'client':client,'secret':secret,'key':key,'tenant':tenant,'redirect':redirect,
+            'setup':{'public_https':origin_ready,'client_id':bool(client),'client_secret':bool(secret),
+                     'encryption_key':key_ready,'tenant':tenant_ready,'redirect_uri':redirect}}
 
 
 def cipher():
@@ -135,7 +139,9 @@ def status(owner,lookup=query_one):
         (SELECT count(*) FROM workspace_microsoft_contacts WHERE owner_username=%s) AS contact_count
         FROM workspace_calendar_connections WHERE owner_username=%s''',(owner,owner,owner))
     scopes=permissions((row or {}).get('scopes',CALENDAR_SCOPE))
-    return {'ready':settings()['ready'],'connected':bool(row),'mail_enabled':bool(scopes & {'Mail.Read','Mail.ReadWrite'}),
+    cfg=settings()
+    return {'ready':cfg['ready'],'setup':cfg['setup'],'connected':bool(row),
+            'mail_enabled':bool(scopes & {'Mail.Read','Mail.ReadWrite'}),
             'contacts_enabled':'Contacts.Read' in scopes,**{k:v for k,v in (row or {}).items() if k!='scopes'}}
 
 
@@ -171,7 +177,7 @@ def callback(request: Request, state: str='', code: str='', error: str=''):
             AND session_hash=%s AND expires_at>now() RETURNING verifier,requested_scopes''',
             (hashlib.sha256(state.encode()).hexdigest(),owner,hashlib.sha256(request.cookies[COOKIE_NAME].encode()).hexdigest())).fetchone()
     if not pending:raise HTTPException(400,'Calendar sign-in expired. Start again.')
-    if error:return RedirectResponse('/workspace?view=settings',status_code=303)
+    if error:return RedirectResponse('/email?auth=cancelled',status_code=303)
     if not code or len(code)>10000:raise HTTPException(400,'Calendar sign-in did not return a code')
     try:
         verifier=encrypt.decrypt(pending['verifier'].encode()).decode()
@@ -194,8 +200,8 @@ def callback(request: Request, state: str='', code: str='', error: str=''):
         sync(owner)
     except (httpx.HTTPError,ValueError,InvalidToken,HTTPException):
         # Keep provider response and token contents out of user-facing errors.
-        return RedirectResponse('/workspace?view=settings',status_code=303)
-    return RedirectResponse('/email',status_code=303)
+        return RedirectResponse('/email?auth=failed',status_code=303)
+    return RedirectResponse('/email?auth=connected',status_code=303)
 
 
 def graph_pages(client,url,access,*,limit=1000,truncate=False,mail=False,deadline=None):
