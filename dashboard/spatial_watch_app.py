@@ -1394,8 +1394,8 @@ def spatial_watchlist(
         "longitude": longitude,
         "location_kind": location_kind or ("MAP_POINT" if latitude and longitude else "TYPED_ADDRESS"),
         "location_id": location_id,
-        "source_filter": "",
-        "alert_category_filter": "",
+        "source_filter": source_filter.strip(),
+        "alert_category_filter": alert_category_filter.strip(),
         "notes": "",
     }
     if from_alert.strip():
