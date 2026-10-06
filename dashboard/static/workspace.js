@@ -409,7 +409,7 @@
     if(calendar.sync_error)target.append(node('p','Microsoft could not refresh. Your previous snapshot is retained; use the setup screen to repair the connection.','muted small'));
     if(!readonly) {
       const controls=node('div',undefined,'row');
-      if(calendar.ready)controls.append(link(calendar.connected?'Microsoft setup / permissions →':'Connect Microsoft 365 →','/email?setup=1','primary'));
+      if(calendar.ready)controls.append(button(calendar.connected?'Microsoft setup / permissions':'Connect Microsoft 365',()=>location.assign('/email?setup=1'),'primary'));
       if(calendar.connected)controls.append(button('Refresh Microsoft 365',()=>safely(()=>act('MS_CALENDAR_SYNC'))),button('Disconnect',()=>safely(async()=>{if(confirm('Disconnect Microsoft 365 and remove imported email, contact previews, and appointments? People and tasks you created will remain.'))await act('MS_CALENDAR_DISCONNECT');})));
       target.append(controls);
     }
