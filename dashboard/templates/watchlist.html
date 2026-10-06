@@ -426,7 +426,7 @@
         <summary>Advanced Options</summary>
         <div class="watch-form compact advanced-options-body">
           <div class="form-grid two-col">
-            <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
+            <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == prefill.min_priority %}selected{% endif %}>P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
             <label>Municipality context<input name="municipality" placeholder="Optional"></label>
           </div>
           <label>Only these alert sources
