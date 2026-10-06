@@ -56,6 +56,10 @@ jobs:
         env:
           CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
         run: python ci/check_watch_preview.py
+      - name: Google Drive Event Memory references against real PostgreSQL
+        env:
+          CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
+        run: python ci/check_event_material_links.py
       - name: JavaScript and installer syntax
         run: |
           node --check dashboard/static/microsoft_workspace.js
