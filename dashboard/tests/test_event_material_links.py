@@ -42,4 +42,4 @@ def test_event_materials_are_private_and_detach_does_not_delete_drive_content():
     assert "DELETE FROM workspace_event_materials" in module
     assert 'drive.google.com' in module
     assert 'requests.' not in module and 'httpx.' not in module
-    assert 'Google Drive material linked' in module
+    assert 'Google+Drive+material+linked' in module
