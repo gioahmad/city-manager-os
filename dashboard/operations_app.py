@@ -1404,6 +1404,16 @@ def alerts_page(
     total_pages = max(1, (result_total + per_page - 1) // per_page)
     previous_url = f"/alerts?{urlencode({**filters, 'page': page - 1})}" if page > 1 else ""
     next_url = f"/alerts?{urlencode({**filters, 'page': page + 1})}" if page < total_pages else ""
+    watch_preview_url = "/watch-preview?" + urlencode({
+        "q": q,
+        "source": source,
+        "category": category,
+        "municipality": municipality,
+        "county": county,
+        "window": window,
+        "custom_hours": custom_hours,
+        "min_priority": min_priority,
+    })
     return templates.TemplateResponse(
         request=request,
         name="alerts.html",
@@ -1428,6 +1438,7 @@ def alerts_page(
             "total_pages": total_pages,
             "previous_url": previous_url,
             "next_url": next_url,
+            "watch_preview_url": watch_preview_url,
             "current_url": f"/alerts?{urlencode({**filters, 'page': page})}",
             "msg": msg,
             "error": error,
