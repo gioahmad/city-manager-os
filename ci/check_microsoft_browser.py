@@ -87,6 +87,7 @@ with tempfile.TemporaryDirectory() as temp:
                 page.set_viewport_size({'width':390,'height':844});page.goto(base+'/email?kind=MAIL&id='+mail_id)
                 expect(page.locator('#ms-preview h2')).to_have_text('Fixture contractor email')
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')
+                assert page.locator('.cmos-global-search-button').evaluate('(el)=>getComputedStyle(el).fontSize')=='0px'
                 page.screenshot(path=str(artifacts/(browser_name+'-email-mobile.png')))
                 passed('Mobile page fits viewport; original and new actions render without iframe or JS errors')
                 assert not errors,errors

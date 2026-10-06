@@ -1,9 +1,8 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{ page }} · City Manager OS</title><link rel="stylesheet" href="/static/style.css"></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ page }} · City Manager OS</title><link rel="stylesheet" href="/static/style.css"></head>
 <body class="ms-workspace" data-section="{{ section }}" data-timezone="{{ timezone }}" data-csrf="{{ csrf }}" data-readonly="{{ 'true' if readonly else 'false' }}">
 {% include 'nav.html' %}
-<link rel="stylesheet" href="/static/microsoft_workspace.css?v=3e5f535f634a">
+<link rel="stylesheet" href="/static/microsoft_workspace.css?v=85b8f4c2a049">
 <main class="ms-main">
   <header class="ms-heading"><div><p class="eyebrow">YOUR PRIVATE MICROSOFT WORKSPACE</p><h1>{{ page }}</h1><p>Review what matters. Save it internally, or take a separate, reviewed Microsoft action.</p></div>
   {% if not readonly %}<div class="ms-buttons"><button type="button" id="ms-new-mail">New email</button><button type="button" id="ms-new-event">Add to Outlook calendar</button></div>{% endif %}</header>
