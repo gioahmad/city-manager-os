@@ -1,5 +1,7 @@
 """CI-local historical Watch preview against real PostgreSQL; no production access."""
+import html
 import os
+import re
 import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -63,7 +65,12 @@ assert county.status_code == 200
 assert "BNN:pipe-nj-normal" in county.text and "BNN:pipe-nj-reordered" in county.text
 assert "FIELD county matched" in county.text
 assert "field=county" in county.text or "field%3Dcounty" in county.text
-builder_href = county.text.split('href="', 1)[1].split('"', 1)[0].replace('&amp;', '&')
+builder_match = re.search(
+    r'<a class="primary-button" href="([^"]+)">Continue to Watch Builder</a>',
+    county.text,
+)
+assert builder_match, county.text
+builder_href = html.unescape(builder_match.group(1))
 builder_query = parse_qs(urlparse(builder_href).query)
 assert builder_query["source_filter"] == ["BNN"]
 assert builder_query["match_field"] == ["county"]
