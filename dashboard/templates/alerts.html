@@ -163,8 +163,8 @@
             <div class="row-message">{{ a.message }}</div>
             {% if a.watch_from_alert_url %}
             <details class="watch-from-alert" data-alert-watch-builder data-alert-reference="{{ a.alert_id }}">
-              <summary><strong>Create Watch From Alert</strong> · choose what matters</summary>
-              <p>Choose what mattered. The Watch setup will open with these choices and nothing is saved yet.</p>
+              <summary><strong>Build a Watch From This Alert</strong> · choose what matters</summary>
+              <p>Choose what mattered. The Watch Builder opens with these choices; nothing is saved or notified yet. Use the historical Preview above when you want to prove a broader source/phrase rule first.</p>
               <label>Watch for
                 <select data-alert-watch-mode>
                   <option value="LOCATION_TOPIC" {% if a.suggested_setup_mode == 'LOCATION_TOPIC' %}selected{% endif %}>This Location plus selected topics</option>
