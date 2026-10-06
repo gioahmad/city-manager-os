@@ -111,7 +111,8 @@ account=next(a for a in _accounts().values() if a.role=='EXECUTIVE')
 headers={'Cookie':COOKIE_NAME+'='+_issue_session(account)}
 for path in (
     '/','/my-day','/what-changed','/issues','/intake','/workspace?view=today',
-    '/workspace/api/hub','/map','/alerts?window=24h','/watchlist','/subscribers',
+    '/workspace/api/hub','/email','/calendar','/important',
+    '/map','/alerts?window=24h','/watchlist','/watch-preview','/subscribers',
     '/schedule','/event-intelligence','/transit','/spatial-reference',
     '/source-health','/deliveries','/staff-admin','/operations-routines'
 ):
