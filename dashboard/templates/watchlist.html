@@ -291,7 +291,7 @@
               <option value="5280">1 mile</option>
             </select>
           </label>
-          <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
+          <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if prefill.min_priority == p %}selected{% endif %}>P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
         </div>
         <fieldset class="recipient-picker"><legend>Recipients</legend>
           {% for sub in subscribers %}<label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}"> {{ sub.name }}</label>{% else %}<span>No active Recipients. <a href="/subscribers">Add one first</a>.</span>{% endfor %}
@@ -311,6 +311,13 @@
   <div class="panel-head"><div><div class="panel-kicker">NEW WATCH</div><h2>Five simple steps</h2></div></div>
   <div class="panel-body form-panel">
     <form method="post" action="/watchlist/create" class="watch-form watch-editor" data-mode-form>
+      {% if prefill.previewed %}
+      <aside class="watch-from-alert">
+        <div class="panel-kicker">HISTORICALLY PREVIEWED</div>
+        <strong>This rule came from the read-only historical preview.</strong>
+        <p>The source, phrase/field, match mode, priority and alternatives below were carried over. Nothing is saved until you choose Turn On Watch or Save Paused.</p>
+      </aside>
+      {% endif %}
       {% if prefill.from_alert %}
       <aside class="watch-from-alert" data-alert-watch-draft>
         <div class="panel-kicker">STARTED FROM ALERT</div>
@@ -430,9 +437,9 @@
           <span class="hint">Leave both blank to evaluate every alert point inside the saved area. The Watch name never filters alerts.</span>
           <div class="form-grid two-col">
             <label>Technical watch type<select name="watch_type"><option value="">Automatic</option>{% for wt in watch_types %}<option value="{{ wt }}">{{ wt }}</option>{% endfor %}</select></label>
-            <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == 'CONTAINS' %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
+            <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == prefill.match_mode %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
           </div>
-          <label>Match field<input name="match_field" placeholder="Required only for FIELD"></label>
+          <label>Match field<input name="match_field" value="{{ prefill.match_field or '' }}" placeholder="Required only for FIELD/EXACT field rules"></label>
           <div class="form-grid two-col"><label>Internal category label<input name="category"></label><label>Tags<input name="tags" placeholder="Comma-separated"></label></div>
           <label>Notes<textarea name="notes" rows="2" placeholder="Optional private note">{{ prefill.notes }}</textarea></label>
         </div>
