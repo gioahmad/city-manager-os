@@ -40,7 +40,7 @@ Material notes use full vault-relative links, JSON-quoted YAML properties and Ci
 
 Before activation establish: actual NAS/server address, dedicated directory, filesystem owner UID/GID, private vault name, the City Manager login authorized to use it, HTTPS dashboard origin, private HTTPS bridge origin, backup destination and the desired Obsidian sync method. NAS and all uploading devices must be able to reach the bridge. Neither the VPS nor a long-lived desktop connection proxies uploads.
 
-Create a SEPARATE random 32-byte Event Memory key, e.g. `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`. Add base64 padding (`=`) as needed, or use `python3 -c 'import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'`. Store it only in protected local configuration on the VPS and NAS. Never use the Microsoft calendar encryption key or place secrets in GitHub, a vault or screenshots.
+Create a SEPARATE random 32-byte Event Memory key using `python3 -c 'import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'`. Store it only in protected local configuration on the VPS and NAS. Never use the Microsoft calendar encryption key or place secrets in GitHub, a vault or screenshots.
 
 Dashboard `.env` settings (disabled until all values are real):
 

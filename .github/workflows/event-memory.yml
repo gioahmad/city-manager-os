@@ -97,7 +97,7 @@ jobs:
           required={'/','/my-day','/what-changed','/issues','/inbox','/intake','/workspace','/map','/alerts','/watchlist','/subscribers','/schedule','/event-intelligence','/transit','/spatial-reference','/source-health','/deliveries','/staff-admin','/operations-routines','/context/{item_kind}/{item_id}','/records/{record_id}','/email','/calendar','/important','/event-memory'}
           paths=[r.path for r in app.routes if 'GET' in (getattr(r,'methods',set()) or set())]
           assert not required-set(paths),required-set(paths)
-          for path in ('/','/my-day','/issues','/intake','/workspace','/map','/alerts','/watchlist','/schedule','/email','/calendar','/important'):
+          for path in ('/','/my-day','/issues','/intake','/workspace','/map','/alerts','/watchlist','/schedule','/email','/calendar','/important','/event-memory'):
               assert paths.count(path)==1,(path,paths.count(path))
           print('ROUTE CONTRACT: PASS — 25 required routes, no duplicate core handlers')
           PY

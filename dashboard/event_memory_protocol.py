@@ -5,10 +5,10 @@ import hmac
 import json
 import re
 import time
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 from uuid import UUID
 
-MAX_BYTES = 5 * 1024 * 1024  # Compatible with the smallest Sync per-file limit.
+MAX_BYTES = 5 * 1024 * 1024  # Conservative upload cap; verify Sync plan limits before increasing.
 TYPES = {'.pdf': 'application/pdf', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png'}
 
 
@@ -98,7 +98,7 @@ def verify(key, purpose, token):
 
 
 def obsidian_link(vault, note):
-    return 'obsidian://open?' + urlencode({'vault': vault, 'file': note})
+    return 'obsidian://open?' + urlencode({'vault': vault, 'file': note}, quote_via=quote)
 
 
 def note_text(data):
