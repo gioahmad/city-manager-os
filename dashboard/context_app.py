@@ -5,7 +5,8 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import app, query_all, query_one, templates
-from brain_app import _owner
+from brain_app import _owner, _csrf
+import event_materials
 import workspace_hub
 
 
@@ -265,7 +266,7 @@ def _context_insights(owner: str, kind: str, record_id: UUID, item: dict, relati
 
 
 @app.get("/context/{item_kind}/{item_id}", response_class=HTMLResponse)
-def context_page(request: Request, item_kind: str, item_id: str):
+def context_page(request: Request, item_kind: str, item_id: str, msg: str = '', error: str = ''):
     owner = _owner(request)
     kind = item_kind.strip().upper()
     record_id = _uid(item_id)
@@ -342,6 +343,7 @@ def context_page(request: Request, item_kind: str, item_id: str):
         )
 
     metrics, evidence = _context_insights(owner, kind, record_id, item, relationships)
+    materials = event_materials.materials(owner, kind, record_id) if kind in {'EVENT', 'CALENDAR'} else []
 
     return templates.TemplateResponse(
         request=request,
@@ -353,6 +355,11 @@ def context_page(request: Request, item_kind: str, item_id: str):
             "relationships": relationships,
             "metrics": metrics,
             "evidence": evidence,
+            "materials": materials,
+            "csrf": _csrf(request),
+            "can_write": getattr(request.state, "cmos_role", None) != "READ_ONLY",
+            "msg": msg[:500],
+            "error": error[:500],
         },
     )
 
