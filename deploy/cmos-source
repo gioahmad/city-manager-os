@@ -192,7 +192,7 @@ return $input.all().map((item) => {
     body.description2,
     body.description3
   ].find(looksSpatial);
-  const location = firstText(
+  const explicitLocation = firstText(
     body.address,
     body.incident_location,
     body.incidentLocation,
@@ -200,24 +200,46 @@ return $input.all().map((item) => {
     body.locationName,
     body.cross_streets,
     body.crossStreets,
-    describedLocation,
-    body.location
+    describedLocation
   );
-  const municipality = firstText(
+  let municipality = firstText(
     body.municipality,
     body.city,
     body.town,
     body.borough,
     body.townFull
   );
-  const county = firstText(body.county, body.county_name, body.countyName);
-  const state = firstText(body.state, body.state_code, body.stateCode);
+  let county = firstText(body.county, body.county_name, body.countyName);
+  let state = firstText(body.state, body.state_code, body.stateCode);
   const message = String(
     body.formatted_message ||
     body.message ||
     body.text ||
     ''
   ).trim();
+
+  // BNN formatted_message is a structured pipe-delimited record, not prose.
+  // Standard shape: timestamp | state | county | municipality |
+  // incident type | location | narrative | source code.
+  const pipe = message.split('|').map((value) => value.trim());
+  const pipeStructured = pipe.length >= 6 && /^[A-Z]{2,3}$/i.test(pipe[1] || '');
+  const pipeState = pipeStructured ? (pipe[1] || '') : '';
+  const pipeCounty = pipeStructured ? (pipe[2] || '') : '';
+  const pipeMunicipality = pipeStructured ? (pipe[3] || '') : '';
+  const pipeIncidentType = pipeStructured ? (pipe[4] || '') : '';
+  const pipeLocation = pipeStructured ? (pipe[5] || '') : '';
+  const pipeTail = pipeStructured ? pipe.slice(6) : [];
+  const pipeSourceCode = pipeTail.length && /^[A-Za-z]{1,4}\d{1,8}$/.test(pipeTail[pipeTail.length - 1])
+    ? pipeTail[pipeTail.length - 1]
+    : '';
+  const pipeDetails = pipeStructured
+    ? pipeTail.slice(0, pipeSourceCode ? -1 : undefined).filter(Boolean).join(' | ')
+    : '';
+
+  state = state || pipeState;
+  county = county || pipeCounty;
+  municipality = municipality || pipeMunicipality;
+  const location = explicitLocation || pipeLocation || firstText(body.location);
 
   const title = String(
     body.custom_title ||
@@ -272,13 +294,23 @@ return $input.all().map((item) => {
     expires_at: null,
     metadata: {
       original_location: location,
-      bnn_source_payload: body
+      bnn_source_payload: body,
+      bnn_pipe_fields: pipeStructured ? {
+        timestamp: pipe[0] || '',
+        state: pipeState,
+        county: pipeCounty,
+        municipality: pipeMunicipality,
+        incident_type: pipeIncidentType,
+        location: pipeLocation,
+        details: pipeDetails,
+        source_code: pipeSourceCode
+      } : null
     }
   };
 
   alert.search_text = [
     alert.source, alert.category, alert.subtype,
-    county, municipality, location, alert.title, alert.message,
+    state, county, municipality, pipeIncidentType, location, alert.title, alert.message,
     ...alert.tags
   ].filter(Boolean).join(' ');
 
