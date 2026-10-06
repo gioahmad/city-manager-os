@@ -170,9 +170,14 @@ def callback(request: Request, state: str='', code: str='', error: str=''):
         pending=c.execute('''DELETE FROM workspace_calendar_auth WHERE state_hash=%s AND owner_username=%s
             AND session_hash=%s AND expires_at>now() RETURNING verifier,requested_scopes''',
             (hashlib.sha256(state.encode()).hexdigest(),owner,hashlib.sha256(request.cookies[COOKIE_NAME].encode()).hexdigest())).fetchone()
-    if not pending:raise HTTPException(400,'Calendar sign-in expired. Start again.')
-    if error:return RedirectResponse('/workspace?view=settings',status_code=303)
-    if not code or len(code)>10000:raise HTTPException(400,'Calendar sign-in did not return a code')
+    if not pending:raise HTTPException(400,'Microsoft sign-in expired. Start again from Email or Calendar.')
+    if error:
+        # Return to the Microsoft workspace with a simple state. Do not expose
+        # provider descriptions/codes in the URL or UI.
+        state='cancelled' if str(error).casefold() in {'access_denied','consent_required'} else 'failed'
+        return RedirectResponse('/email?auth='+state,status_code=303)
+    if not code or len(code)>10000:
+        return RedirectResponse('/email?auth=failed',status_code=303)
     try:
         verifier=encrypt.decrypt(pending['verifier'].encode()).decode()
         with httpx.Client(timeout=20,follow_redirects=False) as client:
@@ -194,8 +199,8 @@ def callback(request: Request, state: str='', code: str='', error: str=''):
         sync(owner)
     except (httpx.HTTPError,ValueError,InvalidToken,HTTPException):
         # Keep provider response and token contents out of user-facing errors.
-        return RedirectResponse('/workspace?view=settings',status_code=303)
-    return RedirectResponse('/email',status_code=303)
+        return RedirectResponse('/email?auth=failed',status_code=303)
+    return RedirectResponse('/email?auth=connected',status_code=303)
 
 
 def graph_pages(client,url,access,*,limit=1000,truncate=False,mail=False,deadline=None):
