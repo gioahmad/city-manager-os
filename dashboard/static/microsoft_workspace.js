@@ -22,11 +22,66 @@
   const sourceFields=form=>{const s=formSources.get(form);return s?{kind:s.kind,id:s.id,source_kind:s.kind,source_id:s.id}:{};};
   function dialogSource(form,item){formSources.set(form,item?{...item}:null);form.querySelector('.ms-source-label').textContent=item?'Linked source: '+item.title:'New Microsoft action · no internal record is created automatically.';form.elements.request_id.value=uuid();}
   function choices(select,entries,key){const old=key||select.value;select.replaceChildren();for(const row of entries){const o=n('option',row.name+(row.can_edit?'':' · read only'));o.value=row.calendar_key;select.append(o);}if(!select.options.length){const o=n('option','Primary calendar');o.value='primary';select.append(o);}if([...select.options].some(o=>o.value===old))select.value=old;}
-  async function connection(){status=await api('status');$('ms-account').textContent=status.connected?(status.account_email||'Microsoft connected · account verified when used'):status.ready?'Microsoft is ready to connect':'Microsoft server setup is required';$('ms-sync').textContent=`Last Inbox sync: ${format(status.last_sync_at)} · ${status.mail_count||0} retained emails${status.sync_error?' · Refresh needs attention':''}`;$('ms-access').textContent=status.connected?`Read imports${status.mail_read?' · Email enabled':' · Email consent needed'} | ${status.mail_send?'Send approved':'Send not approved'} | ${status.mail_draft?'Drafts approved':'Drafts not approved'} | ${status.calendar_write?'Calendar writes approved':'Calendar writes not approved'}`:'No mailbox data is assumed available. Open Workspace settings for connection setup.';
-    const controls=$('ms-connection-actions');controls.replaceChildren(link('Connection settings','/workspace?view=settings'));
-    if(!readonly){if(status.ready)controls.append(btn(status.connected?'Reconnect read access':'Connect Microsoft 365',async()=>{const r=await api('connect',{enable_write:false});location.assign(r.redirect_url);}));if(status.connected)controls.append(btn('Refresh Inbox',async()=>{notice('Refreshing Microsoft imports…');await api('refresh',{});await connection();await load();notice('Microsoft imports refreshed.');}));if(status.ready)controls.append(btn('Enable Microsoft actions',()=>$('ms-consent-dialog').showModal()));}
-    choices($('ms-calendar'),status.calendars||[]);if($('ms-event-form'))choices($('ms-event-form').elements.calendar_key,(status.calendars||[]).filter(c=>c.can_edit));
-    const history=$('ms-history');history.replaceChildren();for(const op of status.operations||[]){const box=n('div',undefined,'ms-history-row');box.append(n('strong',`${op.operation.replaceAll('_',' ')} · ${op.status}`),n('p',`${format(op.created_at)} · ${op.account_email}`,'ms-small'),n('p',op.result.message||'Processing or interrupted. Check Outlook before starting a new attempt.'));if(op.result.outlook_url)box.append(outlookLink('Open Microsoft result',op.result.outlook_url));history.append(box);}if(!history.children.length)history.append(n('p','No submitted Microsoft actions recorded here yet.','ms-small'));
+  async function connection(){
+    status=await api('status');
+    const connected=Boolean(status.connected), complete=Boolean(status.access_complete);
+    $('ms-account').textContent=connected
+      ? (status.account_email||'Microsoft 365 connected')
+      : status.ready ? 'Microsoft 365 is ready to connect' : 'Microsoft 365 needs one-time server setup';
+    $('ms-sync').textContent=connected
+      ? `Last Inbox sync: ${format(status.last_sync_at)} · ${status.mail_count||0} retained emails${status.sync_error?' · refresh needs attention':''}`
+      : 'No mailbox data has been imported yet.';
+
+    if(!status.ready){
+      const setup=status.setup||{},missing=[];
+      if(!setup.public_https)missing.push('HTTPS dashboard address');
+      if(!setup.client_id)missing.push('Microsoft app ID');
+      if(!setup.client_secret)missing.push('Microsoft app secret');
+      if(!setup.encryption_key)missing.push('local encryption key');
+      if(!setup.tenant)missing.push('tenant');
+      $('ms-access').textContent='One-time setup needed: '+(missing.join(', ')||'review the Microsoft app configuration')+'.';
+    }else if(!connected){
+      $('ms-access').textContent='One Microsoft sign-in enables Email, Contacts, Calendar, Send, Drafts and calendar creation.';
+    }else if(complete){
+      $('ms-access').textContent='Ready · Email + contacts + send/drafts + calendar read/write are approved.';
+    }else{
+      const missing=[];
+      if(!status.mail_read)missing.push('email');
+      if(!status.contacts_enabled)missing.push('contacts');
+      if(!status.mail_send)missing.push('sending');
+      if(!status.mail_draft)missing.push('drafts');
+      if(!status.calendar_write)missing.push('calendar write');
+      $('ms-access').textContent='Microsoft is connected, but setup is incomplete for: '+missing.join(', ')+'.';
+    }
+
+    const controls=$('ms-connection-actions');controls.replaceChildren();
+    if(!readonly){
+      if(status.ready&&(!connected||!complete||status.sync_error)){
+        controls.append(btn(
+          !connected?'Connect Microsoft 365':!complete?'Finish Microsoft setup':'Repair Microsoft connection',
+          ()=>$('ms-consent-dialog').showModal(),
+          'primary'
+        ));
+      }
+      if(connected)controls.append(btn('Refresh Microsoft 365',async()=>{
+        notice('Refreshing Microsoft imports…');
+        await api('refresh',{});
+        await connection();
+        await load();
+        notice('Microsoft imports refreshed.');
+      }));
+    }
+    controls.append(link('Connection settings','/workspace?view=settings'));
+    choices($('ms-calendar'),status.calendars||[]);
+    if($('ms-event-form'))choices($('ms-event-form').elements.calendar_key,(status.calendars||[]).filter(c=>c.can_edit));
+    const history=$('ms-history');history.replaceChildren();
+    for(const op of status.operations||[]){
+      const box=n('div',undefined,'ms-history-row');
+      box.append(n('strong',`${op.operation.replaceAll('_',' ')} · ${op.status}`),n('p',`${format(op.created_at)} · ${op.account_email}`,'ms-small'),n('p',op.result.message||'Processing or interrupted. Check Outlook before starting a new attempt.'));
+      if(op.result.outlook_url)box.append(outlookLink('Open Microsoft result',op.result.outlook_url));
+      history.append(box);
+    }
+    if(!history.children.length)history.append(n('p','No submitted Microsoft actions recorded here yet.','ms-small'));
   }
   function calendarRange(){const selected=$('ms-date').value||localDate(), mode=$('ms-calendar-view').value;let start=selected,count=30;if(mode==='day')count=1;if(mode==='week'){const dow=new Date(selected+'T12:00:00Z').getUTCDay();start=addDays(selected,-((dow+6)%7));count=7;}if(mode==='month'){const first=selected.slice(0,7)+'-01',dow=new Date(first+'T12:00:00Z').getUTCDay();start=addDays(first,-((dow+6)%7));count=42;}return {start,end:addDays(start,count),count,mode};}
   async function load(append=false){if(loading&&append)return;const version=++loadNumber;loading=true;$('ms-count').textContent='Loading records…';try{let data;if(section==='calendar'){const range=calendarRange();data=await api('calendar?'+new URLSearchParams({calendar_key:$('ms-calendar').value,start:range.start+'T00:00:00',end:range.end+'T00:00:00'}));if(version!==loadNumber)return;if(data.calendars){status.calendars=data.calendars;choices($('ms-calendar'),data.calendars);if($('ms-event-form'))choices($('ms-event-form').elements.calendar_key,data.calendars.filter(c=>c.can_edit));}$('ms-coverage').textContent=(data.fresh?'Refreshed '+format(data.refreshed_at)+'. ':'')+data.message+' Shared/delegated calendars are excluded.';}else data=await api('items?'+new URLSearchParams({section,q:$('ms-search').value,offset:String(append?rows.length:0)}));if(version!==loadNumber)return;rows=append?[...rows,...data.items]:data.items;more=Boolean(data.has_more);render();}finally{if(version===loadNumber)loading=false;}}
@@ -53,5 +108,15 @@ const form=$('ms-event-form');form.reset();dialogSource(form,item);choices(form.
     let picker=0;$('ms-link-search').addEventListener('input',async e=>{const version=++picker;const q=e.target.value.trim();if(!q){$('ms-link-results').replaceChildren();return;}await safe(async()=>{const r=await fetch('/workspace/api/hub?'+new URLSearchParams({q,bucket:'all'}));if(!r.ok)throw Error('Record search unavailable.');const data=await r.json();if(version!==picker)return;$('ms-link-results').replaceChildren(...data.items.slice(0,10).map(row=>btn(row.kind+' · '+row.title,()=>{const f=$('ms-capture-form');f.elements.target_kind.value=row.kind;f.elements.target_id.value=row.id;f.elements.request_id.value=uuid();$('ms-link-chosen').textContent='Selected: '+row.title;},'ms-link-choice')));});});
     $('ms-compose-form').addEventListener('submit',e=>{e.preventDefault();review(e.currentTarget,'ms-compose-dialog');});$('ms-event-form').addEventListener('submit',e=>{e.preventDefault();review(e.currentTarget,'ms-event-dialog','CALENDAR_CREATE');});$('ms-confirm').addEventListener('click',()=>safe(confirm));$('ms-cancel-review').addEventListener('click',()=>safe(cancelReview));$('ms-review-dialog').addEventListener('cancel',e=>{e.preventDefault();safe(cancelReview);});$('ms-approve-consent').addEventListener('click',()=>safe(async()=>{const r=await api('connect',{enable_write:true,consent_reviewed:true});location.assign(r.redirect_url);}));
   }
-  safe(async()=>{await connection();await load();const p=new URLSearchParams(location.search);if(p.get('kind')&&p.get('id'))await open({kind:p.get('kind'),id:p.get('id')});if(!readonly){let id;try{id=sessionStorage.getItem('cmosMicrosoftReview');}catch{}if(id){try{showReview(await api('operations/'+encodeURIComponent(id)));}catch{try{sessionStorage.removeItem('cmosMicrosoftReview');}catch{}}}}});
+  safe(async()=>{
+    await connection();
+    const p=new URLSearchParams(location.search),auth=p.get('auth');
+    if(auth==='connected')notice(status.access_complete?'Microsoft 365 is connected and fully ready.':'Microsoft 365 connected. Finish setup if a permission is still missing.');
+    else if(auth==='cancelled')notice('Microsoft sign-in was cancelled. Nothing changed.',true);
+    else if(auth==='failed')notice('Microsoft sign-in could not be completed. Check Connection settings and try again.',true);
+    if(p.get('setup')==='1'&&!readonly&&status.ready&&!status.access_complete)$('ms-consent-dialog').showModal();
+    await load();
+    if(p.get('kind')&&p.get('id'))await open({kind:p.get('kind'),id:p.get('id')});
+    if(!readonly){let id;try{id=sessionStorage.getItem('cmosMicrosoftReview');}catch{}if(id){try{showReview(await api('operations/'+encodeURIComponent(id)));}catch{try{sessionStorage.removeItem('cmosMicrosoftReview');}catch{}}}}
+  });
 })();
