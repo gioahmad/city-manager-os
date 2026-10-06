@@ -21,18 +21,20 @@ from private_auth import COOKIE_NAME
 
 CALENDAR_SCOPE='offline_access https://graph.microsoft.com/Calendars.ReadBasic'
 SCOPE=CALENDAR_SCOPE+' https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Contacts.Read'
+WRITE_PERMISSIONS={'Mail.ReadWrite','Mail.Send','Calendars.ReadWrite'}
+WRITE_SCOPE=SCOPE+' '+' '.join('https://graph.microsoft.com/'+s for s in sorted(WRITE_PERMISSIONS))
 GRAPH='https://graph.microsoft.com/v1.0/'
 
 
 def permissions(scopes):
-    canonical={s.casefold():s for s in ('offline_access','Calendars.ReadBasic','Mail.Read','Contacts.Read')}
+    canonical={s.casefold():s for s in ('offline_access','Calendars.ReadBasic','Mail.Read','Contacts.Read','Mail.ReadWrite','Mail.Send','Calendars.ReadWrite')}
     return {canonical.get(s.rsplit('/',1)[-1].casefold(),s.rsplit('/',1)[-1]) for s in str(scopes).split()}
 
 
 def validated_scopes(scopes):
-    allowed={'offline_access','Calendars.ReadBasic','Mail.Read','Contacts.Read'}
+    allowed={'offline_access','Calendars.ReadBasic','Mail.Read','Contacts.Read'} | WRITE_PERMISSIONS
     names=permissions(scopes)&allowed
-    if 'Calendars.ReadBasic' not in names:raise ValueError('Calendar consent missing')
+    if not names & {'Calendars.ReadBasic','Calendars.ReadWrite'}:raise ValueError('Calendar consent missing')
     return 'offline_access '+' '.join('https://graph.microsoft.com/'+s for s in sorted(names-{'offline_access'}))
 
 
@@ -90,6 +92,7 @@ def replace_mail(c,owner,rows):
             conversation_key=EXCLUDED.conversation_key,received_at=EXCLUDED.received_at,is_read=EXCLUDED.is_read,
             outlook_url=EXCLUDED.outlook_url''',row)
     c.execute('''DELETE FROM workspace_microsoft_mail m WHERE owner_username=%s AND NOT(provider_key=ANY(%s::text[]))
+        AND NOT EXISTS(SELECT 1 FROM workspace_important f WHERE f.owner_username=m.owner_username AND f.kind='MAIL' AND f.item_id=m.id)
         AND NOT EXISTS(SELECT 1 FROM workspace_context_links l WHERE l.owner_username=m.owner_username
             AND ((l.source_kind='MAIL' AND l.source_id=m.id) OR (l.target_kind='MAIL' AND l.target_id=m.id)))''',
               (owner,[r[1] for r in rows]))
@@ -132,18 +135,19 @@ def status(owner,lookup=query_one):
         (SELECT count(*) FROM workspace_microsoft_contacts WHERE owner_username=%s) AS contact_count
         FROM workspace_calendar_connections WHERE owner_username=%s''',(owner,owner,owner))
     scopes=permissions((row or {}).get('scopes',CALENDAR_SCOPE))
-    return {'ready':settings()['ready'],'connected':bool(row),'mail_enabled':'Mail.Read' in scopes,
+    return {'ready':settings()['ready'],'connected':bool(row),'mail_enabled':bool(scopes & {'Mail.Read','Mail.ReadWrite'}),
             'contacts_enabled':'Contacts.Read' in scopes,**{k:v for k,v in (row or {}).items() if k!='scopes'}}
 
 
-def begin(owner,request):
+def begin(owner,request,*,enable_write=False):
+    requested=WRITE_SCOPE if enable_write else SCOPE
     cfg=settings();encrypt=cipher();state=secrets.token_urlsafe(32);verifier=secrets.token_urlsafe(48)
     with db_conn() as c:
         c.execute('DELETE FROM workspace_calendar_auth WHERE expires_at<now() OR owner_username=%s',(owner,))
-        c.execute('INSERT INTO workspace_calendar_auth(state_hash,owner_username,session_hash,verifier) VALUES(%s,%s,%s,%s)',
-                  (hashlib.sha256(state.encode()).hexdigest(),owner,hashlib.sha256(request.cookies[COOKIE_NAME].encode()).hexdigest(),encrypt.encrypt(verifier.encode()).decode()))
+        c.execute('INSERT INTO workspace_calendar_auth(state_hash,owner_username,session_hash,verifier,requested_scopes) VALUES(%s,%s,%s,%s,%s)',
+                  (hashlib.sha256(state.encode()).hexdigest(),owner,hashlib.sha256(request.cookies[COOKIE_NAME].encode()).hexdigest(),encrypt.encrypt(verifier.encode()).decode(),requested))
     challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
-    params={'client_id':cfg['client'],'response_type':'code','redirect_uri':cfg['redirect'],'scope':SCOPE,
+    params={'client_id':cfg['client'],'response_type':'code','redirect_uri':cfg['redirect'],'scope':requested,
             'state':state,'code_challenge':challenge,'code_challenge_method':'S256','prompt':'select_account'}
     return {'redirect_url':f"https://login.microsoftonline.com/{cfg['tenant']}/oauth2/v2.0/authorize?"+urlencode(params)}
 
@@ -164,7 +168,7 @@ def callback(request: Request, state: str='', code: str='', error: str=''):
     cfg=settings();encrypt=cipher()
     with db_conn() as c:
         pending=c.execute('''DELETE FROM workspace_calendar_auth WHERE state_hash=%s AND owner_username=%s
-            AND session_hash=%s AND expires_at>now() RETURNING verifier''',
+            AND session_hash=%s AND expires_at>now() RETURNING verifier,requested_scopes''',
             (hashlib.sha256(state.encode()).hexdigest(),owner,hashlib.sha256(request.cookies[COOKIE_NAME].encode()).hexdigest())).fetchone()
     if not pending:raise HTTPException(400,'Calendar sign-in expired. Start again.')
     if error:return RedirectResponse('/workspace?view=settings',status_code=303)
@@ -172,18 +176,26 @@ def callback(request: Request, state: str='', code: str='', error: str=''):
     try:
         verifier=encrypt.decrypt(pending['verifier'].encode()).decode()
         with httpx.Client(timeout=20,follow_redirects=False) as client:
-            tokens=token_request(client,{'grant_type':'authorization_code','code':code,'redirect_uri':cfg['redirect'],'code_verifier':verifier})
+            requested=pending.get('requested_scopes') or SCOPE
+            tokens=token_request(client,{'grant_type':'authorization_code','code':code,'redirect_uri':cfg['redirect'],'code_verifier':verifier,'scope':requested})
+            # Never silently promote a read connection or mix two mailbox identities.
+            actual=tokens.get('scope')
+            if not actual:raise ValueError('Microsoft did not return granted permissions')
+            scopes=validated_scopes(actual)
+            if (permissions(scopes) & WRITE_PERMISSIONS) - permissions(requested):
+                raise ValueError('Unrequested write permissions')
+            from microsoft_workspace import connection_identity
+            account_email=connection_identity(owner,client,tokens['access_token'])
         if not tokens.get('refresh_token'):raise ValueError('Missing refresh token')
-        scopes=validated_scopes(tokens.get('scope',SCOPE))
         encrypted=encrypt.encrypt(json.dumps({'owner':owner,'refresh':tokens['refresh_token']}).encode()).decode()
         with db_conn() as c:
-            c.execute('''INSERT INTO workspace_calendar_connections(owner_username,tokens,scopes) VALUES(%s,%s,%s)
-                ON CONFLICT(owner_username) DO UPDATE SET tokens=EXCLUDED.tokens,scopes=EXCLUDED.scopes,sync_error=false''',(owner,encrypted,scopes))
+            c.execute('''INSERT INTO workspace_calendar_connections(owner_username,tokens,scopes,account_email) VALUES(%s,%s,%s,%s)
+                ON CONFLICT(owner_username) DO UPDATE SET tokens=EXCLUDED.tokens,scopes=EXCLUDED.scopes,account_email=EXCLUDED.account_email,sync_error=false''',(owner,encrypted,scopes,account_email))
         sync(owner)
     except (httpx.HTTPError,ValueError,InvalidToken,HTTPException):
         # Keep provider response and token contents out of user-facing errors.
         return RedirectResponse('/workspace?view=settings',status_code=303)
-    return RedirectResponse('/workspace?view=today',status_code=303)
+    return RedirectResponse('/email',status_code=303)
 
 
 def graph_pages(client,url,access,*,limit=1000,truncate=False,mail=False,deadline=None):
@@ -237,7 +249,7 @@ def sync(owner):
                     '$top':'100','$select':'id,subject,start,end,location,isAllDay,isCancelled,webLink'})
                 rows=[r for e in graph_pages(client,url,tokens['access_token']) if (r:=event_row(owner,e))]
                 granted=permissions(scopes);mails=contacts=None;deadline=time.monotonic()+75
-                if 'Mail.Read' in granted:
+                if granted & {'Mail.Read','Mail.ReadWrite'}:
                     url=GRAPH+'me/mailFolders/inbox/messages?'+urlencode({'$top':'50',
                         '$filter':'receivedDateTime ge '+(now-timedelta(days=30)).isoformat(),
                         '$orderby':'receivedDateTime desc',
@@ -257,7 +269,8 @@ def sync(owner):
                       title=EXCLUDED.title,starts_at=EXCLUDED.starts_at,ends_at=EXCLUDED.ends_at,
                       location=EXCLUDED.location,all_day=EXCLUDED.all_day,outlook_url=EXCLUDED.outlook_url''',row)
             c.execute('''DELETE FROM workspace_calendar_events e
-                WHERE e.owner_username=%s AND NOT(e.event_key=ANY(%s::text[]))
+                WHERE e.owner_username=%s AND NOT(e.event_key=ANY(%s::text[])) AND e.calendar_key='primary'
+                  AND NOT EXISTS(SELECT 1 FROM workspace_important f WHERE f.owner_username=e.owner_username AND f.kind='CALENDAR' AND f.item_id=e.id)
                   AND NOT EXISTS(
                     SELECT 1 FROM workspace_context_links l
                     WHERE l.owner_username=e.owner_username
@@ -279,6 +292,8 @@ def sync(owner):
 
 def disconnect(owner):
     with db_conn() as c:
+        c.execute("UPDATE workspace_microsoft_operations SET status='CANCELLED',updated_at=now() WHERE owner_username=%s AND status='REVIEW'",(owner,))
+        c.execute("DELETE FROM workspace_important WHERE owner_username=%s AND kind IN ('MAIL','CALENDAR','CONTACT')",(owner,))
         c.execute('DELETE FROM workspace_calendar_connections WHERE owner_username=%s',(owner,))
         c.execute('DELETE FROM workspace_calendar_auth WHERE owner_username=%s',(owner,))
     return {'message':'Microsoft 365 disconnected. Imported email, contact previews, and appointments removed. People and tasks you created are retained.'}

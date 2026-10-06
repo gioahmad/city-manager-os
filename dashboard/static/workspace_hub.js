@@ -127,6 +127,7 @@
     if(meta.work_title)target.append(node('p','Work: '+meta.work_title,'muted small'));
     const actions=node('div',undefined,'preview-actions');
     if(!readonly){
+      actions.append(link('Add to my system / Microsoft actions →','/email?kind='+encodeURIComponent(item.kind)+'&id='+encodeURIComponent(item.id)));
       actions.append(button('Make a follow-up',()=>{const form=target.querySelector('.hub-task-form');form.hidden=!form.hidden;if(!form.hidden)form.elements.title.focus();},'primary'));
       if(['MAIL','CALENDAR'].includes(item.kind)){
         actions.append(button('Bring into Work',()=>act('WORK',{title:item.title,item_type:'TASK',priority:3,next_action:'Review and determine the next municipal action.'})));
