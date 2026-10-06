@@ -146,6 +146,11 @@ for service in citymanager-ops-engine citymanager-integration-engine; do
 done
 
 echo
+echo "===== TARGETED BNN CLASSIFIER UPDATE ====="
+echo "Refreshing only the tracked BNN workflow; n8n platform/packages are unchanged."
+bash deploy/cmos-source centralize bnn
+
+echo
 echo "===== COMPLETE HEALTH CHECK ====="
 bash deploy/cmos-health
 
@@ -164,4 +169,4 @@ echo "Image: $RELEASE_TAG ($expected_id)"
 echo "All City Manager application services are on one tested image."
 echo "Previous release: ${PREVIOUS_RELEASE:-none recorded}"
 echo "Release marker: $STATE_FILE"
-echo "PostGIS/n8n/ntfy/Caddy were not blindly upgraded or pruned."
+echo "PostGIS/ntfy/Caddy and the n8n platform were not upgraded or pruned; only the tracked BNN workflow was refreshed with its own SQLite backup."
