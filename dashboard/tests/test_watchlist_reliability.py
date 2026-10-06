@@ -215,7 +215,7 @@ def test_alert_can_start_an_editable_watch_draft_without_writing_data():
     assert 'data-alert-filter="source_filter"' in watch_template
     assert 'data-alert-filter="alert_category_filter"' in watch_template
     assert "watch_from_alert_url" in operations_source
-    assert "Create Watch From Alert" in alert_template
+    assert "Build a Watch From This Alert" in alert_template
     assert "Create Watch From Alert" in map_template
 
 
