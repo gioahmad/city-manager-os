@@ -19,6 +19,8 @@ def extract(after: str) -> str:
 js = extract('HASH_JS = r"""') + extract('BNN_JS = HASH_JS + r"""')
 tracked = next(node for node in workflow["nodes"] if node.get("name") == "Build Standard BNN Alert")["parameters"]["jsCode"]
 assert tracked == js, "tracked BNN workflow drifted from deploy/cmos-source"
+updater = (ROOT / "deploy/cmos-system-update").read_text()
+assert "bash deploy/cmos-source centralize bnn" in updater, "release updater must refresh the live BNN workflow"
 
 payloads = [
     {"body": {"formatted_message": "10/06/2026 1:00 PM | NJ | Hudson | Jersey City | Working Fire Alert | 123 Newark Ave | Second alarm. | nj101"}},
@@ -60,3 +62,4 @@ assert alerts[3]["location"]["address"] == "350 5th Ave"
 print("BNN PIPE CLASSIFIER: PASS — NJ/NY state and county recognized independent of pipe order")
 print("BNN PIPE CLASSIFIER: PASS — municipality is never inferred by position; explicit source field wins")
 print("BNN PIPE CLASSIFIER: PASS — tracked live workflow exactly matches deploy source")
+print("BNN PIPE CLASSIFIER: PASS — bundled release updater refreshes only the BNN workflow")
