@@ -101,6 +101,31 @@ def _setup_mode(value: str) -> str:
     return mode
 
 
+def _automatic_watch_name(
+    *,
+    source_filters: list[str],
+    topic: str,
+    target: dict | None,
+    source_only: bool = False,
+) -> str:
+    source = source_filters[0] if len(source_filters) == 1 else ""
+    location = ""
+    if target:
+        location = str(target.get("label") or "").strip()
+        if target.get("kind") == "COUNTY" and location and not location.lower().endswith(" county"):
+            location = f"{location} County"
+    pieces: list[str] = []
+    if source:
+        pieces.append(source)
+    if topic and not source_only and topic.casefold() != source.casefold():
+        pieces.append(topic)
+    if location:
+        pieces.append(location)
+    if pieces:
+        return " · ".join(pieces)[:120]
+    return "Watch"
+
+
 def _safe_int(value, default: int = 0) -> int:
     try:
         return int(value or default)
@@ -2166,7 +2191,7 @@ def spatial_watch_bulk_action(
 @app.post("/watchlist/create")
 @_friendly_watch_errors
 def spatial_watch_create(
-    display_name: str = Form(...),
+    display_name: str = Form(""),
     setup_mode: str = Form("LOCATION"),
     watch_type: str = Form(""),
     search_term: str = Form(""),
@@ -2196,8 +2221,6 @@ def spatial_watch_create(
     activation: str = Form("on"),
 ):
     display_name = display_name.strip()
-    if not display_name:
-        raise HTTPException(400, "Name this watch before turning it on")
     setup_mode = _setup_mode(setup_mode)
     location_required = setup_mode in {"LOCATION", "LOCATION_TOPIC"} or spatial_enabled is not None
     topic_required = setup_mode in {"TOPIC", "LOCATION_TOPIC"}
@@ -2272,6 +2295,13 @@ def spatial_watch_create(
             saved_match_field = "source" if source_only else (match_field.strip() or None)
 
         saved_category_filter = csv_array(alert_category_filter)
+        if not display_name:
+            display_name = _automatic_watch_name(
+                source_filters=saved_source_filter,
+                topic=topic,
+                target=target,
+                source_only=source_only,
+            )
 
         saved_address = (target or {}).get("address") or (location_query or address).strip() or None
         saved_municipality = (target or {}).get("municipality") or municipality.strip() or None
