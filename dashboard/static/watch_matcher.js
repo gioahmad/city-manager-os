@@ -5,7 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const VERSION = 'watch-matcher-v3';
+  const VERSION = 'watch-matcher-v4';
 
   function normalize(value) {
     if (value === undefined || value === null) return '';
@@ -305,12 +305,12 @@
       gates.push(gate('watch_target', 'Saved Watch area', undefined, 'Not required for this Watch', 'NOT_APPLICABLE'));
     }
 
-    const municipalityCandidate = watch.municipality || watch.search_term;
-    const countyCandidate = watch.county || watch.search_term;
-    const municipalityMatch = municipalityOnly || locationPlusTopic
+    const municipalityCandidate = watch.municipality || (municipalityOnly ? watch.search_term : '');
+    const countyCandidate = watch.county || (countyOnly ? watch.search_term : '');
+    const municipalityMatch = municipalityOnly || (locationPlusTopic && Boolean(watch.municipality))
       ? geographyMatch(alert, 'municipality', municipalityCandidate)
       : false;
-    const countyMatch = countyOnly
+    const countyMatch = countyOnly || (locationPlusTopic && !watch.municipality && Boolean(watch.county))
       ? geographyMatch(alert, 'county', countyCandidate)
       : false;
     const spatialMatch = Boolean(watch.spatial_match_type);
