@@ -87,6 +87,15 @@ assert any(value == "HUDSON" for value in normalized)
 assert any(value == "JERSEY CITY" for value in normalized)
 print("WATCH PREVIEW PASS: keyword suggestions never form phrases across a BNN pipe boundary")
 
+sys.path.insert(0,str(ROOT/'dashboard/tests'))
+from test_watch_terms import TERMS
+last_terms = client.get('/watch-preview',params={'source':'BNN','window':'all','mode':'CONTAINS','field':'search_text','term':TERMS})
+assert last_terms.status_code==200,last_terms.text
+assert 'BNN:pipe-nj-normal' in last_terms.text and 'BNN:pipe-nj-reordered' in last_terms.text
+assert 'overturned auto' in last_terms.text
+assert 'high rise fire' in last_terms.text
+print('WATCH PREVIEW PASS: full editable 34-term list retained and later alternatives matched')
+
 with core.db_conn() as conn:
     after = conn.execute(
         """SELECT
@@ -96,3 +105,4 @@ with core.db_conn() as conn:
     ).fetchone()
 assert dict(after) == dict(before), (before, after)
 print("WATCH PREVIEW PASS: historical evaluation creates no Watch, Match, delivery or Notification")
+

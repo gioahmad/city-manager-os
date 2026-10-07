@@ -26,7 +26,7 @@ def test_saved_watch_list_does_not_render_every_editor_by_default():
 
 def test_source_only_watch_has_exact_source_rule():
     source = (ROOT / "spatial_watch_app.py").read_text()
-    assert 'source_only = setup_mode == "TOPIC" and not topic and len(saved_source_filter) == 1' in source
+    assert 'source_only = setup_mode == "TOPIC" and not topic and bool(saved_source_filter)' in source
     assert 'saved_watch_type = "SOURCE" if source_only' in source
     assert 'saved_match_mode = "FIELD" if source_only' in source
     assert 'saved_match_field = "source" if source_only' in source
@@ -64,3 +64,4 @@ def test_simple_edit_resets_location_rules_when_becoming_topic_only():
     assert 'mode = "CONTAINS"' in source
     assert 'field = None' in source
     assert 'current_type != "LOCATION_TOPIC"' in source
+

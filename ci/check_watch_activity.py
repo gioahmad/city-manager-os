@@ -191,6 +191,15 @@ assert changed['aliases']==[r'TIER \d'] and changed['source_filter']==[]
 recipients = sql('SELECT subscriber_id FROM watch_item_recipients WHERE watch_item_id=%s AND active',(term_watch['id'],))
 assert [r['subscriber_id'] for r in recipients]==[subscribers[1]]
 print('WATCH TERMS API PASS: all terms retained; source, words, matching mode, area and recipient freely editable')
+multi_name = 'Multiple sources only '+str(uuid4())
+post('/watchlist/create',{'display_name':multi_name,'setup_mode':'TOPIC','location_scope':'ANYWHERE',
+    'source_filter':'BNN,OPERATIONS','subscriber_ids':str(subscribers[0])})
+multi = sql('SELECT * FROM watch_items WHERE display_name=%s',(multi_name,))[0]
+assert multi['watch_type']=='SOURCE' and multi['match_mode']=='FIELD' and multi['aliases']==['OPERATIONS']
+small = {k:multi[k] for k in ('watch_type','search_term','aliases','match_mode','match_field','source_filter','min_priority')}
+script="const d=JSON.parse(require('fs').readFileSync(0,'utf8'));const m=require(process.argv[1]);for(const source of ['BNN','OPERATIONS','OTHER']){if(m.evaluateWatch({source,priority:1},d).matched!==(source!=='OTHER'))throw Error(source);}"
+subprocess.run(['node','-e',script,str(ROOT/'dashboard/static/watch_matcher.js')],input=json.dumps(small),text=True,check=True)
+print('MULTIPLE SOURCES PASS: source-only Watch accepts each selected source and rejects other sources')
 
 # The central sender reads one dynamic global setting and preserves all audit data.
 sender = {n['name']:n for n in json.loads((ROOT/'workflows/core/CORE_ntfy_Sender_v1.json').read_text())['nodes']}

@@ -2358,7 +2358,7 @@ def spatial_watch_create(
     topic_required = setup_mode in {"TOPIC", "LOCATION_TOPIC"}
     topic = search_term.strip()
     saved_source_filter = csv_array(source_filter)
-    source_only = setup_mode == "TOPIC" and not topic and len(saved_source_filter) == 1
+    source_only = setup_mode == "TOPIC" and not topic and bool(saved_source_filter)
     alias_values = csv_array(aliases)
     selected_keywords: list[str] = []
     for value in alert_keywords:
@@ -2377,6 +2377,7 @@ def spatial_watch_create(
         raise HTTPException(400, "Choose a source, enter a topic, or choose a location")
     if source_only:
         topic = saved_source_filter[0]
+        alias_values = saved_source_filter[1:]
         match_mode = "FIELD"
         match_field = "source"
     match_mode = match_mode.upper().strip() or "CONTAINS"
@@ -2586,13 +2587,14 @@ def spatial_watch_update(
             )
         topic = search_term.strip()
         saved_source_filter = csv_array(source_filter)
-        source_only = saved_setup_mode == "TOPIC" and not topic and len(saved_source_filter) == 1
+        source_only = saved_setup_mode == "TOPIC" and not topic and bool(saved_source_filter)
         if saved_setup_mode in {"TOPIC", "LOCATION_TOPIC"} and not topic and not source_only:
             raise HTTPException(400, "Choose a source, enter a topic, or choose a location")
 
         match_mode = match_mode.upper().strip() or "CONTAINS"
         if source_only:
             topic = saved_source_filter[0]
+            aliases = ", ".join(saved_source_filter[1:])
             match_mode = "FIELD"
             match_field = "source"
         spatial_requested = bool(target and target.get("spatial"))
