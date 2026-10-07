@@ -113,205 +113,6 @@
   <a class="metric" href="/watchlist?state=expired"><span>Expired</span><strong>{{ counts.expired or 0 }}</strong><small>End time reached</small></a>
 </section>
 
-<details class="panel watch-health-panel watch-tool-panel" {% if needs_recipient_watches or health.failed_24h %}open{% endif %}>
-  <summary class="panel-head">
-    <div><div class="panel-kicker">CURRENT EVIDENCE</div><h2>Watch and Notification health</h2></div>
-    <span class="status {{ health.status_class }}">{{ health.status }}</span>
-  </summary>
-  <div class="panel-body watch-health-grid">
-    <div><strong>{{ health.routed_now or 0 }}/{{ health.active_now or 0 }}</strong><span>current Watches with a Recipient</span></div>
-    <div><strong>{{ health.matches_7d or 0 }}</strong><span>Matches in 7 days</span></div>
-    <div><strong>{{ health.sent_24h or 0 }}</strong><span>Notifications sent in 24 hours</span></div>
-    <div><strong>{{ health.failed_24h or 0 }}</strong><span>Delivery problems in 24 hours</span></div>
-  </div>
-  {% if needs_recipient_watches %}
-  <div class="watch-health-warning">
-    <strong>{{ needs_recipient_watches|length }} active Watch{{ '' if needs_recipient_watches|length == 1 else 'es' }} need a Recipient:</strong>
-    {% for w in needs_recipient_watches %}{{ w.display_name }}{% if not loop.last %}, {% endif %}{% endfor %}.
-    <form method="post" action="/watchlist/repair-unrouted" class="watch-form compact">
-      <label>Notify one Recipient for all of these Watches
-        <select name="subscriber_id" required>
-          <option value="">Choose Recipient</option>
-          {% for sub in subscribers %}<option value="{{ sub.id }}">{{ sub.name }}</option>{% endfor %}
-        </select>
-      </label>
-      <button class="secondary-button" type="submit">Connect and Repair</button>
-      <span class="hint">This adds only the missing delivery connections. It does not change Watch matching or send a test message.</span>
-    </form>
-  </div>
-  {% elif health.failed_24h %}
-  <div class="watch-health-warning">A recent Notification had a delivery problem. Review the affected Watch and Notification history.</div>
-  {% endif %}
-  <div class="watch-health-links">
-    <a href="/deliveries">Notification history</a><a href="/alerts">Search all alerts</a><a href="/subscribers">Manage recipients</a>
-  </div>
-</details>
-
-<details class="panel watch-lab-panel watch-tool-panel" id="watch-lab">
-  <summary class="panel-head">
-    <div><div class="panel-kicker">READ-ONLY DIAGNOSTIC</div><h2>Watch Lab · Why did this match?</h2></div>
-    <span class="status healthy">No sends</span>
-  </summary>
-  <div class="panel-body watch-lab-body">
-    <p class="watch-lab-intro">Choose one saved Watch and one real alert. The Lab runs the same evaluator as the live central matcher, shows every decision gate, and never creates an alert, Match, delivery, or Notification.</p>
-    <form class="watch-lab-form" data-watch-lab-form>
-      <label>Saved Watch
-        <select name="watch_item_id" required>
-          <option value="">Choose a Watch</option>
-          {% for w in watch_lab_items %}<option value="{{ w.id }}">{{ w.display_name }} · {{ w.state_label }}</option>{% endfor %}
-        </select>
-      </label>
-      <label>Alert ID
-        <input name="alert_id" required placeholder="Example: ORU:eb5707b3" autocomplete="off">
-      </label>
-      <label>Point to evaluate
-        <select name="point_mode" data-watch-lab-point-mode>
-          <option value="ALERT">Saved alert point · live behavior</option>
-          <option value="WATCH_CENTER">Watch center · safe inside test</option>
-          <option value="CUSTOM">Custom latitude and longitude</option>
-        </select>
-      </label>
-      <div class="watch-lab-coordinates" data-watch-lab-coordinates hidden>
-        <label>Latitude<input name="latitude" inputmode="decimal" placeholder="40.965353"></label>
-        <label>Longitude<input name="longitude" inputmode="decimal" placeholder="-74.072017"></label>
-      </div>
-      <button class="primary-button" type="submit">Run Read-Only Test</button>
-    </form>
-    <div class="hint">A Watch-center or custom point replaces only a missing/resolver point. If the alert already has a stored point, that authoritative point remains in use and the result will say so.</div>
-    <div class="watch-lab-result" data-watch-lab-result hidden aria-live="polite">
-      <div class="watch-lab-verdict" data-watch-lab-verdict></div>
-      <div class="watch-lab-facts" data-watch-lab-facts></div>
-      <div class="watch-lab-gates" data-watch-lab-gates></div>
-      <div class="watch-lab-evidence" data-watch-lab-evidence></div>
-      <div class="watch-card-actions">
-        <button class="secondary-button" type="button" data-watch-lab-copy>Copy Diagnostic Receipt</button>
-        <a class="secondary-button" data-watch-lab-alert-link href="/alerts?window=all">Open Alert History</a>
-        <a class="secondary-button" href="/map" data-cmos-quicklook data-cmos-title="Mapping Center">Open Mapping Center</a>
-      </div>
-    </div>
-  </div>
-</details>
-
-<details class="panel watch-location-library watch-tool-panel" id="bulk-watch-builder" {% if bulk_context %}open{% endif %}>
-  <summary class="panel-head">
-    <div><div class="panel-kicker">REUSABLE WATCH LOCATIONS</div><h2>Create several Watches from a map layer</h2></div>
-    {% if bulk_context %}<span class="count-pill">{{ bulk_context.visible_feature_count }} shown</span>{% endif %}
-  </summary>
-  <div class="panel-body bulk-watch-body">
-    <p class="watch-library-intro">Imported Shapefiles, GeoJSON, KML, and drawn map features stay in the Mapping Center. Choose a layer here to create Watches for its cities, counties, roads, corridors, or other Locations.</p>
-    <div class="watch-layer-links">
-      {% for layer in watch_location_layers %}
-      <a class="watch-layer-link {% if bulk_context and bulk_context.layer.id == layer.id %}selected{% endif %}" href="/watchlist?bulk_layer={{ layer.id }}#bulk-watch-builder">
-        <strong>{{ layer.name }}</strong><span>{{ layer.description }} · {{ layer.feature_count }} Location{{ '' if layer.feature_count == 1 else 's' }}</span>
-      </a>
-      {% else %}
-      <span>No reusable layers have active features yet.</span>
-      {% endfor %}
-      <a class="secondary-button" href="/map">Import or draw Locations</a>
-    </div>
-
-    {% if bulk_context %}
-    <div class="bulk-watch-builder">
-      <div class="bulk-watch-heading">
-        <div><strong>{{ bulk_context.layer.name }}</strong><span>Organized automatically from this layer's own fields</span></div>
-        <span class="bulk-selection-count" data-bulk-count>0 selected</span>
-      </div>
-      {% if bulk_context.group_filter %}
-      <div class="watch-health-links">
-        <strong>{{ bulk_context.group_filter }} County towns</strong>
-        <a href="/watchlist?bulk_layer={{ bulk_context.layer.id }}#bulk-watch-builder">Show every county</a>
-      </div>
-      {% endif %}
-      <details class="advanced-options bulk-organize-options">
-        <summary>Change how this layer is grouped or named</summary>
-        <form method="get" action="/watchlist" class="watch-form compact advanced-options-body">
-          <input type="hidden" name="bulk_layer" value="{{ bulk_context.layer.id }}">
-          {% if bulk_context.group_filter %}<input type="hidden" name="bulk_group_filter" value="{{ bulk_context.group_filter }}">{% endif %}
-          <div class="form-grid three-col">
-            <label>Group first by
-              <select name="bulk_parent_by">
-                <option value="__none__" {% if bulk_context.parent_by == '__none__' %}selected{% endif %}>No top group</option>
-                {% for key in bulk_context.property_keys %}<option value="{{ key.property_key }}" {% if bulk_context.parent_by == key.property_key %}selected{% endif %}>{{ key.property_key }}</option>{% endfor %}
-              </select>
-            </label>
-            <label>Then organize by
-              <select name="bulk_group_by">
-                <option value="__feature__" {% if bulk_context.group_by == '__feature__' %}selected{% endif %}>Each Location</option>
-                <option value="__none__" {% if bulk_context.group_by == '__none__' %}selected{% endif %}>All Locations together</option>
-                {% for key in bulk_context.property_keys %}<option value="{{ key.property_key }}" {% if bulk_context.group_by == key.property_key %}selected{% endif %}>{{ key.property_key }}</option>{% endfor %}
-              </select>
-            </label>
-            <label>Name each Watch with
-              <select name="bulk_name_by">
-                <option value="__stored_name__" {% if bulk_context.name_by == '__stored_name__' %}selected{% endif %}>Saved feature name</option>
-                {% for key in bulk_context.property_keys %}<option value="{{ key.property_key }}" {% if bulk_context.name_by == key.property_key %}selected{% endif %}>{{ key.property_key }}</option>{% endfor %}
-              </select>
-            </label>
-          </div>
-          <button class="secondary-button" type="submit">Reorganize Locations</button>
-        </form>
-      </details>
-
-      <form method="post" action="/watchlist/bulk-create" class="watch-form bulk-watch-form" data-bulk-watch-form>
-        <input type="hidden" name="layer_id" value="{{ bulk_context.layer.id }}">
-        <input type="hidden" name="parent_by" value="{{ bulk_context.parent_by }}">
-        <input type="hidden" name="group_by" value="{{ bulk_context.group_by }}">
-        <input type="hidden" name="name_by" value="{{ bulk_context.name_by }}">
-
-        <fieldset class="bulk-location-groups">
-          <legend>Choose individual Locations</legend>
-          <label class="checkbox-row bulk-select-all"><input type="checkbox" data-bulk-select-all> Select every Location shown</label>
-          <div class="bulk-group-grid">
-          {% for group in bulk_context.groups %}
-            <details class="bulk-group-choice" data-bulk-location-group>
-              <summary><span><strong>{{ group.path or group.label }}</strong><small>{{ group.count }} Location{{ '' if group.count == 1 else 's' }} · open to choose towns or features</small></span></summary>
-              <div class="bulk-feature-options">
-                {% if group.town_picker_url %}<a class="secondary-button" href="{{ group.town_picker_url }}">Choose individual towns in {{ group.label }} County</a>{% endif %}
-                <label class="checkbox-row bulk-group-toggle"><input type="checkbox" data-bulk-group> Select all {{ group.label }}</label>
-                {% for feature in group.features %}
-                <label class="checkbox-row"><input type="checkbox" name="feature_ids" value="{{ feature.id }}" data-bulk-feature> {{ feature.label }}</label>
-                {% endfor %}
-              </div>
-            </details>
-          {% else %}<span>This layer has no active map features.</span>{% endfor %}
-          </div>
-          <span class="hint">Open a county to select only the towns you want. Create up to {{ bulk_watch_limit }} Watches at a time. A city or county polygon watches inside its boundary. A road or corridor uses the Distance below.</span>
-        </fieldset>
-
-        <div class="form-grid two-col">
-          <label>Topic or phrase (optional)
-            <input name="topic" placeholder="Leave blank for any alert in each Location">
-            <span class="hint">Example: road closure, flooding, or working fire.</span>
-          </label>
-          <label>Also match these alternatives (optional)
-            <input name="aliases" placeholder="Separate phrases with commas">
-          </label>
-        </div>
-        <div class="form-grid two-col">
-          <label>Distance
-            <select name="radius_ft">
-              <option value="1">Inside boundary · 1 foot edge allowance</option>
-              <option value="50" selected>50 feet · road or corridor</option>
-              <option value="100">100 feet</option>
-              <option value="500">500 feet</option>
-              <option value="5280">1 mile</option>
-            </select>
-          </label>
-          <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if prefill.min_priority == p %}selected{% endif %}>P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
-        </div>
-        <fieldset class="recipient-picker"><legend>Recipients</legend>
-          {% for sub in subscribers %}<label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}"> {{ sub.name }}</label>{% else %}<span>No active Recipients. <a href="/subscribers">Add one first</a>.</span>{% endfor %}
-        </fieldset>
-        {{ duration_picker('PERMANENT') }}
-        <label class="checkbox-row bulk-activate"><input type="checkbox" name="activate" value="1"> Turn these Watches on now</label>
-        <span class="hint">Leave this clear to create them Paused for review. Turning them on requires at least one Recipient.</span>
-        <button class="primary-button" type="submit">Create Selected Watches</button>
-      </form>
-    </div>
-    {% endif %}
-  </div>
-</details>
-
 <section id="new-watch" class="grid watch-layout watch-primary-layout" style="margin-top:16px">
 <details class="panel watch-create-panel" {% if create_open %}open{% endif %}>
   <summary class="panel-head"><div><div class="panel-kicker">NEW WATCH</div><h2>Create a Watch</h2></div><span class="count-pill">5 steps</span></summary>
@@ -668,6 +469,206 @@
 </article>
 {% endif %}
 </section>
+
+<div class="section-label watch-tools-label"><span>TOOLS &amp; DIAGNOSTICS</span><span class="section-rule"></span></div>
+<details class="panel watch-health-panel watch-tool-panel" {% if needs_recipient_watches or health.failed_24h %}open{% endif %}>
+  <summary class="panel-head">
+    <div><div class="panel-kicker">CURRENT EVIDENCE</div><h2>Watch and Notification health</h2></div>
+    <span class="status {{ health.status_class }}">{{ health.status }}</span>
+  </summary>
+  <div class="panel-body watch-health-grid">
+    <div><strong>{{ health.routed_now or 0 }}/{{ health.active_now or 0 }}</strong><span>current Watches with a Recipient</span></div>
+    <div><strong>{{ health.matches_7d or 0 }}</strong><span>Matches in 7 days</span></div>
+    <div><strong>{{ health.sent_24h or 0 }}</strong><span>Notifications sent in 24 hours</span></div>
+    <div><strong>{{ health.failed_24h or 0 }}</strong><span>Delivery problems in 24 hours</span></div>
+  </div>
+  {% if needs_recipient_watches %}
+  <div class="watch-health-warning">
+    <strong>{{ needs_recipient_watches|length }} active Watch{{ '' if needs_recipient_watches|length == 1 else 'es' }} need a Recipient:</strong>
+    {% for w in needs_recipient_watches %}{{ w.display_name }}{% if not loop.last %}, {% endif %}{% endfor %}.
+    <form method="post" action="/watchlist/repair-unrouted" class="watch-form compact">
+      <label>Notify one Recipient for all of these Watches
+        <select name="subscriber_id" required>
+          <option value="">Choose Recipient</option>
+          {% for sub in subscribers %}<option value="{{ sub.id }}">{{ sub.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <button class="secondary-button" type="submit">Connect and Repair</button>
+      <span class="hint">This adds only the missing delivery connections. It does not change Watch matching or send a test message.</span>
+    </form>
+  </div>
+  {% elif health.failed_24h %}
+  <div class="watch-health-warning">A recent Notification had a delivery problem. Review the affected Watch and Notification history.</div>
+  {% endif %}
+  <div class="watch-health-links">
+    <a href="/deliveries">Notification history</a><a href="/alerts">Search all alerts</a><a href="/subscribers">Manage recipients</a>
+  </div>
+</details>
+
+<details class="panel watch-lab-panel watch-tool-panel" id="watch-lab">
+  <summary class="panel-head">
+    <div><div class="panel-kicker">READ-ONLY DIAGNOSTIC</div><h2>Watch Lab · Why did this match?</h2></div>
+    <span class="status healthy">No sends</span>
+  </summary>
+  <div class="panel-body watch-lab-body">
+    <p class="watch-lab-intro">Choose one saved Watch and one real alert. The Lab runs the same evaluator as the live central matcher, shows every decision gate, and never creates an alert, Match, delivery, or Notification.</p>
+    <form class="watch-lab-form" data-watch-lab-form>
+      <label>Saved Watch
+        <select name="watch_item_id" required>
+          <option value="">Choose a Watch</option>
+          {% for w in watch_lab_items %}<option value="{{ w.id }}">{{ w.display_name }} · {{ w.state_label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Alert ID
+        <input name="alert_id" required placeholder="Example: ORU:eb5707b3" autocomplete="off">
+      </label>
+      <label>Point to evaluate
+        <select name="point_mode" data-watch-lab-point-mode>
+          <option value="ALERT">Saved alert point · live behavior</option>
+          <option value="WATCH_CENTER">Watch center · safe inside test</option>
+          <option value="CUSTOM">Custom latitude and longitude</option>
+        </select>
+      </label>
+      <div class="watch-lab-coordinates" data-watch-lab-coordinates hidden>
+        <label>Latitude<input name="latitude" inputmode="decimal" placeholder="40.965353"></label>
+        <label>Longitude<input name="longitude" inputmode="decimal" placeholder="-74.072017"></label>
+      </div>
+      <button class="primary-button" type="submit">Run Read-Only Test</button>
+    </form>
+    <div class="hint">A Watch-center or custom point replaces only a missing/resolver point. If the alert already has a stored point, that authoritative point remains in use and the result will say so.</div>
+    <div class="watch-lab-result" data-watch-lab-result hidden aria-live="polite">
+      <div class="watch-lab-verdict" data-watch-lab-verdict></div>
+      <div class="watch-lab-facts" data-watch-lab-facts></div>
+      <div class="watch-lab-gates" data-watch-lab-gates></div>
+      <div class="watch-lab-evidence" data-watch-lab-evidence></div>
+      <div class="watch-card-actions">
+        <button class="secondary-button" type="button" data-watch-lab-copy>Copy Diagnostic Receipt</button>
+        <a class="secondary-button" data-watch-lab-alert-link href="/alerts?window=all">Open Alert History</a>
+        <a class="secondary-button" href="/map" data-cmos-quicklook data-cmos-title="Mapping Center">Open Mapping Center</a>
+      </div>
+    </div>
+  </div>
+</details>
+
+<details class="panel watch-location-library watch-tool-panel" id="bulk-watch-builder" {% if bulk_context %}open{% endif %}>
+  <summary class="panel-head">
+    <div><div class="panel-kicker">REUSABLE WATCH LOCATIONS</div><h2>Create several Watches from a map layer</h2></div>
+    {% if bulk_context %}<span class="count-pill">{{ bulk_context.visible_feature_count }} shown</span>{% endif %}
+  </summary>
+  <div class="panel-body bulk-watch-body">
+    <p class="watch-library-intro">Imported Shapefiles, GeoJSON, KML, and drawn map features stay in the Mapping Center. Choose a layer here to create Watches for its cities, counties, roads, corridors, or other Locations.</p>
+    <div class="watch-layer-links">
+      {% for layer in watch_location_layers %}
+      <a class="watch-layer-link {% if bulk_context and bulk_context.layer.id == layer.id %}selected{% endif %}" href="/watchlist?bulk_layer={{ layer.id }}#bulk-watch-builder">
+        <strong>{{ layer.name }}</strong><span>{{ layer.description }} · {{ layer.feature_count }} Location{{ '' if layer.feature_count == 1 else 's' }}</span>
+      </a>
+      {% else %}
+      <span>No reusable layers have active features yet.</span>
+      {% endfor %}
+      <a class="secondary-button" href="/map">Import or draw Locations</a>
+    </div>
+
+    {% if bulk_context %}
+    <div class="bulk-watch-builder">
+      <div class="bulk-watch-heading">
+        <div><strong>{{ bulk_context.layer.name }}</strong><span>Organized automatically from this layer's own fields</span></div>
+        <span class="bulk-selection-count" data-bulk-count>0 selected</span>
+      </div>
+      {% if bulk_context.group_filter %}
+      <div class="watch-health-links">
+        <strong>{{ bulk_context.group_filter }} County towns</strong>
+        <a href="/watchlist?bulk_layer={{ bulk_context.layer.id }}#bulk-watch-builder">Show every county</a>
+      </div>
+      {% endif %}
+      <details class="advanced-options bulk-organize-options">
+        <summary>Change how this layer is grouped or named</summary>
+        <form method="get" action="/watchlist" class="watch-form compact advanced-options-body">
+          <input type="hidden" name="bulk_layer" value="{{ bulk_context.layer.id }}">
+          {% if bulk_context.group_filter %}<input type="hidden" name="bulk_group_filter" value="{{ bulk_context.group_filter }}">{% endif %}
+          <div class="form-grid three-col">
+            <label>Group first by
+              <select name="bulk_parent_by">
+                <option value="__none__" {% if bulk_context.parent_by == '__none__' %}selected{% endif %}>No top group</option>
+                {% for key in bulk_context.property_keys %}<option value="{{ key.property_key }}" {% if bulk_context.parent_by == key.property_key %}selected{% endif %}>{{ key.property_key }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Then organize by
+              <select name="bulk_group_by">
+                <option value="__feature__" {% if bulk_context.group_by == '__feature__' %}selected{% endif %}>Each Location</option>
+                <option value="__none__" {% if bulk_context.group_by == '__none__' %}selected{% endif %}>All Locations together</option>
+                {% for key in bulk_context.property_keys %}<option value="{{ key.property_key }}" {% if bulk_context.group_by == key.property_key %}selected{% endif %}>{{ key.property_key }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Name each Watch with
+              <select name="bulk_name_by">
+                <option value="__stored_name__" {% if bulk_context.name_by == '__stored_name__' %}selected{% endif %}>Saved feature name</option>
+                {% for key in bulk_context.property_keys %}<option value="{{ key.property_key }}" {% if bulk_context.name_by == key.property_key %}selected{% endif %}>{{ key.property_key }}</option>{% endfor %}
+              </select>
+            </label>
+          </div>
+          <button class="secondary-button" type="submit">Reorganize Locations</button>
+        </form>
+      </details>
+
+      <form method="post" action="/watchlist/bulk-create" class="watch-form bulk-watch-form" data-bulk-watch-form>
+        <input type="hidden" name="layer_id" value="{{ bulk_context.layer.id }}">
+        <input type="hidden" name="parent_by" value="{{ bulk_context.parent_by }}">
+        <input type="hidden" name="group_by" value="{{ bulk_context.group_by }}">
+        <input type="hidden" name="name_by" value="{{ bulk_context.name_by }}">
+
+        <fieldset class="bulk-location-groups">
+          <legend>Choose individual Locations</legend>
+          <label class="checkbox-row bulk-select-all"><input type="checkbox" data-bulk-select-all> Select every Location shown</label>
+          <div class="bulk-group-grid">
+          {% for group in bulk_context.groups %}
+            <details class="bulk-group-choice" data-bulk-location-group>
+              <summary><span><strong>{{ group.path or group.label }}</strong><small>{{ group.count }} Location{{ '' if group.count == 1 else 's' }} · open to choose towns or features</small></span></summary>
+              <div class="bulk-feature-options">
+                {% if group.town_picker_url %}<a class="secondary-button" href="{{ group.town_picker_url }}">Choose individual towns in {{ group.label }} County</a>{% endif %}
+                <label class="checkbox-row bulk-group-toggle"><input type="checkbox" data-bulk-group> Select all {{ group.label }}</label>
+                {% for feature in group.features %}
+                <label class="checkbox-row"><input type="checkbox" name="feature_ids" value="{{ feature.id }}" data-bulk-feature> {{ feature.label }}</label>
+                {% endfor %}
+              </div>
+            </details>
+          {% else %}<span>This layer has no active map features.</span>{% endfor %}
+          </div>
+          <span class="hint">Open a county to select only the towns you want. Create up to {{ bulk_watch_limit }} Watches at a time. A city or county polygon watches inside its boundary. A road or corridor uses the Distance below.</span>
+        </fieldset>
+
+        <div class="form-grid two-col">
+          <label>Topic or phrase (optional)
+            <input name="topic" placeholder="Leave blank for any alert in each Location">
+            <span class="hint">Example: road closure, flooding, or working fire.</span>
+          </label>
+          <label>Also match these alternatives (optional)
+            <input name="aliases" placeholder="Separate phrases with commas">
+          </label>
+        </div>
+        <div class="form-grid two-col">
+          <label>Distance
+            <select name="radius_ft">
+              <option value="1">Inside boundary · 1 foot edge allowance</option>
+              <option value="50" selected>50 feet · road or corridor</option>
+              <option value="100">100 feet</option>
+              <option value="500">500 feet</option>
+              <option value="5280">1 mile</option>
+            </select>
+          </label>
+          <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if prefill.min_priority == p %}selected{% endif %}>P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
+        </div>
+        <fieldset class="recipient-picker"><legend>Recipients</legend>
+          {% for sub in subscribers %}<label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}"> {{ sub.name }}</label>{% else %}<span>No active Recipients. <a href="/subscribers">Add one first</a>.</span>{% endfor %}
+        </fieldset>
+        {{ duration_picker('PERMANENT') }}
+        <label class="checkbox-row bulk-activate"><input type="checkbox" name="activate" value="1"> Turn these Watches on now</label>
+        <span class="hint">Leave this clear to create them Paused for review. Turning them on requires at least one Recipient.</span>
+        <button class="primary-button" type="submit">Create Selected Watches</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</details>
 
 <datalist id="alert-source-values">{% for value in alert_sources %}<option value="{{ value.source }}">{% endfor %}</datalist>
 <datalist id="alert-category-values">{% for value in alert_categories %}<option value="{{ value.category }}">{% endfor %}</datalist>
