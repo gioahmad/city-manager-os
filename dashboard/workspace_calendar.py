@@ -72,12 +72,13 @@ def mail_row(owner,item):
 
 
 def contact_row(owner,item):
-    address=item.get('businessAddress') or item.get('homeAddress') or {}
+    address=next((value for key in ('businessAddress','homeAddress','otherAddress')
+                  if (value:=item.get(key)) and any(value.values())), {})
     phones=[item.get('mobilePhone'),*(item.get('businessPhones') or []),*(item.get('homePhones') or [])]
     attrs={'emails':[str(r.get('address'))[:320] for r in (item.get('emailAddresses') or [])[:20] if r.get('address')],
            'phones':[str(p)[:80] for p in phones[:20] if p], 'organization':str(item.get('companyName') or '')[:200],
            'title':str(item.get('jobTitle') or '')[:200],
-           'address':', '.join(str(address.get(k) or '') for k in ('street','city','state','postalCode') if address.get(k))[:1000],
+           'address':', '.join(str(address.get(k) or '') for k in ('street','city','state','postalCode','countryOrRegion') if address.get(k))[:1000],
            'birthday':str(item.get('birthday') or '')[:40], 'tags':['Microsoft 365']}
     name=item.get('displayName') or ' '.join(str(item.get(k) or '') for k in ('givenName','surname')).strip() or 'Unnamed contact'
     return (owner,str(item['id'])[:2000],str(name)[:200],json.dumps(attrs))

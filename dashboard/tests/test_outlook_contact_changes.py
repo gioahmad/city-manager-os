@@ -55,6 +55,11 @@ class ContactChangeChecks(unittest.TestCase):
         self.assertEqual(fields['phones'], ['+12015551234','+442071838750'])
         self.assertIn('ext 9', warnings[0])
 
+    def test_empty_business_address_does_not_hide_home_address(self):
+        remote = {**self.remote,'businessAddress':{'street':None,'city':None}}
+        fields, _ = self.ns['source_values'](remote)
+        self.assertEqual(fields['address'],'1 Main, Town')
+
     def test_unchanged_contact_has_no_patch_and_email_change_keeps_labels(self):
         self.assertEqual(self.ns['contact_patch'](self.local,self.local,self.remote), {})
         edited = {**self.local, 'emails':['jane@example.com','new@example.com']}

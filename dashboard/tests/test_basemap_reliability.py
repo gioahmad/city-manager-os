@@ -9,10 +9,10 @@ def test_osm_tiles_override_the_private_document_referrer_policy_only_on_tiles()
     mapping = (DASHBOARD_ROOT / "templates/map.html").read_text()
     flood = (DASHBOARD_ROOT / "templates/flood.html").read_text()
 
-    # Private dashboard pages keep the privacy-first document policy. Leaflet
+    # Same-origin forms retain their origin; outside requests omit the referrer. Leaflet
     # applies this narrower override only to OSM image requests, whose service
     # requires a valid web Referer.
-    assert 'response.headers["Referrer-Policy"] = "no-referrer"' in private_auth
+    assert 'response.headers["Referrer-Policy"] = "same-origin"' in private_auth
     assert "const OSM_TILE_HOST='tile.openstreetmap.org'" in mapping
     assert "options.referrerPolicy=OSM_REFERRER_POLICY" in mapping
     assert "options.attribution=OSM_ATTRIBUTION" in mapping
