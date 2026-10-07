@@ -168,7 +168,8 @@ def _matches(alert: dict, rule: dict) -> tuple[bool, str]:
 
 
 def _rule_from_search(source: str, category: str, county: str, municipality: str, q: str,
-                      min_priority: int, field: str, mode: str, term: str) -> tuple[dict, list[str]]:
+                      min_priority: int, field: str, mode: str, term: str,
+                      aliases_text: str = "") -> tuple[dict, list[str]]:
     warnings: list[str] = []
     municipality_values = [part.strip() for part in municipality.split("|") if part.strip()]
     selected = [bool(term.strip()), bool(county.strip()), bool(municipality_values), bool(q.strip())]
@@ -179,7 +180,11 @@ def _rule_from_search(source: str, category: str, county: str, municipality: str
         chosen_field = field if field in FIELDS else "search_text"
         chosen_mode = mode.upper() if mode.upper() in MODES else "CONTAINS"
         chosen_term = term.strip()[:160]
-        aliases: list[str] = []
+        aliases = [
+            value.strip()[:160]
+            for value in re.split(r"[|,]", aliases_text or "")
+            if value.strip()
+        ][:12]
     elif county.strip():
         chosen_field, chosen_mode = "county", "FIELD"
         chosen_term = re.sub(r"\s+County$", "", county.strip(), flags=re.I)
@@ -226,12 +231,13 @@ def watch_preview(
     field: str = "",
     mode: str = "",
     term: str = "",
+    aliases: str = "",
 ):
     del state  # Watch preview evaluates future matching, not current/resolved lifecycle state.
     window = window if window in WINDOW_HOURS or window == "custom" else "30d"
     hours = max(1, min(int(custom_hours or 720), 24 * 365)) if window == "custom" else WINDOW_HOURS[window]
     rule, warnings = _rule_from_search(
-        source, category, county, municipality, q, min_priority, field, mode, term
+        source, category, county, municipality, q, min_priority, field, mode, term, aliases
     )
 
     where = []
