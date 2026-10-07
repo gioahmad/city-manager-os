@@ -10,8 +10,8 @@ def test_routine_deploy_uses_small_recovery_record_and_72h_full_backup_window():
     assert 'deploy/postgis/init' in sensitive
     assert 'dashboard/geo_resolver.py' not in sensitive
     assert 'dashboard/spatial_watch_app.py' not in sensitive
-    assert 'release.diff' in gate
-    assert 'RECOVERY RECORD:' in gate
+    assert 'release-snapshot.sh' in gate
+    assert 'deploy-recovery' not in gate
 
 
 def test_large_local_backup_retention_is_bounded():
