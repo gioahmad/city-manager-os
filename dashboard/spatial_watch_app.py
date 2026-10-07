@@ -725,6 +725,99 @@ def _watch_state(row: dict) -> tuple[str, str, str]:
     return "Watching", "active", "The watch is on. Its latest Match and Notification evidence are shown below."
 
 
+def _saved_watch_preview_url(row: dict) -> str:
+    """Build a read-only historical preview URL from one saved non-spatial Watch."""
+    source_filters = list(row.get("source_filter") or [])
+    category_filters = list(row.get("alert_category_filter") or [])
+    params: dict[str, str] = {
+        "window": "all",
+        "min_priority": str(max(1, min(int(row.get("min_priority") or 1), 5))),
+    }
+    if len(source_filters) == 1:
+        params["source"] = str(source_filters[0])
+    if len(category_filters) == 1:
+        params["category"] = str(category_filters[0])
+    watch_type = str(row.get("watch_type") or "").upper()
+    if watch_type == "TOWN":
+        value = str(row.get("municipality") or row.get("search_term") or "").strip()
+        if not value:
+            return ""
+        params["municipality"] = value
+    elif watch_type == "COUNTY":
+        value = str(row.get("county") or row.get("search_term") or "").strip()
+        if not value:
+            return ""
+        params["county"] = value
+    elif row.get("nearby_enabled"):
+        return ""
+    else:
+        term = str(row.get("search_term") or "").strip()
+        if not term:
+            return ""
+        params["field"] = str(row.get("match_field") or "search_text")
+        params["mode"] = str(row.get("match_mode") or "CONTAINS")
+        params["term"] = term
+        aliases = [str(value).strip() for value in (row.get("aliases") or []) if str(value).strip()]
+        if aliases:
+            params["aliases"] = "|".join(aliases[:12])
+    return "/watch-preview?" + urlencode(params)
+
+
+def _watch_evidence(watch_item_id: uuid.UUID, view: str, query: str) -> tuple[dict | None, list[dict]]:
+    watch = query_one(
+        """SELECT id,watch_id,display_name,watch_type,search_term,aliases,match_mode,match_field,
+                  municipality,county,source_filter,alert_category_filter,min_priority,nearby_enabled
+           FROM watch_items WHERE id=%s""",
+        (watch_item_id,),
+    )
+    if not watch:
+        return None, []
+    needle = query.strip()[:160]
+    pattern = f"%{needle}%"
+    if view == "notified":
+        rows = query_all(
+            """
+            SELECT a.alert_id,a.source,a.title,a.message,a.county,a.municipality,
+                   coalesce(a.observed_at,a.received_at) AS activity_at,
+                   d.status,d.created_at,d.attempted_at,d.sent_at,d.error_message,
+                   s.name AS recipient_name,d.ntfy_topic
+            FROM deliveries d
+            JOIN alerts a ON a.id=d.alert_id
+            LEFT JOIN subscribers s ON s.id=d.subscriber_id
+            WHERE d.matched_watch_ids ? %s
+              AND (
+                %s='' OR a.alert_id ILIKE %s OR a.title ILIKE %s OR a.message ILIKE %s
+                OR coalesce(a.county,'') ILIKE %s OR coalesce(a.municipality,'') ILIKE %s
+                OR coalesce(s.name,'') ILIKE %s OR d.status ILIKE %s
+              )
+            ORDER BY coalesce(d.sent_at,d.attempted_at,d.created_at) DESC
+            LIMIT 250
+            """,
+            (watch["watch_id"], needle, pattern, pattern, pattern, pattern, pattern, pattern, pattern),
+        )
+    else:
+        rows = query_all(
+            """
+            SELECT a.alert_id,a.source,a.title,a.message,a.county,a.municipality,
+                   coalesce(a.observed_at,a.received_at) AS activity_at,
+                   awm.match_type,awm.match_reason,awm.matched_at
+            FROM alert_watch_matches awm
+            JOIN alerts a ON a.id=awm.alert_id
+            WHERE awm.watch_item_id=%s
+              AND (
+                %s='' OR a.alert_id ILIKE %s OR a.title ILIKE %s OR a.message ILIKE %s
+                OR coalesce(a.county,'') ILIKE %s OR coalesce(a.municipality,'') ILIKE %s
+                OR coalesce(awm.match_reason,'') ILIKE %s
+              )
+            ORDER BY awm.matched_at DESC
+            LIMIT 250
+            """,
+            (watch_item_id, needle, pattern, pattern, pattern, pattern, pattern, pattern),
+        )
+    watch["historical_preview_url"] = _saved_watch_preview_url(watch)
+    return watch, rows
+
+
 @app.get("/api/spatial-watch/release")
 def spatial_watch_release():
     return {
@@ -1152,6 +1245,9 @@ def spatial_watchlist(
     bulk_name_by: str = "",
     bulk_group_filter: str = "",
     focus: str = "",
+    evidence: str = "",
+    evidence_view: str = "matched",
+    evidence_q: str = "",
 ):
     where = []
     params = []
@@ -1246,13 +1342,13 @@ def spatial_watchlist(
             "LOCATION_TOPIC"
             if row.get("watch_type") == "LOCATION_TOPIC"
             else "LOCATION"
-            if row.get("nearby_enabled") or row.get("watch_type") == "TOWN"
+            if row.get("nearby_enabled") or row.get("watch_type") in {"TOWN", "COUNTY"}
             else "TOPIC"
         )
         row["location_label"] = (
             ""
             if row["setup_mode"] == "TOPIC"
-            else row.get("address") or row.get("municipality") or "Saved map Location"
+            else row.get("address") or row.get("municipality") or row.get("county") or "Saved map Location"
         )
         row["distance_label"] = _distance_label(row.get("radius_ft"))
         row["location_kind"] = (
@@ -1275,6 +1371,7 @@ def spatial_watchlist(
                 if value
             )
         ) if row["setup_mode"] != "LOCATION" else []
+        row["historical_preview_url"] = _saved_watch_preview_url(row)
 
     state_aliases = {
         "inactive": "paused",
@@ -1417,6 +1514,21 @@ def spatial_watchlist(
                 prefill["aliases"] = ", ".join(chosen[1:])
         elif not error:
             error = "That alert could not be found. No Watch was created."
+    evidence_watch = None
+    evidence_rows: list[dict] = []
+    evidence_id = None
+    normalized_evidence_view = evidence_view if evidence_view in {"matched", "notified"} else "matched"
+    if evidence.strip():
+        try:
+            evidence_id = uuid.UUID(evidence.strip())
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid Watch evidence identifier") from exc
+        evidence_watch, evidence_rows = _watch_evidence(
+            evidence_id, normalized_evidence_view, evidence_q
+        )
+        if not evidence_watch:
+            raise HTTPException(404, "That saved Watch was not found")
+
     return templates.TemplateResponse(
         request=request,
         name="watchlist.html",
@@ -1441,6 +1553,11 @@ def spatial_watchlist(
             "bulk_watch_limit": BULK_WATCH_LIMIT,
             "prefill": prefill,
             "focus_id": focus_id,
+            "evidence_id": evidence_id,
+            "evidence_watch": evidence_watch,
+            "evidence_rows": evidence_rows,
+            "evidence_view": normalized_evidence_view,
+            "evidence_q": evidence_q,
         },
     )
 
