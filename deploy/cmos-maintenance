@@ -111,8 +111,8 @@ if [[ -f deploy/postgis/.env ]]; then
   set -a; source deploy/postgis/.env; set +a
 fi
 BACKUP_DIR="${BACKUP_DIR:-$REPO/deploy/postgis/backups}"
-RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
-MAX_LOCAL_COUNT="${BACKUP_MAX_LOCAL_COUNT:-3}"
+RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-10}"
+MAX_LOCAL_COUNT="${BACKUP_MAX_LOCAL_COUNT:-2}"
 printf 'Configured DB backup directory: %s\n' "$BACKUP_DIR"
 printf 'Configured retention: %s days\n' "$RETENTION_DAYS"
 du -sh "$BACKUP_DIR" 2>/dev/null || true
@@ -125,6 +125,8 @@ N8N_DIR="$(docker inspect n8n --format '{{range .Mounts}}{{if eq .Destination "/
 if [[ -n "$N8N_DIR" ]]; then
   du -sh "$N8N_DIR" 2>/dev/null || true
   [[ -f "$N8N_DIR/database.sqlite" ]] && ls -lh "$N8N_DIR/database.sqlite"
+  printf '\nTracked n8n source-update backups:\n'
+  find "$N8N_DIR" -maxdepth 1 -type f -name 'database.sqlite.before_cmos_sources_*' -printf '%TY-%Tm-%Td %TH:%TM %s %p\n' 2>/dev/null | sort -r | head -20 || true
 fi
 docker inspect citymanager-intake --format 'intake image={{.Image}} status={{.State.Status}} restarts={{.RestartCount}}' 2>/dev/null || true
 
@@ -168,7 +170,47 @@ if [[ "$MODE" == "clean" ]]; then
     fi
   fi
   echo
-  echo "No volumes, running containers, GIS artifacts, n8n data, staff uploads, or arbitrary /var/backups trees were deleted."
+  echo "Trimming known City Manager OS release/workflow backup trees..."
+  trim_backup_root(){
+    local root="$1" keep="$2" days="$3"
+    [[ -d "$root" ]] || return 0
+    find "$root" -mindepth 1 -maxdepth 1 -type d -mtime "+$days" -print -exec rm -rf -- {} +
+    if [[ "$keep" =~ ^[0-9]+$ ]] && (( keep > 0 )); then
+      mapfile -t stale < <(
+        find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null |
+          sort -nr | awk -v keep="$keep" 'NR>keep {sub(/^[^ ]+ /,""); print}'
+      )
+      for path in "${stale[@]}"; do
+        echo "Removing excess backup directory: $path"
+        rm -rf -- "$path"
+      done
+    fi
+  }
+  trim_backup_root /var/backups/city-manager-os/release-snapshots 10 14
+  trim_backup_root /var/backups/city-manager-os/spatial-watch-matcher 3 21
+  trim_backup_root /var/backups/city-manager-os/watch-match-audit 3 21
+  trim_backup_root /var/backups/city-manager-os/pseg-workflows 3 21
+  trim_backup_root /var/backups/city-manager-os/flood-live 3 21
+  trim_backup_root /var/backups/city-manager-os/ntfy-match-explanations 3 21
+  trim_backup_root /var/backups/city-manager-os/e2e 2 7
+
+  echo
+  echo "Trimming automatic n8n source-workflow SQLite snapshots..."
+  if [[ -n "$N8N_DIR" && -d "$N8N_DIR" ]]; then
+    find "$N8N_DIR" -maxdepth 1 -type f -name 'database.sqlite.before_cmos_sources_*' -mtime +7 -print -delete
+    mapfile -t stale_n8n < <(
+      find "$N8N_DIR" -maxdepth 1 -type f -name 'database.sqlite.before_cmos_sources_*' -printf '%T@ %p\n' 2>/dev/null |
+        sort -nr | awk 'NR>2 {sub(/^[^ ]+ /,""); print}'
+    )
+    for path in "${stale_n8n[@]}"; do
+      echo "Removing excess n8n source backup: $path"
+      rm -f -- "$path"
+    done
+  fi
+
+  echo
+  echo "No volumes, running containers, GIS artifacts, n8n data volumes, staff uploads, security backups, or unknown /var/backups trees were deleted."
+  echo "Only explicitly named, age/count-limited City Manager OS recovery snapshots were trimmed."
 fi
 
 section "FINAL STORAGE"

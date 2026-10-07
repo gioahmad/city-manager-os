@@ -29,7 +29,7 @@
 <div class="location-picker" data-location-picker>
   <label>Find a Location
     <input class="location-search" name="location_query" value="{{ query or '' }}" autocomplete="off" placeholder="Address, parcel, street, municipality, or saved map area">
-    <span class="hint">Start typing, then choose a result. A complete address can also be verified directly.</span>
+    <span class="hint">Start typing, then choose a result. Counties such as Hudson County are supported too. A complete address can also be verified directly.</span>
   </label>
   <input type="hidden" name="location_kind" value="{{ kind or 'TYPED_ADDRESS' }}">
   <input type="hidden" name="location_id" value="{{ source_id or '' }}">
@@ -46,7 +46,7 @@
   <div class="location-results" role="listbox" aria-label="Location results"></div>
   <div class="location-message" aria-live="polite"></div>
 </div>
-<label class="distance-field" {% if kind == 'MUNICIPALITY' %}hidden{% endif %}>Distance
+<label class="distance-field" {% if kind in ['MUNICIPALITY','COUNTY'] %}hidden{% endif %}>Distance
   <select name="radius_ft">
     {% if distance and distance not in [1, 50, 100, 500, 1000, 2640, 5280, 10560, 26400] %}
     <option value="{{ distance }}" selected>Current · {{ distance|round|int }} feet</option>
@@ -98,6 +98,12 @@
 {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
 {% if error %}<div class="flash flash-error"><strong>Could not complete that change:</strong> {{ error }}</div>{% endif %}
 
+<div class="watch-page-actions">
+  <a class="primary-button" href="/watchlist?create=1#new-watch">New Watch</a>
+  <a class="secondary-button" href="/alerts?window=all">Find Alerts</a>
+  <a class="secondary-button" href="/subscribers">Recipients</a>
+</div>
+
 <section class="metrics watch-state-metrics" aria-label="Watch status summary">
   <a class="metric" href="/watchlist?state=watching"><span>Watching</span><strong>{{ counts.watching or 0 }}</strong><small>On and ready</small></a>
   <a class="metric" href="/watchlist?state=matching"><span>Matching</span><strong>{{ counts.matching or 0 }}</strong><small>Recent Match in progress</small></a>
@@ -107,11 +113,382 @@
   <a class="metric" href="/watchlist?state=expired"><span>Expired</span><strong>{{ counts.expired or 0 }}</strong><small>End time reached</small></a>
 </section>
 
-<article class="panel watch-health-panel">
+<section id="new-watch" class="grid watch-layout watch-primary-layout" style="margin-top:16px">
+<details class="panel watch-create-panel" {% if create_open %}open{% endif %}>
+  <summary class="panel-head"><div><div class="panel-kicker">NEW WATCH</div><h2>Create a Watch</h2></div><span class="count-pill">5 steps</span></summary>
+  <div class="panel-body form-panel">
+    <form method="post" action="/watchlist/create" class="watch-form watch-editor" data-mode-form>
+      {% if prefill.previewed %}
+      <aside class="watch-from-alert">
+        <div class="panel-kicker">HISTORICALLY PREVIEWED</div>
+        <strong>This rule came from the read-only historical preview.</strong>
+        <p>The source, phrase or field, matching settings, priority and alternatives below were carried over. Nothing is saved until you choose Turn On Watch or Save Paused.</p>
+      </aside>
+      {% endif %}
+      {% if prefill.from_alert %}
+      <aside class="watch-from-alert" data-alert-watch-draft>
+        <div class="panel-kicker">STARTED FROM ALERT</div>
+        <strong>{{ prefill.source_alert_title }}</strong>
+        <p>Choose whether the topic, the Location, or both were important. You can edit every suggestion below. This Watch will look for future alerts and will not change the original alert.</p>
+        {% if prefill.keyword_choices %}
+        <div class="alert-keyword-picker" data-alert-keywords>
+          <span>Choose keywords from this alert</span>
+          <div class="alert-keyword-choices">
+          {% for keyword in prefill.keyword_choices %}
+            <label><input type="checkbox" name="alert_keywords" value="{{ keyword }}" data-alert-keyword {% if keyword in prefill.selected_keywords %}checked{% endif %}> {{ keyword }}</label>
+          {% endfor %}
+          </div>
+          <small>Future alerts may Match any selected keyword or phrase. These choices come from this alert, not a fixed list.</small>
+        </div>
+        {% endif %}
+        {% if prefill.suggested_source or prefill.suggested_category %}
+        <div class="watch-alert-filters">
+          <span>Optional: narrow future Matches</span>
+          {% if prefill.suggested_source %}
+          <label><input type="checkbox" data-alert-filter="source_filter" value="{{ prefill.suggested_source }}"> Only from {{ prefill.suggested_source }}</label>
+          {% endif %}
+          {% if prefill.suggested_category %}
+          <label><input type="checkbox" data-alert-filter="alert_category_filter" value="{{ prefill.suggested_category }}"> Only category {{ prefill.suggested_category }}</label>
+          {% endif %}
+        </div>
+        {% endif %}
+        <small>Nothing is saved until you choose Turn On Watch.</small>
+      </aside>
+      {% endif %}
+      <section class="watch-step">
+        <div class="watch-step-number">1</div>
+        <div class="watch-step-content">
+          <h3>What should we watch for?</h3>
+          <label>Name this Watch
+            <input name="display_name" value="{{ prefill.display_name }}" required placeholder="Example: Town Hall area or Water main breaks">
+            <span class="hint">Use a short private name you will recognize later.</span>
+          </label>
+          {{ mode_choices(prefill.setup_mode, 'What about this alert matters?' if prefill.from_alert else 'Choose one') }}
+          <label>Only these alert sources (optional)
+            <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Example: BNN">
+            <span class="hint">For “any BNN alert in Hudson County,” choose BNN here and Hudson County under Location. Leave topic blank.</span>
+          </label>
+          <div data-needs-topic {% if prefill.setup_mode == 'LOCATION' %}hidden{% endif %}>
+            <label>{{ 'Primary keyword or phrase' if prefill.from_alert else 'Topic or phrase' }}
+              <input name="search_term" value="{{ prefill.search_term }}" data-primary-keyword placeholder="Example: water main, PSEG, road closure, or Park Avenue">
+              <span class="hint">Use wording that is likely to appear in a future alert.</span>
+            </label>
+            <label>Also match these alternatives (optional)
+              <input name="aliases" value="{{ prefill.aliases or '' }}" data-other-keywords placeholder="Example: main break, water leak">
+              <span class="hint">Separate phrases with commas. Any one of them may create a Match.</span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="watch-step" data-needs-location {% if prefill.setup_mode == 'TOPIC' %}hidden{% endif %}>
+        <div class="watch-step-number">2</div>
+        <div class="watch-step-content">
+          <h3>Where should we watch?</h3>
+          {{ location_picker(prefill.location_query, prefill.location_kind, prefill.location_id, prefill.latitude, prefill.longitude, prefill.location_query, 5280) }}
+        </div>
+      </section>
+
+      <section class="watch-step">
+        <div class="watch-step-number">3</div>
+        <div class="watch-step-content">
+          <h3>Who should be notified?</h3>
+          <fieldset class="recipient-picker"><legend>Recipients</legend>
+            {% for sub in subscribers %}
+            <label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}" {% if subscribers|length == 1 %}checked{% endif %}> {{ sub.name }}</label>
+            {% else %}
+            <span>No active Recipients. <a href="/subscribers">Add one first</a>.</span>
+            {% endfor %}
+            <div class="hint">Turning a Watch on requires a Recipient. You can save it Paused without one.</div>
+          </fieldset>
+        </div>
+      </section>
+
+      <section class="watch-step test-notification">
+        <div class="watch-step-number">4</div>
+        <div class="watch-step-content">
+          <h3>Test it</h3>
+          <label>Test Recipient
+            <select data-test-recipient>
+              <option value="">Choose a separate test channel</option>
+              {% for sub in subscribers %}<option value="{{ sub.id }}">{{ sub.name }}</option>{% endfor %}
+            </select>
+          </label>
+          <button class="secondary-button test-notification-button" type="button">Send Test Notification</button>
+          <div class="hint">Sends one clearly labeled test message only. It does not create an alert, Match, or Watch.</div>
+          <div class="test-notification-result" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="watch-step">
+        <div class="watch-step-number">5</div>
+        <div class="watch-step-content">
+          <h3>Turn it on</h3>
+          {{ duration_picker('PERMANENT') }}
+          <div class="watch-card-actions">
+            <button class="primary-button watch-submit" type="submit" name="activation" value="on">Turn On Watch</button>
+            <button class="secondary-button" type="submit" name="activation" value="paused">Save Paused</button>
+          </div>
+          <span class="hint">You can edit, pause, reactivate, or delete it later.</span>
+        </div>
+      </section>
+
+      <details class="advanced-options">
+        <summary>Advanced Options</summary>
+        <div class="watch-form compact advanced-options-body">
+          <div class="form-grid two-col">
+            <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
+            <label>Municipality context<input name="municipality" placeholder="Optional"></label>
+          </div>
+          <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ prefill.alert_category_filter }}" placeholder="Leave blank for every category; separate several with commas" autocomplete="off"></label>
+          <span class="hint">Leave both blank to evaluate every alert point inside the saved area. The Watch name never filters alerts.</span>
+          <div class="form-grid two-col">
+            <label>Technical watch type<select name="watch_type"><option value="">Automatic</option>{% for wt in watch_types %}<option value="{{ wt }}">{{ wt }}</option>{% endfor %}</select></label>
+            <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == prefill.match_mode %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
+          </div>
+          <label>Match field<input name="match_field" value="{{ prefill.match_field or '' }}" placeholder="Required only for FIELD/EXACT field rules"></label>
+          <div class="form-grid two-col"><label>Internal category label<input name="category"></label><label>Tags<input name="tags" placeholder="Comma-separated"></label></div>
+          <label>Notes<textarea name="notes" rows="2" placeholder="Optional private note">{{ prefill.notes }}</textarea></label>
+        </div>
+      </details>
+    </form>
+  </div>
+</details>
+
+<article class="panel watch-saved-panel">
+  <div class="panel-head"><div><div class="panel-kicker">MONITOR</div><h2>Saved Watches</h2></div><span class="count-pill">{{ items|length }}</span></div>
+  <div class="panel-body">
+    <form class="watch-filters" method="get" action="/watchlist">
+      <input name="q" value="{{ q }}" placeholder="Search Watch name, topic, Location, or group">
+      <select name="state">
+        {% for value,label in [('all','All statuses'),('watching','Watching'),('matching','Matching'),('needs_recipient','Needs Recipient'),('delivery_problem','Delivery Problem'),('paused','Paused'),('expired','Expired'),('location','Uses a Location')] %}
+        <option value="{{ value }}" {% if state == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button class="secondary-button" type="submit">Search</button>
+    </form>
+
+    {% if items %}
+    <form id="watch-bulk-form" method="post" action="/watchlist/bulk-action" class="bulk-action-toolbar" data-watch-bulk-form>
+      <label class="checkbox-row"><input type="checkbox" data-watch-select-all> Select all Watches shown</label>
+      <span data-watch-bulk-count>0 selected</span>
+      <label>Action
+        <select name="action" data-watch-bulk-action>
+          <option value="pause">Pause selected</option>
+          <option value="activate">Reactivate selected</option>
+          <option value="delete">Delete selected permanently</option>
+        </select>
+      </label>
+      <label data-watch-delete-confirm hidden>Type DELETE to confirm
+        <input name="confirm_delete" autocomplete="off" placeholder="DELETE">
+      </label>
+      <button class="secondary-button" type="submit">Apply to Selected</button>
+    </form>
+    {% endif %}
+
+    <div class="watch-list">
+    {% for w in items %}
+      <article class="watch-card {% if w.state_label in ['Paused','Expired'] %}inactive{% endif %}">
+        <div class="watch-card-summary">
+          <div class="watch-summary-main">
+            <label class="watch-select"><input type="checkbox" name="watch_item_ids" value="{{ w.id }}" form="watch-bulk-form" data-watch-select aria-label="Select {{ w.display_name }}"></label>
+            <span class="status {{ w.state_class }}">{{ w.state_label }}</span>
+            <div>
+              <strong>{{ w.display_name }}</strong>
+              <div class="meta">
+                {% if w.setup_mode == 'LOCATION' %}Near {{ w.location_label }}{% elif w.setup_mode == 'LOCATION_TOPIC' %}Keywords: “{{ w.search_term }}”{% for alias in w.aliases or [] %}, “{{ alias }}”{% endfor %} near {{ w.location_label }}{% else %}Keywords: “{{ w.search_term }}”{% for alias in w.aliases or [] %}, “{{ alias }}”{% endfor %}{% endif %}
+                {% if w.setup_mode != 'TOPIC' and w.distance_label %} · {{ w.distance_label }}{% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="watch-compact-evidence">
+          <span><strong>{{ w.matches_7d or 0 }}</strong> matches</span>
+          <span><strong>{{ w.sent_7d or 0 }}</strong> sent</span>
+          <span><strong>{{ w.active_recipient_count or 0 }}</strong> recipient{{ '' if w.active_recipient_count == 1 else 's' }}</span>
+          {% if w.last_match_at %}<span>Last match {{ w.last_match_at.strftime('%m/%d %I:%M %p') }}</span>{% endif %}
+        </div>
+
+        <details class="watch-card-more">
+          <summary>Details</summary>
+          <div class="watch-state-explanation"><strong>Why this status:</strong> {{ w.state_reason }}</div>
+          <div class="watch-last-evidence">
+            {% if w.parent_group %}<span><strong>Group:</strong> {{ w.parent_group }}</span>{% endif %}
+            {% if w.last_match_at %}<span><strong>Latest Match:</strong> {{ w.last_match_at.strftime('%m/%d/%Y %I:%M %p') }}{% if w.last_match_title %} · {{ w.last_match_title }}{% endif %}</span>{% else %}<span><strong>Latest Match:</strong> none yet</span>{% endif %}
+            {% if w.last_delivery_at %}<span><strong>Latest Notification:</strong> {{ w.last_delivery_status|title }} · {{ w.last_delivery_at.strftime('%m/%d/%Y %I:%M %p') }}</span>{% else %}<span><strong>Latest Notification:</strong> none yet</span>{% endif %}
+            <span><strong>Recipients:</strong> {{ (w.recipient_names or [])|join(', ') if w.recipient_names else 'None selected' }}</span>
+            {% if w.parent_group %}<span><strong>Group:</strong> {{ w.parent_group }}</span>{% endif %}
+          </div>
+        </details>
+
+        <details class="watch-edit-panel" {% if focus_id and w.id == focus_id %}open{% endif %}>
+          <summary>Edit Watch</summary>
+          <form method="post" action="/watchlist/{{ w.id }}/update" class="watch-form compact watch-editor" data-mode-form>
+            <input type="hidden" name="keep_state" value="1">
+            <label>Watch name<input name="display_name" value="{{ w.display_name }}" required></label>
+            <div>
+              <div class="field-label">What should we watch for?</div>
+              {{ mode_choices(w.setup_mode) }}
+              <label>Only these alert sources (optional)
+                <input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}" placeholder="Example: BNN">
+              </label>
+            </div>
+            <div data-needs-topic {% if w.setup_mode == 'LOCATION' %}hidden{% endif %}>
+              {% if w.keyword_choices %}
+              <div class="alert-keyword-picker" data-alert-keywords>
+                <span>Keywords currently on</span>
+                <div class="alert-keyword-choices">
+                  {% for keyword in w.keyword_choices %}<label><input type="checkbox" value="{{ keyword }}" data-alert-keyword checked> {{ keyword }}</label>{% endfor %}
+                </div>
+                <small>Clear a keyword to stop matching it, then save. These are this Watch's saved choices, not a hardcoded list.</small>
+              </div>
+              {% endif %}
+              <label>Topic or phrase<input name="search_term" value="{{ w.search_term if w.setup_mode != 'LOCATION' else '' }}" data-primary-keyword placeholder="Example: water main or road closure"></label>
+              <label>Also match these alternatives (optional)
+                <input name="aliases" value="{{ (w.aliases or [])|join(', ') }}" data-other-keywords placeholder="Separate phrases with commas">
+                <span class="hint">Any one of these phrases may create a Match.</span>
+              </label>
+            </div>
+            <div class="watch-mode-section" data-needs-location {% if w.setup_mode == 'TOPIC' %}hidden{% endif %}>
+              <div class="field-label">Location and Distance</div>
+              {{ location_picker(w.location_label, w.location_kind, w.location_id, '', '', w.location_label, w.radius_ft or 5280) }}
+            </div>
+            <fieldset class="recipient-picker"><legend>Recipients</legend>
+              {% for sub in subscribers %}<label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}" {% if sub.id in w.recipient_ids %}checked{% endif %}> {{ sub.name }}</label>{% else %}<span>No active Recipients.</span>{% endfor %}
+            </fieldset>
+            {{ duration_picker(w.duration, w.starts_local, w.expires_local) }}
+
+            <details class="advanced-options">
+              <summary>Advanced Options</summary>
+              <div class="watch-form compact advanced-options-body">
+                <div class="form-grid two-col">
+                  <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == w.min_priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label>
+                  <label>Municipality context<input name="municipality" value="{{ w.municipality or '' }}"></label>
+                </div>
+                <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ (w.alert_category_filter or [])|join(', ') }}" autocomplete="off"></label>
+                <span class="hint">Leave both blank to evaluate every alert point inside the saved area. The Watch name never filters alerts.</span>
+                <div class="form-grid two-col">
+                  <label>Technical watch type<select name="watch_type">{% if w.watch_type not in watch_types %}<option value="{{ w.watch_type }}" selected>{{ w.watch_type }}</option>{% endif %}{% for wt in watch_types %}<option value="{{ wt }}" {% if wt == w.watch_type %}selected{% endif %}>{{ wt }}</option>{% endfor %}</select></label>
+                  <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == w.match_mode %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
+                </div>
+                <label>Match field<input name="match_field" value="{{ w.match_field or '' }}"></label>
+                <div class="form-grid two-col"><label>Internal category label<input name="category" value="{{ w.category or '' }}"></label><label>Tags<input name="tags" value="{{ (w.tags or [])|join(', ') }}"></label></div>
+                <label>Notes<textarea name="notes" rows="2">{{ w.notes or '' }}</textarea></label>
+                <div class="advanced-reference">Internal reference: {{ w.watch_id }}</div>
+                {% if w.nearby_enabled %}<a href="/api/spatial-watch/{{ w.watch_id }}/nearby-history?radius_ft={{ w.radius_ft or 5280 }}&hours=24">View nearby alert history data</a>{% endif %}
+              </div>
+            </details>
+            <button class="primary-button" type="submit">Save Changes</button>
+          </form>
+        </details>
+
+        <div class="watch-card-actions watch-card-primary-actions">
+          <a class="secondary-button" href="/watchlist?evidence={{ w.id }}&evidence_view=matched#watch-evidence">Matches</a>
+          {% if w.historical_preview_url %}<a class="secondary-button" href="{{ w.historical_preview_url }}">Preview History</a>{% endif %}
+          <details class="watch-manage-menu">
+            <summary class="secondary-button">Manage</summary>
+            <div class="watch-manage-actions">
+              <a class="secondary-button" href="/watchlist?evidence={{ w.id }}&evidence_view=notified#watch-evidence">Notifications</a>
+              <a class="secondary-button" href="/context/WATCH/{{ w.id }}" data-cmos-quicklook data-cmos-title="{{ w.display_name|e }}">Context</a>
+              <form method="post" action="/watchlist/{{ w.id }}/toggle">
+                {% if w.state_label in ['Paused','Expired'] %}<input type="hidden" name="action" value="reactivate"><button class="secondary-button" type="submit">Reactivate</button>{% else %}<input type="hidden" name="action" value="pause"><button class="secondary-button" type="submit">Pause</button>{% endif %}
+              </form>
+              <details class="delete-watch">
+                <summary>Delete</summary>
+                <form method="post" action="/watchlist/{{ w.id }}/delete" class="delete-watch-form">
+                  <p>This removes the saved Watch and its Match links. Stored alerts and Notification history remain. Type DELETE to confirm.</p>
+                  <input name="confirm_delete" autocomplete="off" placeholder="Type DELETE">
+                  <button class="danger-button" type="submit">Delete Permanently</button>
+                </form>
+              </details>
+            </div>
+          </details>
+        </div>
+      </article>
+    {% else %}
+      <div class="empty-state"><strong>No Watches match this search.</strong><span>Clear the filters or create a new Watch.</span></div>
+    {% endfor %}
+    </div>
+  </div>
+</article>
+
+{% if evidence_watch %}
+<article class="panel" id="watch-evidence" style="margin-top:16px">
   <div class="panel-head">
+    <div>
+      <div class="panel-kicker">WATCH EVIDENCE</div>
+      <h2>{{ evidence_watch.display_name }}</h2>
+    </div>
+    <span class="count-pill">{{ evidence_rows|length }}</span>
+  </div>
+  <div class="panel-body">
+    <div class="watch-card-actions" style="margin-bottom:12px">
+      <a class="secondary-button {% if evidence_view == 'matched' %}active{% endif %}" href="/watchlist?evidence={{ evidence_watch.id }}&evidence_view=matched#watch-evidence">Matched Alerts</a>
+      <a class="secondary-button {% if evidence_view == 'notified' %}active{% endif %}" href="/watchlist?evidence={{ evidence_watch.id }}&evidence_view=notified#watch-evidence">Notifications</a>
+      {% if evidence_watch.historical_preview_url %}<a class="secondary-button" href="{{ evidence_watch.historical_preview_url }}">Could Have Matched</a>{% endif %}
+    </div>
+
+    <form class="watch-filters" method="get" action="/watchlist">
+      <input type="hidden" name="evidence" value="{{ evidence_watch.id }}">
+      <input type="hidden" name="evidence_view" value="{{ evidence_view }}">
+      <input name="evidence_q" value="{{ evidence_q }}" placeholder="Search alert ID, title, message, county, city{% if evidence_view == 'notified' %}, recipient, status{% endif %}">
+      <button class="secondary-button" type="submit">Search Evidence</button>
+    </form>
+
+    <p class="hint">
+      {% if evidence_view == 'matched' %}
+      These are stored Match records: alerts that actually triggered this Watch.
+      {% else %}
+      These are delivery records tied to this Watch, including sent, suppressed, failed, or pending attempts.
+      {% endif %}
+      “Could Have Matched” is read-only historical evaluation and creates no Match or Notification.
+    </p>
+
+    <div class="data-list">
+      {% for row in evidence_rows %}
+      <article class="data-row">
+        <div>
+          <strong>{{ row.title or row.alert_id }}</strong>
+          <div class="meta">
+            {{ row.source }} · {{ row.alert_id }}
+            {% if row.county %} · {{ row.county }} County{% endif %}
+            {% if row.municipality %} · {{ row.municipality }}{% endif %}
+          </div>
+          <div class="meta">
+            {% if evidence_view == 'matched' %}
+              Matched {{ row.matched_at.strftime('%m/%d/%Y %I:%M %p') }}
+              {% if row.match_type %} · {{ row.match_type }}{% endif %}
+              {% if row.match_reason %} · {{ row.match_reason }}{% endif %}
+            {% else %}
+              {{ row.status|title }} · {{ (row.sent_at or row.attempted_at or row.created_at).strftime('%m/%d/%Y %I:%M %p') }}
+              {% if row.recipient_name %} · {{ row.recipient_name }}{% endif %}
+              {% if row.error_message %} · {{ row.error_message }}{% endif %}
+            {% endif %}
+          </div>
+          {% if row.message %}<div class="meta">{{ row.message[:400] }}{% if row.message|length > 400 %}…{% endif %}</div>{% endif %}
+        </div>
+        <div class="watch-card-actions">
+          <a class="secondary-button" href="/alerts?q={{ row.alert_id|urlencode }}&window=all&state=all">Open Alert</a>
+        </div>
+      </article>
+      {% else %}
+      <div class="empty-state">
+        <strong>No {{ 'matches' if evidence_view == 'matched' else 'notifications' }} found.</strong>
+        <span>{% if evidence_q %}Try a broader evidence search.{% else %}This Watch has no stored evidence in this view yet.{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</article>
+{% endif %}
+</section>
+
+<div class="section-label watch-tools-label"><span>MORE TOOLS</span><span class="section-rule"></span></div>
+<details class="panel watch-health-panel watch-tool-panel" {% if needs_recipient_watches or health.failed_24h %}open{% endif %}>
+  <summary class="panel-head">
     <div><div class="panel-kicker">CURRENT EVIDENCE</div><h2>Watch and Notification health</h2></div>
     <span class="status {{ health.status_class }}">{{ health.status }}</span>
-  </div>
+  </summary>
   <div class="panel-body watch-health-grid">
     <div><strong>{{ health.routed_now or 0 }}/{{ health.active_now or 0 }}</strong><span>current Watches with a Recipient</span></div>
     <div><strong>{{ health.matches_7d or 0 }}</strong><span>Matches in 7 days</span></div>
@@ -139,13 +516,13 @@
   <div class="watch-health-links">
     <a href="/deliveries">Notification history</a><a href="/alerts">Search all alerts</a><a href="/subscribers">Manage recipients</a>
   </div>
-</article>
+</details>
 
-<article class="panel watch-lab-panel" id="watch-lab">
-  <div class="panel-head">
+<details class="panel watch-lab-panel watch-tool-panel" id="watch-lab">
+  <summary class="panel-head">
     <div><div class="panel-kicker">READ-ONLY DIAGNOSTIC</div><h2>Watch Lab · Why did this match?</h2></div>
     <span class="status healthy">No sends</span>
-  </div>
+  </summary>
   <div class="panel-body watch-lab-body">
     <p class="watch-lab-intro">Choose one saved Watch and one real alert. The Lab runs the same evaluator as the live central matcher, shows every decision gate, and never creates an alert, Match, delivery, or Notification.</p>
     <form class="watch-lab-form" data-watch-lab-form>
@@ -184,13 +561,13 @@
       </div>
     </div>
   </div>
-</article>
+</details>
 
-<article class="panel watch-location-library" id="bulk-watch-builder">
-  <div class="panel-head">
+<details class="panel watch-location-library watch-tool-panel" id="bulk-watch-builder" {% if bulk_context %}open{% endif %}>
+  <summary class="panel-head">
     <div><div class="panel-kicker">REUSABLE WATCH LOCATIONS</div><h2>Create several Watches from a map layer</h2></div>
     {% if bulk_context %}<span class="count-pill">{{ bulk_context.visible_feature_count }} shown</span>{% endif %}
-  </div>
+  </summary>
   <div class="panel-body bulk-watch-body">
     <p class="watch-library-intro">Imported Shapefiles, GeoJSON, KML, and drawn map features stay in the Mapping Center. Choose a layer here to create Watches for its cities, counties, roads, corridors, or other Locations.</p>
     <div class="watch-layer-links">
@@ -304,298 +681,14 @@
     </div>
     {% endif %}
   </div>
-</article>
-
-<section id="new-watch" class="grid watch-layout" style="margin-top:16px">
-<article class="panel">
-  <div class="panel-head"><div><div class="panel-kicker">NEW WATCH</div><h2>Five simple steps</h2></div></div>
-  <div class="panel-body form-panel">
-    <form method="post" action="/watchlist/create" class="watch-form watch-editor" data-mode-form>
-      {% if prefill.previewed %}
-      <aside class="watch-from-alert">
-        <div class="panel-kicker">HISTORICALLY PREVIEWED</div>
-        <strong>This rule came from the read-only historical preview.</strong>
-        <p>The source, phrase or field, matching settings, priority and alternatives below were carried over. Nothing is saved until you choose Turn On Watch or Save Paused.</p>
-      </aside>
-      {% endif %}
-      {% if prefill.from_alert %}
-      <aside class="watch-from-alert" data-alert-watch-draft>
-        <div class="panel-kicker">STARTED FROM ALERT</div>
-        <strong>{{ prefill.source_alert_title }}</strong>
-        <p>Choose whether the topic, the Location, or both were important. You can edit every suggestion below. This Watch will look for future alerts and will not change the original alert.</p>
-        {% if prefill.keyword_choices %}
-        <div class="alert-keyword-picker" data-alert-keywords>
-          <span>Choose keywords from this alert</span>
-          <div class="alert-keyword-choices">
-          {% for keyword in prefill.keyword_choices %}
-            <label><input type="checkbox" name="alert_keywords" value="{{ keyword }}" data-alert-keyword {% if keyword in prefill.selected_keywords %}checked{% endif %}> {{ keyword }}</label>
-          {% endfor %}
-          </div>
-          <small>Future alerts may Match any selected keyword or phrase. These choices come from this alert, not a fixed list.</small>
-        </div>
-        {% endif %}
-        {% if prefill.suggested_source or prefill.suggested_category %}
-        <div class="watch-alert-filters">
-          <span>Optional: narrow future Matches</span>
-          {% if prefill.suggested_source %}
-          <label><input type="checkbox" data-alert-filter="source_filter" value="{{ prefill.suggested_source }}"> Only from {{ prefill.suggested_source }}</label>
-          {% endif %}
-          {% if prefill.suggested_category %}
-          <label><input type="checkbox" data-alert-filter="alert_category_filter" value="{{ prefill.suggested_category }}"> Only category {{ prefill.suggested_category }}</label>
-          {% endif %}
-        </div>
-        {% endif %}
-        <small>Nothing is saved until you choose Turn On Watch.</small>
-      </aside>
-      {% endif %}
-      <section class="watch-step">
-        <div class="watch-step-number">1</div>
-        <div class="watch-step-content">
-          <h3>What should we watch for?</h3>
-          <label>Name this Watch
-            <input name="display_name" value="{{ prefill.display_name }}" required placeholder="Example: Town Hall area or Water main breaks">
-            <span class="hint">Use a short private name you will recognize later.</span>
-          </label>
-          {{ mode_choices(prefill.setup_mode, 'What about this alert matters?' if prefill.from_alert else 'Choose one') }}
-          <div data-needs-topic {% if prefill.setup_mode == 'LOCATION' %}hidden{% endif %}>
-            <label>{{ 'Primary keyword or phrase' if prefill.from_alert else 'Topic or phrase' }}
-              <input name="search_term" value="{{ prefill.search_term }}" data-primary-keyword placeholder="Example: water main, PSEG, road closure, or Park Avenue">
-              <span class="hint">Use wording that is likely to appear in a future alert.</span>
-            </label>
-            <label>Also match these alternatives (optional)
-              <input name="aliases" value="{{ prefill.aliases or '' }}" data-other-keywords placeholder="Example: main break, water leak">
-              <span class="hint">Separate phrases with commas. Any one of them may create a Match.</span>
-            </label>
-          </div>
-        </div>
-      </section>
-
-      <section class="watch-step" data-needs-location {% if prefill.setup_mode == 'TOPIC' %}hidden{% endif %}>
-        <div class="watch-step-number">2</div>
-        <div class="watch-step-content">
-          <h3>Where should we watch?</h3>
-          {{ location_picker(prefill.location_query, prefill.location_kind, prefill.location_id, prefill.latitude, prefill.longitude, prefill.location_query, 5280) }}
-        </div>
-      </section>
-
-      <section class="watch-step">
-        <div class="watch-step-number">3</div>
-        <div class="watch-step-content">
-          <h3>Who should be notified?</h3>
-          <fieldset class="recipient-picker"><legend>Recipients</legend>
-            {% for sub in subscribers %}
-            <label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}" {% if subscribers|length == 1 %}checked{% endif %}> {{ sub.name }}</label>
-            {% else %}
-            <span>No active Recipients. <a href="/subscribers">Add one first</a>.</span>
-            {% endfor %}
-            <div class="hint">Turning a Watch on requires a Recipient. You can save it Paused without one.</div>
-          </fieldset>
-        </div>
-      </section>
-
-      <section class="watch-step test-notification">
-        <div class="watch-step-number">4</div>
-        <div class="watch-step-content">
-          <h3>Test it</h3>
-          <label>Test Recipient
-            <select data-test-recipient>
-              <option value="">Choose a separate test channel</option>
-              {% for sub in subscribers %}<option value="{{ sub.id }}">{{ sub.name }}</option>{% endfor %}
-            </select>
-          </label>
-          <button class="secondary-button test-notification-button" type="button">Send Test Notification</button>
-          <div class="hint">Sends one clearly labeled test message only. It does not create an alert, Match, or Watch.</div>
-          <div class="test-notification-result" aria-live="polite"></div>
-        </div>
-      </section>
-
-      <section class="watch-step">
-        <div class="watch-step-number">5</div>
-        <div class="watch-step-content">
-          <h3>Turn it on</h3>
-          {{ duration_picker('PERMANENT') }}
-          <div class="watch-card-actions">
-            <button class="primary-button watch-submit" type="submit" name="activation" value="on">Turn On Watch</button>
-            <button class="secondary-button" type="submit" name="activation" value="paused">Save Paused</button>
-          </div>
-          <span class="hint">You can edit, pause, reactivate, or delete it later.</span>
-        </div>
-      </section>
-
-      <details class="advanced-options">
-        <summary>Advanced Options</summary>
-        <div class="watch-form compact advanced-options-body">
-          <div class="form-grid two-col">
-            <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
-            <label>Municipality context<input name="municipality" placeholder="Optional"></label>
-          </div>
-          <label>Only these alert sources
-            <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Leave blank for every source; separate several with commas" autocomplete="off">
-            <span class="hint">Use exact current source names. The Watch name never populates this filter.</span>
-          </label>
-          <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ prefill.alert_category_filter }}" placeholder="Leave blank for every category; separate several with commas" autocomplete="off"></label>
-          <span class="hint">Leave both blank to evaluate every alert point inside the saved area. The Watch name never filters alerts.</span>
-          <div class="form-grid two-col">
-            <label>Technical watch type<select name="watch_type"><option value="">Automatic</option>{% for wt in watch_types %}<option value="{{ wt }}">{{ wt }}</option>{% endfor %}</select></label>
-            <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == prefill.match_mode %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
-          </div>
-          <label>Match field<input name="match_field" value="{{ prefill.match_field or '' }}" placeholder="Required only for FIELD/EXACT field rules"></label>
-          <div class="form-grid two-col"><label>Internal category label<input name="category"></label><label>Tags<input name="tags" placeholder="Comma-separated"></label></div>
-          <label>Notes<textarea name="notes" rows="2" placeholder="Optional private note">{{ prefill.notes }}</textarea></label>
-        </div>
-      </details>
-    </form>
-  </div>
-</article>
-
-<article class="panel">
-  <div class="panel-head"><div><div class="panel-kicker">MONITOR</div><h2>Saved Watches</h2></div><span class="count-pill">{{ items|length }}</span></div>
-  <div class="panel-body">
-    <form class="watch-filters" method="get" action="/watchlist">
-      <input name="q" value="{{ q }}" placeholder="Search Watch name, topic, Location, or group">
-      <select name="state">
-        {% for value,label in [('all','All statuses'),('watching','Watching'),('matching','Matching'),('needs_recipient','Needs Recipient'),('delivery_problem','Delivery Problem'),('paused','Paused'),('expired','Expired'),('location','Uses a Location')] %}
-        <option value="{{ value }}" {% if state == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-      <button class="secondary-button" type="submit">Search</button>
-    </form>
-
-    {% if items %}
-    <form id="watch-bulk-form" method="post" action="/watchlist/bulk-action" class="bulk-action-toolbar" data-watch-bulk-form>
-      <label class="checkbox-row"><input type="checkbox" data-watch-select-all> Select all Watches shown</label>
-      <span data-watch-bulk-count>0 selected</span>
-      <label>Action
-        <select name="action" data-watch-bulk-action>
-          <option value="pause">Pause selected</option>
-          <option value="activate">Reactivate selected</option>
-          <option value="delete">Delete selected permanently</option>
-        </select>
-      </label>
-      <label data-watch-delete-confirm hidden>Type DELETE to confirm
-        <input name="confirm_delete" autocomplete="off" placeholder="DELETE">
-      </label>
-      <button class="secondary-button" type="submit">Apply to Selected</button>
-    </form>
-    {% endif %}
-
-    <div class="watch-list">
-    {% for w in items %}
-      <article class="watch-card {% if w.state_label in ['Paused','Expired'] %}inactive{% endif %}">
-        <div class="watch-card-summary">
-          <div class="watch-summary-main">
-            <label class="watch-select"><input type="checkbox" name="watch_item_ids" value="{{ w.id }}" form="watch-bulk-form" data-watch-select aria-label="Select {{ w.display_name }}"></label>
-            <span class="status {{ w.state_class }}">{{ w.state_label }}</span>
-            <div>
-              <strong>{{ w.display_name }}</strong>
-              <div class="meta">
-                {% if w.setup_mode == 'LOCATION' %}Near {{ w.location_label }}{% elif w.setup_mode == 'LOCATION_TOPIC' %}Keywords: “{{ w.search_term }}”{% for alias in w.aliases or [] %}, “{{ alias }}”{% endfor %} near {{ w.location_label }}{% else %}Keywords: “{{ w.search_term }}”{% for alias in w.aliases or [] %}, “{{ alias }}”{% endfor %}{% endif %}
-                {% if w.setup_mode != 'TOPIC' and w.distance_label %} · {{ w.distance_label }}{% endif %}
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="watch-state-explanation"><strong>Why this status:</strong> {{ w.state_reason }}</div>
-        <div class="watch-evidence">
-          <div><strong>{{ w.matches_7d or 0 }}</strong><span>Matches · 7 days</span></div>
-          <div><strong>{{ w.sent_7d or 0 }}</strong><span>Notifications · 7 days</span></div>
-          <div><strong>{{ w.active_recipient_count or 0 }}</strong><span>Recipient{{ '' if w.active_recipient_count == 1 else 's' }}</span></div>
-        </div>
-        <div class="watch-last-evidence">
-          {% if w.parent_group %}<span><strong>Group:</strong> {{ w.parent_group }}</span>{% endif %}
-          {% if w.last_match_at %}<span><strong>Latest Match:</strong> {{ w.last_match_at.strftime('%m/%d/%Y %I:%M %p') }}{% if w.last_match_title %} · {{ w.last_match_title }}{% endif %}</span>{% else %}<span><strong>Latest Match:</strong> none yet</span>{% endif %}
-          {% if w.last_delivery_at %}<span><strong>Latest Notification:</strong> {{ w.last_delivery_status|title }} · {{ w.last_delivery_at.strftime('%m/%d/%Y %I:%M %p') }}</span>{% else %}<span><strong>Latest Notification:</strong> none yet</span>{% endif %}
-          <span><strong>Recipients:</strong> {{ (w.recipient_names or [])|join(', ') if w.recipient_names else 'None selected' }}</span>
-        </div>
-
-        <details class="watch-edit-panel" {% if focus_id and w.id == focus_id %}open{% endif %}>
-          <summary>Edit Watch</summary>
-          <form method="post" action="/watchlist/{{ w.id }}/update" class="watch-form compact watch-editor" data-mode-form>
-            <input type="hidden" name="keep_state" value="1">
-            <label>Watch name<input name="display_name" value="{{ w.display_name }}" required></label>
-            <div>
-              <div class="field-label">What should we watch for?</div>
-              {{ mode_choices(w.setup_mode) }}
-            </div>
-            <div data-needs-topic {% if w.setup_mode == 'LOCATION' %}hidden{% endif %}>
-              {% if w.keyword_choices %}
-              <div class="alert-keyword-picker" data-alert-keywords>
-                <span>Keywords currently on</span>
-                <div class="alert-keyword-choices">
-                  {% for keyword in w.keyword_choices %}<label><input type="checkbox" value="{{ keyword }}" data-alert-keyword checked> {{ keyword }}</label>{% endfor %}
-                </div>
-                <small>Clear a keyword to stop matching it, then save. These are this Watch's saved choices, not a hardcoded list.</small>
-              </div>
-              {% endif %}
-              <label>Topic or phrase<input name="search_term" value="{{ w.search_term if w.setup_mode != 'LOCATION' else '' }}" data-primary-keyword placeholder="Example: water main or road closure"></label>
-              <label>Also match these alternatives (optional)
-                <input name="aliases" value="{{ (w.aliases or [])|join(', ') }}" data-other-keywords placeholder="Separate phrases with commas">
-                <span class="hint">Any one of these phrases may create a Match.</span>
-              </label>
-            </div>
-            <div class="watch-mode-section" data-needs-location {% if w.setup_mode == 'TOPIC' %}hidden{% endif %}>
-              <div class="field-label">Location and Distance</div>
-              {{ location_picker(w.location_label, w.location_kind, w.location_id, '', '', w.location_label, w.radius_ft or 5280) }}
-            </div>
-            <fieldset class="recipient-picker"><legend>Recipients</legend>
-              {% for sub in subscribers %}<label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}" {% if sub.id in w.recipient_ids %}checked{% endif %}> {{ sub.name }}</label>{% else %}<span>No active Recipients.</span>{% endfor %}
-            </fieldset>
-            {{ duration_picker(w.duration, w.starts_local, w.expires_local) }}
-
-            <details class="advanced-options">
-              <summary>Advanced Options</summary>
-              <div class="watch-form compact advanced-options-body">
-                <div class="form-grid two-col">
-                  <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == w.min_priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label>
-                  <label>Municipality context<input name="municipality" value="{{ w.municipality or '' }}"></label>
-                </div>
-                <label>Only these alert sources<input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}" autocomplete="off"></label>
-                <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ (w.alert_category_filter or [])|join(', ') }}" autocomplete="off"></label>
-                <span class="hint">Leave both blank to evaluate every alert point inside the saved area. The Watch name never filters alerts.</span>
-                <div class="form-grid two-col">
-                  <label>Technical watch type<select name="watch_type">{% if w.watch_type not in watch_types %}<option value="{{ w.watch_type }}" selected>{{ w.watch_type }}</option>{% endif %}{% for wt in watch_types %}<option value="{{ wt }}" {% if wt == w.watch_type %}selected{% endif %}>{{ wt }}</option>{% endfor %}</select></label>
-                  <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == w.match_mode %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
-                </div>
-                <label>Match field<input name="match_field" value="{{ w.match_field or '' }}"></label>
-                <div class="form-grid two-col"><label>Internal category label<input name="category" value="{{ w.category or '' }}"></label><label>Tags<input name="tags" value="{{ (w.tags or [])|join(', ') }}"></label></div>
-                <label>Notes<textarea name="notes" rows="2">{{ w.notes or '' }}</textarea></label>
-                <div class="advanced-reference">Internal reference: {{ w.watch_id }}</div>
-                {% if w.nearby_enabled %}<a href="/api/spatial-watch/{{ w.watch_id }}/nearby-history?radius_ft={{ w.radius_ft or 5280 }}&hours=24">View nearby alert history data</a>{% endif %}
-              </div>
-            </details>
-            <button class="primary-button" type="submit">Save Changes</button>
-          </form>
-        </details>
-
-        <div class="watch-card-actions">
-          <a class="secondary-button" href="/context/WATCH/{{ w.id }}" data-cmos-quicklook data-cmos-title="{{ w.display_name|e }}">Open Context</a>
-          <form method="post" action="/watchlist/{{ w.id }}/toggle">
-            {% if w.state_label in ['Paused','Expired'] %}<input type="hidden" name="action" value="reactivate"><button class="secondary-button" type="submit">Reactivate Watch</button>{% else %}<input type="hidden" name="action" value="pause"><button class="secondary-button" type="submit">Pause Watch</button>{% endif %}
-          </form>
-          <details class="delete-watch">
-            <summary>Delete Watch</summary>
-            <form method="post" action="/watchlist/{{ w.id }}/delete" class="delete-watch-form">
-              <p>This removes the saved Watch and its Match links. Stored alerts and Notification history remain. Type DELETE to confirm.</p>
-              <input name="confirm_delete" autocomplete="off" placeholder="Type DELETE">
-              <button class="danger-button" type="submit">Delete Permanently</button>
-            </form>
-          </details>
-        </div>
-      </article>
-    {% else %}
-      <div class="empty-state"><strong>No Watches match this search.</strong><span>Clear the filters or create a new Watch.</span></div>
-    {% endfor %}
-    </div>
-  </div>
-</article>
-</section>
+</details>
 
 <datalist id="alert-source-values">{% for value in alert_sources %}<option value="{{ value.source }}">{% endfor %}</datalist>
 <datalist id="alert-category-values">{% for value in alert_categories %}<option value="{{ value.category }}">{% endfor %}</datalist>
 <footer><span>City Manager OS</span><span>One Watch system · one Notification path</span></footer>
 </main>
 
-<script src="/static/watch_matcher.js?v=2"></script>
+<script src="/static/watch_matcher.js?v=4"></script>
 <script>
 (() => {
   const setMessage = (element, message, isError = false) => {
@@ -892,7 +985,7 @@
       sourceId.value = item.source_id || '';
       latitude.value = item.latitude || '';
       longitude.value = item.longitude || '';
-      if (distanceField?.classList.contains('distance-field')) distanceField.hidden = item.kind === 'MUNICIPALITY';
+      if (distanceField?.classList.contains('distance-field')) distanceField.hidden = ['MUNICIPALITY', 'COUNTY'].includes(item.kind);
       selected.hidden = false;
       selectedText.textContent = `${item.kind_label || 'Location'}: ${item.label}${item.detail ? ` · ${item.detail}` : ''}`;
       results.replaceChildren();

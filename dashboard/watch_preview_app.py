@@ -58,6 +58,13 @@ def _county_name(value: str) -> str:
     return re.sub(r"\s+COUNTY$", "", _normalize(value), flags=re.I).strip()
 
 
+def _geography_key(field: str, value) -> str:
+    text = _normalize(value)
+    if field == "county":
+        text = re.sub(r"\s+COUNTY$", "", text, flags=re.I).strip()
+    return text
+
+
 def _pipe_fields(alert: dict) -> dict:
     """Read BNN pipe segments by semantic value; field order is intentionally ignored."""
     if str(alert.get("source") or "").upper() != "BNN":
@@ -141,7 +148,16 @@ def _matches(alert: dict, rule: dict) -> tuple[bool, str]:
             continue
         mode = rule["mode"]
         if mode in {"FIELD", "EXACT"}:
-            matched = haystack == needle
+            if rule["field"] in {"county", "municipality"}:
+                direct = _geography_key(rule["field"], prepared.get(rule["field"]))
+                wanted = _geography_key(rule["field"], candidate)
+                pipe_values = [
+                    _geography_key(rule["field"], value)
+                    for value in (prepared.get("_pipe") or {}).get("segments", [])
+                ] if _normalize(prepared.get("source")) == "BNN" else []
+                matched = bool(wanted and (direct == wanted or wanted in pipe_values))
+            else:
+                matched = haystack == needle
         elif mode == "WORD":
             matched = bool(re.search(r"(^|\s)" + re.escape(needle) + r"(?=\s|$)", haystack))
         else:
@@ -152,7 +168,8 @@ def _matches(alert: dict, rule: dict) -> tuple[bool, str]:
 
 
 def _rule_from_search(source: str, category: str, county: str, municipality: str, q: str,
-                      min_priority: int, field: str, mode: str, term: str) -> tuple[dict, list[str]]:
+                      min_priority: int, field: str, mode: str, term: str,
+                      aliases_text: str = "") -> tuple[dict, list[str]]:
     warnings: list[str] = []
     municipality_values = [part.strip() for part in municipality.split("|") if part.strip()]
     selected = [bool(term.strip()), bool(county.strip()), bool(municipality_values), bool(q.strip())]
@@ -163,7 +180,11 @@ def _rule_from_search(source: str, category: str, county: str, municipality: str
         chosen_field = field if field in FIELDS else "search_text"
         chosen_mode = mode.upper() if mode.upper() in MODES else "CONTAINS"
         chosen_term = term.strip()[:160]
-        aliases: list[str] = []
+        aliases = [
+            value.strip()[:160]
+            for value in re.split(r"[|,]", aliases_text or "")
+            if value.strip()
+        ][:12]
     elif county.strip():
         chosen_field, chosen_mode = "county", "FIELD"
         chosen_term = re.sub(r"\s+County$", "", county.strip(), flags=re.I)
@@ -210,12 +231,13 @@ def watch_preview(
     field: str = "",
     mode: str = "",
     term: str = "",
+    aliases: str = "",
 ):
     del state  # Watch preview evaluates future matching, not current/resolved lifecycle state.
     window = window if window in WINDOW_HOURS or window == "custom" else "30d"
     hours = max(1, min(int(custom_hours or 720), 24 * 365)) if window == "custom" else WINDOW_HOURS[window]
     rule, warnings = _rule_from_search(
-        source, category, county, municipality, q, min_priority, field, mode, term
+        source, category, county, municipality, q, min_priority, field, mode, term, aliases
     )
 
     where = []
@@ -256,14 +278,22 @@ def watch_preview(
             prepared["pipe_fields"] = prepared.pop("_pipe", {})
             matches.append(prepared)
 
+    geography = rule["field"] in {"county", "municipality"}
     builder = {
         "display_name": (
             f"{rule['source'] + ' · ' if rule['source'] else ''}"
             f"{rule['field'].replace('_', ' ').title()} · {rule['term']}"
         )[:140],
-        "setup_mode": "TOPIC",
-        "search_term": rule["term"],
-        "aliases": ",".join(rule["aliases"]),
+        "setup_mode": "LOCATION" if geography else "TOPIC",
+        "search_term": "" if geography else rule["term"],
+        "aliases": "" if geography else ",".join(rule["aliases"]),
+        "location_query": rule["term"] if geography else "",
+        "location_kind": (
+            "COUNTY" if rule["field"] == "county"
+            else "MUNICIPALITY" if rule["field"] == "municipality"
+            else ""
+        ),
+        "location_id": rule["term"] if geography else "",
         "source_filter": rule["source"],
         "alert_category_filter": rule["category"] if rule["field"] != "category" else "",
         "match_mode": rule["mode"],

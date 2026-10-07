@@ -62,10 +62,12 @@ restore_matcher(){
 trap restore_matcher ERR
 
 cd "$REPO"
-[[ "$(git branch --show-current)" == main ]] || fail "production checkout must be on main"
 [[ -z "$(git status --porcelain)" ]] || fail "repository must be clean"
-[[ -z "$EXPECTED_TARGET" || "$(git rev-parse HEAD)" == "$EXPECTED_TARGET" ]] \
-  || fail "HEAD does not match expected target"
+if [[ -n "$EXPECTED_TARGET" ]]; then
+  [[ "$(git rev-parse HEAD)" == "$EXPECTED_TARGET" ]] || fail "HEAD does not match expected target"
+else
+  [[ "$(git branch --show-current)" == main ]] || fail "production checkout must be on main when no tested target is supplied"
+fi
 [[ -s "$MATCHER_FILE" ]] || fail "matcher definition is missing"
 [[ -s "$MATCHER_SOURCE" ]] || fail "shared matcher source is missing"
 for container in n8n citymanager-postgis; do
@@ -76,6 +78,31 @@ done
 N8N_DIR="$(docker inspect n8n --format '{{range .Mounts}}{{if eq .Destination "/home/node/.n8n"}}{{.Source}}{{end}}{{end}}')"
 N8N_DB="$N8N_DIR/database.sqlite"
 [[ -f "$N8N_DB" ]] || fail "n8n database was not found"
+
+log "Checking whether the published matcher already equals this release"
+if python3 - "$N8N_DB" "$MATCHER_ID" "$MATCHER_SOURCE" <<'PY'
+import json,sqlite3,sys
+db,workflow_id,source=sys.argv[1:]
+canonical=open(source).read().rstrip()
+con=sqlite3.connect(db); con.row_factory=sqlite3.Row
+row=con.execute('SELECT active,activeVersionId,nodes FROM workflow_entity WHERE id=?',(workflow_id,)).fetchone()
+if not row or not row['active'] or not row['activeVersionId']:
+    raise SystemExit(1)
+nodes={node.get('name'):node for node in json.loads(row['nodes'])}
+load=nodes.get('Load Active Watchlist + Recipients') or {}
+match=nodes.get('Match + Resolve Recipients') or {}
+query=(load.get('parameters') or {}).get('query','')
+code=(match.get('parameters') or {}).get('jsCode','')
+required=('gis_active_spatial_watch_matches','supplied_alert_geom','spatial_match_reason')
+if not code.startswith(canonical) or not all(value in query for value in required):
+    raise SystemExit(1)
+print('MATCHER already current')
+PY
+then
+  log "Matcher already current — no n8n backup, import, publish, or restart required"
+  exit 0
+fi
+
 install -d -m 700 "$BACKUP_DIR"
 
 log "Backing up n8n and the currently published central matcher"
@@ -196,6 +223,17 @@ PUBLISHED=0
 trap - ERR
 rm -f "$TMP_TARGET" "$TMP_CONTRACT"
 docker exec n8n rm -f "$TMP_TARGET" "$TMP_BACKUP" "$TMP_CONTRACT" >/dev/null 2>&1 || true
+
+# Keep only the newest three automatic matcher recovery directories.
+mapfile -t stale_matcher_backups < <(
+  find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null |
+    sort -nr | awk 'NR>3 {sub(/^[^ ]+ /,""); print}'
+)
+for path in "${stale_matcher_backups[@]}"; do
+  log "Removing old matcher backup: $path"
+  rm -rf -- "$path"
+done
+
 log "#56 MATCHER INSTALL: PASS"
 log "Backup retained at: $BACKUP_DIR"
 log "The existing matcher, Subscribers, Routing, Delivery Guard, and ntfy path remains authoritative"

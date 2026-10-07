@@ -5,7 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const VERSION = 'watch-matcher-v2';
+  const VERSION = 'watch-matcher-v4';
 
   function normalize(value) {
     if (value === undefined || value === null) return '';
@@ -47,6 +47,33 @@
   function enabled(value, fallback) {
     if (value === undefined || value === null || value === '') return fallback;
     return value === true || value === 1 || normalize(value) === 'TRUE';
+  }
+
+  function geographyKey(field, value) {
+    let text = normalize(value);
+    if (String(field || '').toLowerCase() === 'county') {
+      text = text.replace(/\s+COUNTY$/, '').trim();
+    }
+    return text;
+  }
+
+  function bnnPipeSegments(alert) {
+    if (normalize(alert && alert.source) !== 'BNN') return [];
+    return String((alert && alert.message) || '')
+      .split('|')
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  function geographyMatch(alert, field, candidate) {
+    const key = geographyKey(field, candidate);
+    if (!key) return false;
+    const location = alert && alert.location && typeof alert.location === 'object'
+      ? alert.location
+      : {};
+    const values = [alert && alert[field], location[field]];
+    if (normalize(alert && alert.source) === 'BNN') values.push(...bnnPipeSegments(alert));
+    return values.some((value) => geographyKey(field, value) === key);
   }
 
   function prepareAlert(input) {
@@ -103,7 +130,12 @@
 
     for (const candidate of candidates) {
       let matched = false;
-      if (mode === 'FIELD' || mode === 'EXACT') matched = haystack === candidate.normalized;
+      if (mode === 'FIELD' || mode === 'EXACT') {
+        const geographyField = String(matchField || '').toLowerCase();
+        matched = ['county', 'municipality'].includes(geographyField)
+          ? geographyMatch(alert, geographyField, candidate.value)
+          : haystack === candidate.normalized;
+      }
       else if (mode === 'CONTAINS') matched = haystack.includes(candidate.normalized);
       else if (mode === 'WORD') {
         matched = new RegExp(`(^|\\s)${escapeRegExp(candidate.normalized)}(?=\\s|$)`).test(haystack);
@@ -239,8 +271,9 @@
     const watchType = normalize(watch.watch_type);
     const locationPlusTopic = watchType === 'LOCATION TOPIC';
     const municipalityOnly = !nearby && watchType === 'TOWN';
-    const locationRequired = nearby || locationPlusTopic || municipalityOnly;
-    const topicRequired = locationPlusTopic || (!nearby && !municipalityOnly);
+    const countyOnly = !nearby && watchType === 'COUNTY';
+    const locationRequired = nearby || locationPlusTopic || municipalityOnly || countyOnly;
+    const topicRequired = locationPlusTopic || (!nearby && !municipalityOnly && !countyOnly);
     const explicitAlertGeometry = watch.alert_geometry_ready;
     const explicitWatchTarget = watch.watch_target_ready;
 
@@ -272,17 +305,23 @@
       gates.push(gate('watch_target', 'Saved Watch area', undefined, 'Not required for this Watch', 'NOT_APPLICABLE'));
     }
 
-    const municipalityMatch = municipalityOnly || locationPlusTopic
-      ? Boolean(normalize(watch.municipality) && normalize(watch.municipality) === normalize(alert.municipality))
+    const municipalityCandidate = watch.municipality || (municipalityOnly ? watch.search_term : '');
+    const countyCandidate = watch.county || (countyOnly ? watch.search_term : '');
+    const municipalityMatch = municipalityOnly || (locationPlusTopic && Boolean(watch.municipality))
+      ? geographyMatch(alert, 'municipality', municipalityCandidate)
+      : false;
+    const countyMatch = countyOnly || (locationPlusTopic && !watch.municipality && Boolean(watch.county))
+      ? geographyMatch(alert, 'county', countyCandidate)
       : false;
     const spatialMatch = Boolean(watch.spatial_match_type);
     const measuredSpatialMatch = watch.point_inside_watch === undefined
       ? spatialMatch
       : enabled(watch.point_inside_watch, false);
-    const locationMatched = spatialMatch || (!nearby && municipalityMatch);
+    const locationMatched = spatialMatch || (!nearby && (municipalityMatch || countyMatch));
     const locationGateMatched = nearby ? measuredSpatialMatch : locationMatched;
     const locationReason = watch.spatial_match_reason
-      || (municipalityMatch ? `municipality matched \"${watch.municipality}\"` : '')
+      || (municipalityMatch ? `municipality matched "${municipalityCandidate}"` : '')
+      || (countyMatch ? `county matched "${countyCandidate}"` : '')
       || (watch.distance_ft !== undefined && watch.distance_ft !== null
         ? `alert point is ${Number(watch.distance_ft).toFixed(1)} ft from the Watch target`
         : 'alert point is outside the saved Watch area');
@@ -321,10 +360,19 @@
       result = {
         matched: true,
         match_type: 'FIELD',
-        matched_candidate: watch.municipality,
+        matched_candidate: municipalityCandidate,
         matched_candidate_type: 'location',
         match_field: 'municipality',
-        match_reason: `FIELD municipality matched search_term \"${watch.municipality}\"`
+        match_reason: `FIELD municipality matched search_term "${municipalityCandidate}"`
+      };
+    } else if (matched && countyOnly) {
+      result = {
+        matched: true,
+        match_type: 'FIELD',
+        matched_candidate: countyCandidate,
+        matched_candidate_type: 'location',
+        match_field: 'county',
+        match_reason: `FIELD county matched search_term "${countyCandidate}"`
       };
     } else if (matched) {
       result = {
@@ -355,6 +403,7 @@
     normalize,
     toArray,
     prepareAlert,
+    geographyMatch,
     evaluateWatch
   };
 });

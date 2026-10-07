@@ -17,12 +17,16 @@ fi
 case "$ACTION" in
 
 centralize)
-python3 - "$N8N_DB" "$@" <<'PY'
+CHANGE_MARKER="$(mktemp)"
+trap 'rm -f "$CHANGE_MARKER"' EXIT
+python3 - "$N8N_DB" "$CHANGE_MARKER" "$@" <<'PY'
 import sqlite3, json, sys, uuid, copy, os
+from pathlib import Path
 from datetime import datetime, timezone
 
 db = sys.argv[1]
-requested = [x.lower() for x in sys.argv[2:]]
+change_marker = sys.argv[2]
+requested = [x.lower() for x in sys.argv[3:]]
 
 if not requested:
     requested = ["earthquake", "oru", "bnn"]
@@ -397,12 +401,46 @@ con = sqlite3.connect(db)
 con.row_factory = sqlite3.Row
 cur = con.cursor()
 
-# Safe SQLite backup.
+# Avoid a full SQLite copy and n8n restart when every requested workflow is
+# already using the tracked source definition.
+needs_change = False
+for key in requested:
+    cfg = PROFILES[key]
+    row = cur.execute("SELECT nodes FROM workflow_entity WHERE id=?", (cfg["workflow_id"],)).fetchone()
+    if not row:
+        raise RuntimeError(f"{key}: workflow not found")
+    nodes = json.loads(row["nodes"])
+    build = next((node for node in nodes if node.get("name") == cfg["build"]), None)
+    current_js = ((build or {}).get("parameters") or {}).get("jsCode") or ""
+    if not build or current_js != cfg["js"]:
+        needs_change = True
+        break
+
+if not needs_change:
+    Path(change_marker).write_text("0")
+    print("CHANGED: False")
+    con.close()
+    raise SystemExit(0)
+
+# Safe SQLite backup only when a source workflow will actually change.
 stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 backup = f"{db}.before_cmos_sources_{stamp}"
 dst = sqlite3.connect(backup)
 con.backup(dst)
 dst.close()
+
+# Keep only the two newest automatic source-workflow SQLite snapshots.
+backups = sorted(
+    Path(db).parent.glob(Path(db).name + ".before_cmos_sources_*"),
+    key=lambda path: path.stat().st_mtime,
+    reverse=True,
+)
+for stale in backups[2:]:
+    try:
+        stale.unlink()
+        print("REMOVED OLD BACKUP:", stale)
+    except FileNotFoundError:
+        pass
 
 print("BACKUP:", backup)
 
@@ -728,8 +766,19 @@ except Exception:
 finally:
     con.close()
 
+Path(change_marker).write_text("1" if changed else "0")
 print("CHANGED:", changed)
 PY
+
+if [[ "$(cat "$CHANGE_MARKER" 2>/dev/null || echo 1)" == "0" ]]; then
+  rm -f "$CHANGE_MARKER"
+  trap - EXIT
+  echo "N8N SOURCE UPDATE: already current — no SQLite backup or restart required."
+  "$0" status "$@"
+  exit 0
+fi
+rm -f "$CHANGE_MARKER"
+trap - EXIT
 
 docker restart n8n >/dev/null
 sleep 6

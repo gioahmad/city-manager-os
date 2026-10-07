@@ -147,13 +147,35 @@ for service in citymanager-ops-engine citymanager-integration-engine; do
 done
 
 echo
+echo "===== CENTRAL WATCH MATCHER UPDATE ====="
+echo "Publishing the tested shared Watch matcher only when its tracked definition changed."
+bash deploy/n8n/install_spatial_watch_matcher.sh "$EXPECTED"
+
+echo
 echo "===== TARGETED BNN CLASSIFIER UPDATE ====="
-echo "Refreshing only the tracked BNN workflow; n8n platform/packages are unchanged."
+echo "Refreshing only the tracked BNN workflow when needed; n8n platform/packages are unchanged."
 bash deploy/cmos-source centralize bnn
+
+echo
+echo "===== RESOLVED ALERT REMATCH UPDATE ====="
+echo "Publishing county-aware Geo Resolver rematch workflow only when needed."
+bash deploy/n8n/install_resolved_alert_rematch.sh "$EXPECTED"
+
+echo
+echo "===== HISTORICAL BNN GEOGRAPHY CLEANUP ====="
+echo "Previewing stored BNN corrections; original messages/raw payloads are preserved."
+docker exec -i citymanager-dashboard python /app/bnn_reparser.py
+echo "Applying idempotent structured geography/search cleanup. This creates no Matches or Notifications."
+docker exec -i citymanager-dashboard python /app/bnn_reparser.py --apply
 
 echo
 echo "===== COMPLETE HEALTH CHECK ====="
 bash deploy/cmos-health
+
+echo
+echo "===== BACKUP POLICY ====="
+echo "Ensuring validated full PostgreSQL backups run outside routine release windows."
+bash deploy/postgis/install-backup-timer.sh
 
 echo
 echo "===== SAFE MAINTENANCE CLEAN ====="
@@ -170,4 +192,4 @@ echo "Image: $RELEASE_TAG ($expected_id)"
 echo "All City Manager application services are on one tested image."
 echo "Previous release: ${PREVIOUS_RELEASE:-none recorded}"
 echo "Release marker: $STATE_FILE"
-echo "PostGIS/ntfy/Caddy and the n8n platform were not upgraded or pruned; only the tracked BNN workflow was refreshed with its own SQLite backup."
+echo "PostGIS/ntfy/Caddy and the n8n platform were not upgraded. Tracked Watch/BNN workflows update only when changed; routine backup retention was applied."
