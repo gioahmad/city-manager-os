@@ -5,9 +5,6 @@ REPO="${CMOS_REPO:-/opt/city-manager-os}"
 PREVIOUS="${1:-}"
 TARGET="${2:-$(git -C "$REPO" rev-parse HEAD)}"
 MAX_AGE_HOURS="${CMOS_DEPLOY_BACKUP_MAX_AGE_HOURS:-72}"
-RECOVERY_ROOT="${CMOS_DEPLOY_RECOVERY_ROOT:-/var/backups/city-manager-os/deploy-recovery}"
-RECOVERY_RETENTION_DAYS="${CMOS_DEPLOY_RECOVERY_RETENTION_DAYS:-14}"
-RECOVERY_MAX_COUNT="${CMOS_DEPLOY_RECOVERY_MAX_COUNT:-20}"
 
 cd "$REPO"
 
@@ -44,34 +41,6 @@ if [[ "${CMOS_FORCE_FULL_BACKUP:-false}" != "true" && -n "$RETRY_FROM" && -n "$R
   fi
   echo "BACKUP GATE: falling back to normal recovery-point requirements"
 fi
-
-mkdir -p "$RECOVERY_ROOT"
-STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-RECOVERY_DIR="$RECOVERY_ROOT/$STAMP"
-mkdir -p "$RECOVERY_DIR"
-{
-  printf 'created_at=%s\n' "$(date --iso-8601=seconds)"
-  printf 'previous=%s\n' "$PREVIOUS"
-  printf 'target=%s\n' "$TARGET"
-  printf 'branch=%s\n' "$(git branch --show-current 2>/dev/null || true)"
-  printf 'head=%s\n' "$(git rev-parse HEAD)"
-} > "$RECOVERY_DIR/release.txt"
-if [[ -n "$PREVIOUS" ]] && git cat-file -e "$PREVIOUS^{commit}" 2>/dev/null; then
-  git diff --binary "$PREVIOUS" "$TARGET" -- . > "$RECOVERY_DIR/release.diff" 2>/dev/null || true
-else
-  : > "$RECOVERY_DIR/release.diff"
-fi
-chmod -R go-rwx "$RECOVERY_DIR"
-
-find "$RECOVERY_ROOT" -mindepth 1 -maxdepth 1 -type d -mtime "+$RECOVERY_RETENTION_DAYS" -print -exec rm -rf {} + 2>/dev/null || true
-if [[ "$RECOVERY_MAX_COUNT" =~ ^[0-9]+$ ]] && (( RECOVERY_MAX_COUNT > 0 )); then
-  mapfile -t stale_recovery < <(
-    find "$RECOVERY_ROOT" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null |
-      sort -nr | awk -v keep="$RECOVERY_MAX_COUNT" 'NR>keep {sub(/^[^ ]+ /,""); print}'
-  )
-  for old in "${stale_recovery[@]}"; do rm -rf -- "$old"; done
-fi
-echo "RECOVERY RECORD: $RECOVERY_DIR"
 
 force=false
 reason="routine application release"
