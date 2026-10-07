@@ -98,6 +98,12 @@
 {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
 {% if error %}<div class="flash flash-error"><strong>Could not complete that change:</strong> {{ error }}</div>{% endif %}
 
+<div class="watch-page-actions">
+  <a class="primary-button" href="/watchlist?create=1#new-watch">New Watch</a>
+  <a class="secondary-button" href="/alerts?window=all">Find Alerts</a>
+  <a class="secondary-button" href="/subscribers">Recipients</a>
+</div>
+
 <section class="metrics watch-state-metrics" aria-label="Watch status summary">
   <a class="metric" href="/watchlist?state=watching"><span>Watching</span><strong>{{ counts.watching or 0 }}</strong><small>On and ready</small></a>
   <a class="metric" href="/watchlist?state=matching"><span>Matching</span><strong>{{ counts.matching or 0 }}</strong><small>Recent Match in progress</small></a>
@@ -107,11 +113,11 @@
   <a class="metric" href="/watchlist?state=expired"><span>Expired</span><strong>{{ counts.expired or 0 }}</strong><small>End time reached</small></a>
 </section>
 
-<article class="panel watch-health-panel">
-  <div class="panel-head">
+<details class="panel watch-health-panel watch-tool-panel" {% if needs_recipient_watches or health.failed_24h %}open{% endif %}>
+  <summary class="panel-head">
     <div><div class="panel-kicker">CURRENT EVIDENCE</div><h2>Watch and Notification health</h2></div>
     <span class="status {{ health.status_class }}">{{ health.status }}</span>
-  </div>
+  </summary>
   <div class="panel-body watch-health-grid">
     <div><strong>{{ health.routed_now or 0 }}/{{ health.active_now or 0 }}</strong><span>current Watches with a Recipient</span></div>
     <div><strong>{{ health.matches_7d or 0 }}</strong><span>Matches in 7 days</span></div>
@@ -139,13 +145,13 @@
   <div class="watch-health-links">
     <a href="/deliveries">Notification history</a><a href="/alerts">Search all alerts</a><a href="/subscribers">Manage recipients</a>
   </div>
-</article>
+</details>
 
-<article class="panel watch-lab-panel" id="watch-lab">
-  <div class="panel-head">
+<details class="panel watch-lab-panel watch-tool-panel" id="watch-lab">
+  <summary class="panel-head">
     <div><div class="panel-kicker">READ-ONLY DIAGNOSTIC</div><h2>Watch Lab · Why did this match?</h2></div>
     <span class="status healthy">No sends</span>
-  </div>
+  </summary>
   <div class="panel-body watch-lab-body">
     <p class="watch-lab-intro">Choose one saved Watch and one real alert. The Lab runs the same evaluator as the live central matcher, shows every decision gate, and never creates an alert, Match, delivery, or Notification.</p>
     <form class="watch-lab-form" data-watch-lab-form>
@@ -184,13 +190,13 @@
       </div>
     </div>
   </div>
-</article>
+</details>
 
-<article class="panel watch-location-library" id="bulk-watch-builder">
-  <div class="panel-head">
+<details class="panel watch-location-library watch-tool-panel" id="bulk-watch-builder" {% if bulk_context %}open{% endif %}>
+  <summary class="panel-head">
     <div><div class="panel-kicker">REUSABLE WATCH LOCATIONS</div><h2>Create several Watches from a map layer</h2></div>
     {% if bulk_context %}<span class="count-pill">{{ bulk_context.visible_feature_count }} shown</span>{% endif %}
-  </div>
+  </summary>
   <div class="panel-body bulk-watch-body">
     <p class="watch-library-intro">Imported Shapefiles, GeoJSON, KML, and drawn map features stay in the Mapping Center. Choose a layer here to create Watches for its cities, counties, roads, corridors, or other Locations.</p>
     <div class="watch-layer-links">
@@ -304,11 +310,11 @@
     </div>
     {% endif %}
   </div>
-</article>
+</details>
 
-<section id="new-watch" class="grid watch-layout" style="margin-top:16px">
-<article class="panel">
-  <div class="panel-head"><div><div class="panel-kicker">NEW WATCH</div><h2>Five simple steps</h2></div></div>
+<section id="new-watch" class="grid watch-layout watch-primary-layout" style="margin-top:16px">
+<details class="panel watch-create-panel" {% if create_open %}open{% endif %}>
+  <summary class="panel-head"><div><div class="panel-kicker">NEW WATCH</div><h2>Create a Watch</h2></div><span class="count-pill">5 steps</span></summary>
   <div class="panel-body form-panel">
     <form method="post" action="/watchlist/create" class="watch-form watch-editor" data-mode-form>
       {% if prefill.previewed %}
@@ -446,9 +452,9 @@
       </details>
     </form>
   </div>
-</article>
+</details>
 
-<article class="panel">
+<article class="panel watch-saved-panel">
   <div class="panel-head"><div><div class="panel-kicker">MONITOR</div><h2>Saved Watches</h2></div><span class="count-pill">{{ items|length }}</span></div>
   <div class="panel-body">
     <form class="watch-filters" method="get" action="/watchlist">
