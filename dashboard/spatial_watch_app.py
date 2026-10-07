@@ -1091,7 +1091,7 @@ def watch_lab_evaluate(
         for key in (
             "watch_item_uuid", "watch_id", "active", "watch_type", "display_name",
             "search_term", "aliases", "match_mode", "match_field", "min_priority",
-            "address", "municipality", "source_filter", "alert_category_filter",
+            "address", "municipality", "county", "state", "source_filter", "alert_category_filter",
             "starts_at", "expires_at", "nearby_enabled", "radius_ft", "spatial_scope",
             "alert_geometry_ready", "watch_target_ready", "spatial_match_type",
             "spatial_match_reason", "spatial_distance_ft", "distance_ft", "recipients",
@@ -1103,7 +1103,7 @@ def watch_lab_evaluate(
             {
                 "ok": True,
                 "read_only": True,
-                "matcher_version": "watch-matcher-v2",
+                "matcher_version": "watch-matcher-v4",
                 "point_mode": point_mode,
                 "alert": alert,
                 "watch": watch,
