@@ -46,7 +46,7 @@
   <div class="location-results" role="listbox" aria-label="Location results"></div>
   <div class="location-message" aria-live="polite"></div>
 </div>
-<label class="distance-field" {% if kind == 'MUNICIPALITY' %}hidden{% endif %}>Distance
+<label class="distance-field" {% if kind in ['MUNICIPALITY','COUNTY'] %}hidden{% endif %}>Distance
   <select name="radius_ft">
     {% if distance and distance not in [1, 50, 100, 500, 1000, 2640, 5280, 10560, 26400] %}
     <option value="{{ distance }}" selected>Current · {{ distance|round|int }} feet</option>
