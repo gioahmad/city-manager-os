@@ -28,8 +28,8 @@
 {% macro location_picker(query='', kind='TYPED_ADDRESS', source_id='', latitude='', longitude='', selected_label='', distance=5280) %}
 <div class="location-picker" data-location-picker>
   <label>Find a Location
-    <input class="location-search" name="location_query" value="{{ query or '' }}" autocomplete="off" placeholder="Address, county, city/town, parcel, street, or saved map area">
-    <span class="hint">Start typing, then choose a result. A complete address can also be verified directly.</span>
+    <input class="location-search" name="location_query" value="{{ query or '' }}" autocomplete="off" placeholder="Address, parcel, street, municipality, or saved map area">
+    <span class="hint">Start typing, then choose a result. Counties such as Hudson County are supported too. A complete address can also be verified directly.</span>
   </label>
   <input type="hidden" name="location_kind" value="{{ kind or 'TYPED_ADDRESS' }}">
   <input type="hidden" name="location_id" value="{{ source_id or '' }}">
@@ -164,7 +164,7 @@
             <span class="hint">Use a short private name you will recognize later.</span>
           </label>
           {{ mode_choices(prefill.setup_mode, 'What about this alert matters?' if prefill.from_alert else 'Choose one') }}
-          <label>Only from this alert source (optional)
+          <label>Only these alert sources (optional)
             <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Example: BNN">
             <span class="hint">For “any BNN alert in Hudson County,” choose BNN here and Hudson County under Location. Leave topic blank.</span>
           </label>
@@ -329,7 +329,7 @@
             <div>
               <div class="field-label">What should we watch for?</div>
               {{ mode_choices(w.setup_mode) }}
-              <label>Only from this alert source (optional)
+              <label>Only these alert sources (optional)
                 <input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}" placeholder="Example: BNN">
               </label>
             </div>
