@@ -45,3 +45,12 @@ def test_spot_watches_keep_contextual_distance_controls():
         assert label in template
     assert "Use feet for a building, intersection, block, or corridor" in template
     assert "kind in ['MUNICIPALITY','COUNTY']" in template
+
+
+def test_watch_name_is_optional_and_generated_from_rule():
+    source = (ROOT / "spatial_watch_app.py").read_text()
+    template = (ROOT / "templates" / "watchlist.html").read_text()
+    assert "def _automatic_watch_name" in source
+    assert 'display_name: str = Form("")' in source
+    assert 'Created automatically from the rule' in template
+    assert 'if not display_name:' in source
