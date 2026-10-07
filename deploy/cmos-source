@@ -18,7 +18,7 @@ case "$ACTION" in
 
 centralize)
 CHANGE_MARKER="$(mktemp)"
-trap 'rm -f "$CHANGE_MARKER"' RETURN
+trap 'rm -f "$CHANGE_MARKER"' EXIT
 python3 - "$N8N_DB" "$CHANGE_MARKER" "$@" <<'PY'
 import sqlite3, json, sys, uuid, copy, os
 from pathlib import Path
@@ -772,13 +772,13 @@ PY
 
 if [[ "$(cat "$CHANGE_MARKER" 2>/dev/null || echo 1)" == "0" ]]; then
   rm -f "$CHANGE_MARKER"
-  trap - RETURN
+  trap - EXIT
   echo "N8N SOURCE UPDATE: already current — no SQLite backup or restart required."
   "$0" status "$@"
   exit 0
 fi
 rm -f "$CHANGE_MARKER"
-trap - RETURN
+trap - EXIT
 
 docker restart n8n >/dev/null
 sleep 6
