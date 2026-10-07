@@ -73,7 +73,8 @@ def test_watchlist_has_simple_modes_health_and_friendly_errors():
     assert "Send Test Notification" in template
     assert "does not create an alert, Match, or Watch" in template
     assert "Verify full address" in template
-    assert "Address, parcel, street, municipality, or saved map area" in template
+    assert "Optional. Leave blank for anywhere" in template
+    assert "How far around this location?" in template
 
 
 def test_normal_watch_setup_hides_technical_nomenclature_until_advanced():
@@ -210,10 +211,10 @@ def test_alert_can_start_an_editable_watch_draft_without_writing_data():
     assert "Create a Watch from this alert" not in watch_template
     assert "STARTED FROM ALERT" in watch_template
     assert "What about this alert matters?" in watch_template
-    assert "topic, the Location, or both" in watch_template
-    assert "Nothing is saved until you choose Turn On Watch." in watch_template
-    assert 'data-alert-filter="source_filter"' in watch_template
-    assert 'data-alert-filter="alert_category_filter"' in watch_template
+    assert "Keep or clear the source, topic, and location below." in watch_template
+    assert 'name="source_filter"' in watch_template
+    assert 'data-alert-keyword' in watch_template
+    assert "Nothing is saved until" not in watch_template
     assert "watch_from_alert_url" in operations_source
     assert "Create Watch From Alert" in alert_template
     assert "Create Watch From Alert" in map_template
