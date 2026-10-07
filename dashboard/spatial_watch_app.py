@@ -68,6 +68,10 @@ SPATIAL_WATCH_TYPES = [
     "PARCEL",
     "CORRIDOR",
 ]
+LOCATION_RULE_WATCH_TYPES = {
+    "ADDRESS", "FACILITY", "AREA", "POINT", "INTERSECTION", "PLACE",
+    "PARCEL", "CORRIDOR", "TOWN", "COUNTY", "LOCATION_TOPIC",
+}
 BULK_WATCH_LIMIT = 250
 BULK_WATCH_ACTION_LIMIT = 500
 BULK_NO_PROPERTY = "__none__"
@@ -124,6 +128,28 @@ def _automatic_watch_name(
     if pieces:
         return " · ".join(pieces)[:120]
     return "Watch"
+
+
+def _topic_rule_from_existing(
+    current_type: str,
+    requested_type: str,
+    requested_mode: str,
+    requested_field: str,
+) -> tuple[str, str, str | None]:
+    current = str(current_type or "").upper()
+    candidate = str(requested_type or "").upper() or current
+    mode = str(requested_mode or "").upper() or "CONTAINS"
+    field = str(requested_field or "").strip() or None
+    if candidate in LOCATION_RULE_WATCH_TYPES or candidate == "SOURCE":
+        candidate = "PHRASE"
+    if (
+        current in LOCATION_RULE_WATCH_TYPES
+        or current == "SOURCE"
+        or str(field or "").lower() in {"county", "municipality", "source", "geom"}
+    ):
+        mode = "CONTAINS"
+        field = None
+    return candidate or "PHRASE", mode, field
 
 
 def _safe_int(value, default: int = 0) -> int:
@@ -2448,8 +2474,14 @@ def spatial_watch_update(
         if saved_setup_mode == "LOCATION_TOPIC":
             saved_watch_type = "LOCATION_TOPIC"
             saved_search_term = topic
-            saved_match_mode = match_mode
-            saved_match_field = match_field.strip() or None
+            current_type = str(current.get("watch_type") or "").upper()
+            current_field = str(match_field or "").strip().lower()
+            if current_type != "LOCATION_TOPIC" or current_field in {"county", "municipality", "source", "geom"}:
+                saved_match_mode = "CONTAINS"
+                saved_match_field = None
+            else:
+                saved_match_mode = match_mode
+                saved_match_field = match_field.strip() or None
         elif saved_setup_mode == "LOCATION":
             saved_watch_type = (target or {}).get("watch_type") or watch_type.strip().upper() or "ADDRESS"
             saved_search_term = (target or {}).get("label") or (location_query or address).strip()
@@ -2465,14 +2497,18 @@ def spatial_watch_update(
                 saved_match_mode = "CONTAINS"
                 saved_match_field = None
         else:
-            saved_watch_type = "SOURCE" if source_only else (
-                watch_type.strip().upper() or (
-                    current.get("watch_type") if current.get("watch_type") not in {"LOCATION_TOPIC", "SOURCE"} else "PHRASE"
-                ) or "PHRASE"
-            )
             saved_search_term = topic
-            saved_match_mode = "FIELD" if source_only else match_mode
-            saved_match_field = "source" if source_only else (match_field.strip() or None)
+            if source_only:
+                saved_watch_type = "SOURCE"
+                saved_match_mode = "FIELD"
+                saved_match_field = "source"
+            else:
+                saved_watch_type, saved_match_mode, saved_match_field = _topic_rule_from_existing(
+                    str(current.get("watch_type") or ""),
+                    watch_type,
+                    match_mode,
+                    match_field,
+                )
         validate_watch(saved_match_mode, saved_match_field, min_priority)
         saved_category_filter = csv_array(alert_category_filter)
 
