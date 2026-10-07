@@ -1132,6 +1132,8 @@ def watch_location_search(q: str = ""):
     if len(needle) < 2:
         return {"items": []}
     like = f"%{needle}%"
+    county_needle = re.sub(r"\s+County$", "", needle, flags=re.I).strip()
+    county_like = f"%{county_needle or needle}%"
     items: list[dict] = []
     items.extend(
         query_all(
@@ -1231,7 +1233,7 @@ def watch_location_search(q: str = ""):
             ORDER BY total DESC,label
             LIMIT 6
             """,
-            (like,),
+            (county_like,),
         )
     )
     items.extend(
