@@ -149,7 +149,7 @@ def test_mapping_center_previews_and_reuses_canonical_references():
     assert "if(key==='watchlist')addWatchCenter(feature,layer)" in template
     assert "if(key==='watchlist')removeLayer('watch-centers')" in template
     assert "/api/spatial-watch-point/nearby-history" in template
-    assert "Create One-Mile Watch" in template
+    assert "Create Watch Here" in template
     assert "Search Visible Area" in template
     assert "View nearby alert history data" in watchlist
     assert "Only these alert sources" in watchlist
