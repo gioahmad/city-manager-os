@@ -101,7 +101,7 @@ def test_every_map_feature_has_a_stable_click_and_details_contract():
     assert "interactive:false,bubblingMouseEvents:false" in template
     assert "if(map._popup)return" in template
     assert "map.on('click',ev=>" in template
-    assert "Create One-Mile Watch" in template
+    assert "Create Watch Here" in template
     assert ".map-selected-feature" in stylesheet
     assert ".leaflet-interactive{cursor:pointer}" in stylesheet
 
