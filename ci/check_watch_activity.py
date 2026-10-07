@@ -221,9 +221,10 @@ for show in (False,True):
         assert ('Why you received this:' in item['json']['ntfy_body']['message']) is show
         assert item['json']['match_reasons']==bundle['delivery_payloads'][0]['match_reasons']
         if not show:assert item['json']['ntfy_body']['message']=='Original body'
+os.environ.update(CMOS_READONLY_USERNAME='ReadOnly',CMOS_READONLY_PASSWORD_HASH='unused-test-hash')
 readonly = auth._issue_session(auth.Account('ReadOnly','READ_ONLY',''))
 denied = client.post('/watchlist/notification-settings',data={'explanations':'off'},headers={**headers,'Cookie':auth.COOKIE_NAME+'='+readonly},follow_redirects=False)
-assert denied.status_code==403
+assert denied.status_code==403,(denied.status_code,denied.text)
 assert sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']['notification_explanations'] is True
 print('GLOBAL NOTIFICATION OPTIONS PASS: real settings + central sender; all sources/recipients on/off, original body and evidence retained, read-only denied, no send')
 
