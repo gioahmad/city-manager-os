@@ -278,14 +278,22 @@ def watch_preview(
             prepared["pipe_fields"] = prepared.pop("_pipe", {})
             matches.append(prepared)
 
+    geography = rule["field"] in {"county", "municipality"}
     builder = {
         "display_name": (
             f"{rule['source'] + ' · ' if rule['source'] else ''}"
             f"{rule['field'].replace('_', ' ').title()} · {rule['term']}"
         )[:140],
-        "setup_mode": "TOPIC",
-        "search_term": rule["term"],
-        "aliases": ",".join(rule["aliases"]),
+        "setup_mode": "LOCATION" if geography else "TOPIC",
+        "search_term": "" if geography else rule["term"],
+        "aliases": "" if geography else ",".join(rule["aliases"]),
+        "location_query": rule["term"] if geography else "",
+        "location_kind": (
+            "COUNTY" if rule["field"] == "county"
+            else "MUNICIPALITY" if rule["field"] == "municipality"
+            else ""
+        ),
+        "location_id": rule["term"] if geography else "",
         "source_filter": rule["source"],
         "alert_category_filter": rule["category"] if rule["field"] != "category" else "",
         "match_mode": rule["mode"],
