@@ -62,10 +62,12 @@ restore_matcher(){
 trap restore_matcher ERR
 
 cd "$REPO"
-[[ "$(git branch --show-current)" == main ]] || fail "production checkout must be on main"
 [[ -z "$(git status --porcelain)" ]] || fail "repository must be clean"
-[[ -z "$EXPECTED_TARGET" || "$(git rev-parse HEAD)" == "$EXPECTED_TARGET" ]] \
-  || fail "HEAD does not match expected target"
+if [[ -n "$EXPECTED_TARGET" ]]; then
+  [[ "$(git rev-parse HEAD)" == "$EXPECTED_TARGET" ]] || fail "HEAD does not match expected target"
+else
+  [[ "$(git branch --show-current)" == main ]] || fail "production checkout must be on main when no tested target is supplied"
+fi
 [[ -s "$MATCHER_FILE" ]] || fail "matcher definition is missing"
 [[ -s "$MATCHER_SOURCE" ]] || fail "shared matcher source is missing"
 for container in n8n citymanager-postgis; do
