@@ -28,7 +28,7 @@
 {% macro location_picker(query='', kind='TYPED_ADDRESS', source_id='', latitude='', longitude='', selected_label='', distance=5280) %}
 <div class="location-picker" data-location-picker>
   <label>Find a Location
-    <input class="location-search" name="location_query" value="{{ query or '' }}" autocomplete="off" placeholder="County, city/town, address, intersection, street, parcel, or saved area">
+    <input class="location-search" name="location_query" value="{{ query or '' }}" autocomplete="off" placeholder="County, city/town, address, street, parcel, or saved area">
     <span class="hint">Optional. Leave blank for anywhere. Counties and cities use their boundary; addresses, intersections, points, parcels, and places can use a distance.</span>
   </label>
   <input type="hidden" name="location_kind" value="{{ kind or 'TYPED_ADDRESS' }}">
@@ -37,7 +37,7 @@
   <input type="hidden" name="longitude" value="{{ longitude or '' }}">
   <div class="location-search-actions">
     <button class="secondary-button verify-location" type="button">Verify full address</button>
-    <a class="secondary-button" href="/map" data-cmos-quicklook data-cmos-title="Choose Watch Location">Choose on map</a>
+    <a class="secondary-button" href="/map" data-cmos-quicklook data-cmos-title="Choose Watch Location">Choose exact point on map</a>
   </div>
   <div class="location-selected" data-location-selected {% if not selected_label and not latitude %}hidden{% endif %}>
     <strong>Selected Location</strong>
@@ -132,10 +132,10 @@
       <aside class="watch-from-alert">
         <div class="panel-kicker">STARTED FROM ALERT</div>
         <strong>{{ prefill.source_alert_title }}</strong>
-        <span>We carried over the useful parts. You can simplify them before saving.</span>
+        <span>What about this alert matters? Keep or clear the source, topic, and location below.</span>
         {% if prefill.keyword_choices %}
         <div class="alert-keyword-picker" data-alert-keywords>
-          <span>Use any of these phrases</span>
+          <span>Keywords: use any of these phrases</span>
           <div class="alert-keyword-choices">
             {% for keyword in prefill.keyword_choices %}
             <label><input type="checkbox" name="alert_keywords" value="{{ keyword }}" data-alert-keyword {% if keyword in prefill.selected_keywords %}checked{% endif %}> {{ keyword }}</label>
@@ -151,15 +151,10 @@
         <div class="simple-watch-number">1</div>
         <div>
           <h3>What should we watch for?</h3>
-          <div class="form-grid two-col">
-            <label>Watch name
-              <input name="display_name" value="{{ prefill.display_name }}" required placeholder="Example: BNN · Hudson County">
-            </label>
-            <label>Source
-              <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Any source">
-              <span class="hint">Example: BNN. Leave blank for every source.</span>
-            </label>
-          </div>
+          <label>Source <span class="optional-label">optional</span>
+            <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Any source">
+            <span class="hint">Example: BNN. Leave blank for every source.</span>
+          </label>
           <label>Topic or phrase <span class="optional-label">optional</span>
             <input name="search_term" value="{{ prefill.search_term }}" data-primary-keyword placeholder="Example: working fire, road closure, water main">
             <span class="hint">Leave blank if the source and/or location alone is what you want.</span>
@@ -171,7 +166,7 @@
         <div class="simple-watch-number">2</div>
         <div>
           <h3>Where should we watch?</h3>
-          <p class="hint simple-watch-intro">Leave this blank for anywhere. Counties such as Hudson County are supported too. Type Hudson County, Jersey City, Weehawken, an address, intersection, street, parcel, or saved map area and choose the result.</p>
+          <p class="hint simple-watch-intro">Leave this blank for anywhere. Counties such as Hudson County are supported too. Type a county, city/town, address, street, parcel, or saved area. For an exact intersection or spot, choose it on the map, then pick the distance.</p>
           {{ location_picker(prefill.location_query, prefill.location_kind, prefill.location_id, prefill.latitude, prefill.longitude, prefill.location_query, 5280) }}
         </div>
       </section>
@@ -193,6 +188,9 @@
       <details class="advanced-options simple-watch-more">
         <summary>More options</summary>
         <div class="watch-form compact advanced-options-body">
+          <label>Watch name <span class="optional-label">optional</span>
+            <input name="display_name" value="{{ prefill.display_name }}" placeholder="Created automatically from the rule">
+          </label>
           <label>Also match these phrases <span class="optional-label">optional</span>
             <input name="aliases" value="{{ prefill.aliases or '' }}" placeholder="Example: structure fire, 2nd alarm">
           </label>
