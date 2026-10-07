@@ -413,7 +413,8 @@ def calendars(client, token: str, account: dict, owner: str) -> list[dict]:
     with db_conn() as c:
         c.execute('DELETE FROM workspace_microsoft_calendars WHERE owner_username=%s', (owner,))
         for entry in entries:
-            c.execute('INSERT INTO workspace_microsoft_calendars(owner_username,calendar_key,name,can_edit) VALUES(%s,%s,%s,%s)',
+            c.execute('''INSERT INTO workspace_microsoft_calendars(owner_username,calendar_key,name,can_edit) VALUES(%s,%s,%s,%s)
+                ON CONFLICT(owner_username,calendar_key) DO UPDATE SET name=EXCLUDED.name,can_edit=EXCLUDED.can_edit''',
                       (owner, entry['calendar_key'], entry['name'], entry['can_edit']))
     return entries
 
