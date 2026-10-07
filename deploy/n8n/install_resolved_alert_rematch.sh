@@ -10,9 +10,46 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="$BACKUP_ROOT/$STAMP"
 TMP="/tmp/CORE_Resolved_Spatial_Rematch_${STAMP}.json"
 TMP_BACKUP="/tmp/CORE_Resolved_Spatial_Rematch_pre_${STAMP}.json"
+PUBLISHED=0
 
 log(){ printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
 fail(){ log "ERROR: $*"; exit 1; }
+
+wait_ready(){
+  for _ in $(seq 1 60); do
+    if docker exec n8n node -e "fetch('http://127.0.0.1:5678/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+publish_workflow(){
+  if docker exec -u node n8n n8n publish:workflow --help >/dev/null 2>&1; then
+    docker exec -u node n8n n8n publish:workflow --id="$WORKFLOW_ID" >/dev/null
+  else
+    docker exec -u node n8n n8n update:workflow --id="$WORKFLOW_ID" --active=true >/dev/null
+  fi
+}
+
+restore_previous(){
+  local rc=$?
+  trap - ERR
+  if (( PUBLISHED == 1 )) && [[ -s "$BACKUP_DIR/workflow.json" ]]; then
+    log "ROLLBACK: restoring previous resolved-alert rematch workflow"
+    docker cp "$BACKUP_DIR/workflow.json" "n8n:$TMP_BACKUP" >/dev/null 2>&1 || true
+    docker exec -u root n8n chown node:node "$TMP_BACKUP" >/dev/null 2>&1 || true
+    docker exec -u root n8n chmod 600 "$TMP_BACKUP" >/dev/null 2>&1 || true
+    docker exec -u node n8n n8n import:workflow --input="$TMP_BACKUP" >/dev/null 2>&1 || true
+    publish_workflow >/dev/null 2>&1 || true
+    docker restart n8n >/dev/null 2>&1 || true
+    wait_ready >/dev/null 2>&1 || true
+  fi
+  log "Resolved-alert rematch install failed rc=$rc"
+  exit "$rc"
+}
+trap restore_previous ERR
 
 cd "$REPO"
 [[ -z "$(git status --porcelain)" ]] || fail "repository must be clean"
@@ -75,20 +112,11 @@ docker cp "$TMP" "n8n:$TMP"
 docker exec -u root n8n chown node:node "$TMP"
 docker exec -u root n8n chmod 600 "$TMP"
 docker exec -u node n8n n8n import:workflow --input="$TMP" >/dev/null
-
-if docker exec -u node n8n n8n publish:workflow --help >/dev/null 2>&1; then
-  docker exec -u node n8n n8n publish:workflow --id="$WORKFLOW_ID" >/dev/null
-else
-  docker exec -u node n8n n8n update:workflow --id="$WORKFLOW_ID" --active=true >/dev/null
-fi
+PUBLISHED=1
+publish_workflow
 
 docker restart n8n >/dev/null
-for _ in $(seq 1 60); do
-  if docker exec n8n node -e "fetch('http://127.0.0.1:5678/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 2
-done
+wait_ready || fail "n8n did not become healthy after resolved rematch publish"
 
 python3 - "$N8N_DB" "$WORKFLOW_ID" <<'PY'
 import json,sqlite3,sys
@@ -114,4 +142,6 @@ mapfile -t stale < <(
 )
 for path in "${stale[@]}"; do rm -rf -- "$path"; done
 
+PUBLISHED=0
+trap - ERR
 log "Resolved-alert rematch installed"
