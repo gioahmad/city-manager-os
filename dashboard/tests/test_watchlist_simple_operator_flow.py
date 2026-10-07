@@ -54,3 +54,13 @@ def test_watch_name_is_optional_and_generated_from_rule():
     assert 'display_name: str = Form("")' in source
     assert 'Created automatically from the rule' in template
     assert 'if not display_name:' in source
+
+
+def test_simple_edit_resets_location_rules_when_becoming_topic_only():
+    source = (ROOT / "spatial_watch_app.py").read_text()
+    assert "LOCATION_RULE_WATCH_TYPES" in source
+    assert "def _topic_rule_from_existing" in source
+    assert 'candidate = "PHRASE"' in source
+    assert 'mode = "CONTAINS"' in source
+    assert 'field = None' in source
+    assert 'current_type != "LOCATION_TOPIC"' in source
