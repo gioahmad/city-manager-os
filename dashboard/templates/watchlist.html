@@ -568,6 +568,9 @@
         </details>
 
         <div class="watch-card-actions">
+          <a class="secondary-button" href="/watchlist?evidence={{ w.id }}&evidence_view=matched#watch-evidence">Matched Alerts</a>
+          <a class="secondary-button" href="/watchlist?evidence={{ w.id }}&evidence_view=notified#watch-evidence">Notifications</a>
+          {% if w.historical_preview_url %}<a class="secondary-button" href="{{ w.historical_preview_url }}">Could Have Matched</a>{% endif %}
           <a class="secondary-button" href="/context/WATCH/{{ w.id }}" data-cmos-quicklook data-cmos-title="{{ w.display_name|e }}">Open Context</a>
           <form method="post" action="/watchlist/{{ w.id }}/toggle">
             {% if w.state_label in ['Paused','Expired'] %}<input type="hidden" name="action" value="reactivate"><button class="secondary-button" type="submit">Reactivate Watch</button>{% else %}<input type="hidden" name="action" value="pause"><button class="secondary-button" type="submit">Pause Watch</button>{% endif %}
@@ -588,6 +591,76 @@
     </div>
   </div>
 </article>
+
+{% if evidence_watch %}
+<article class="panel" id="watch-evidence" style="margin-top:16px">
+  <div class="panel-head">
+    <div>
+      <div class="panel-kicker">WATCH EVIDENCE</div>
+      <h2>{{ evidence_watch.display_name }}</h2>
+    </div>
+    <span class="count-pill">{{ evidence_rows|length }}</span>
+  </div>
+  <div class="panel-body">
+    <div class="watch-card-actions" style="margin-bottom:12px">
+      <a class="secondary-button {% if evidence_view == 'matched' %}active{% endif %}" href="/watchlist?evidence={{ evidence_watch.id }}&evidence_view=matched#watch-evidence">Matched Alerts</a>
+      <a class="secondary-button {% if evidence_view == 'notified' %}active{% endif %}" href="/watchlist?evidence={{ evidence_watch.id }}&evidence_view=notified#watch-evidence">Notifications</a>
+      {% if evidence_watch.historical_preview_url %}<a class="secondary-button" href="{{ evidence_watch.historical_preview_url }}">Could Have Matched</a>{% endif %}
+    </div>
+
+    <form class="watch-filters" method="get" action="/watchlist">
+      <input type="hidden" name="evidence" value="{{ evidence_watch.id }}">
+      <input type="hidden" name="evidence_view" value="{{ evidence_view }}">
+      <input name="evidence_q" value="{{ evidence_q }}" placeholder="Search alert ID, title, message, county, city{% if evidence_view == 'notified' %}, recipient, status{% endif %}">
+      <button class="secondary-button" type="submit">Search Evidence</button>
+    </form>
+
+    <p class="hint">
+      {% if evidence_view == 'matched' %}
+      These are stored Match records: alerts that actually triggered this Watch.
+      {% else %}
+      These are delivery records tied to this Watch, including sent, suppressed, failed, or pending attempts.
+      {% endif %}
+      “Could Have Matched” is read-only historical evaluation and creates no Match or Notification.
+    </p>
+
+    <div class="data-list">
+      {% for row in evidence_rows %}
+      <article class="data-row">
+        <div>
+          <strong>{{ row.title or row.alert_id }}</strong>
+          <div class="meta">
+            {{ row.source }} · {{ row.alert_id }}
+            {% if row.county %} · {{ row.county }} County{% endif %}
+            {% if row.municipality %} · {{ row.municipality }}{% endif %}
+          </div>
+          <div class="meta">
+            {% if evidence_view == 'matched' %}
+              Matched {{ row.matched_at.strftime('%m/%d/%Y %I:%M %p') }}
+              {% if row.match_type %} · {{ row.match_type }}{% endif %}
+              {% if row.match_reason %} · {{ row.match_reason }}{% endif %}
+            {% else %}
+              {{ row.status|title }} · {{ (row.sent_at or row.attempted_at or row.created_at).strftime('%m/%d/%Y %I:%M %p') }}
+              {% if row.recipient_name %} · {{ row.recipient_name }}{% endif %}
+              {% if row.error_message %} · {{ row.error_message }}{% endif %}
+            {% endif %}
+          </div>
+          {% if row.message %}<div class="meta">{{ row.message[:400] }}{% if row.message|length > 400 %}…{% endif %}</div>{% endif %}
+        </div>
+        <div class="watch-card-actions">
+          <a class="secondary-button" href="/alerts?q={{ row.alert_id|urlencode }}&window=all&state=all">Open Alert</a>
+        </div>
+      </article>
+      {% else %}
+      <div class="empty-state">
+        <strong>No {{ 'matches' if evidence_view == 'matched' else 'notifications' }} found.</strong>
+        <span>{% if evidence_q %}Try a broader evidence search.{% else %}This Watch has no stored evidence in this view yet.{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</article>
+{% endif %}
 </section>
 
 <datalist id="alert-source-values">{% for value in alert_sources %}<option value="{{ value.source }}">{% endfor %}</datalist>
