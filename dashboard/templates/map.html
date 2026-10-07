@@ -342,7 +342,7 @@ function spatialActions(feature,layer,key){
     const params={display_name:label,location_query:label,setup_mode:'LOCATION'};
     if(locationKind&&locationId){params.location_kind=locationKind;params.location_id=locationId;}
     else if(center){params.location_kind='MAP_POINT';params.latitude=center.lat;params.longitude=center.lng;}
-    if((locationKind&&locationId)||center)wrap.appendChild(actionLink('Create One-Mile Watch','/watchlist?'+new URLSearchParams(params)));
+    if((locationKind&&locationId)||center)wrap.appendChild(actionLink('Create Watch Here','/watchlist?'+new URLSearchParams(params)));
     if(key==='spatial-references'&&merged.entity_id){const referenceLabel=String(merged.entity_type||'').toUpperCase()==='CORRIDOR'?'Watch This Corridor':'Watch This Reference';wrap.appendChild(actionLink(referenceLabel,'/spatial-reference/'+encodeURIComponent(merged.entity_id)));}
   }
   return wrap.childNodes.length?wrap:null;
@@ -374,7 +374,7 @@ function selectedFeatureContext(feature,layer,key,layerName){
   return card;
 }
 function showSelectedFeature(feature,layer,key,layerName){const id=featureIdentity(feature,key);if(alertLocationEditor&&(selectedMapFeature?.key!==key||selectedMapFeature?.id!==id))clearAlertLocationEditor();selectedMapFeature={key,id};selectedTitle.textContent=featureTitle(feature,key,layerName);selectedLayer.textContent=layerName;selectedDetails.replaceChildren(selectedFeatureContext(feature,layer,key,layerName),featureContent(feature,layer,key));status(layerName+' selected');}
-function locationContent(latlng){const popup=document.createElement('div');popup.className='map-popup';const row=document.createElement('div');const strong=document.createElement('strong');strong.textContent='Coordinates: ';const span=document.createElement('span');span.textContent=latlng.lat.toFixed(6)+', '+latlng.lng.toFixed(6);row.append(strong,span);const actions=document.createElement('div');actions.className='map-layer-actions';actions.appendChild(actionLink('Create One-Mile Watch','/watchlist?'+new URLSearchParams({display_name:'Map location watch',latitude:latlng.lat,longitude:latlng.lng,location_kind:'MAP_POINT',setup_mode:'LOCATION'})));popup.append(row,actions);return popup;}
+function locationContent(latlng){const popup=document.createElement('div');popup.className='map-popup';const row=document.createElement('div');const strong=document.createElement('strong');strong.textContent='Coordinates: ';const span=document.createElement('span');span.textContent=latlng.lat.toFixed(6)+', '+latlng.lng.toFixed(6);row.append(strong,span);const actions=document.createElement('div');actions.className='map-layer-actions';actions.appendChild(actionLink('Create Watch Here','/watchlist?'+new URLSearchParams({display_name:'Map location watch',latitude:latlng.lat,longitude:latlng.lng,location_kind:'MAP_POINT',setup_mode:'LOCATION'})));popup.append(row,actions);return popup;}
 function showSelectedLocation(latlng){if(alertLocationEditor)clearAlertLocationEditor();selectedMapFeature=null;selectedTitle.textContent='Map location';selectedLayer.textContent='Selected coordinates';selectedDetails.replaceChildren(locationContent(latlng));status('Map location selected');}
 function refreshFeatureOrder(){
   const customKeys=Object.keys(groups).filter(key=>key.startsWith('custom-')&&groups[key] instanceof L.GeoJSON);
