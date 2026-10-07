@@ -58,6 +58,13 @@ def _county_name(value: str) -> str:
     return re.sub(r"\s+COUNTY$", "", _normalize(value), flags=re.I).strip()
 
 
+def _geography_key(field: str, value) -> str:
+    text = _normalize(value)
+    if field == "county":
+        text = re.sub(r"\s+COUNTY$", "", text, flags=re.I).strip()
+    return text
+
+
 def _pipe_fields(alert: dict) -> dict:
     """Read BNN pipe segments by semantic value; field order is intentionally ignored."""
     if str(alert.get("source") or "").upper() != "BNN":
@@ -141,7 +148,16 @@ def _matches(alert: dict, rule: dict) -> tuple[bool, str]:
             continue
         mode = rule["mode"]
         if mode in {"FIELD", "EXACT"}:
-            matched = haystack == needle
+            if rule["field"] in {"county", "municipality"}:
+                direct = _geography_key(rule["field"], prepared.get(rule["field"]))
+                wanted = _geography_key(rule["field"], candidate)
+                pipe_values = [
+                    _geography_key(rule["field"], value)
+                    for value in (prepared.get("_pipe") or {}).get("segments", [])
+                ] if _normalize(prepared.get("source")) == "BNN" else []
+                matched = bool(wanted and (direct == wanted or wanted in pipe_values))
+            else:
+                matched = haystack == needle
         elif mode == "WORD":
             matched = bool(re.search(r"(^|\s)" + re.escape(needle) + r"(?=\s|$)", haystack))
         else:
