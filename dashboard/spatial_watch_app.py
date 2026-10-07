@@ -1491,13 +1491,6 @@ def spatial_watchlist(
             or (row.get("municipality") if row["location_kind"] == "MUNICIPALITY" else "")
             or (row.get("county") if row["location_kind"] == "COUNTY" else "")
         )
-        row["keyword_choices"] = list(
-            dict.fromkeys(
-                value
-                for value in [row.get("search_term"), *(row.get("aliases") or [])]
-                if value
-            )
-        ) if row["setup_mode"] != "LOCATION" else []
         row["historical_preview_url"] = _saved_watch_preview_url(row)
 
     state_aliases = {
