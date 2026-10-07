@@ -249,11 +249,13 @@ def prepare_contact(owner, data):
     patch = {k: v for k, v in patch.items() if v != remote.get(k)}
     if not patch:
         raise HTTPException(400, 'No contact changes to push.')
+    # Graph can recalculate displayName during other updates unless it is supplied.
+    patch.setdefault('displayName', remote.get('displayName') or local['name'])
     payload = {'path': contact_path(row['provider_key']), 'json': patch, 'etag': remote.get('@odata.etag'),
                'remote_digest': ms.digest(remote), 'contact_id': str(row['id']), 'local': local,
                'account_email': account['account_email'], 'provider_key': row['provider_key']}
     review = {'operation': 'CONTACT_UPDATE', 'title': row['name'], 'account_email': account['account_email'],
-              'changes': [{'field': k, 'before': remote.get(k), 'after': v} for k, v in patch.items()],
+              'changes': [{'field': k, 'before': remote.get(k), 'after': v} for k, v in patch.items() if v != remote.get(k)],
               'warning': 'Only the listed Outlook fields will change. Local notes, tags and access settings stay in City Manager OS.'}
     with db_conn() as c:
         stored = c.execute('''INSERT INTO workspace_microsoft_operations(owner_username,request_id,fingerprint,operation,account_email,payload,review)

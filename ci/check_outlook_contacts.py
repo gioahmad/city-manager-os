@@ -44,6 +44,10 @@ with TestClient(application,base_url='https://fixture.example.com') as client:
     assert len(provider.writes)==before+1
     with core.db_conn() as c:c.execute('UPDATE contacts SET title=%s WHERE id=%s',('Deputy',contact_id))
     op=prepare();provider.contacts['contact-jane']['changeKey']='external-change'
+    with core.db_conn() as c:
+        stored=c.execute('SELECT payload FROM workspace_microsoft_operations WHERE id=%s',(op['id'],)).fetchone()
+    executable=json.loads(calendar.cipher().decrypt(stored['payload'].encode()))
+    assert executable['json']['displayName']==provider.contacts['contact-jane']['displayName']
     result=client.post(base+'execute',json={'csrf':csrf,'operation_id':op['id'],'confirmed':True}).json()
     assert result['status']=='FAILED' and len(provider.writes)==before+1
     op=prepare()
