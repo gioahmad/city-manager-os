@@ -155,7 +155,7 @@
       {% endif %}
       {% if prefill.from_alert or prefill.from_record %}
       <aside class="watch-from-alert">
-        <div class="panel-kicker">STARTED FROM {{ 'INTELLIGENCE' if prefill.from_record else 'ALERT' }}</div>
+        <div class="panel-kicker">{% if prefill.from_record %}STARTED FROM INTELLIGENCE{% else %}STARTED FROM ALERT{% endif %}</div>
         <strong>{{ prefill.source_alert_title }}</strong>
         <span>What about this alert matters? Keep or clear the source, topic, and location below.</span>
         {% if prefill.keyword_choices %}

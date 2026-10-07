@@ -6,14 +6,14 @@ WITH records AS (
          'WORK'::text AS category,i.item_type AS subtype,i.title,
          concat_ws(' · ',nullif(i.description,''),nullif(i.next_action,'')) AS message,
          greatest(1,least(coalesce(i.priority,1),5)) AS priority,
-         i.municipality,NULL::text AS county,
+         i.municipality,a.county AS county,
          coalesce(i.address,i.employee_location,a.fulladdr) AS address,
          coalesce(i.geom,a.geom) AS geom,i.updated_at AS changed_at,
          '/context/issue/'||i.id AS click_url,NULL::text AS source_url,
          ARRAY['mapped-activity','work']::text[] AS tags,NULL::timestamptz AS expires_at
   FROM issues i
   LEFT JOIN LATERAL (
-    SELECT ga.geom,ga.fulladdr FROM gis_addresses ga
+    SELECT ga.geom,ga.fulladdr,ga.county FROM gis_addresses ga
     WHERE nullif(btrim(coalesce(i.address,i.employee_location,'')),'') IS NOT NULL
       AND lower(btrim(ga.fulladdr))=lower(btrim(coalesce(i.address,i.employee_location,'')))
     ORDER BY CASE WHEN ga.status='A' THEN 0 ELSE 1 END,ga.objectid LIMIT 1
@@ -61,18 +61,22 @@ WITH records AS (
   FROM transit_assets v
   WHERE v.active AND v.asset_type='VEHICLE' AND v.last_seen_at>=now()-interval '20 minutes'
 ), candidates AS (
-  SELECT r.*,md5(jsonb_build_array(r.title,r.message,r.priority,r.tags,r.click_url,r.expires_at,ST_AsEWKT(r.geom))::text) AS fingerprint
+  SELECT r.*,md5(jsonb_build_array(r.title,r.message,r.priority,r.tags,r.click_url,r.expires_at,r.municipality,r.county,ST_AsEWKT(r.geom))::text) AS fingerprint
   FROM records r
   WHERE r.geom IS NOT NULL AND r.changed_at>=TIMESTAMPTZ '__CMOS_ACTIVATED_AT__'
     AND (r.expires_at IS NULL OR r.expires_at>now())
     AND EXISTS (
       SELECT 1 FROM watch_items w
-      WHERE w.active AND w.nearby_enabled AND w.spatial_geom IS NOT NULL
+      WHERE w.active
         AND (w.starts_at IS NULL OR w.starts_at<=now())
         AND (w.expires_at IS NULL OR w.expires_at>now())
-        AND CASE WHEN w.spatial_scope='RADIUS'
-          THEN ST_DWithin(r.geom::geography,coalesce(w.spatial_target_geom,w.geom)::geography,w.radius_ft*0.3048)
-          ELSE ST_Intersects(r.geom,w.spatial_geom) END
+        AND (CASE WHEN w.nearby_enabled AND w.spatial_geom IS NOT NULL THEN
+          CASE WHEN w.spatial_scope='RADIUS'
+            THEN ST_DWithin(r.geom::geography,coalesce(w.spatial_target_geom,w.geom)::geography,w.radius_ft*0.3048)
+            ELSE ST_Intersects(r.geom,w.spatial_geom) END
+          ELSE false END
+          OR (w.watch_type='TOWN' AND upper(btrim(w.municipality))=upper(btrim(r.municipality)))
+          OR (w.watch_type='COUNTY' AND upper(btrim(w.county))=upper(btrim(r.county))))
     )
 ), pending AS (
   SELECT c.* FROM candidates c LEFT JOIN alerts a ON a.alert_id=c.alert_id
