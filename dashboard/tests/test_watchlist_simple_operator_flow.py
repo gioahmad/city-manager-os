@@ -36,3 +36,12 @@ def test_location_picker_is_optional_in_simple_flow():
     template = (ROOT / "templates" / "watchlist.html").read_text()
     assert "Optional. Leave blank for anywhere" in template
     assert "(not selected_label and not latitude)" in template
+
+
+def test_spot_watches_keep_contextual_distance_controls():
+    template = (ROOT / "templates" / "watchlist.html").read_text()
+    assert "How far around this location?" in template
+    for label in ("50 feet", "100 feet", "500 feet", "1,000 feet", "Half mile", "1 mile", "2 miles", "5 miles"):
+        assert label in template
+    assert "Use feet for a building, intersection, block, or corridor" in template
+    assert "kind in ['MUNICIPALITY','COUNTY']" in template
