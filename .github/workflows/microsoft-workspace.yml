@@ -1,7 +1,7 @@
 name: Microsoft workspace verification
 on:
   push:
-    branches: [microsoft-workspace-actions, watch-preview-bnn-pipes, unified-email-alerts-release, bnn-geography-watch-fix]
+    branches: [microsoft-workspace-actions, watch-preview-bnn-pipes, unified-email-alerts-release, bnn-geography-watch-fix, watchlist-simple-operator-flow]
   pull_request:
     branches: [workspace-cohesion-alert-geofilters]
   workflow_dispatch:
