@@ -111,8 +111,8 @@ if [[ -f deploy/postgis/.env ]]; then
   set -a; source deploy/postgis/.env; set +a
 fi
 BACKUP_DIR="${BACKUP_DIR:-$REPO/deploy/postgis/backups}"
-RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
-MAX_LOCAL_COUNT="${BACKUP_MAX_LOCAL_COUNT:-3}"
+RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-10}"
+MAX_LOCAL_COUNT="${BACKUP_MAX_LOCAL_COUNT:-2}"
 printf 'Configured DB backup directory: %s\n' "$BACKUP_DIR"
 printf 'Configured retention: %s days\n' "$RETENTION_DAYS"
 du -sh "$BACKUP_DIR" 2>/dev/null || true
@@ -125,6 +125,8 @@ N8N_DIR="$(docker inspect n8n --format '{{range .Mounts}}{{if eq .Destination "/
 if [[ -n "$N8N_DIR" ]]; then
   du -sh "$N8N_DIR" 2>/dev/null || true
   [[ -f "$N8N_DIR/database.sqlite" ]] && ls -lh "$N8N_DIR/database.sqlite"
+  printf '\nTracked n8n source-update backups:\n'
+  find "$N8N_DIR" -maxdepth 1 -type f -name 'database.sqlite.before_cmos_sources_*' -printf '%TY-%Tm-%Td %TH:%TM %s %p\n' 2>/dev/null | sort -r | head -20 || true
 fi
 docker inspect citymanager-intake --format 'intake image={{.Image}} status={{.State.Status}} restarts={{.RestartCount}}' 2>/dev/null || true
 
