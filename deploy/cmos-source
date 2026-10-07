@@ -444,22 +444,6 @@ for stale in backups[2:]:
 
 print("BACKUP:", backup)
 
-backups = sorted(
-    (
-        path for path in os.listdir(os.path.dirname(db))
-        if path.startswith(os.path.basename(db) + ".before_cmos_sources_")
-    ),
-    reverse=True,
-)
-for old_name in backups[2:]:
-    old_path = os.path.join(os.path.dirname(db), old_name)
-    try:
-        if (datetime.now().timestamp() - os.path.getmtime(old_path)) > 7 * 86400:
-            os.remove(old_path)
-            print("PRUNED OLD SOURCE BACKUP:", old_path)
-    except FileNotFoundError:
-        pass
-
 template = cur.execute(
     "SELECT * FROM workflow_entity WHERE id=?",
     (NHRFR_ID,)
