@@ -28,7 +28,7 @@ cat > "$TIMER" <<'EOF'
 Description=Nightly City Manager OS full backup
 
 [Timer]
-OnCalendar=*-*-* 03:20:00
+OnCalendar=*-*-* 03:20:00 America/New_York
 RandomizedDelaySec=20m
 Persistent=true
 Unit=city-manager-os-full-backup.service
