@@ -2,6 +2,7 @@
 import ast
 import json
 import re
+import shutil
 import subprocess
 import unicodedata
 from pathlib import Path
@@ -48,10 +49,11 @@ def test_term_list_and_live_preview_parity():
     assert [scope['_matches'](alert, rule)[0] for alert in cases] == expected
     watch = {'active': True, 'watch_type': 'PHRASE', 'search_term': terms[0], 'aliases': terms[1:],
              'match_mode': 'WORD', 'source_filter': ['BNN'], 'min_priority': 1}
-    script = "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));const m=require(process.argv[1]);process.stdout.write(JSON.stringify(d.cases.map(a=>m.evaluateWatch(a,d.watch).matched)));"
-    result = subprocess.run(['node', '-e', script, str(ROOT / 'static/watch_matcher.js')],
-                            input=json.dumps({'cases': cases, 'watch': watch}), text=True, capture_output=True, check=True)
-    assert json.loads(result.stdout) == expected
+    if shutil.which('node'):
+        script = "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));const m=require(process.argv[1]);const w={...d.watch,search_term:'tier \\\\d',aliases:[],match_mode:'CONTAINS'};if(!m.evaluateWatch({source:'BNN',priority:1,message:'TIER 12'},w).matched||m.evaluateWatch({source:'BNN',priority:1,message:'tier x'},w).matched)throw Error('digit placeholder');process.stdout.write(JSON.stringify(d.cases.map(a=>m.evaluateWatch(a,d.watch).matched)));"
+        result = subprocess.run(['node', '-e', script, str(ROOT / 'static/watch_matcher.js')],
+                                input=json.dumps({'cases': cases, 'watch': watch}), text=True, capture_output=True, check=True)
+        assert json.loads(result.stdout) == expected
     wildcard = {**rule, 'term': r'tier \d', 'aliases': [], 'mode': 'CONTAINS'}
     assert scope['_matches']({'source': 'BNN', 'priority': 1, 'message': 'TIER 12'}, wildcard)[0]
     assert not scope['_matches']({'source': 'BNN', 'priority': 1, 'message': 'TIER X'}, wildcard)[0]
