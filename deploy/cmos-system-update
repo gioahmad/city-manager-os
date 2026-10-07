@@ -157,6 +157,11 @@ echo "Refreshing only the tracked BNN workflow when needed; n8n platform/package
 bash deploy/cmos-source centralize bnn
 
 echo
+echo "===== RESOLVED ALERT REMATCH UPDATE ====="
+echo "Publishing county-aware Geo Resolver rematch workflow only when needed."
+bash deploy/n8n/install_resolved_alert_rematch.sh "$EXPECTED"
+
+echo
 echo "===== HISTORICAL BNN GEOGRAPHY CLEANUP ====="
 echo "Previewing stored BNN corrections; original messages/raw payloads are preserved."
 docker exec -i citymanager-dashboard python /app/bnn_reparser.py
