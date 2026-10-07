@@ -212,7 +212,7 @@
           <div data-match-filters>
           <label>Source <span class="optional-label">optional</span>
             <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Any source">
-            <span class="hint">Choose a suggestion, or separate sources with commas. Leave blank for every source.</span>
+            <span class="hint">Example: BNN. Leave blank for every source. Separate multiple sources with commas.</span>
           </label>
           {{ word_picker(prefill.search_term, prefill.aliases.split(',') if prefill.aliases else [], prefill.match_mode) }}
           </div>
@@ -395,7 +395,7 @@
                 <div data-match-filters>
                 <label>Source <span class="optional-label">optional</span>
                   <input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}" placeholder="Any source">
-                  <span class="hint">Choose a suggestion, or separate sources with commas. Leave blank for every source.</span>
+                  <span class="hint">Example: BNN. Leave blank for every source. Separate multiple sources with commas.</span>
                 </label>
                 {{ word_picker('' if w.watch_type == 'SOURCE' or w.setup_mode == 'LOCATION' else w.search_term, w.aliases if w.setup_mode != 'LOCATION' else [], w.match_mode) }}
                 </div>
