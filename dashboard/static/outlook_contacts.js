@@ -2,7 +2,7 @@
   'use strict';
   const $ = id => document.getElementById(id), API = '/workspace/api/microsoft/';
   const csrf = document.body.dataset.csrf, readonly = document.body.dataset.readonly === 'true';
-  let status = {}, cursor = '', searchNumber = 0, preview = null, contactId = '', syncData = null, review = null;
+  let status = {}, cursor = '', searchNumber = 0, syncNumber = 0, preview = null, contactId = '', syncData = null, review = null;
   const el = (tag, text) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = String(text); return node; };
   const notice = (text, id = 'outlook-notice') => { $(id).textContent = text; };
   const safe = async (fn, id) => { try { await fn(); } catch (e) { notice(e.message || 'Request failed.', id); } };
@@ -63,8 +63,11 @@
   }
   async function openSync(id) {
     if (!status.contacts_write) { $('outlook-consent-dialog').showModal(); return; }
-    contactId = id; syncData = await api('contacts/' + encodeURIComponent(id) + '/sync');
+    const number = ++syncNumber, result = await api('contacts/' + encodeURIComponent(id) + '/sync');
+    if (number !== syncNumber) return;
+    contactId = id; syncData = result;
     const form = $('outlook-address-form'); form.reset(); $('outlook-address-fields').disabled = true;
+    form.elements.kind.value = ['businessAddress','homeAddress','otherAddress'].find(key => Object.values(syncData.remote[key] || {}).some(Boolean)) || 'businessAddress';
     notice('Saved local contact: ' + syncData.local.name + '. The next screen shows current Outlook values and the proposed changes.', 'outlook-local-summary');
     const changed = syncData.local.address !== syncData.baseline.address;
     form.elements.include_address.checked = changed; $('outlook-address-fields').disabled = !changed;
