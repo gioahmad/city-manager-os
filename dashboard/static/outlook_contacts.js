@@ -8,7 +8,14 @@
   const safe = async (fn, id) => { try { await fn(); } catch (e) { notice(e.message || 'Request failed.', id); } };
   async function api(path, data) {
     const response = await fetch(API + path, {cache:'no-store', ...(data ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({csrf, ...data})} : {})});
-    if (!response.headers.get('content-type')?.includes('application/json')) throw Error('Sign in again, then return to Contacts.');
+    if (response.status === 401 || (response.redirected && new URL(response.url).pathname === '/login')) {
+      throw Error('Your City Manager OS session expired. Sign in to the dashboard, then return to Contacts.');
+    }
+    if (!response.headers.get('content-type')?.includes('application/json')) {
+      const text = (await response.text()).trim();
+      if (response.status === 403 && ['Invalid request origin.', 'Role does not allow this action.'].includes(text)) throw Error(text);
+      throw Error(`Contacts request failed (HTTP ${response.status}). Refresh Contacts; if it persists, check the dashboard log.`);
+    }
     const result = await response.json();
     if (!response.ok) throw Error(typeof result.detail === 'string' ? result.detail : 'Could not complete this contact action.');
     return result;

@@ -42,6 +42,8 @@ jobs:
           DB_PASSWORD: ci-test-only
           PYTHONDONTWRITEBYTECODE: '1'
         run: python -m pytest -q -ra tests
+      - name: Application snapshot restore on PostgreSQL 17
+        run: python ci/check_application_snapshot.py
       - name: Transit query on PostgreSQL 17 at scale
         env:
           CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
@@ -64,6 +66,7 @@ jobs:
         run: |
           node --check dashboard/static/microsoft_workspace.js
           node --check dashboard/static/outlook_contacts.js
+          node ci/check_outlook_request_errors.js
           node --check dashboard/static/workspace_hub.js
           node --check dashboard/static/workspace.js
           node --check dashboard/static/macro_layer.js
@@ -116,4 +119,3 @@ jobs:
           path: browser-check-results
           retention-days: 7
           if-no-files-found: ignore
-

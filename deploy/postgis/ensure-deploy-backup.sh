@@ -54,6 +54,24 @@ elif [[ -z "$PREVIOUS" ]] || ! git cat-file -e "$PREVIOUS^{commit}" 2>/dev/null;
 elif ! git diff --quiet "$PREVIOUS" "$TARGET" -- "${SENSITIVE_PATHS[@]}"; then
   force=true
   reason="database/GIS-sensitive files changed"
+  # Reuse the nightly full backup only for exact, reviewed application SQL.
+  # New, edited, deleted or renamed unreviewed migrations still require a full dump.
+  if changed="$(git diff --name-only "$PREVIOUS" "$TARGET" -- "${SENSITIVE_PATHS[@]}")" &&
+     [[ -n "$changed" && -f deploy/postgis/application-migrations.txt ]]; then
+    reviewed=true
+    while IFS= read -r path; do
+      expected="$(awk -v path="$path" '$2 == path {print $1}' deploy/postgis/application-migrations.txt)"
+      actual="$(git rev-parse "$TARGET:$path" 2>/dev/null)" || actual=""
+      if [[ -z "$expected" || "$actual" != "$expected" ]]; then
+        reviewed=false
+        break
+      fi
+    done <<< "$changed"
+    if [[ "$reviewed" == "true" ]]; then
+      force=false
+      reason="reviewed application-only migrations"
+    fi
+  fi
 fi
 
 if [[ "$force" == "true" ]]; then
@@ -62,17 +80,15 @@ if [[ "$force" == "true" ]]; then
   exit 0
 fi
 
-# Every routine deploy gets a small control-plane recovery snapshot. Isolated
-# gate tests and recovery copies may not carry that helper, so absence is not fatal.
-if [[ -f deploy/postgis/release-snapshot.sh ]]; then
-  bash deploy/postgis/release-snapshot.sh "$PREVIOUS" "$TARGET"
-else
-  echo "BACKUP GATE: lightweight release snapshot helper unavailable — continuing with full recovery-point policy"
-fi
-
-echo "BACKUP GATE: routine release — checking for nightly validated full backup <= ${MAX_AGE_HOURS}h"
+echo "BACKUP GATE: $reason — checking for nightly validated full backup <= ${MAX_AGE_HOURS}h"
 if BACKUP_MAX_AGE_HOURS="$MAX_AGE_HOURS" bash deploy/postgis/verify-backup.sh; then
-  echo "BACKUP GATE: PASS — reusing recent validated recovery point; routine snapshot avoids a new multi-GB dump"
+  if [[ -f deploy/postgis/release-snapshot.sh ]]; then
+    bash deploy/postgis/release-snapshot.sh "$PREVIOUS" "$TARGET"
+    echo "BACKUP GATE: PASS — recent full backup plus fresh application snapshot; no new GIS dump"
+  else
+    echo "BACKUP GATE: application snapshot helper missing — creating a full backup"
+    bash deploy/postgis/backup.sh
+  fi
 else
   echo "BACKUP GATE: scheduled full backup is stale/missing — creating one now for safety"
   bash deploy/postgis/backup.sh

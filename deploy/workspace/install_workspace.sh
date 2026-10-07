@@ -109,5 +109,6 @@ AFTER="$(docker inspect --format '{{.Name}} {{.Id}} {{.Image}} {{.State.Running}
 [[ "$BEFORE" == "$AFTER" ]] || { echo 'Protected service changed unexpectedly'; false; }
 trap - ERR
 docker image rm "$ROLLBACK_IMAGE" >/dev/null 2>&1 || true
+bash "$REPO/deploy/postgis/install-backup-timer.sh"
 progress_step 8 8 "Workspace installation complete"
 echo 'Existing staff, alert engines, integration engine, and database containers preserved.'
