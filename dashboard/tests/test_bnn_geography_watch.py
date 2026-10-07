@@ -100,8 +100,10 @@ def test_bnn_county_plus_topic_watch_requires_both_conditions():
     alert = _alert("NJ | Hudson | Jersey City | WORKING FIRE | 123 Newark Ave | BNN123")
     watch = _watch("LOCATION_TOPIC", county="Hudson", term="WORKING FIRE")
     watch["match_field"] = "search_text"
+    watch["match_mode"] = "CONTAINS"
     result = _evaluate(alert, watch)
     assert result["matched"] is True
     wrong_county = _watch("LOCATION_TOPIC", county="Bergen", term="WORKING FIRE")
     wrong_county["match_field"] = "search_text"
+    wrong_county["match_mode"] = "CONTAINS"
     assert _evaluate(alert, wrong_county)["matched"] is False
