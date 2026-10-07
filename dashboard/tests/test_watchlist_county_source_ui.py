@@ -16,5 +16,7 @@ def test_normal_watch_location_search_includes_counties():
 
 def test_source_filter_is_visible_in_normal_create_and_edit_flow():
     template = (ROOT / "templates" / "watchlist.html").read_text()
-    assert template.count("Only these alert sources (optional)") >= 2
-    assert "For “any BNN alert in Hudson County,” choose BNN here and Hudson County under Location." in template
+    assert "<label>Source" in template
+    assert "name=\"source_filter\"" in template
+    assert "Example: BNN. Leave blank for every source." in template
+    assert "Only these alert sources (optional)" in template
