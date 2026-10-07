@@ -302,18 +302,24 @@
             </div>
           </div>
         </div>
-        <div class="watch-state-explanation"><strong>Why this status:</strong> {{ w.state_reason }}</div>
-        <div class="watch-evidence">
-          <div><strong>{{ w.matches_7d or 0 }}</strong><span>Matches · 7 days</span></div>
-          <div><strong>{{ w.sent_7d or 0 }}</strong><span>Notifications · 7 days</span></div>
-          <div><strong>{{ w.active_recipient_count or 0 }}</strong><span>Recipient{{ '' if w.active_recipient_count == 1 else 's' }}</span></div>
+        <div class="watch-compact-evidence">
+          <span><strong>{{ w.matches_7d or 0 }}</strong> matches</span>
+          <span><strong>{{ w.sent_7d or 0 }}</strong> sent</span>
+          <span><strong>{{ w.active_recipient_count or 0 }}</strong> recipient{{ '' if w.active_recipient_count == 1 else 's' }}</span>
+          {% if w.last_match_at %}<span>Last match {{ w.last_match_at.strftime('%m/%d %I:%M %p') }}</span>{% endif %}
         </div>
-        <div class="watch-last-evidence">
-          {% if w.parent_group %}<span><strong>Group:</strong> {{ w.parent_group }}</span>{% endif %}
-          {% if w.last_match_at %}<span><strong>Latest Match:</strong> {{ w.last_match_at.strftime('%m/%d/%Y %I:%M %p') }}{% if w.last_match_title %} · {{ w.last_match_title }}{% endif %}</span>{% else %}<span><strong>Latest Match:</strong> none yet</span>{% endif %}
-          {% if w.last_delivery_at %}<span><strong>Latest Notification:</strong> {{ w.last_delivery_status|title }} · {{ w.last_delivery_at.strftime('%m/%d/%Y %I:%M %p') }}</span>{% else %}<span><strong>Latest Notification:</strong> none yet</span>{% endif %}
-          <span><strong>Recipients:</strong> {{ (w.recipient_names or [])|join(', ') if w.recipient_names else 'None selected' }}</span>
-        </div>
+
+        <details class="watch-card-more">
+          <summary>Details</summary>
+          <div class="watch-state-explanation"><strong>Why this status:</strong> {{ w.state_reason }}</div>
+          <div class="watch-last-evidence">
+            {% if w.parent_group %}<span><strong>Group:</strong> {{ w.parent_group }}</span>{% endif %}
+            {% if w.last_match_at %}<span><strong>Latest Match:</strong> {{ w.last_match_at.strftime('%m/%d/%Y %I:%M %p') }}{% if w.last_match_title %} · {{ w.last_match_title }}{% endif %}</span>{% else %}<span><strong>Latest Match:</strong> none yet</span>{% endif %}
+            {% if w.last_delivery_at %}<span><strong>Latest Notification:</strong> {{ w.last_delivery_status|title }} · {{ w.last_delivery_at.strftime('%m/%d/%Y %I:%M %p') }}</span>{% else %}<span><strong>Latest Notification:</strong> none yet</span>{% endif %}
+            <span><strong>Recipients:</strong> {{ (w.recipient_names or [])|join(', ') if w.recipient_names else 'None selected' }}</span>
+            {% if w.parent_group %}<span><strong>Group:</strong> {{ w.parent_group }}</span>{% endif %}
+          </div>
+        </details>
 
         <details class="watch-edit-panel" {% if focus_id and w.id == focus_id %}open{% endif %}>
           <summary>Edit Watch</summary>
@@ -374,21 +380,26 @@
           </form>
         </details>
 
-        <div class="watch-card-actions">
-          <a class="secondary-button" href="/watchlist?evidence={{ w.id }}&evidence_view=matched#watch-evidence">Matched Alerts</a>
-          <a class="secondary-button" href="/watchlist?evidence={{ w.id }}&evidence_view=notified#watch-evidence">Notifications</a>
-          {% if w.historical_preview_url %}<a class="secondary-button" href="{{ w.historical_preview_url }}">Could Have Matched</a>{% endif %}
-          <a class="secondary-button" href="/context/WATCH/{{ w.id }}" data-cmos-quicklook data-cmos-title="{{ w.display_name|e }}">Open Context</a>
-          <form method="post" action="/watchlist/{{ w.id }}/toggle">
-            {% if w.state_label in ['Paused','Expired'] %}<input type="hidden" name="action" value="reactivate"><button class="secondary-button" type="submit">Reactivate Watch</button>{% else %}<input type="hidden" name="action" value="pause"><button class="secondary-button" type="submit">Pause Watch</button>{% endif %}
-          </form>
-          <details class="delete-watch">
-            <summary>Delete Watch</summary>
-            <form method="post" action="/watchlist/{{ w.id }}/delete" class="delete-watch-form">
-              <p>This removes the saved Watch and its Match links. Stored alerts and Notification history remain. Type DELETE to confirm.</p>
-              <input name="confirm_delete" autocomplete="off" placeholder="Type DELETE">
-              <button class="danger-button" type="submit">Delete Permanently</button>
-            </form>
+        <div class="watch-card-actions watch-card-primary-actions">
+          <a class="secondary-button" href="/watchlist?evidence={{ w.id }}&evidence_view=matched#watch-evidence">Matches</a>
+          {% if w.historical_preview_url %}<a class="secondary-button" href="{{ w.historical_preview_url }}">Preview History</a>{% endif %}
+          <details class="watch-manage-menu">
+            <summary class="secondary-button">Manage</summary>
+            <div class="watch-manage-actions">
+              <a class="secondary-button" href="/watchlist?evidence={{ w.id }}&evidence_view=notified#watch-evidence">Notifications</a>
+              <a class="secondary-button" href="/context/WATCH/{{ w.id }}" data-cmos-quicklook data-cmos-title="{{ w.display_name|e }}">Context</a>
+              <form method="post" action="/watchlist/{{ w.id }}/toggle">
+                {% if w.state_label in ['Paused','Expired'] %}<input type="hidden" name="action" value="reactivate"><button class="secondary-button" type="submit">Reactivate</button>{% else %}<input type="hidden" name="action" value="pause"><button class="secondary-button" type="submit">Pause</button>{% endif %}
+              </form>
+              <details class="delete-watch">
+                <summary>Delete</summary>
+                <form method="post" action="/watchlist/{{ w.id }}/delete" class="delete-watch-form">
+                  <p>This removes the saved Watch and its Match links. Stored alerts and Notification history remain. Type DELETE to confirm.</p>
+                  <input name="confirm_delete" autocomplete="off" placeholder="Type DELETE">
+                  <button class="danger-button" type="submit">Delete Permanently</button>
+                </form>
+              </details>
+            </div>
           </details>
         </div>
       </article>
@@ -470,7 +481,7 @@
 {% endif %}
 </section>
 
-<div class="section-label watch-tools-label"><span>TOOLS &amp; DIAGNOSTICS</span><span class="section-rule"></span></div>
+<div class="section-label watch-tools-label"><span>MORE TOOLS</span><span class="section-rule"></span></div>
 <details class="panel watch-health-panel watch-tool-panel" {% if needs_recipient_watches or health.failed_24h %}open{% endif %}>
   <summary class="panel-head">
     <div><div class="panel-kicker">CURRENT EVIDENCE</div><h2>Watch and Notification health</h2></div>
