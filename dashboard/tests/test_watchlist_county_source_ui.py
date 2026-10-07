@@ -19,4 +19,4 @@ def test_source_filter_is_visible_in_normal_create_and_edit_flow():
     assert "<label>Source" in template
     assert "name=\"source_filter\"" in template
     assert "Example: BNN. Leave blank for every source." in template
-    assert "Only these alert sources (optional)" in template
+    assert template.count('name="source_filter"') >= 2
