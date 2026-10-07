@@ -1248,6 +1248,7 @@ def spatial_watchlist(
     evidence: str = "",
     evidence_view: str = "matched",
     evidence_q: str = "",
+    create: str = "",
 ):
     where = []
     params = []
@@ -1558,6 +1559,7 @@ def spatial_watchlist(
             "evidence_rows": evidence_rows,
             "evidence_view": normalized_evidence_view,
             "evidence_q": evidence_q,
+            "create_open": create.strip() == "1" or bool(prefill.get("from_alert")) or bool(prefill.get("previewed")),
         },
     )
 
