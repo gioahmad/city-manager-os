@@ -23,7 +23,7 @@ COPY today_board_app.py .
 COPY executive_workflow_app.py .
 COPY brain_app.py .
 COPY workspace_app.py workspace_engine.py workspace_calendar.py workspace_hub.py workspace_ingest.py ./
-COPY context_app.py microsoft_workspace.py microsoft_contacts.py ./
+COPY context_app.py microsoft_workspace.py microsoft_contacts.py microsoft_mail_photos.py ./
 COPY operations_occurrence_controls.py .
 COPY operations_engine.py .
 COPY flood_app.py .
@@ -52,3 +52,4 @@ COPY static ./static
 EXPOSE 8000
 
 CMD ["uvicorn", "phase3_app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+

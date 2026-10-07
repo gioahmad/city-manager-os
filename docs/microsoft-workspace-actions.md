@@ -4,7 +4,7 @@ This release adds `/email`, `/calendar`, and `/important` inside the shared City
 
 ## Reading and selective internal capture
 
-Email shows the existing owner-private working snapshot: up to 250 Inbox messages from the last 30 days, plus linked or Important sources retained outside that window. It is not a full mailbox archive. Other folders, shared mailboxes and attachments remain in Outlook. Sender/subject/body search is supported. Calendar shows agenda, day, week and month views for calendars owned by the connected mailbox. It refreshes the selected window (up to a 42-day grid), stores stable local source IDs and explicitly identifies retained, potentially incomplete data when Microsoft is unavailable. Shared/delegated calendars are intentionally excluded. Recurring and all-day appointments can be displayed; this release does not edit recurring series or create all-day appointments.
+Email shows the existing owner-private working snapshot: up to 250 Inbox messages from the last 30 days, plus linked or Important sources retained outside that window. It is not a full mailbox archive. Other folders and shared mailboxes remain in Outlook. Photo attachments can be selected when saving an email; other attachments remain in Outlook. Sender/subject/body search is supported. Calendar shows agenda, day, week and month views for calendars owned by the connected mailbox. It refreshes the selected window (up to a 42-day grid), stores stable local source IDs and explicitly identifies retained, potentially incomplete data when Microsoft is unavailable. Shared/delegated calendars are intentionally excluded. Recurring and all-day appointments can be displayed; this release does not edit recurring series or create all-day appointments.
 
 An Important flag is private to the signed-in workspace owner and does not alter Microsoft. Add to my system provides reviewed destinations: private follow-up, shared Command Center work, shared internal event, private Brain note, or private link to an accessible existing record. Copying into Work/Events requires explicit acknowledgement of shared visibility. Original sources and confirmed links are preserved. The saved result includes an exact destination link. A database receipt and transaction-scoped locking protect retries and simultaneous submissions. Existing Work/Event promotion reuses an already-linked target instead of silently duplicating it.
 
@@ -66,3 +66,28 @@ Deployment must apply additive migration `043_outlook_contacts.sql` before resta
 References:
 - https://learn.microsoft.com/en-us/graph/api/contact-update?view=graph-rest-1.0
 - https://learn.microsoft.com/en-us/graph/api/user-list-contacts?view=graph-rest-1.0
+
+
+
+## Selected email photos
+
+In Email, open a message and choose **Add to my system**. The existing save
+form lists photo attachments, including inline images, with every checkbox
+unchecked. Only the checked photos are copied when **Save internally** succeeds.
+Email refresh, browsing, and marking Important never copy photos automatically.
+Non-image files and externally hosted images remain in Outlook.
+
+Original bytes reuse the owner-private `workspace_documents` store, with source
+mailbox, message, attachment, filename, inline flag and checksum metadata. They
+link to both the email and saved destination. Photos stay private even when the
+reviewed email text goes into shared work. Existing originals are reused across
+retries and concurrent saves; the text, file rows, links and save receipt commit
+together. A download failure stops the save without leaving partial records.
+Saved originals remain downloadable after disconnecting Microsoft. Downloads
+always verify the signed-in owner and force attachment disposition.
+
+Choose up to 10 photos per save, 20 MB per photo and 50 MB total. File contents
+are bounded while streaming. Image text extraction is not performed. No new SQL
+migration or storage service is needed; the application snapshot and full database
+backup already include these files. Access uses the existing delegated Mail.Read
+or Mail.ReadWrite grant.

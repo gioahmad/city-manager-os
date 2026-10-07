@@ -28,6 +28,7 @@ try:
         CREATE TABLE contacts(id integer PRIMARY KEY, name text NOT NULL);
         CREATE TABLE workspace_microsoft_operations(id integer PRIMARY KEY, status text NOT NULL);
         CREATE TABLE outlook_contact_links(contact_id integer REFERENCES contacts, provider_key text);
+        CREATE TABLE workspace_documents(id integer PRIMARY KEY, owner_username text, content bytea);
         CREATE INDEX contact_name ON contacts(name);
         CREATE TABLE gis_addresses(id integer PRIMARY KEY, address text);
         CREATE TABLE gis_parcels(id integer, county integer) PARTITION BY LIST(county);
@@ -38,6 +39,7 @@ try:
         INSERT INTO contacts VALUES (1,'Saved contact');
         INSERT INTO workspace_microsoft_operations VALUES(1,'REVIEW');
         INSERT INTO outlook_contact_links VALUES(1,'outlook-123');
+        INSERT INTO workspace_documents VALUES(1,'private-owner',decode('ffd8ff010203','hex'));
         INSERT INTO gis_addresses SELECT i,'Reference address' FROM generate_series(1,20000) i;
         INSERT INTO gis_parcels VALUES(1,17);
         INSERT INTO gis_dataset_versions VALUES(1,'Current reference');
@@ -79,6 +81,7 @@ os.execv({real_docker!r}, [{real_docker!r}] + args)
                            stdin=archive, check=True, timeout=60)
         assert sql(restored, 'SELECT name FROM contacts;').strip() == 'Saved contact'
         assert sql(restored, 'SELECT provider_key FROM outlook_contact_links;').strip() == 'outlook-123'
+        assert sql(restored, "SELECT encode(content,'hex') FROM workspace_documents WHERE owner_username='private-owner';").strip() == 'ffd8ff010203'
         assert sql(restored, 'SELECT status FROM workspace_microsoft_operations;').strip() == 'REVIEW'
         assert sql(restored, "SELECT to_regclass('contact_name');").strip() == 'contact_name'
         assert sql(restored, 'SELECT version FROM gis_dataset_versions;').strip() == 'Current reference'

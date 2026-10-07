@@ -56,6 +56,10 @@ jobs:
         env:
           CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
         run: python ci/check_outlook_contacts.py
+      - name: Selective email photo retention
+        env:
+          CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
+        run: python ci/check_email_photos.py
       - name: Variable-order BNN pipe classifier
         run: python ci/check_bnn_pipe_classifier.py
       - name: Historical Watch preview against real PostgreSQL

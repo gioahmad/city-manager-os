@@ -11,7 +11,7 @@ backup no older than 72 hours. They also create a fresh
 `/var/backups/city-manager-os/release-snapshots/<timestamp>/application.dump`
 before migrations. This archive contains the entire current database schema
 and application data, including contacts, Outlook links, credentials, workspace,
-watchlist, alerts and issues. The adjacent `excluded-data-tables.txt` lists
+selected email photo originals, watchlist, alerts and issues. The adjacent `excluded-data-tables.txt` lists
 bulk GIS reference/staging tables whose rows are omitted. GIS version/refresh
 metadata is retained. Failed snapshots stop the release.
 

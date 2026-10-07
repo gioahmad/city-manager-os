@@ -321,6 +321,10 @@ def saved_url(kind: str, item_id: str) -> str:
 
 
 def capture(owner: str, data: dict) -> dict:
+    import microsoft_mail_photos as mail_photos
+    selected_photos = mail_photos.selections(data.get('photos', []))
+    if selected_photos and data.get('kind') != 'MAIL':
+        raise HTTPException(400, 'Photos must come from a saved email.')
     request_id = uid(data.get('request_id'))
     target = data.get('destination')
     if target not in {'TASK', 'WORK', 'EVENT', 'BRAIN', 'LINK'}:
@@ -366,10 +370,17 @@ def capture(owner: str, data: dict) -> dict:
             props.update(starts_at=start.isoformat(), ends_at=end.isoformat(), location=clean(data.get('location'), 500))
         if target == 'LINK':
             props.update(target_kind=data.get('target_kind'), target_id=data.get('target_id'))
+        try:
+            files = mail_photos.fetch(owner, item['id'], selected_photos)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            raise HTTPException(502, 'Could not retrieve the selected email photos. Nothing was saved; try again or deselect the photos.') from None
         result = hub.action(owner, props, connection=c)
         result_kind = data.get('target_kind') if target == 'LINK' else target
         result_id = data.get('target_id') if target == 'LINK' else result.get('id')
         result = {**result, 'kind': result_kind, 'id': str(result_id), 'url': saved_url(result_kind, str(result_id))}
+        if files:
+            result['photos'] = mail_photos.store(c, owner, item, files, result_kind, result_id)
+            result['message'] += ' ' + str(len(files)) + ' selected photo(s) saved privately.'
         c.execute('INSERT INTO workspace_capture_receipts(owner_username,request_id,fingerprint,result) VALUES(%s,%s,%s,%s::jsonb)', (owner, request_id, fingerprint, json.dumps(result, default=str)))
         return result
 
@@ -378,6 +389,15 @@ def capture(owner: str, data: dict) -> dict:
 async def capture_page(request: Request):
     owner, data = await values(request)
     return hub.reply(await run_in_threadpool(capture, owner, data))
+
+
+@app.get('/workspace/api/microsoft/mail/{item_id}/photos')
+def email_photos(request: Request, item_id: str):
+    import microsoft_mail_photos as mail_photos
+    try:
+        return hub.reply(mail_photos.photos(_owner(request), item_id))
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        raise HTTPException(502, 'Could not load email photos from Microsoft. You can save the email text and try the photos again later.') from None
 
 
 def calendars(client, token: str, account: dict, owner: str) -> list[dict]:

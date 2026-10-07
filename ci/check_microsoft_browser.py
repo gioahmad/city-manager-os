@@ -37,13 +37,25 @@ with tempfile.TemporaryDirectory() as temp:
                 passed('Email page loads real saved source with shared navigation and private security')
                 page.get_by_role('button',name='Add to my system',exact=True).click()
                 form=page.locator('#ms-capture-form');form.locator('[name=title]').fill(browser_name+' browser saved task')
+                expect(form.locator('[data-mail-photo]')).to_have_count(3)
+                expect(form.locator('[data-mail-photo]:checked')).to_have_count(0)
+                photo_id='inline-photo' if browser_name=='firefox' else 'site-photo'
+                photo_name='embedded.png' if browser_name=='firefox' else 'site.jpg'
+                form.locator('[data-mail-photo][value="'+photo_id+'"]').check()
                 form.locator('[name=due_date]').fill('2026-12-01');form.get_by_role('button',name='Save internally').click()
                 expect(page.locator('#ms-capture-status')).to_contain_text('Private follow-up created')
-                saved_href=page.locator('#ms-capture-status a').get_attribute('href');saved_id=saved_href.rsplit('/',1)[-1]
+                expect(page.locator('#ms-capture-status')).to_contain_text('1 selected photo(s) saved privately')
+                photo_href=page.locator('#ms-capture-status').get_by_role('link',name='Download '+photo_name).get_attribute('href')
+                downloaded=context.request.get(base+photo_href)
+                assert downloaded.status==200 and downloaded.body()==('original-'+photo_id).encode()
+                saved_href=page.locator('#ms-capture-status').get_by_role('link',name='Open saved item',exact=True).get_attribute('href');saved_id=saved_href.rsplit('/',1)[-1]
                 assert hub.find(owner,'TASK',saved_id)['title']==browser_name+' browser saved task'
                 page.get_by_role('button',name='Cancel',exact=True).click()
                 page.reload();expect(page.locator('#ms-preview')).to_contain_text(browser_name+' browser saved task')
+                expect(page.locator('#ms-preview')).to_contain_text('Saved email photos')
+                expect(page.locator('#ms-preview').get_by_role('link',name='Download '+photo_name)).to_be_visible()
                 passed('Actual browser form creates a task in PostgreSQL and source reload shows the persisted link')
+                passed('Only explicitly selected email photo is saved; original bytes download and reopen after reload')
                 flag=page.locator('#ms-preview').get_by_role('button',name='☆ Mark important',exact=True)
                 if flag.count():flag.click();expect(page.locator('#ms-preview')).to_contain_text('★ Important')
                 page.locator('.ms-tabs').get_by_role('link',name='Important',exact=True).click()

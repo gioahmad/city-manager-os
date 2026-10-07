@@ -19,6 +19,13 @@ REAL_CLIENT=httpx.Client
 class Provider:
     def __init__(self):
         self.writes=[];self.outcome='ok';self.mailbox='fixture@example.com';self.read_failure=False;self.token_count=0
+        self.photo_reads=[];self.photo_failure=''
+        self.photos={
+            'site-photo': {'id':'site-photo','name':'site.jpg','contentType':'image/jpeg','size':12,'isInline':False,'@odata.type':'#microsoft.graph.fileAttachment'},
+            'inline-photo': {'id':'inline-photo','name':'embedded.png','contentType':'image/png','size':10,'isInline':True,'@odata.type':'#microsoft.graph.fileAttachment'},
+            'unused-photo': {'id':'unused-photo','name':'not-needed.jpg','contentType':'image/jpeg','size':9,'isInline':False,'@odata.type':'#microsoft.graph.fileAttachment'},
+            'pdf-file': {'id':'pdf-file','name':'notice.pdf','contentType':'application/pdf','size':20,'isInline':False,'@odata.type':'#microsoft.graph.fileAttachment'},
+        }
         self.contacts={'contact-jane': {'id':'contact-jane','displayName':'Jane Fixture','companyName':'Test Town','jobTitle':'Coordinator',
             'emailAddresses':[{'address':'Jane@Example.com','name':'Jane'}], 'mobilePhone':'201-555-1234', 'businessPhones':[], 'homePhones':[],
             'businessAddress':{'street':'1 Main St','city':'Weehawken','state':'NJ','postalCode':'07086','countryOrRegion':'US'},
@@ -50,6 +57,17 @@ class Provider:
                 return httpx.Response(200,json=contact) if contact else httpx.Response(404,json={})
             if path.startswith('/v1.0/me/messages/'):
                 assert 'ImmutableId' in request.headers.get('Prefer','')
+                if path.endswith('/attachments'):
+                    return httpx.Response(200,json={'value':list(self.photos.values())})
+                if '/attachments/' in path:
+                    attachment_id=path.split('/attachments/',1)[1].removesuffix('/$value')
+                    if attachment_id==self.photo_failure:return httpx.Response(503,json={})
+                    photo=self.photos.get(attachment_id)
+                    if not photo:return httpx.Response(404,json={})
+                    if path.endswith('/$value'):
+                        self.photo_reads.append(attachment_id)
+                        return httpx.Response(200,content=('original-'+attachment_id).encode())
+                    return httpx.Response(200,json=photo)
                 return httpx.Response(200,json={'from':{'emailAddress':{'address':'sender@example.com'}},'replyTo':[{'emailAddress':{'address':'reply-desk@example.com'}}]})
         if request.method=='PATCH' and path.startswith('/v1.0/me/contacts/'):
             contact=self.contacts.get(path.rsplit('/',1)[-1])
@@ -103,7 +121,7 @@ def setup():
         c.execute('INSERT INTO workspace_microsoft_mail(id,owner_username,provider_key,title,body,sender_email,received_at) VALUES(%s,%s,%s,%s,%s,%s,now())',(mail_id,owner,'mail-'+mail_id,'Fixture contractor email','Review the site visit. Private source body.','sender@example.com'))
     application=FastAPI();application.mount('/static',StaticFiles(directory=str(ROOT/'dashboard/static')),name='static')
     for route in list(core.app.routes):
-        if getattr(route,'path','') in {'/contacts','/email','/calendar','/important','/appearance'} or getattr(route,'path','').startswith(('/contacts/','/workspace/api/microsoft/','/workspace/api/hub','/workspace/calendar/microsoft/')):application.router.routes.append(route)
+        if getattr(route,'path','') in {'/contacts','/email','/calendar','/important','/appearance'} or getattr(route,'path','').startswith(('/contacts/','/workspace/api/microsoft/','/workspace/api/hub','/workspace/calendar/microsoft/','/workspace/documents/')):application.router.routes.append(route)
     auth.configure_private_auth(application)
     cookie=auth._issue_session(auth.Account('MSTest','EXECUTIVE',''))
     csrf=hmac.new(auth._session_secret(),cookie.encode(),hashlib.sha256).hexdigest()
