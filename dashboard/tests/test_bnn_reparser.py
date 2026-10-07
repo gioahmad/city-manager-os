@@ -54,3 +54,9 @@ def test_search_text_includes_corrected_geography():
     value = search_text(row, {"state": "NJ", "county": "Hudson", "municipality": "Jersey City"})
     assert "Hudson County" in value
     assert "Jersey City" in value
+
+
+def test_dashboard_image_packages_bnn_reparser():
+    from pathlib import Path
+    dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
+    assert "COPY bnn_reparser.py ." in dockerfile
