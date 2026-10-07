@@ -51,7 +51,7 @@ def test_watch_lab_ui_states_safety_and_loads_shared_matcher():
     assert "never creates an alert, Match, delivery, or Notification" in template
     assert 'value="WATCH_CENTER"' in template
     assert 'value="CUSTOM"' in template
-    assert '<script src="/static/watch_matcher.js?v=3"></script>' in template
+    assert '<script src="/static/watch_matcher.js?v=4"></script>' in template
     assert "window.CmosWatchMatcher.evaluateWatch" in template
     assert "Copy Diagnostic Receipt" in template
 
