@@ -1419,6 +1419,8 @@ def spatial_watchlist(
         row["location_label"] = (
             ""
             if row["setup_mode"] == "TOPIC"
+            else f"{row.get('county')} County"
+            if row.get("watch_type") == "COUNTY" and row.get("county")
             else row.get("address") or row.get("municipality") or row.get("county") or "Saved map Location"
         )
         row["distance_label"] = _distance_label(row.get("radius_ft"))
@@ -2200,6 +2202,8 @@ def spatial_watch_create(
     location_required = setup_mode in {"LOCATION", "LOCATION_TOPIC"} or spatial_enabled is not None
     topic_required = setup_mode in {"TOPIC", "LOCATION_TOPIC"}
     topic = search_term.strip()
+    saved_source_filter = csv_array(source_filter)
+    source_only = setup_mode == "TOPIC" and not topic and len(saved_source_filter) == 1
     alias_values = csv_array(aliases)
     selected_keywords: list[str] = []
     for value in alert_keywords:
@@ -2214,8 +2218,12 @@ def spatial_watch_create(
             if value.casefold() not in seen_aliases:
                 seen_aliases.add(value.casefold())
                 alias_values.append(value)
-    if topic_required and not topic:
-        raise HTTPException(400, "Enter the topic, phrase, organization, or incident wording to watch for")
+    if topic_required and not topic and not source_only:
+        raise HTTPException(400, "Choose a source, enter a topic, or choose a location")
+    if source_only:
+        topic = saved_source_filter[0]
+        match_mode = "FIELD"
+        match_field = "source"
     match_mode = match_mode.upper().strip() or "CONTAINS"
     validate_watch(match_mode, match_field, min_priority)
     radius_ft = max(1.0, min(float(radius_ft), 26400.0))
@@ -2258,12 +2266,11 @@ def spatial_watch_create(
                 saved_match_mode = "CONTAINS"
                 saved_match_field = None
         else:
-            saved_watch_type = watch_type.strip().upper() or "PHRASE"
+            saved_watch_type = "SOURCE" if source_only else (watch_type.strip().upper() or "PHRASE")
             saved_search_term = topic
-            saved_match_mode = match_mode
-            saved_match_field = match_field.strip() or None
+            saved_match_mode = "FIELD" if source_only else match_mode
+            saved_match_field = "source" if source_only else (match_field.strip() or None)
 
-        saved_source_filter = csv_array(source_filter)
         saved_category_filter = csv_array(alert_category_filter)
 
         saved_address = (target or {}).get("address") or (location_query or address).strip() or None
@@ -2397,10 +2404,16 @@ def spatial_watch_update(
                 current=current,
             )
         topic = search_term.strip()
-        if saved_setup_mode in {"TOPIC", "LOCATION_TOPIC"} and not topic:
-            raise HTTPException(400, "Enter the topic, phrase, organization, or incident wording to watch for")
+        saved_source_filter = csv_array(source_filter)
+        source_only = saved_setup_mode == "TOPIC" and not topic and len(saved_source_filter) == 1
+        if saved_setup_mode in {"TOPIC", "LOCATION_TOPIC"} and not topic and not source_only:
+            raise HTTPException(400, "Choose a source, enter a topic, or choose a location")
 
         match_mode = match_mode.upper().strip() or "CONTAINS"
+        if source_only:
+            topic = saved_source_filter[0]
+            match_mode = "FIELD"
+            match_field = "source"
         spatial_requested = bool(target and target.get("spatial"))
         if saved_setup_mode == "LOCATION_TOPIC":
             saved_watch_type = "LOCATION_TOPIC"
@@ -2422,14 +2435,15 @@ def spatial_watch_update(
                 saved_match_mode = "CONTAINS"
                 saved_match_field = None
         else:
-            saved_watch_type = watch_type.strip().upper() or (
-                current.get("watch_type") if current.get("watch_type") != "LOCATION_TOPIC" else "PHRASE"
-            ) or "PHRASE"
+            saved_watch_type = "SOURCE" if source_only else (
+                watch_type.strip().upper() or (
+                    current.get("watch_type") if current.get("watch_type") not in {"LOCATION_TOPIC", "SOURCE"} else "PHRASE"
+                ) or "PHRASE"
+            )
             saved_search_term = topic
-            saved_match_mode = match_mode
-            saved_match_field = match_field.strip() or None
+            saved_match_mode = "FIELD" if source_only else match_mode
+            saved_match_field = "source" if source_only else (match_field.strip() or None)
         validate_watch(saved_match_mode, saved_match_field, min_priority)
-        saved_source_filter = csv_array(source_filter)
         saved_category_filter = csv_array(alert_category_filter)
 
         saved_address = (
