@@ -42,12 +42,14 @@ def test_resolved_alerts_reenter_existing_matcher_once_with_visible_location():
     assert "TIMESTAMPTZ '__CMOS_ACTIVATED_AT__'" in load
     assert "interval '6 hours'" in load
     assert "spatial_rematch_version" in load
+    assert "nullif(w.county,'') IS NOT NULL" in load
+    assert "geo-v3" in load
     assert "ST_X(coalesce(a.geom,r.geom))" in load
     assert "ST_Y(coalesce(a.geom,r.geom))" in load
     assert "nullif(r.municipality,'')" in load
     assert send["alwaysOutputData"] is True
     assert send["parameters"]["mode"] == "each"
-    assert "spatial_rematch_version','geo-v2'" in mark["parameters"]["query"]
+    assert "spatial_rematch_version','geo-v3'" in mark["parameters"]["query"]
     assert "updated_at=now()" not in mark["parameters"]["query"]
     assert "Restore Resolved Standard Alert" in mark["parameters"]["options"]["queryReplacement"]
     assert "ntfy" not in json.dumps(workflow).casefold()
