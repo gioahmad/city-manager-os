@@ -45,6 +45,8 @@ def test_dashboard_is_drillable_without_losing_original_sections():
     assert "/issues?state=open" in page
     assert "/source-health" in page
     assert "/deliveries" in page
+    assert 'intake_summary["items"]' in page
+    assert "intake_summary.items" not in page
 
 
 def test_map_keeps_existing_power_and_opens_actions_in_context():
