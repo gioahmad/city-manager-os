@@ -32,6 +32,7 @@ COPY map_app.py .
 COPY spatial_reference_app.py .
 COPY spatial_watch_app.py .
 COPY watch_preview_app.py .
+COPY bnn_reparser.py .
 COPY geo_resolver.py .
 COPY integration_runtime.py .
 COPY transcom_runtime.py .
