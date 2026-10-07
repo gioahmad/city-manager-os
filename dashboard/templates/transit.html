@@ -81,6 +81,7 @@
               <div><dt>Last Changed</dt><dd>{{ o.last_changed_at.strftime('%m/%d/%Y %H:%M') if o.last_changed_at else 'Unknown' }}</dd></div>
             </dl>
             <div class="form-actions" style="margin-top:12px">
+              <a class="secondary-button" href="/watchlist?from_record=TRANSIT&record_id={{ o.id }}#new-watch">Create Monitoring Watch</a>
               <form method="post" action="/transit/{{ o.id }}/level" style="display:flex;gap:7px">
                 <select name="impact_level">
                   <option value="AWARENESS" {% if o.impact_level=='AWARENESS' %}selected{% endif %}>Awareness</option>
@@ -223,3 +224,4 @@
 </main>
 </body>
 </html>
+

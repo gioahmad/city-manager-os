@@ -98,6 +98,16 @@ LOCATION_KINDS = {
 LOCATION_SCOPES = {"ANYWHERE", "COUNTY", "MUNICIPALITY", "TYPED_ADDRESS", "MAP_POINT", "SAVED", "EXISTING"}
 
 
+def _matching_inputs(selection, scope, topic, aliases, source, category, priority):
+    if selection not in {"", "ANY", "FILTERED"}:
+        raise HTTPException(400, "Choose which jobs this Watch should match")
+    if selection == "ANY":
+        if scope == "ANYWHERE":
+            raise HTTPException(400, "Choose a location for Any mapped activity in this area")
+        return "", "", "", "", 1
+    return topic, aliases, source, category, priority
+
+
 def _location_setup_mode(mode: str, scope: str, topic: str) -> str:
     if not scope:
         return mode
@@ -734,6 +744,41 @@ def _watch_prefill_from_alert(alert_reference: str) -> dict:
     if not alert:
         return {}
 
+    return _watch_prefill_values(alert, alert_reference)
+
+
+def _watch_prefill_from_record(kind: str, reference: str) -> dict:
+    """Open an editable draft even when an Intel record has not emitted an alert."""
+    try:
+        record_id = uuid.UUID(reference)
+    except ValueError:
+        raise HTTPException(400, "Choose a valid record to start this Watch")
+    queries = {
+        "EVENT_INTELLIGENCE": """SELECT title,description AS message,'EVENT_INTELLIGENCE' AS source,
+          'EVENT' AS category,event_type AS subtype,municipality,
+          coalesce(nullif(address,''),nullif(venue,''),municipality) AS location_label,
+          coalesce(ST_Y(geom),latitude) AS latitude,coalesce(ST_X(geom),longitude) AS longitude
+          FROM event_intelligence WHERE id=%s AND active""",
+        "TRANSIT": """SELECT title,description AS message,'TRANSIT_INTELLIGENCE' AS source,
+          'TRANSIT' AS category,mode AS subtype,municipality,
+          coalesce(nullif(asset_name,''),nullif(route_name,''),municipality) AS location_label,
+          coalesce(ST_Y(geom),latitude) AS latitude,coalesce(ST_X(geom),longitude) AS longitude
+          FROM transit_observations WHERE id=%s AND active""",
+    }
+    if kind not in queries:
+        raise HTTPException(400, "Choose Event Intelligence or Transit Intelligence")
+    row = query_one(queries[kind], (record_id,))
+    if not row:
+        raise HTTPException(404, "That Intelligence record was not found")
+    # A venue/route name without coordinates is not a street address.
+    if row.get("latitude") is None or row.get("longitude") is None:
+        row["location_label"] = row.get("municipality") or ""
+    draft = _watch_prefill_values(row, reference)
+    draft.update(from_alert="", from_record=kind, notes=f"Started from {kind} {record_id}")
+    return draft
+
+
+def _watch_prefill_values(alert: dict, alert_reference: str) -> dict:
     topic = str(
         alert.get("title")
         or alert.get("subtype")
@@ -1360,6 +1405,9 @@ def spatial_watchlist(
     location_kind: str = "",
     location_id: str = "",
     from_alert: str = "",
+    from_record: str = "",
+    record_id: str = "",
+    match_selection: str = "",
     setup_mode: str = "",
     search_term: str = "",
     aliases: str = "",
@@ -1484,6 +1532,11 @@ def spatial_watchlist(
             if row.get("watch_type") == "COUNTY" and row.get("county")
             else row.get("address") or row.get("municipality") or row.get("county") or "Saved map Location"
         )
+        row["match_selection"] = (
+            "ANY" if row["setup_mode"] == "LOCATION"
+            and not row.get("source_filter") and not row.get("alert_category_filter")
+            and row.get("min_priority", 1) == 1 else "FILTERED"
+        )
         row["distance_label"] = _distance_label(row.get("radius_ft"))
         row["location_kind"] = (
             "TYPED_ADDRESS"
@@ -1602,6 +1655,7 @@ def spatial_watchlist(
     needs_recipient_watches = [row for row in all_items if row["state_label"] == "Needs Recipient"]
     prefill = {
         "from_alert": "",
+        "from_record": "",
         "previewed": previewed.strip() == "1",
         "source_alert_title": "",
         "suggested_source": "",
@@ -1625,7 +1679,9 @@ def spatial_watchlist(
         "alert_category_filter": alert_category_filter.strip(),
         "notes": "",
     }
-    if from_alert.strip():
+    if from_record.strip():
+        prefill.update(_watch_prefill_from_record(from_record.strip().upper(), record_id))
+    elif from_alert.strip():
         alert_prefill = _watch_prefill_from_alert(from_alert)
         if alert_prefill:
             prefill.update(alert_prefill)
@@ -1644,6 +1700,17 @@ def spatial_watchlist(
                 prefill["aliases"] = ", ".join(chosen[1:])
         elif not error:
             error = "That alert could not be found. No Watch was created."
+    if setup_mode.strip() == "LOCATION" or match_selection == "ANY":
+        prefill.update(search_term="", aliases="", selected_keywords=[])
+    if match_selection == "ANY":
+        prefill.update(source_filter="", alert_category_filter="", min_priority=1)
+    prefill["match_selection"] = (
+        "ANY" if match_selection == "ANY" or (
+            setup_mode.strip() == "LOCATION" and not prefill["source_filter"]
+            and not prefill["alert_category_filter"] and prefill["min_priority"] == 1
+            and bool(prefill["location_query"] or prefill["latitude"])
+        ) else "FILTERED"
+    )
     evidence_watch = None
     evidence_rows: list[dict] = []
     evidence_id = None
@@ -1689,7 +1756,8 @@ def spatial_watchlist(
             "evidence_rows": evidence_rows,
             "evidence_view": normalized_evidence_view,
             "evidence_q": evidence_q,
-            "create_open": create.strip() == "1" or bool(prefill.get("from_alert")) or bool(prefill.get("previewed")),
+            "create_open": create.strip() == "1" or bool(prefill.get("from_alert")) or bool(prefill.get("from_record"))
+                or bool(prefill.get("previewed")) or bool(location_query or location_id or latitude or longitude),
         },
     )
 
@@ -2222,6 +2290,7 @@ def spatial_watch_bulk_action(
 @_friendly_watch_errors
 def spatial_watch_create(
     display_name: str = Form(""),
+    match_selection: str = Form(""),
     setup_mode: str = Form("LOCATION"),
     watch_type: str = Form(""),
     search_term: str = Form(""),
@@ -2252,6 +2321,11 @@ def spatial_watch_create(
     activation: str = Form("on"),
 ):
     display_name = display_name.strip()
+    search_term, aliases, source_filter, alert_category_filter, min_priority = _matching_inputs(
+        match_selection, location_scope, search_term, aliases, source_filter, alert_category_filter, min_priority,
+    )
+    if match_selection == "ANY":
+        setup_mode, alert_keywords, match_mode, match_field = "LOCATION", [], "CONTAINS", ""
     setup_mode = _setup_mode(setup_mode)
     setup_mode = _location_setup_mode(setup_mode, location_scope, search_term)
     location_required = location_scope != "ANYWHERE" and (setup_mode in {"LOCATION", "LOCATION_TOPIC"} or spatial_enabled is not None)
@@ -2390,6 +2464,7 @@ def spatial_watch_create(
 def spatial_watch_update(
     item_id: uuid.UUID,
     display_name: str = Form(...),
+    match_selection: str = Form(""),
     setup_mode: str = Form(""),
     watch_type: str = Form(""),
     search_term: str = Form(""),
@@ -2422,6 +2497,11 @@ def spatial_watch_update(
     display_name = display_name.strip()
     if not display_name:
         raise HTTPException(400, "Name this watch before saving it")
+    search_term, aliases, source_filter, alert_category_filter, min_priority = _matching_inputs(
+        match_selection, location_scope, search_term, aliases, source_filter, alert_category_filter, min_priority,
+    )
+    if match_selection == "ANY":
+        setup_mode, match_mode, match_field = "LOCATION", "CONTAINS", ""
     radius_ft = max(1.0, min(float(radius_ft), 26400.0))
     start, end = _schedule(duration, starts_at, expires_at)
     with db_conn() as conn:
@@ -2787,3 +2867,4 @@ def alert_impact_buffer(alert_id: str, radius_ft: float = 500.0):
         },
         media_type="application/geo+json",
     )
+

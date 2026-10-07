@@ -75,6 +75,11 @@ q=((nodes.get("Load Newly Resolved Alerts") or {}).get("parameters") or {}).get(
 m=((nodes.get("Mark Resolved Alert Rematched") or {}).get("parameters") or {}).get("query","")
 if "nullif(w.county,'') IS NOT NULL" not in q or "geo-v3" not in q or "geo-v3" not in m:
     raise SystemExit(1)
+activity=nodes.get('Load Mapped Activity') or {}
+if 'mapped_activity_fingerprint' not in (activity.get('parameters') or {}).get('query',''):
+    raise SystemExit(1)
+if 'spatial_rematch_point' not in q or 'spatial_rematch_point' not in m:
+    raise SystemExit(1)
 print("RESOLVED REMATCH already current")
 PY
 then
@@ -130,6 +135,9 @@ q=((nodes["Load Newly Resolved Alerts"].get("parameters") or {}).get("query") or
 m=((nodes["Mark Resolved Alert Rematched"].get("parameters") or {}).get("query") or "")
 assert "nullif(w.county,'') IS NOT NULL" in q
 assert "geo-v3" in q and "geo-v3" in m
+assert 'spatial_rematch_point' in q and 'spatial_rematch_point' in m
+assert 'mapped_activity_fingerprint' in nodes['Load Mapped Activity']['parameters']['query']
+assert 'mapped_activity_fingerprint' in nodes['Mark Mapped Activity']['parameters']['query']
 print("RESOLVED REMATCH: PASS county_watch=YES version=geo-v3")
 PY
 
@@ -145,3 +153,4 @@ for path in "${stale[@]}"; do rm -rf -- "$path"; done
 PUBLISHED=0
 trap - ERR
 log "Resolved-alert rematch installed"
+

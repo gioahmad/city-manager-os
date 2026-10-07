@@ -144,6 +144,8 @@
   <div class="panel-body form-panel">
     <form method="post" action="/watchlist/create" class="watch-form simple-watch-form" data-simple-watch-form>
       <input type="hidden" name="setup_mode" value="{{ prefill.setup_mode or 'TOPIC' }}" data-simple-setup-mode>
+      <input type="hidden" name="match_mode" value="{{ prefill.match_mode }}">
+      <input type="hidden" name="match_field" value="{{ prefill.match_field }}">
 
       {% if prefill.previewed %}
       <aside class="watch-from-alert">
@@ -151,9 +153,9 @@
         <span>Review the rule below, choose a recipient, then turn it on.</span>
       </aside>
       {% endif %}
-      {% if prefill.from_alert %}
+      {% if prefill.from_alert or prefill.from_record %}
       <aside class="watch-from-alert">
-        <div class="panel-kicker">STARTED FROM ALERT</div>
+        <div class="panel-kicker">STARTED FROM {{ 'INTELLIGENCE' if prefill.from_record else 'ALERT' }}</div>
         <strong>{{ prefill.source_alert_title }}</strong>
         <span>What about this alert matters? Keep or clear the source, topic, and location below.</span>
         {% if prefill.keyword_choices %}
@@ -174,6 +176,14 @@
         <div class="simple-watch-number">1</div>
         <div>
           <h3>What should we watch for?</h3>
+          <label>Jobs to match
+            <select name="match_selection" data-match-selection>
+              <option value="FILTERED" {% if prefill.match_selection != 'ANY' %}selected{% endif %}>Only activity matching filters</option>
+              <option value="ANY" {% if prefill.match_selection == 'ANY' %}selected{% endif %}>Any mapped activity in this area</option>
+            </select>
+            <span class="hint">Includes mapped incidents, work items, events, and transit activity from every source and priority. Reference layers are excluded.</span>
+          </label>
+          <div data-match-filters>
           <label>Source <span class="optional-label">optional</span>
             <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Any source">
             <span class="hint">Example: BNN. Leave blank for every source.</span>
@@ -182,6 +192,7 @@
             <input name="search_term" value="{{ prefill.search_term }}" data-primary-keyword placeholder="Example: working fire, road closure, water main">
             <span class="hint">Leave blank if the source and/or location alone is what you want.</span>
           </label>
+          </div>
         </div>
       </section>
 
@@ -214,12 +225,12 @@
           <label>Watch name <span class="optional-label">optional</span>
             <input name="display_name" value="{{ prefill.display_name }}" placeholder="Created automatically from the rule">
           </label>
-          <label>Also match these phrases <span class="optional-label">optional</span>
+          <label data-match-filters>Also match these phrases <span class="optional-label">optional</span>
             <input name="aliases" value="{{ prefill.aliases or '' }}" placeholder="Example: structure fire, 2nd alarm">
           </label>
-          <div class="form-grid two-col">
+          <div class="form-grid two-col" data-match-filters>
             <label>Minimum priority
-              <select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select>
+              <select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == prefill.min_priority %}selected{% endif %}>P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select>
             </label>
             <label>Alert category <span class="optional-label">optional</span>
               <input name="alert_category_filter" list="alert-category-values" value="{{ prefill.alert_category_filter }}" placeholder="Any category">
@@ -303,13 +314,15 @@
                 {% if w.watch_type == 'SOURCE' %}
                   All alerts
                 {% elif w.setup_mode == 'LOCATION' %}
-                  Any alert in {{ w.location_label }}
+                  {{ 'Any mapped activity' if w.match_selection == 'ANY' else 'Activity' }} in {{ w.location_label }}
                 {% elif w.setup_mode == 'LOCATION_TOPIC' %}
                   “{{ w.search_term }}” in {{ w.location_label }}
                 {% else %}
                   “{{ w.search_term }}” anywhere
                 {% endif %}
                 {% if w.setup_mode != 'TOPIC' and w.distance_label and w.watch_type not in ['TOWN','COUNTY'] %} · {{ w.distance_label }}{% endif %}
+                {% if w.alert_category_filter %} · {{ w.alert_category_filter|join(', ') }}{% endif %}
+                {% if w.min_priority > 1 %} · P{{ w.min_priority }}+{% endif %}
               </div>
             </div>
           </div>
@@ -349,12 +362,21 @@
               <div class="simple-watch-number">1</div>
               <div>
                 <h3>What should we watch for?</h3>
+                <label>Jobs to match
+                  <select name="match_selection" data-match-selection>
+                    <option value="ANY" {% if w.match_selection == 'ANY' %}selected{% endif %}>Any mapped activity in this area</option>
+                    <option value="FILTERED" {% if w.match_selection != 'ANY' %}selected{% endif %}>Only activity matching filters</option>
+                  </select>
+                  <span class="hint">Includes mapped incidents, work items, events, and transit activity from every source and priority. Reference layers are excluded.</span>
+                </label>
+                <div data-match-filters>
                 <label>Source <span class="optional-label">optional</span>
                   <input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}" placeholder="Any source">
                 </label>
                 <label>Topic or phrase <span class="optional-label">optional</span>
                   <input name="search_term" value="{{ '' if w.watch_type == 'SOURCE' else (w.search_term if w.setup_mode != 'LOCATION' else '') }}" data-primary-keyword placeholder="Example: working fire, road closure, water main">
                 </label>
+                </div>
               </div>
             </section>
 
@@ -382,12 +404,12 @@
                 <label>Watch name
                   <input name="display_name" value="{{ w.display_name }}" required>
                 </label>
-                <label>Also match these phrases <span class="optional-label">optional</span>
+                <label data-match-filters>Also match these phrases <span class="optional-label">optional</span>
                   <input name="aliases" value="{{ (w.aliases or [])|join(', ') }}" data-other-keywords placeholder="Separate phrases with commas">
                 </label>
-                <div class="form-grid two-col">
+                <div class="form-grid two-col" data-match-filters>
                   <label>Minimum priority
-                    <select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == w.min_priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select>
+                    <select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == w.min_priority %}selected{% endif %}>P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select>
                   </label>
                   <label>Alert category <span class="optional-label">optional</span>
                     <input name="alert_category_filter" list="alert-category-values" value="{{ (w.alert_category_filter or [])|join(', ') }}" placeholder="Any category">
@@ -872,6 +894,16 @@
     const longitude = form.querySelector('[name="longitude"]');
     const locationScope = form.querySelector('[name="location_scope"]');
     const message = form.querySelector('[data-simple-watch-message]');
+    const matching = form.querySelector('[data-match-selection]');
+    const syncMatching = () => {
+      const anyJob = matching?.value === 'ANY';
+      form.querySelectorAll('[data-match-filters]').forEach((group) => {
+        group.hidden = anyJob;
+        group.querySelectorAll('input, select').forEach((input) => { input.disabled = anyJob; });
+      });
+    };
+    matching?.addEventListener('change', syncMatching);
+    syncMatching();
 
     const state = () => {
       const hasLocation = locationScope ? locationScope.value !== 'ANYWHERE' : Boolean(
@@ -880,14 +912,20 @@
         || longitude?.value.trim()
         || locationQuery?.value.trim()
       );
-      const hasTopic = Boolean(topic?.value.trim());
-      const hasSource = Boolean(source?.value.trim());
+      const hasTopic = matching?.value !== 'ANY' && Boolean(topic?.value.trim());
+      const hasSource = matching?.value !== 'ANY' && Boolean(source?.value.trim());
       if (mode) mode.value = hasLocation ? (hasTopic ? 'LOCATION_TOPIC' : 'LOCATION') : 'TOPIC';
       return {hasLocation, hasTopic, hasSource};
     };
 
     form.addEventListener('submit', (event) => {
       const current = state();
+      if (matching?.value === 'ANY' && !current.hasLocation) {
+        event.preventDefault();
+        setMessage(message, 'Choose a location for Any mapped activity in this area.', true);
+        locationScope?.focus();
+        return;
+      }
       if (!current.hasLocation && !current.hasTopic && !current.hasSource) {
         event.preventDefault();
         setMessage(message, 'Choose a source, enter a topic, or choose a location.', true);
@@ -1242,3 +1280,4 @@
 </script>
 </body>
 </html>
+

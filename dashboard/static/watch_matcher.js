@@ -274,6 +274,11 @@
     const countyOnly = !nearby && watchType === 'COUNTY';
     const locationRequired = nearby || locationPlusTopic || municipalityOnly || countyOnly;
     const topicRequired = locationPlusTopic || (!nearby && !municipalityOnly && !countyOnly);
+    const activityOk = !alert.metadata?.mapped_activity_only || locationRequired;
+    if (alert.metadata?.mapped_activity_only) {
+      gates.push(gate('mapped_activity', 'Mapped activity area Watch', activityOk,
+        activityOk ? 'Operational map record evaluated in this Watch area' : 'Mapped activity requires an area Watch'));
+    }
     const explicitAlertGeometry = watch.alert_geometry_ready;
     const explicitWatchTarget = watch.watch_target_ready;
 
@@ -342,7 +347,7 @@
       topicRequired ? (topic.matched ? 'PASS' : 'FAIL') : 'NOT_APPLICABLE'
     ));
 
-    const matched = scheduleOk && priorityOk && sourceOk && categoryOk
+    const matched = scheduleOk && priorityOk && sourceOk && categoryOk && activityOk
       && (!locationRequired || locationMatched)
       && (!topicRequired || topic.matched);
     let result = { matched };
@@ -407,3 +412,4 @@
     evaluateWatch
   };
 });
+
