@@ -246,7 +246,7 @@
     </form>
 
     {% if items %}
-    <details class="watch-bulk-disclosure">
+    <details class="watch-bulk-disclosure" data-watch-bulk-disclosure>
       <summary>Bulk actions</summary>
       <form id="watch-bulk-form" method="post" action="/watchlist/bulk-action" class="bulk-action-toolbar" data-watch-bulk-form>
       <label class="checkbox-row"><input type="checkbox" data-watch-select-all> Select all Watches shown</label>
@@ -313,66 +313,78 @@
         {% if focus_id and w.id == focus_id %}
         <details id="edit-watch" class="watch-edit-panel" open>
           <summary>Edit Watch</summary>
-          <form method="post" action="/watchlist/{{ w.id }}/update" class="watch-form compact watch-editor" data-mode-form>
+          <form method="post" action="/watchlist/{{ w.id }}/update" class="watch-form compact simple-watch-form" data-simple-watch-form>
             <input type="hidden" name="keep_state" value="1">
-            <label>Watch name<input name="display_name" value="{{ w.display_name }}" required></label>
-            <div>
-              <div class="field-label">What should we watch for?</div>
-              {{ mode_choices(w.setup_mode) }}
-              <label>Only these alert sources (optional)
-                <input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}" placeholder="Example: BNN">
-              </label>
-            </div>
-            <div data-needs-topic {% if w.setup_mode == 'LOCATION' %}hidden{% endif %}>
-              {% if w.keyword_choices %}
-              <div class="alert-keyword-picker" data-alert-keywords>
-                <span>Keywords currently on</span>
-                <div class="alert-keyword-choices">
-                  {% for keyword in w.keyword_choices %}<label><input type="checkbox" value="{{ keyword }}" data-alert-keyword checked> {{ keyword }}</label>{% endfor %}
-                </div>
-                <small>Clear a keyword to stop matching it, then save. These are this Watch's saved choices, not a hardcoded list.</small>
-              </div>
-              {% endif %}
-              <label>Topic or phrase<input name="search_term" value="{{ '' if w.watch_type == 'SOURCE' else (w.search_term if w.setup_mode != 'LOCATION' else '') }}" data-primary-keyword placeholder="Example: water main or road closure"></label>
-              <label>Also match these alternatives (optional)
-                <input name="aliases" value="{{ (w.aliases or [])|join(', ') }}" data-other-keywords placeholder="Separate phrases with commas">
-                <span class="hint">Any one of these phrases may create a Match.</span>
-              </label>
-            </div>
-            <div class="watch-mode-section" data-needs-location {% if w.setup_mode == 'TOPIC' %}hidden{% endif %}>
-              <div class="field-label">Location and Distance</div>
-              {{ location_picker(w.location_label, w.location_kind, w.location_id, '', '', w.location_label, w.radius_ft or 5280) }}
-            </div>
-            <fieldset class="recipient-picker"><legend>Recipients</legend>
-              {% for sub in subscribers %}<label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}" {% if sub.id in w.recipient_ids %}checked{% endif %}> {{ sub.name }}</label>{% else %}<span>No active Recipients.</span>{% endfor %}
-            </fieldset>
-            {{ duration_picker(w.duration, w.starts_local, w.expires_local) }}
+            <input type="hidden" name="setup_mode" value="{{ w.setup_mode }}" data-simple-setup-mode>
+            <input type="hidden" name="watch_type" value="{{ w.watch_type }}">
+            <input type="hidden" name="match_mode" value="{{ w.match_mode }}">
+            <input type="hidden" name="match_field" value="{{ w.match_field or '' }}">
+            <input type="hidden" name="category" value="{{ w.category or '' }}">
+            <input type="hidden" name="tags" value="{{ (w.tags or [])|join(', ') }}">
 
-            <details class="advanced-options">
-              <summary>Advanced Options</summary>
+            <section class="simple-watch-section">
+              <div class="simple-watch-number">1</div>
+              <div>
+                <h3>What should we watch for?</h3>
+                <label>Source <span class="optional-label">optional</span>
+                  <input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}" placeholder="Any source">
+                </label>
+                <label>Topic or phrase <span class="optional-label">optional</span>
+                  <input name="search_term" value="{{ '' if w.watch_type == 'SOURCE' else (w.search_term if w.setup_mode != 'LOCATION' else '') }}" data-primary-keyword placeholder="Example: working fire, road closure, water main">
+                </label>
+              </div>
+            </section>
+
+            <section class="simple-watch-section">
+              <div class="simple-watch-number">2</div>
+              <div>
+                <h3>Where should we watch?</h3>
+                {{ location_picker(w.location_label, w.location_kind, w.location_id, '', '', w.location_label, w.radius_ft or 5280) }}
+              </div>
+            </section>
+
+            <section class="simple-watch-section">
+              <div class="simple-watch-number">3</div>
+              <div>
+                <h3>Who should be notified?</h3>
+                <fieldset class="recipient-picker simple-recipient-picker"><legend>Recipients</legend>
+                  {% for sub in subscribers %}<label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}" {% if sub.id in w.recipient_ids %}checked{% endif %}> {{ sub.name }}</label>{% else %}<span>No active Recipients.</span>{% endfor %}
+                </fieldset>
+              </div>
+            </section>
+
+            <details class="advanced-options simple-watch-more">
+              <summary>More options</summary>
               <div class="watch-form compact advanced-options-body">
+                <label>Watch name
+                  <input name="display_name" value="{{ w.display_name }}" required>
+                </label>
+                <label>Also match these phrases <span class="optional-label">optional</span>
+                  <input name="aliases" value="{{ (w.aliases or [])|join(', ') }}" data-other-keywords placeholder="Separate phrases with commas">
+                </label>
                 <div class="form-grid two-col">
-                  <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == w.min_priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label>
-                  <label>Municipality context<input name="municipality" value="{{ w.municipality or '' }}"></label>
+                  <label>Minimum priority
+                    <select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == w.min_priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select>
+                  </label>
+                  <label>Alert category <span class="optional-label">optional</span>
+                    <input name="alert_category_filter" list="alert-category-values" value="{{ (w.alert_category_filter or [])|join(', ') }}" placeholder="Any category">
+                  </label>
                 </div>
-                <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ (w.alert_category_filter or [])|join(', ') }}" autocomplete="off"></label>
-                <span class="hint">Leave both blank to evaluate every alert point inside the saved area. The Watch name never filters alerts.</span>
-                <div class="form-grid two-col">
-                  <label>Technical watch type<select name="watch_type">{% if w.watch_type not in watch_types %}<option value="{{ w.watch_type }}" selected>{{ w.watch_type }}</option>{% endif %}{% for wt in watch_types %}<option value="{{ wt }}" {% if wt == w.watch_type %}selected{% endif %}>{{ wt }}</option>{% endfor %}</select></label>
-                  <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == w.match_mode %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
-                </div>
-                <label>Match field<input name="match_field" value="{{ w.match_field or '' }}"></label>
-                <div class="form-grid two-col"><label>Internal category label<input name="category" value="{{ w.category or '' }}"></label><label>Tags<input name="tags" value="{{ (w.tags or [])|join(', ') }}"></label></div>
-                <label>Notes<textarea name="notes" rows="2">{{ w.notes or '' }}</textarea></label>
+                {{ duration_picker(w.duration, w.starts_local, w.expires_local) }}
+                <label>Private note <span class="optional-label">optional</span>
+                  <textarea name="notes" rows="2">{{ w.notes or '' }}</textarea>
+                </label>
                 <div class="advanced-reference">Internal reference: {{ w.watch_id }}</div>
                 {% if w.nearby_enabled %}<a href="/api/spatial-watch/{{ w.watch_id }}/nearby-history?radius_ft={{ w.radius_ft or 5280 }}&hours=24">View nearby alert history data</a>{% endif %}
               </div>
             </details>
-            <button class="primary-button" type="submit">Save Changes</button>
+
+            <div class="watch-card-actions">
+              <button class="primary-button" type="submit">Save Changes</button>
+              <a class="secondary-button" href="/watchlist">Cancel</a>
+            </div>
           </form>
         </details>
-
-
         {% endif %}
         <div class="watch-card-actions watch-card-primary-actions">
           {% if focus_id and w.id == focus_id %}
@@ -987,6 +999,11 @@
     sync();
     syncAction();
   });
+
+  const bulkDisclosure = document.querySelector('[data-watch-bulk-disclosure]');
+  const syncBulkMode = () => document.body.classList.toggle('watch-bulk-mode', Boolean(bulkDisclosure?.open));
+  bulkDisclosure?.addEventListener('toggle', syncBulkMode);
+  syncBulkMode();
 
   document.querySelectorAll('[data-duration-select]').forEach((select) => {
     const schedule = select.parentElement.nextElementSibling;
