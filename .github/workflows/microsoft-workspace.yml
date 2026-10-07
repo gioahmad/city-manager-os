@@ -66,10 +66,6 @@ jobs:
         env:
           CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
         run: python ci/check_watch_preview.py
-      - name: Watch creation and all mapped activity through real PostGIS and delivery guard
-        env:
-          CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
-        run: python ci/check_watch_activity.py
       - name: JavaScript and installer syntax
         run: |
           node --check dashboard/static/microsoft_workspace.js
@@ -90,6 +86,10 @@ jobs:
           bash -n deploy/postgis/install-backup-timer.sh
       - name: Install Firefox and Chromium
         run: python -m playwright install --with-deps firefox chromium > "$RUNNER_TEMP/browser-install.log" 2>&1 || { tail -80 "$RUNNER_TEMP/browser-install.log"; exit 1; }
+      - name: Watch creation and all mapped activity through real PostGIS and delivery guard
+        env:
+          CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
+        run: python ci/check_watch_activity.py
       - name: Existing browser regression
         run: python ci/check_release_browser.py
       - name: Existing authenticated navigation

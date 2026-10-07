@@ -86,7 +86,7 @@ WITH records AS (
 ), pending AS (
   SELECT c.* FROM candidates c LEFT JOIN alerts a ON a.alert_id=c.alert_id
   WHERE coalesce(a.metadata#>>'{_cmos,mapped_activity_fingerprint}','')<>c.fingerprint
-  ORDER BY c.changed_at,c.alert_id LIMIT 50
+  ORDER BY coalesce(a.updated_at,c.changed_at),c.alert_id LIMIT 50
 ), saved AS (
   INSERT INTO alerts(alert_id,source,source_event_id,category,subtype,status,event_action,title,message,
                      priority,municipality,county,location,tags,click_url,source_url,observed_at,

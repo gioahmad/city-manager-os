@@ -159,7 +159,7 @@
         <strong>{{ prefill.source_alert_title }}</strong>
         <span>What about this alert matters? Keep or clear the source, topic, and location below.</span>
         {% if prefill.keyword_choices %}
-        <div class="alert-keyword-picker" data-alert-keywords>
+        <div class="alert-keyword-picker" data-alert-keywords data-match-filters>
           <span>Keywords: use any of these phrases</span>
           <div class="alert-keyword-choices">
             {% for keyword in prefill.keyword_choices %}

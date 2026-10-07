@@ -170,3 +170,83 @@ assert late_id not in [r['alert']['alert_id'] for r in sql(late_query)]
 sql("UPDATE geo_entity_resolutions SET geom=ST_GeomFromEWKT(%s),updated_at=now() WHERE entity_id=(SELECT id::text FROM alerts WHERE alert_id=%s) RETURNING id",(outside,late_id))
 assert late_id in [r['alert']['alert_id'] for r in sql(late_query)]
 print('LATE MAPPING PASS: old alerts enter matching when mapped; changed geometry is reconsidered; unchanged geometry is not repeatedly rematched')
+
+# Exercise the actual new form behavior in both supported browser engines.
+import socket
+import threading
+import time
+import uvicorn
+from playwright.sync_api import sync_playwright
+
+with socket.socket() as sock:
+    sock.bind(('127.0.0.1',0))
+    port = sock.getsockname()[1]
+base = 'http://127.0.0.1:'+str(port)
+os.environ['CMOS_PUBLIC_ORIGIN'] = base
+server = uvicorn.Server(uvicorn.Config(application,host='127.0.0.1',port=port,log_level='error'))
+thread = threading.Thread(target=server.run,daemon=True)
+thread.start()
+for _ in range(100):
+    if server.started:
+        break
+    time.sleep(.05)
+assert server.started
+try:
+    with sync_playwright() as browsers:
+        for engine in ('firefox','chromium'):
+            browser = getattr(browsers,engine).launch()
+            context = browser.new_context(viewport={'width':1000,'height':900})
+            context.add_cookies([{'name':auth.COOKIE_NAME,'value':cookie,'url':base}])
+            page = context.new_page()
+            errors=[]
+            page.on('pageerror',lambda error: errors.append(str(error)))
+            page.goto(base+'/watchlist?from_record=EVENT_INTELLIGENCE&record_id='+str(event_id))
+            form = page.locator('form[action="/watchlist/create"]')
+            assert form.is_visible()
+            original_lat = form.locator('[name="latitude"]').input_value()
+            original_lon = form.locator('[name="longitude"]').input_value()
+            form.get_by_text('More options',exact=True).click()
+            form.locator('[name="source_filter"]').fill('stale-source')
+            form.locator('[name="search_term"]').fill('stale-topic')
+            form.locator('[name="aliases"]').fill('stale-alias')
+            form.locator('[name="alert_category_filter"]').fill('stale-category')
+            form.locator('[name="min_priority"]').select_option('5')
+            form.locator('[name="match_selection"]').select_option('ANY')
+            assert form.locator('[name="search_term"]').is_disabled()
+            assert not form.locator('[name="search_term"]').is_visible()
+            assert form.locator('[name="min_priority"]').is_disabled()
+            form.locator('[name="radius_ft"]').select_option('1000')
+            browser_name = engine+' area Watch '+str(uuid4())
+            form.locator('[name="display_name"]').fill(browser_name)
+            for sub in subscribers:
+                form.locator('[name="subscriber_ids"][value="'+str(sub)+'"]').check()
+            form.get_by_role('button',name='Turn On Watch',exact=True).click()
+            page.wait_for_url('**/watchlist?msg=*')
+            created = sql('SELECT *,ST_AsEWKT(spatial_target_geom) AS target FROM watch_items WHERE display_name=%s',(browser_name,))[0]
+            assert created['min_priority']==1 and created['source_filter']==created['alert_category_filter']==created['aliases']==[]
+            assert abs(created['latitude']-float(original_lat))<1e-9 and abs(created['longitude']-float(original_lon))<1e-9
+            page.goto(base+'/watchlist?focus='+str(created['id']))
+            edit = page.locator('form[action="/watchlist/'+str(created['id'])+'/update"]')
+            assert edit.locator('[name="match_selection"]').input_value()=='ANY'
+            edit.locator('[name="radius_ft"]').select_option('500')
+            edit.get_by_role('button',name='Save Changes',exact=True).click()
+            page.wait_for_url('**/watchlist?msg=*')
+            changed = sql('SELECT *,ST_AsEWKT(spatial_target_geom) AS target FROM watch_items WHERE id=%s',(created['id'],))[0]
+            assert changed['target']==created['target'] and changed['radius_ft']==500 and changed['active']
+            page.goto(base+'/watchlist?from_alert='+late_id+'&setup_mode=LOCATION')
+            form = page.locator('form[action="/watchlist/create"]')
+            assert form.locator('[name="match_selection"]').input_value()=='ANY'
+            assert form.locator('[name="search_term"]').input_value()==''
+            page.goto(base+'/watchlist?previewed=1&setup_mode=LOCATION&location_kind=COUNTY&location_id=Hudson&location_query=Hudson&source_filter=BNN&min_priority=4&match_mode=FIELD&match_field=county')
+            form = page.locator('form[action="/watchlist/create"]')
+            assert form.locator('[name="match_selection"]').input_value()=='FILTERED'
+            assert form.locator('[name="source_filter"]').input_value()=='BNN'
+            assert form.locator('[name="min_priority"]').input_value()=='4'
+            assert form.locator('[name="match_mode"]').input_value()=='FIELD'
+            assert not errors,errors
+            print('WATCH BROWSER PASS:',engine,'Intel draft, all-activity selection, stale-filter clearing, recipients, radius edit, Alert location choice and Preview filter preservation')
+            context.close()
+            browser.close()
+finally:
+    server.should_exit=True
+    thread.join(timeout=5)
