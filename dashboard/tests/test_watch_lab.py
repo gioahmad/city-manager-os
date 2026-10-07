@@ -51,7 +51,7 @@ def test_watch_lab_ui_states_safety_and_loads_shared_matcher():
     assert "never creates an alert, Match, delivery, or Notification" in template
     assert 'value="WATCH_CENTER"' in template
     assert 'value="CUSTOM"' in template
-    assert '<script src="/static/watch_matcher.js?v=4"></script>' in template
+    assert '<script src="/static/watch_matcher.js?v=5"></script>' in template
     assert "window.CmosWatchMatcher.evaluateWatch" in template
     assert "Copy Diagnostic Receipt" in template
 
@@ -161,3 +161,4 @@ def test_sync_script_has_no_second_matcher_implementation():
     assert 'MATCHER_SOURCE = ROOT / "dashboard/static/watch_matcher.js"' in sync
     assert 'ADAPTER_SOURCE = ROOT / "deploy/n8n/watch_matcher_adapter.js"' in sync
     assert "function evaluateWatch" not in sync
+

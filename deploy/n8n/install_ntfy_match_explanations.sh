@@ -63,7 +63,9 @@ rollback_sender(){
 trap rollback_sender ERR
 
 cd "$REPO"
-[[ "$(git branch --show-current)" == main ]] || fail "production checkout must be on main"
+if [[ -z "$EXPECTED_TARGET" ]]; then
+  [[ "$(git branch --show-current)" == main ]] || fail "production checkout must be on main when no tested target is supplied"
+fi
 [[ -z "$(git status --porcelain)" ]] || fail "repository must be clean"
 [[ -z "$EXPECTED_TARGET" || "$(git rev-parse HEAD)" == "$EXPECTED_TARGET" ]] \
   || fail "HEAD does not match expected target"
@@ -87,6 +89,24 @@ con.close()
 PY
 )"
 [[ -n "$SENDER_ID" ]] || fail "published ntfy sender was not found"
+
+if python3 - "$N8N_DB" "$SENDER_ID" "$SOURCE_FILE" <<'PY'
+import json,sqlite3,sys
+con=sqlite3.connect(sys.argv[1]);con.row_factory=sqlite3.Row
+row=con.execute('SELECT active,activeVersionId,nodes,connections FROM workflow_entity WHERE id=?',(sys.argv[2],)).fetchone()
+expected=json.load(open(sys.argv[3]));actual={n['name']:n for n in json.loads(row['nodes'])}
+current=bool(row['active'] and row['activeVersionId'])
+for node in expected['nodes']:
+    saved=actual.get(node['name'],{})
+    current=current and saved.get('type')==node['type'] and saved.get('parameters')==node.get('parameters')
+current=current and json.loads(row['connections'])==expected['connections']
+con.close()
+raise SystemExit(0 if current else 1)
+PY
+then
+  log "Notification sender already current — no backup or restart required"
+  exit 0
+fi
 
 install -d -m 700 "$BACKUP_DIR"
 log "Backing up n8n and the published ntfy sender"
@@ -118,9 +138,13 @@ required=(
     'Watch center',
     'payload.match_reasons',
     'const message = explanations.length',
+    'includeExplanations',
 )
 if not all(marker in code for marker in required):
     raise SystemExit('plain-language match explanation contract is incomplete')
+options=((nodes.get('Load Notification Options') or {}).get('parameters') or {}).get('query','')
+if 'workspace_config' not in options or 'notification_explanations' not in options:
+    raise SystemExit('global notification settings are not loaded')
 if 'Publish to ntfy' not in nodes or 'Return Send Results' not in nodes:
     raise SystemExit('central ntfy sender path is incomplete')
 workflow['id']=workflow_id
@@ -137,7 +161,7 @@ workflow=json.load(open(sys.argv[1]))
 nodes={node.get('name'):node for node in workflow.get('nodes') or []}
 code=(nodes['Prepare ntfy Requests'].get('parameters') or {})['jsCode']
 script=f'''const run=new Function('$input',{json.dumps(code)});
-const prepare=(payload)=>run({{first:()=>({{json:{{delivery_payloads:[payload]}}}})}})[0].json.ntfy_body.message;
+const prepare=(payload,show=true)=>run({{first:()=>({{json:{{sender_input:{{delivery_payloads:[payload]}},include_match_explanations:show}}}})}})[0].json.ntfy_body.message;
 const base={{ntfy_topic:'contract-only',title:'Contract',message:'Original alert',priority:3,tags:[]}};
 const keyword=prepare({{...base,match_reasons:['CONTAINS search_text matched search_term "CONTRACT KEYWORD"']}});
 if(!keyword.includes('Why you received this:')||!keyword.includes('Keyword “CONTRACT KEYWORD” matched this alert'))throw new Error('keyword explanation missing');
@@ -146,7 +170,8 @@ const location=prepare({{...base,match_reasons:['PROXIMITY alert geometry is 125
 if(!location.includes('Watch center')||!location.includes('5,280-foot Distance'))throw new Error('Location explanation missing');
 if(location.includes('geometry')||location.includes('buffer'))throw new Error('technical Location terms leaked');
 if(prepare(base)!=='Original alert')throw new Error('message without reasons changed');
-console.log('NTFY_EXPLANATION_CONTRACT keyword=PASS location=PASS unchanged=PASS notification_sent=NO');
+if(prepare({{...base,match_reasons:['Location reason']}},false)!=='Original alert')throw new Error('global explanation off ignored');
+console.log('NTFY_EXPLANATION_CONTRACT keyword=PASS location=PASS unchanged=PASS global_off=PASS notification_sent=NO');
 '''
 open(sys.argv[2],'w').write(script)
 PY
@@ -172,9 +197,12 @@ if not row or row['name']!='CORE - ntfy Sender v1': raise SystemExit('ntfy sende
 if not row['active'] or not row['activeVersionId']: raise SystemExit('ntfy sender is not active and published')
 nodes={node.get('name'):node for node in json.loads(row['nodes'])}
 code=((nodes.get('Prepare ntfy Requests') or {}).get('parameters') or {}).get('jsCode','')
-required=('function explainMatch','Why you received this:','payload.match_reasons','Watch center')
+required=('function explainMatch','Why you received this:','payload.match_reasons','Watch center','includeExplanations')
 if not all(marker in code for marker in required): raise SystemExit('published sender explanation contract is incomplete')
-print('NTFY_SENDER active=1 published=1 plain_language_reason=YES')
+options=((nodes.get('Load Notification Options') or {}).get('parameters') or {}).get('query','')
+if 'workspace_config' not in options or 'notification_explanations' not in options:
+    raise SystemExit('published sender does not load global notification settings')
+print('NTFY_SENDER active=1 published=1 plain_language_reason=YES global_on_off=YES')
 con.close()
 PY
 

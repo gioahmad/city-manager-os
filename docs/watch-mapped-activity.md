@@ -5,6 +5,19 @@ Every Watch builder and editor offers **Any mapped activity in this area** or
 category, and minimum-priority restrictions. Editing keeps the selected location,
 radius, recipients, and current on/paused state. A location is required.
 
+Filtered Watches accept up to 200 editable words/phrases, separated by lines,
+pipes, or commas. Any one term matches; case is ignored. Choose Contains any term
+or Whole words or phrases only. `\d` is a literal-term digit placeholder, not an
+unrestricted regular expression. Source, location/distance, priority/category,
+recipients, duration and on/paused state remain selectable. Saved terms all appear
+in the editor, and history preview retains the full list instead of stopping at 12.
+No BNN keyword list or recipient is embedded in application code.
+
+**Notification options** on Watches offers an Executive-controlled global switch
+for “Why you received this.” The central ntfy sender reads the saved setting for
+each delivery, covering every source and recipient without republishing workflows.
+It defaults on and changes no matching, routing, original alert body, or audit data.
+
 Operational activity includes incidents, open work items, active Event Intelligence
 records at any impact level, managed events, mapped transit WATCH/ALERT observations,
 and current live transit vehicles. Parcel/address/reference layers and drawings are
@@ -36,7 +49,8 @@ Choosing anything near an Alert clears suggested keywords. Preview History keeps
 the selected source/category, match mode/field, and minimum priority.
 
 Deploy the dashboard, then run `install_spatial_watch_matcher.sh` and
-`install_resolved_alert_rematch.sh` with the reviewed commit SHA. Those installers
+`install_resolved_alert_rematch.sh`, then `install_ntfy_match_explanations.sh` with
+the reviewed commit SHA. Those installers
 retain recovery copies of the n8n database/workflows and verify publication. There
 is no PostGIS schema change in this release. The full CI workflow also executes
 `ci/check_watch_activity.py` against real PostgreSQL/PostGIS and tracked n8n code;

@@ -33,6 +33,24 @@ def _normalize(value) -> str:
     return re.sub(r"[^A-Z0-9]+", " ", text).strip()
 
 
+def watch_terms(term: str, aliases: str = "") -> list[str]:
+    values = []
+    seen = set()
+    for value in re.split(r"[|,\r\n]+", term + "\n" + aliases):
+        value = value.strip().strip('"').strip()
+        if not value or value.casefold() in seen:
+            continue
+        if len(value) > 160 or len(values) >= 200:
+            raise HTTPException(400, "Use up to 200 terms, each at most 160 characters.")
+        seen.add(value.casefold())
+        values.append(value)
+    return values
+
+
+def _phrase_pattern(value: str) -> str:
+    return "[0-9]".join(re.escape(_normalize("A" + part + "Z")[1:-1]) for part in value.strip().split(r"\d"))
+
+
 STATE_ALIASES = {"NJ": "NJ", "NEW JERSEY": "NJ", "NY": "NY", "NEW YORK STATE": "NY"}
 COUNTIES = {
     "NJ": {
@@ -159,9 +177,9 @@ def _matches(alert: dict, rule: dict) -> tuple[bool, str]:
             else:
                 matched = haystack == needle
         elif mode == "WORD":
-            matched = bool(re.search(r"(^|\s)" + re.escape(needle) + r"(?=\s|$)", haystack))
+            matched = bool(re.search(r"(^|\s)" + _phrase_pattern(candidate) + r"(?=\s|$)", haystack))
         else:
-            matched = needle in haystack
+            matched = bool(re.search(_phrase_pattern(candidate), haystack)) if r"\d" in candidate else needle in haystack
         if matched:
             return True, f"{mode} {rule['field']} matched \"{candidate}\""
     return False, f"{rule['mode']} {rule['field']} did not match"
@@ -179,12 +197,8 @@ def _rule_from_search(source: str, category: str, county: str, municipality: str
     if term.strip():
         chosen_field = field if field in FIELDS else "search_text"
         chosen_mode = mode.upper() if mode.upper() in MODES else "CONTAINS"
-        chosen_term = term.strip()[:160]
-        aliases = [
-            value.strip()[:160]
-            for value in re.split(r"[|,]", aliases_text or "")
-            if value.strip()
-        ][:12]
+        values = watch_terms(term, aliases_text) if chosen_mode in {"CONTAINS", "WORD"} else [term.strip()[:160], *watch_terms(aliases_text)]
+        chosen_term, aliases = values[0], values[1:]
     elif county.strip():
         chosen_field, chosen_mode = "county", "FIELD"
         chosen_term = re.sub(r"\s+County$", "", county.strip(), flags=re.I)
@@ -318,3 +332,4 @@ def watch_preview(
             "page": "watch-preview",
         },
     )
+

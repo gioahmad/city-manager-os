@@ -38,7 +38,7 @@ from app import (
     validate_watch,
 )
 from geo_resolver import MIN_PRECISE_CONFIDENCE, resolve_payload
-from watch_preview_app import COUNTIES
+from watch_preview_app import COUNTIES, watch_terms
 
 
 RELEASE_ID = "alerting-spatial-watch-simplification-v1"
@@ -910,7 +910,7 @@ def _saved_watch_preview_url(row: dict) -> str:
         params["term"] = term
         aliases = [str(value).strip() for value in (row.get("aliases") or []) if str(value).strip()]
         if aliases:
-            params["aliases"] = "|".join(aliases[:12])
+            params["aliases"] = "|".join(aliases[:200])
     return "/watch-preview?" + urlencode(params)
 
 
@@ -1749,6 +1749,8 @@ def spatial_watchlist(
             "bulk_context": bulk_context,
             "bulk_watch_limit": BULK_WATCH_LIMIT,
             "prefill": prefill,
+            "notification_explanations": (query_one("SELECT settings FROM workspace_config WHERE singleton=true").get("settings") or {}).get("notification_explanations") is not False,
+            "can_edit_notification_settings": getattr(request.state, "cmos_role", "") == "EXECUTIVE",
             "county_choices": sorted(name.title() for name in COUNTIES["NJ"]),
             "focus_id": focus_id,
             "evidence_id": evidence_id,
@@ -2286,6 +2288,21 @@ def spatial_watch_bulk_action(
     return _watch_redirect(message=f"{total} Watch{'es' if total != 1 else ''} {label}{suffix}")
 
 
+@app.post("/watchlist/notification-settings")
+def notification_settings(request: Request, explanations: str = Form("off")):
+    if getattr(request.state, "cmos_role", "") != "EXECUTIVE":
+        raise HTTPException(403, "Executive access is required to change notification settings.")
+    if explanations not in {"on", "off"}:
+        raise HTTPException(400, "Choose whether notification explanations are on or off.")
+    with db_conn() as conn:
+        conn.execute("""INSERT INTO workspace_config(singleton,settings)
+            VALUES(true,jsonb_build_object('notification_explanations',%s::boolean))
+            ON CONFLICT(singleton) DO UPDATE SET settings=workspace_config.settings||EXCLUDED.settings""",
+            (explanations == "on",))
+        conn.commit()
+    return _watch_redirect(message="Notification explanations " + ("on" if explanations == "on" else "off") + " for all sources and recipients")
+
+
 @app.post("/watchlist/create")
 @_friendly_watch_errors
 def spatial_watch_create(
@@ -2295,6 +2312,8 @@ def spatial_watch_create(
     watch_type: str = Form(""),
     search_term: str = Form(""),
     match_mode: str = Form("CONTAINS"),
+    word_mode: str = Form(""),
+    term_list: str = Form(""),
     match_field: str = Form(""),
     aliases: str = Form(""),
     category: str = Form(""),
@@ -2321,6 +2340,13 @@ def spatial_watch_create(
     activation: str = Form("on"),
 ):
     display_name = display_name.strip()
+    if word_mode:
+        if word_mode not in {"CONTAINS", "WORD"}:
+            raise HTTPException(400, "Choose a listed word matching option.")
+        match_mode, match_field = word_mode, "search_text"
+    if term_list == "1" and match_mode in {"CONTAINS", "WORD"}:
+        terms = watch_terms(search_term, aliases)
+        search_term, aliases = (terms[0] if terms else ""), ", ".join(terms[1:])
     search_term, aliases, source_filter, alert_category_filter, min_priority = _matching_inputs(
         match_selection, location_scope, search_term, aliases, source_filter, alert_category_filter, min_priority,
     )
@@ -2469,6 +2495,8 @@ def spatial_watch_update(
     watch_type: str = Form(""),
     search_term: str = Form(""),
     match_mode: str = Form("CONTAINS"),
+    word_mode: str = Form(""),
+    term_list: str = Form(""),
     match_field: str = Form(""),
     aliases: str = Form(""),
     category: str = Form(""),
@@ -2495,6 +2523,13 @@ def spatial_watch_update(
     subscriber_ids: list[uuid.UUID] = Form([]),
 ):
     display_name = display_name.strip()
+    if word_mode:
+        if word_mode not in {"CONTAINS", "WORD"}:
+            raise HTTPException(400, "Choose a listed word matching option.")
+        match_mode, match_field = word_mode, "search_text"
+    if term_list == "1" and match_mode in {"CONTAINS", "WORD"}:
+        terms = watch_terms(search_term, aliases)
+        search_term, aliases = (terms[0] if terms else ""), ", ".join(terms[1:])
     if not display_name:
         raise HTTPException(400, "Name this watch before saving it")
     search_term, aliases, source_filter, alert_category_filter, min_priority = _matching_inputs(
@@ -2566,7 +2601,7 @@ def spatial_watch_update(
             saved_search_term = topic
             current_type = str(current.get("watch_type") or "").upper()
             current_field = str(match_field or "").strip().lower()
-            if current_type != "LOCATION_TOPIC" or current_field in {"county", "municipality", "source", "geom"}:
+            if not word_mode and (current_type != "LOCATION_TOPIC" or current_field in {"county", "municipality", "source", "geom"}):
                 saved_match_mode = "CONTAINS"
                 saved_match_field = None
             else:
@@ -2599,6 +2634,8 @@ def spatial_watch_update(
                     match_mode,
                     match_field,
                 )
+        if word_mode and saved_setup_mode in {"TOPIC", "LOCATION_TOPIC"} and not source_only:
+            saved_match_mode, saved_match_field = word_mode, "search_text"
         validate_watch(saved_match_mode, saved_match_field, min_priority)
         saved_category_filter = csv_array(alert_category_filter)
 

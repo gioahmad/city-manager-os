@@ -171,6 +171,53 @@ sql("UPDATE geo_entity_resolutions SET geom=ST_GeomFromEWKT(%s),updated_at=now()
 assert late_id in [r['alert']['alert_id'] for r in sql(late_query)]
 print('LATE MAPPING PASS: old alerts enter matching when mapped; changed geometry is reconsidered; unchanged geometry is not repeatedly rematched')
 
+# Selectable multi-term rules use the same Watch rows, with no special BNN matcher.
+sys.path.insert(0,str(ROOT/'dashboard/tests'))
+from test_watch_terms import TERMS
+term_name = 'Selectable BNN terms '+str(uuid4())
+post('/watchlist/create', {'display_name':term_name,'setup_mode':'TOPIC','location_scope':'ANYWHERE',
+    'source_filter':'BNN','search_term':TERMS,'word_mode':'WORD','term_list':'1',
+    'subscriber_ids':str(subscribers[0])})
+term_watch = sql('SELECT * FROM watch_items WHERE display_name=%s',(term_name,))[0]
+assert term_watch['match_mode']=='WORD' and term_watch['source_filter']==['BNN']
+assert len(term_watch['aliases'])==33 and term_watch['aliases'][-1]=='overturned auto'
+post('/watchlist/'+str(term_watch['id'])+'/update',{'display_name':term_name,'setup_mode':'LOCATION_TOPIC',
+    'source_filter':'','location_scope':'MAP_POINT','latitude':'40.77','longitude':'-74.02',
+    'search_term':'working fire\nTIER \\d','word_mode':'WORD','term_list':'1','keep_state':'1',
+    'subscriber_ids':str(subscribers[1])})
+changed = sql('SELECT * FROM watch_items WHERE id=%s',(term_watch['id'],))[0]
+assert changed['watch_type']=='LOCATION_TOPIC' and changed['match_mode']=='WORD'
+assert changed['aliases']==[r'TIER \d'] and changed['source_filter']==[]
+recipients = sql('SELECT subscriber_id FROM watch_item_recipients WHERE watch_item_id=%s AND active',(term_watch['id'],))
+assert [r['subscriber_id'] for r in recipients]==[subscribers[1]]
+print('WATCH TERMS API PASS: all terms retained; source, words, matching mode, area and recipient freely editable')
+
+# The central sender reads one dynamic global setting and preserves all audit data.
+sender = {n['name']:n for n in json.loads((ROOT/'workflows/core/CORE_ntfy_Sender_v1.json').read_text())['nodes']}
+original_settings = sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']
+for show in (False,True):
+    response = client.post('/watchlist/notification-settings',data={'explanations':'on'} if show else {},headers=headers,follow_redirects=False)
+    assert response.status_code==303
+    settings = sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']
+    assert settings=={**original_settings,'notification_explanations':show}
+    bundle={'delivery_payloads':[{'ntfy_topic':'ci-only-'+source,'subscriber_id':source,'source':source,
+        'message':'Original body','match_reasons':['CONTAINS search_text matched search_term "working fire"']}
+        for source in ('BNN','OTHER')]}
+    loaded=sql(sender['Load Notification Options']['parameters']['query'],(Jsonb(bundle),))[0]
+    code=sender['Prepare ntfy Requests']['parameters']['jsCode']
+    script="const d=JSON.parse(require('fs').readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(new Function('$input',d.code)({first:()=>({json:d.input})})));"
+    output=json.loads(subprocess.run(['node','-e',script],input=json.dumps({'code':code,'input':loaded}),text=True,capture_output=True,check=True).stdout)
+    assert len(output)==2
+    for item in output:
+        assert ('Why you received this:' in item['json']['ntfy_body']['message']) is show
+        assert item['json']['match_reasons']==bundle['delivery_payloads'][0]['match_reasons']
+        if not show:assert item['json']['ntfy_body']['message']=='Original body'
+readonly = auth._issue_session(auth.Account('ReadOnly','READ_ONLY',''))
+denied = client.post('/watchlist/notification-settings',data={'explanations':'off'},headers={**headers,'Cookie':auth.COOKIE_NAME+'='+readonly},follow_redirects=False)
+assert denied.status_code==403
+assert sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']['notification_explanations'] is True
+print('GLOBAL NOTIFICATION OPTIONS PASS: real settings + central sender; all sources/recipients on/off, original body and evidence retained, read-only denied, no send')
+
 # Exercise the actual new form behavior in both supported browser engines.
 import socket
 import threading
@@ -243,8 +290,47 @@ try:
             assert form.locator('[name="source_filter"]').input_value()=='BNN'
             assert form.locator('[name="min_priority"]').input_value()=='4'
             assert form.locator('[name="match_mode"]').input_value()=='FIELD'
+            from urllib.parse import urlencode
+            draft = urlencode({'create':'1','setup_mode':'TOPIC','source_filter':'BNN',
+                'search_term':TERMS,'match_mode':'WORD'})
+            page.goto(base+'/watchlist?'+draft)
+            form = page.locator('form[action="/watchlist/create"]')
+            assert form.locator('[name="word_mode"]').input_value()=='WORD'
+            assert form.locator('[name="location_scope"]').input_value()=='ANYWHERE'
+            assert form.locator('[name="subscriber_ids"]:checked').count()==0
+            form.get_by_text('More options',exact=True).click()
+            draft_name = engine+' selectable terms '+str(uuid4())
+            form.locator('[name="display_name"]').fill(draft_name)
+            form.get_by_role('button',name='Save Paused',exact=True).click()
+            page.wait_for_url('**/watchlist?msg=*')
+            draft_watch = sql('SELECT * FROM watch_items WHERE display_name=%s',(draft_name,))[0]
+            assert not draft_watch['active'] and len(draft_watch['aliases'])==33
+            page.goto(base+'/watchlist?focus='+str(draft_watch['id']))
+            edit = page.locator('form[action="/watchlist/'+str(draft_watch['id'])+'/update"]')
+            assert len(edit.locator('[name="search_term"]').input_value().splitlines())==34
+            edit.locator('[name="source_filter"]').fill('')
+            edit.locator('[name="search_term"]').fill('mayday\ntier \\d')
+            edit.locator('[name="word_mode"]').select_option('CONTAINS')
+            edit.locator('[name="subscriber_ids"][value="'+str(subscribers[1])+'"]').check()
+            edit.get_by_role('button',name='Save Changes',exact=True).click()
+            page.wait_for_url('**/watchlist?msg=*')
+            modified = sql('SELECT * FROM watch_items WHERE id=%s',(draft_watch['id'],))[0]
+            assert modified['source_filter']==[] and modified['search_term']=='mayday'
+            assert modified['aliases']==[r'tier \d'] and modified['match_mode']=='CONTAINS' and not modified['active']
+            page.locator('#notification-options summary').click()
+            options = page.locator('form[action="/watchlist/notification-settings"]')
+            options.locator('[name="explanations"]').uncheck()
+            options.get_by_role('button',name='Save notification options',exact=True).click()
+            page.wait_for_url('**/watchlist?msg=*')
+            assert sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']['notification_explanations'] is False
+            page.locator('#notification-options summary').click()
+            options = page.locator('form[action="/watchlist/notification-settings"]')
+            options.locator('[name="explanations"]').check()
+            options.get_by_role('button',name='Save notification options',exact=True).click()
+            page.wait_for_url('**/watchlist?msg=*')
+            assert sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']['notification_explanations'] is True
             assert not errors,errors
-            print('WATCH BROWSER PASS:',engine,'Intel draft, all-activity selection, stale-filter clearing, recipients, radius edit, Alert location choice and Preview filter preservation')
+            print('WATCH BROWSER PASS:',engine,'Intel/Map/Alert drafts, all activity, selectable 34 terms, source/location/recipient controls, paused save/edit, global explanation on/off')
             context.close()
             browser.close()
 finally:

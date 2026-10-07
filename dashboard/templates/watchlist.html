@@ -25,6 +25,21 @@
 </fieldset>
 {% endmacro %}
 
+{% macro word_picker(topic='', aliases=[], mode='CONTAINS') %}
+<input type="hidden" name="term_list" value="1">
+<label>Words or phrases <span class="optional-label">optional</span>
+  <textarea name="search_term" rows="4" data-primary-keyword placeholder="One term per line, or separate terms with |">{{ topic }}{% if mode in ['WORD','CONTAINS'] and aliases %}{{ '\n' + aliases|join('\n') }}{% endif %}</textarea>
+  <span class="hint">Any one term can trigger this Watch. Case is ignored. Use \d for a digit, such as tier \d. Leave blank to watch the source or area alone.</span>
+</label>
+<label>How should words match?
+  <select name="word_mode" data-word-mode>
+    {% if mode not in ['WORD','CONTAINS'] %}<option value="" selected>Keep the current rule</option>{% endif %}
+    <option value="CONTAINS" {% if mode == 'CONTAINS' %}selected{% endif %}>Contains any term</option>
+    <option value="WORD" {% if mode == 'WORD' %}selected{% endif %}>Whole words or phrases only</option>
+  </select>
+</label>
+{% endmacro %}
+
 {% macro location_picker(query='', kind='TYPED_ADDRESS', source_id='', latitude='', longitude='', selected_label='', distance=5280, municipality='') %}
 {% set scope = 'ANYWHERE' if not query and not latitude and not selected_label else kind if kind in ['COUNTY','MUNICIPALITY','MAP_POINT','EXISTING'] else 'TYPED_ADDRESS' if kind in ['ADDRESS','TYPED_ADDRESS','RESOLVED_ADDRESS'] else 'SAVED' %}
 <div class="location-picker" data-location-picker>
@@ -127,6 +142,17 @@
   <a class="secondary-button" href="/subscribers">Recipients</a>
 </div>
 
+<details class="advanced-options" id="notification-options">
+  <summary>Notification options · explanation {{ 'on' if notification_explanations else 'off' }}</summary>
+  <p class="hint">Controls the “Why you received this” text in notifications from every source to every recipient. Match evidence stays available in Alerts and Watches.</p>
+  {% if can_edit_notification_settings %}
+  <form method="post" action="/watchlist/notification-settings">
+    <label class="checkbox-row"><input type="checkbox" name="explanations" value="on" {% if notification_explanations %}checked{% endif %}> Include “Why you received this” in notifications</label>
+    <button type="submit" class="secondary-button">Save notification options</button>
+  </form>
+  {% endif %}
+</details>
+
 <nav class="watch-summary-strip" aria-label="Watch status summary">
   <a href="/watchlist?state=watching"><strong>{{ counts.watching or 0 }}</strong><span>On</span></a>
   <a href="/watchlist?state=matching"><strong>{{ counts.matching or 0 }}</strong><span>Matching</span></a>
@@ -176,7 +202,7 @@
         <div class="simple-watch-number">1</div>
         <div>
           <h3>What should we watch for?</h3>
-          <label>Jobs to match
+          <label>What should match?
             <select name="match_selection" data-match-selection>
               <option value="FILTERED" {% if prefill.match_selection != 'ANY' %}selected{% endif %}>Only activity matching filters</option>
               <option value="ANY" {% if prefill.match_selection == 'ANY' %}selected{% endif %}>Any mapped activity in this area</option>
@@ -188,10 +214,7 @@
             <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Any source">
             <span class="hint">Example: BNN. Leave blank for every source.</span>
           </label>
-          <label>Topic or phrase <span class="optional-label">optional</span>
-            <input name="search_term" value="{{ prefill.search_term }}" data-primary-keyword placeholder="Example: working fire, road closure, water main">
-            <span class="hint">Leave blank if the source and/or location alone is what you want.</span>
-          </label>
+          {{ word_picker(prefill.search_term, prefill.aliases.split(',') if prefill.aliases else [], prefill.match_mode) }}
           </div>
         </div>
       </section>
@@ -211,7 +234,7 @@
           <h3>Who should be notified?</h3>
           <fieldset class="recipient-picker simple-recipient-picker"><legend>Recipients</legend>
             {% for sub in subscribers %}
-            <label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}" {% if subscribers|length == 1 %}checked{% endif %}> {{ sub.name }}</label>
+            <label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}"> {{ sub.name }}</label>
             {% else %}
             <span>No active Recipients. <a href="/subscribers">Add one first</a>.</span>
             {% endfor %}
@@ -226,7 +249,7 @@
             <input name="display_name" value="{{ prefill.display_name }}" placeholder="Created automatically from the rule">
           </label>
           <label data-match-filters>Also match these phrases <span class="optional-label">optional</span>
-            <input name="aliases" value="{{ prefill.aliases or '' }}" placeholder="Example: structure fire, 2nd alarm">
+            <input name="aliases" value="{{ prefill.aliases if prefill.match_mode not in ['CONTAINS','WORD'] else '' }}" placeholder="Example: structure fire, 2nd alarm">
           </label>
           <div class="form-grid two-col" data-match-filters>
             <label>Minimum priority
@@ -362,7 +385,7 @@
               <div class="simple-watch-number">1</div>
               <div>
                 <h3>What should we watch for?</h3>
-                <label>Jobs to match
+                <label>What should match?
                   <select name="match_selection" data-match-selection>
                     <option value="ANY" {% if w.match_selection == 'ANY' %}selected{% endif %}>Any mapped activity in this area</option>
                     <option value="FILTERED" {% if w.match_selection != 'ANY' %}selected{% endif %}>Only activity matching filters</option>
@@ -373,9 +396,7 @@
                 <label>Source <span class="optional-label">optional</span>
                   <input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}" placeholder="Any source">
                 </label>
-                <label>Topic or phrase <span class="optional-label">optional</span>
-                  <input name="search_term" value="{{ '' if w.watch_type == 'SOURCE' else (w.search_term if w.setup_mode != 'LOCATION' else '') }}" data-primary-keyword placeholder="Example: working fire, road closure, water main">
-                </label>
+                {{ word_picker('' if w.watch_type == 'SOURCE' or w.setup_mode == 'LOCATION' else w.search_term, w.aliases if w.setup_mode != 'LOCATION' else [], w.match_mode) }}
                 </div>
               </div>
             </section>
@@ -405,7 +426,7 @@
                   <input name="display_name" value="{{ w.display_name }}" required>
                 </label>
                 <label data-match-filters>Also match these phrases <span class="optional-label">optional</span>
-                  <input name="aliases" value="{{ (w.aliases or [])|join(', ') }}" data-other-keywords placeholder="Separate phrases with commas">
+                  <input name="aliases" value="{{ (w.aliases or [])|join(', ') if w.match_mode not in ['CONTAINS','WORD'] else '' }}" data-other-keywords placeholder="Separate phrases with commas">
                 </label>
                 <div class="form-grid two-col" data-match-filters>
                   <label>Minimum priority
@@ -742,7 +763,7 @@
 <footer><span>City Manager OS</span><span>One Watch system · one Notification path</span></footer>
 </main>
 
-<script src="/static/watch_matcher.js?v=4"></script>
+<script src="/static/watch_matcher.js?v=5"></script>
 <script>
 (() => {
   const setMessage = (element, message, isError = false) => {
@@ -899,7 +920,7 @@
       const anyJob = matching?.value === 'ANY';
       form.querySelectorAll('[data-match-filters]').forEach((group) => {
         group.hidden = anyJob;
-        group.querySelectorAll('input, select').forEach((input) => { input.disabled = anyJob; });
+        group.querySelectorAll('input, select, textarea').forEach((input) => { input.disabled = anyJob; });
       });
     };
     matching?.addEventListener('change', syncMatching);
