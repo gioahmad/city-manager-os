@@ -168,7 +168,46 @@ if [[ "$MODE" == "clean" ]]; then
     fi
   fi
   echo
-  echo "No volumes, running containers, GIS artifacts, n8n data, staff uploads, or arbitrary /var/backups trees were deleted."
+  echo "Trimming known City Manager OS release/workflow backup trees..."
+  trim_backup_root(){
+    local root="$1" keep="$2" days="$3"
+    [[ -d "$root" ]] || return 0
+    find "$root" -mindepth 1 -maxdepth 1 -type d -mtime "+$days" -print -exec rm -rf -- {} +
+    if [[ "$keep" =~ ^[0-9]+$ ]] && (( keep > 0 )); then
+      mapfile -t stale < <(
+        find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null |
+          sort -nr | awk -v keep="$keep" 'NR>keep {sub(/^[^ ]+ /,""); print}'
+      )
+      for path in "${stale[@]}"; do
+        echo "Removing excess backup directory: $path"
+        rm -rf -- "$path"
+      done
+    fi
+  }
+  trim_backup_root /var/backups/city-manager-os/release-snapshots 10 14
+  trim_backup_root /var/backups/city-manager-os/spatial-watch-matcher 3 21
+  trim_backup_root /var/backups/city-manager-os/watch-match-audit 3 21
+  trim_backup_root /var/backups/city-manager-os/pseg-workflows 3 21
+  trim_backup_root /var/backups/city-manager-os/flood-live 3 21
+  trim_backup_root /var/backups/city-manager-os/ntfy-match-explanations 3 21
+  trim_backup_root /var/backups/city-manager-os/e2e 2 7
+
+  echo
+  echo "Trimming automatic n8n source-workflow SQLite snapshots..."
+  if [[ -n "$N8N_DIR" && -d "$N8N_DIR" ]]; then
+    find "$N8N_DIR" -maxdepth 1 -type f -name 'database.sqlite.before_cmos_sources_*' -mtime +7 -print -delete
+    mapfile -t stale_n8n < <(
+      find "$N8N_DIR" -maxdepth 1 -type f -name 'database.sqlite.before_cmos_sources_*' -printf '%T@ %p\n' 2>/dev/null |
+        sort -nr | awk 'NR>2 {sub(/^[^ ]+ /,""); print}'
+    )
+    for path in "${stale_n8n[@]}"; do
+      echo "Removing excess n8n source backup: $path"
+      rm -f -- "$path"
+    done
+  fi
+
+  echo
+  echo "No volumes, running containers, GIS staging/rollback tables, staff uploads, security backups, or unknown /var/backups trees were deleted."
 fi
 
 section "FINAL STORAGE"
