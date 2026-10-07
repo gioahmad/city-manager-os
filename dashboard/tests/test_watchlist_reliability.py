@@ -89,7 +89,9 @@ def test_normal_watch_setup_hides_technical_nomenclature_until_advanced():
         "match mode",
     ):
         assert forbidden not in visible_normal
-    assert "match mode" in advanced.lower()
+    assert 'type="hidden" name="match_mode"' in template
+    assert "technical watch type" not in template.lower()
+    assert ">match mode<" not in template.lower()
 
 
 def test_watch_name_cannot_be_saved_as_an_unknown_alert_filter():
@@ -98,7 +100,8 @@ def test_watch_name_cannot_be_saved_as_an_unknown_alert_filter():
     assert "def _validate_alert_filters" in source
     assert source.count("_validate_alert_filters(cur, saved_source_filter, saved_category_filter)") == 2
     assert "Unknown alert {label}" in source
-    assert "The Watch name never" in template
+    assert 'name="source_filter"' in template
+    assert "def _automatic_watch_name" in source
     assert template.count('autocomplete="off"') >= 4
 
 
