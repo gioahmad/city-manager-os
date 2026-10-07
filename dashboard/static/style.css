@@ -95,3 +95,32 @@ footer{display:flex;justify-content:space-between;gap:20px;margin-top:30px;paddi
   .watch-state-metrics .metric strong{font-size:20px}
   .watch-page-actions>*{flex:1}
 }
+
+
+/* Compact Watch workspace */
+.watch-primary-layout{display:block}
+.watch-saved-panel{max-width:none}
+.watch-card{padding:14px 16px}
+.watch-card-summary{margin-bottom:6px}
+.watch-summary-main{align-items:center}
+.watch-compact-evidence{display:flex;flex-wrap:wrap;gap:6px 14px;margin:6px 0 10px;font-size:.83rem;color:var(--muted,#68707c)}
+.watch-compact-evidence span{white-space:nowrap}
+.watch-card-more{margin:2px 0 8px}
+.watch-card-more>summary{cursor:pointer;font-size:.82rem;color:var(--muted,#68707c);width:max-content}
+.watch-card-more[open]{padding:8px 0}
+.watch-card-primary-actions{gap:6px;align-items:center}
+.watch-card-primary-actions .secondary-button{padding:7px 10px}
+.watch-manage-menu{position:relative}
+.watch-manage-menu>summary{list-style:none;cursor:pointer}
+.watch-manage-menu>summary::-webkit-details-marker{display:none}
+.watch-manage-actions{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 0}
+.watch-manage-actions form{margin:0}
+.watch-edit-panel{margin-top:6px}
+.watch-edit-panel>summary{font-size:.85rem}
+.watch-state-explanation,.watch-last-evidence{font-size:.85rem}
+.watch-tools-label{margin-top:22px;opacity:.8}
+.watch-tool-panel{margin-top:8px}
+@media (min-width:900px){
+  .watch-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:10px}
+  .watch-card{margin:0}
+}
