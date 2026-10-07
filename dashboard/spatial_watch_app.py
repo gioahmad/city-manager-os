@@ -38,6 +38,7 @@ from app import (
     validate_watch,
 )
 from geo_resolver import MIN_PRECISE_CONFIDENCE, resolve_payload
+from watch_preview_app import COUNTIES
 
 
 RELEASE_ID = "alerting-spatial-watch-simplification-v1"
@@ -94,6 +95,15 @@ LOCATION_KINDS = {
     "TYPED_ADDRESS",
     "EXISTING",
 }
+LOCATION_SCOPES = {"ANYWHERE", "COUNTY", "MUNICIPALITY", "TYPED_ADDRESS", "MAP_POINT", "SAVED", "EXISTING"}
+
+
+def _location_setup_mode(mode: str, scope: str, topic: str) -> str:
+    if not scope:
+        return mode
+    if scope not in LOCATION_SCOPES:
+        raise HTTPException(400, "Choose a valid location type")
+    return "TOPIC" if scope == "ANYWHERE" else "LOCATION_TOPIC" if topic.strip() else "LOCATION"
 
 def _setup_mode(value: str) -> str:
     mode = SETUP_MODE_ALIASES.get(value.strip().upper(), value.strip().upper())
@@ -256,8 +266,8 @@ def _resolve_target(conn, location_query: str, latitude: str, longitude: str, mu
     ):
         raise HTTPException(
             400,
-            "That location was not found in the local statewide address data. "
-            "Try a full street address with municipality and state, or use coordinates under Advanced.",
+            "That street address could not be verified. Enter a full street address with municipality and state, "
+            "or choose Intersection or exact point and enter coordinates. For a county or city, choose that location type instead.",
         )
     return result
 
@@ -303,12 +313,26 @@ def _selected_location(
     longitude: str,
     municipality: str,
     current: dict | None = None,
+    scope: str = "",
 ) -> dict:
     """Resolve a UI location through existing local PostGIS sources only."""
     kind = _location_kind(kind)
     source_id = source_id.strip()
     location_query = location_query.strip()
     municipality = municipality.strip()
+
+    if scope:
+        if scope not in LOCATION_SCOPES or scope == "ANYWHERE":
+            raise HTTPException(400, "Choose a location type")
+        if scope in {"COUNTY", "MUNICIPALITY", "MAP_POINT", "EXISTING"}:
+            kind = scope
+        elif scope == "TYPED_ADDRESS" and kind not in {"ADDRESS", "RESOLVED_ADDRESS", "TYPED_ADDRESS"}:
+            kind = "TYPED_ADDRESS"
+        elif scope == "SAVED" and (kind not in {"PARCEL", "REFERENCE", "CUSTOM_FEATURE"} or not source_id):
+            raise HTTPException(400, "Choose a saved place, area, or parcel from the search results")
+
+    if kind == "MAP_POINT" and (not latitude.strip() or not longitude.strip()):
+        raise HTTPException(400, "Choose an exact point on the map or enter both latitude and longitude")
 
     if kind == "EXISTING":
         if not current:
@@ -468,24 +492,9 @@ def _selected_location(
             watch_type = _watch_type_for_geometry(row.get("geometry_type") if row else "")
         elif kind == "COUNTY":
             candidate = re.sub(r"\s+County$", "", source_id or location_query, flags=re.I).strip()
-            if not candidate:
-                raise HTTPException(400, "Choose a county")
-            cur.execute(
-                """
-                SELECT county AS label
-                FROM gis_addresses
-                WHERE geom IS NOT NULL
-                  AND lower(trim(regexp_replace(coalesce(county,''),'[[:space:]]+County$','','i')))=lower(trim(%s))
-                GROUP BY county
-                ORDER BY count(*) DESC
-                LIMIT 1
-                """,
-                (candidate,),
-            )
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(400, "That county was not found in the local address data")
-            county_name = re.sub(r"\s+County$", "", str(row["label"]), flags=re.I).strip()
+            county_name = next((name.title() for name in COUNTIES["NJ"] if name.casefold() == candidate.casefold()), "")
+            if not county_name:
+                raise HTTPException(400, "Choose a New Jersey county from the county list")
             return {
                 "kind": "COUNTY",
                 "label": county_name,
@@ -1178,135 +1187,136 @@ def watch_lab_evaluate(
 
 @app.get("/api/watch-locations/search")
 @_friendly_watch_api_errors
-def watch_location_search(q: str = ""):
+def watch_location_search(q: str = "", kind: str = "", municipality: str = ""):
+    selected_kind = kind.strip().upper()
+    search_kinds = {selected_kind}
+    if selected_kind == "TYPED_ADDRESS":
+        search_kinds = {"ADDRESS"}
+    elif selected_kind == "SAVED":
+        search_kinds = {"PARCEL", "REFERENCE", "CUSTOM_FEATURE"}
+    if selected_kind and selected_kind not in LOCATION_SCOPES | LOCATION_KINDS:
+        raise HTTPException(400, "Choose a valid location type")
+    if selected_kind in {"ANYWHERE", "MAP_POINT", "EXISTING"}:
+        return {"items": []}
     needle = q.strip()
     if len(needle) < 2:
         return {"items": []}
     like = f"%{needle}%"
     county_needle = re.sub(r"\s+County$", "", needle, flags=re.I).strip()
-    county_like = f"%{county_needle or needle}%"
     items: list[dict] = []
-    items.extend(
-        query_all(
-            """
-            SELECT 'ADDRESS' AS kind,objectid::text AS source_id,fulladdr AS label,
-                   concat_ws(' · ',coalesce(nullif(inc_muni,''),post_comm),post_code) AS detail,
-                   'Address' AS kind_label
-            FROM gis_addresses
-            WHERE geom IS NOT NULL AND coalesce(status,'A')='A' AND fulladdr ILIKE %s
-            ORDER BY fulladdr
-            LIMIT 8
-            """,
-            (like,),
+    if not selected_kind or "ADDRESS" in search_kinds:
+        items.extend(
+            query_all(
+                """
+                SELECT 'ADDRESS' AS kind,objectid::text AS source_id,fulladdr AS label,
+                       coalesce(nullif(inc_muni,''),post_comm) AS municipality,
+                       concat_ws(' · ',coalesce(nullif(inc_muni,''),post_comm),post_code) AS detail,
+                       'Address' AS kind_label
+                FROM gis_addresses
+                WHERE geom IS NOT NULL AND coalesce(status,'A')='A' AND fulladdr ILIKE %s
+                  AND (%s='' OR coalesce(nullif(inc_muni,''),post_comm) ILIKE %s)
+                ORDER BY fulladdr
+                LIMIT 8
+                """,
+                (like, municipality.strip(), f"%{municipality.strip()}%"),
+            )
         )
-    )
-    items.extend(
-        query_all(
-            """
-            SELECT 'PARCEL' AS kind,objectid::text AS source_id,
-                   coalesce(nullif(prop_loc,''),'Block '||coalesce(pclblock,'?')||' Lot '||coalesce(pcllot,'?')) AS label,
-                   concat_ws(' · ',mun_name,'Block '||coalesce(pclblock,'?'),'Lot '||coalesce(pcllot,'?'),nullif(pams_pin,'')) AS detail,
-                   'Parcel' AS kind_label
-            FROM gis_parcels
-            WHERE geom IS NOT NULL
-              AND (prop_loc ILIKE %s OR pams_pin ILIKE %s OR pclblock ILIKE %s OR pcllot ILIKE %s)
-            ORDER BY prop_loc NULLS LAST,objectid
-            LIMIT 8
-            """,
-            (like, like, like, like),
+    if not selected_kind or "PARCEL" in search_kinds:
+        items.extend(
+            query_all(
+                """
+                SELECT 'PARCEL' AS kind,objectid::text AS source_id,
+                       coalesce(nullif(prop_loc,''),'Block '||coalesce(pclblock,'?')||' Lot '||coalesce(pcllot,'?')) AS label,
+                       concat_ws(' · ',mun_name,'Block '||coalesce(pclblock,'?'),'Lot '||coalesce(pcllot,'?'),nullif(pams_pin,'')) AS detail,
+                       'Parcel' AS kind_label
+                FROM gis_parcels
+                WHERE geom IS NOT NULL
+                  AND (prop_loc ILIKE %s OR pams_pin ILIKE %s OR pclblock ILIKE %s OR pcllot ILIKE %s)
+                ORDER BY prop_loc NULLS LAST,objectid
+                LIMIT 8
+                """,
+                (like, like, like, like),
+            )
         )
-    )
-    items.extend(
-        query_all(
-            """
-            SELECT 'REFERENCE' AS kind,entity_id::text AS source_id,canonical_name AS label,
-                   concat_ws(' · ',
-                     CASE WHEN entity_type='CORRIDOR' THEN 'Street / corridor' ELSE initcap(replace(entity_type,'_',' ')) END,
-                     municipality,state) AS detail,
-                   CASE WHEN entity_type='CORRIDOR' THEN 'Street / corridor' ELSE 'Saved place or area' END AS kind_label
-            FROM spatial_reference_entities
-            WHERE active=true AND geom IS NOT NULL
-              AND (canonical_name ILIKE %s OR coalesce(normalized_address,'') ILIKE %s
-                   OR EXISTS (SELECT 1 FROM unnest(aliases) alias WHERE alias ILIKE %s))
-            ORDER BY importance_tier,canonical_name
-            LIMIT 8
-            """,
-            (like, like, like),
+    if not selected_kind or "REFERENCE" in search_kinds:
+        items.extend(
+            query_all(
+                """
+                SELECT 'REFERENCE' AS kind,entity_id::text AS source_id,canonical_name AS label,
+                       concat_ws(' · ',
+                         CASE WHEN entity_type='CORRIDOR' THEN 'Street / corridor' ELSE initcap(replace(entity_type,'_',' ')) END,
+                         municipality,state) AS detail,
+                       CASE WHEN entity_type='CORRIDOR' THEN 'Street / corridor' ELSE 'Saved place or area' END AS kind_label
+                FROM spatial_reference_entities
+                WHERE active=true AND geom IS NOT NULL
+                  AND (canonical_name ILIKE %s OR coalesce(normalized_address,'') ILIKE %s
+                       OR EXISTS (SELECT 1 FROM unnest(aliases) alias WHERE alias ILIKE %s))
+                ORDER BY importance_tier,canonical_name
+                LIMIT 8
+                """,
+                (like, like, like),
+            )
         )
-    )
-    items.extend(
-        query_all(
-            """
-            SELECT 'CUSTOM_FEATURE' AS kind,f.id::text AS source_id,
-                   coalesce(nullif(f.name,''),nullif(inferred.label,''),l.name) AS label,l.name AS detail,
-                   'Drawn or imported Location' AS kind_label
-            FROM map_features f
-            JOIN map_layers l ON l.id=f.layer_id
-            LEFT JOIN LATERAL (
-              SELECT value AS label
-              FROM jsonb_each_text(f.properties)
-              WHERE lower(key) IN (
-                'name','title','label','municipality','mun_name','munname','city','town',
-                'county','county_name','route_name','route','highway','road_name','road'
-              ) AND nullif(trim(value),'') IS NOT NULL
-              ORDER BY CASE lower(key)
-                WHEN 'name' THEN 1 WHEN 'title' THEN 2 WHEN 'label' THEN 3
-                WHEN 'municipality' THEN 4 WHEN 'mun_name' THEN 5 WHEN 'munname' THEN 6
-                WHEN 'city' THEN 7 WHEN 'town' THEN 8 WHEN 'county' THEN 9
-                WHEN 'county_name' THEN 10 WHEN 'route_name' THEN 11 WHEN 'route' THEN 12
-                WHEN 'highway' THEN 13 WHEN 'road_name' THEN 14 ELSE 15 END
-              LIMIT 1
-            ) inferred ON true
-            WHERE f.active=true AND l.active=true AND f.geom IS NOT NULL
-              AND (f.name ILIKE %s OR f.properties::text ILIKE %s)
-            ORDER BY l.name,f.name NULLS LAST
-            LIMIT 6
-            """,
-            (like, like),
+    if not selected_kind or "CUSTOM_FEATURE" in search_kinds:
+        items.extend(
+            query_all(
+                """
+                SELECT 'CUSTOM_FEATURE' AS kind,f.id::text AS source_id,
+                       coalesce(nullif(f.name,''),nullif(inferred.label,''),l.name) AS label,l.name AS detail,
+                       'Drawn or imported Location' AS kind_label
+                FROM map_features f
+                JOIN map_layers l ON l.id=f.layer_id
+                LEFT JOIN LATERAL (
+                  SELECT value AS label
+                  FROM jsonb_each_text(f.properties)
+                  WHERE lower(key) IN (
+                    'name','title','label','municipality','mun_name','munname','city','town',
+                    'county','county_name','route_name','route','highway','road_name','road'
+                  ) AND nullif(trim(value),'') IS NOT NULL
+                  ORDER BY CASE lower(key)
+                    WHEN 'name' THEN 1 WHEN 'title' THEN 2 WHEN 'label' THEN 3
+                    WHEN 'municipality' THEN 4 WHEN 'mun_name' THEN 5 WHEN 'munname' THEN 6
+                    WHEN 'city' THEN 7 WHEN 'town' THEN 8 WHEN 'county' THEN 9
+                    WHEN 'county_name' THEN 10 WHEN 'route_name' THEN 11 WHEN 'route' THEN 12
+                    WHEN 'highway' THEN 13 WHEN 'road_name' THEN 14 ELSE 15 END
+                  LIMIT 1
+                ) inferred ON true
+                WHERE f.active=true AND l.active=true AND f.geom IS NOT NULL
+                  AND (f.name ILIKE %s OR f.properties::text ILIKE %s)
+                ORDER BY l.name,f.name NULLS LAST
+                LIMIT 6
+                """,
+                (like, like),
+            )
         )
-    )
-    items.extend(
-        query_all(
-            """
-            SELECT 'COUNTY' AS kind,label AS source_id,label,
-                   'Any alert labeled for this county' AS detail,
-                   'County' AS kind_label
-            FROM (
-              SELECT regexp_replace(trim(county),'[[:space:]]+County$','','i') AS label,
-                     count(*) AS total
-              FROM gis_addresses
-              WHERE geom IS NOT NULL
-                AND nullif(trim(county),'') IS NOT NULL
-                AND regexp_replace(trim(county),'[[:space:]]+County$','','i') ILIKE %s
-              GROUP BY regexp_replace(trim(county),'[[:space:]]+County$','','i')
-            ) counties
-            WHERE label IS NOT NULL
-            ORDER BY total DESC,label
-            LIMIT 6
-            """,
-            (county_like,),
+    if not selected_kind or selected_kind == "COUNTY":
+        items.extend(
+            {"kind": "COUNTY", "source_id": name.title(), "label": name.title(),
+             "detail": "Alerts labeled for this county", "kind_label": "County"}
+            for name in sorted(COUNTIES["NJ"])
+            if county_needle.casefold() in name.casefold()
         )
-    )
-    items.extend(
-        query_all(
-            """
-            SELECT 'MUNICIPALITY' AS kind,label AS source_id,label,
-                   'All alerts labeled for this municipality' AS detail,
-                   'Municipality' AS kind_label
-            FROM (
-              SELECT coalesce(nullif(inc_muni,''),nullif(post_comm,'')) AS label,count(*) AS total
-              FROM gis_addresses
-              WHERE geom IS NOT NULL
-                AND coalesce(nullif(inc_muni,''),nullif(post_comm,'')) ILIKE %s
-              GROUP BY coalesce(nullif(inc_muni,''),nullif(post_comm,''))
-            ) towns
-            WHERE label IS NOT NULL
-            ORDER BY total DESC,label
-            LIMIT 6
-            """,
-            (like,),
+    if not selected_kind or "MUNICIPALITY" in search_kinds:
+        items.extend(
+            query_all(
+                """
+                SELECT 'MUNICIPALITY' AS kind,label AS source_id,label,
+                       'All alerts labeled for this municipality' AS detail,
+                       'Municipality' AS kind_label
+                FROM (
+                  SELECT coalesce(nullif(inc_muni,''),nullif(post_comm,'')) AS label,count(*) AS total
+                  FROM gis_addresses
+                  WHERE geom IS NOT NULL
+                    AND coalesce(nullif(inc_muni,''),nullif(post_comm,'')) ILIKE %s
+                  GROUP BY coalesce(nullif(inc_muni,''),nullif(post_comm,''))
+                ) towns
+                WHERE label IS NOT NULL
+                ORDER BY total DESC,label
+                LIMIT 6
+                """,
+                (like,),
+            )
         )
-    )
     return JSONResponse(_json_safe({"items": items[:30]}))
 
 
@@ -1672,6 +1682,7 @@ def spatial_watchlist(
             "bulk_context": bulk_context,
             "bulk_watch_limit": BULK_WATCH_LIMIT,
             "prefill": prefill,
+            "county_choices": sorted(name.title() for name in COUNTIES["NJ"]),
             "focus_id": focus_id,
             "evidence_id": evidence_id,
             "evidence_watch": evidence_watch,
@@ -2228,6 +2239,7 @@ def spatial_watch_create(
     spatial_enabled: str | None = Form(None),
     location_query: str = Form(""),
     location_kind: str = Form("TYPED_ADDRESS"),
+    location_scope: str = Form(""),
     location_id: str = Form(""),
     latitude: str = Form(""),
     longitude: str = Form(""),
@@ -2241,7 +2253,8 @@ def spatial_watch_create(
 ):
     display_name = display_name.strip()
     setup_mode = _setup_mode(setup_mode)
-    location_required = setup_mode in {"LOCATION", "LOCATION_TOPIC"} or spatial_enabled is not None
+    setup_mode = _location_setup_mode(setup_mode, location_scope, search_term)
+    location_required = location_scope != "ANYWHERE" and (setup_mode in {"LOCATION", "LOCATION_TOPIC"} or spatial_enabled is not None)
     topic_required = setup_mode in {"TOPIC", "LOCATION_TOPIC"}
     topic = search_term.strip()
     saved_source_filter = csv_array(source_filter)
@@ -2286,6 +2299,7 @@ def spatial_watch_create(
                 latitude=latitude,
                 longitude=longitude,
                 municipality=municipality,
+                scope=location_scope,
             )
         spatial_requested = bool(target and target.get("spatial"))
         if setup_mode == "LOCATION_TOPIC":
@@ -2393,6 +2407,7 @@ def spatial_watch_update(
     spatial_enabled: str | None = Form(None),
     location_query: str = Form(""),
     location_kind: str = Form("EXISTING"),
+    location_scope: str = Form(""),
     location_id: str = Form(""),
     latitude: str = Form(""),
     longitude: str = Form(""),
@@ -2440,8 +2455,9 @@ def spatial_watch_update(
         else:
             saved_setup_mode = "TOPIC"
 
+        saved_setup_mode = _location_setup_mode(saved_setup_mode, location_scope, search_term)
         target = None
-        if saved_setup_mode in {"LOCATION", "LOCATION_TOPIC"} or spatial_enabled is not None:
+        if location_scope != "ANYWHERE" and (saved_setup_mode in {"LOCATION", "LOCATION_TOPIC"} or spatial_enabled is not None):
             target = _selected_location(
                 conn,
                 kind=location_kind,
@@ -2451,6 +2467,7 @@ def spatial_watch_update(
                 longitude=longitude,
                 municipality=municipality,
                 current=current,
+                scope=location_scope,
             )
         topic = search_term.strip()
         saved_source_filter = csv_array(source_filter)
