@@ -108,7 +108,7 @@ def _contact_phones(value: str) -> list[str]:
 
 
 def _contact_emails(value: str) -> list[str]:
-    emails = [email.lower() for email in _contact_values(value)]
+    emails = list(dict.fromkeys(email.lower() for email in _contact_values(value)))
     if any(not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) for email in emails):
         raise ValueError("Enter valid email addresses")
     return emails
@@ -1081,6 +1081,7 @@ def contacts_page(
     state: str = "active",
     msg: str = "",
     error: str = "",
+    focus: str = "",
 ):
     scope, params = _contact_scope(request)
     where = [scope]
@@ -1104,6 +1105,12 @@ def contacts_page(
         where.append("c.active")
     elif state == "inactive":
         where.append("NOT c.active")
+    elif state == "duplicates":
+        duplicate_scope, duplicate_params = _contact_scope(request, 'duplicate')
+        where.append(f"""c.active AND EXISTS(SELECT 1 FROM contacts duplicate
+            WHERE duplicate.active AND duplicate.id<>c.id AND {duplicate_scope}
+            AND (lower(duplicate.name)=lower(c.name) OR duplicate.emails && c.emails OR duplicate.phones && c.phones))""")
+        params.extend(duplicate_params)
     else:
         state = "all"
     rows = query_all(
@@ -1138,6 +1145,7 @@ def contacts_page(
         f"SELECT count(*) AS total,count(*) FILTER (WHERE active) AS active FROM contacts c WHERE {count_scope}",
         count_params,
     )
+    from brain_app import _csrf
     return templates.TemplateResponse(
         request=request,
         name="contacts.html",
@@ -1151,6 +1159,9 @@ def contacts_page(
             "msg": msg,
             "error": error,
             "page": "contacts",
+            "focus": focus,
+            "csrf": _csrf(request) if getattr(request.state, 'cmos_account', None) else '',
+            "readonly": getattr(request.state, 'cmos_role', None) == 'READ_ONLY',
         },
     )
 

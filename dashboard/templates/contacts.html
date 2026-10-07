@@ -4,12 +4,28 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Contacts · City Manager OS</title><link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body data-csrf="{{ csrf }}" data-readonly="{{ 'true' if readonly else 'false' }}">
 <header class="topbar"><div class="brand"><div class="eyebrow">SHARED DIRECTORY</div><div class="brand-row"><h1>Contacts</h1><span class="private-badge">PRIVATE</span></div><div class="tagline">Residents, staff, vendors, officials, and alert recipients in one place</div></div></header>
 {% include "nav.html" %}
 <main>
 {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
 {% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+<section class="panel" style="margin-bottom:16px" aria-labelledby="outlook-heading">
+  <div class="panel-head"><div><div class="panel-kicker">MICROSOFT 365</div><h2 id="outlook-heading">Find a contact in Outlook</h2></div><a href="/email">Microsoft connection</a></div>
+  <div class="panel-body">
+    <p id="outlook-status" role="status">Checking your Microsoft connection…</p>
+    {% if not readonly %}<div class="ms-buttons"><button type="button" id="outlook-connect" hidden>Connect Microsoft 365</button><button type="button" id="outlook-enable" hidden>Enable Outlook contact updates</button></div>{% endif %}
+    <p class="hint">Outlook contacts stay private until you import one. Imported contacts start as Private to me. Save edits here, then use Review Outlook update to push the selected changes.</p>
+    <form id="outlook-search" class="watch-filters">
+      <input name="q" aria-label="Search Outlook contacts" placeholder="Name, organization, phone or email" maxlength="160">
+      <select name="source" aria-label="Where to search"><option value="snapshot">Retained Outlook contacts</option><option value="live">Browse Outlook live</option></select>
+      <button type="submit" class="secondary-button">Find contact</button>
+    </form>
+    <p id="outlook-notice" role="status" aria-live="polite"></p>
+    <div id="outlook-results" class="watch-list"></div>
+    <button id="outlook-more" type="button" hidden>Search next Outlook page</button>
+  </div>
+</section>
 
 <section class="metrics watch-metrics">
   <div class="metric"><span>Total</span><strong>{{ counts.total or 0 }}</strong><small>Shared contacts</small></div>
@@ -44,12 +60,13 @@
       <form class="watch-filters" method="get" action="/contacts">
         <input name="q" value="{{ q }}" placeholder="Search name, organization, address, tag, phone, or email">
         <select name="contact_type"><option value="ALL">All types</option>{% for type in contact_types %}<option value="{{ type }}" {% if selected_type == type %}selected{% endif %}>{{ type|title }}</option>{% endfor %}</select>
-        <select name="state"><option value="active" {% if state == 'active' %}selected{% endif %}>Active</option><option value="all" {% if state == 'all' %}selected{% endif %}>All</option><option value="inactive" {% if state == 'inactive' %}selected{% endif %}>Inactive</option></select>
+        <select name="state"><option value="active" {% if state == 'active' %}selected{% endif %}>Active</option><option value="all" {% if state == 'all' %}selected{% endif %}>All</option><option value="duplicates" {% if state == 'duplicates' %}selected{% endif %}>Possible duplicates</option><option value="inactive" {% if state == 'inactive' %}selected{% endif %}>Inactive</option></select>
         <button class="secondary-button" type="submit">Search</button>
       </form>
+      {% if state == 'duplicates' %}<p class="hint">These contacts share a name, phone or email with another contact you can access. Review each record before linking or deactivating a duplicate.</p>{% endif %}
       <div class="watch-list contact-list">
       {% for c in rows %}
-        <details class="watch-card {% if not c.active %}inactive{% endif %}">
+        <details class="watch-card {% if not c.active %}inactive{% endif %}" data-contact-id="{{ c.id }}" {% if focus == c.id|string %}open{% endif %}>
           <summary><div class="watch-summary-main"><span class="status {% if c.active %}active{% else %}inactive-status{% endif %}">{{ c.contact_type }}</span><div><strong>{{ c.name }}</strong><div class="meta">{{ c.organization or c.title or 'Contact' }}{% if c.phones %} · {{ c.phones|join(', ') }}{% endif %}</div></div></div></summary>
           <div class="watch-card-body">
             <form method="post" action="/contacts/{{ c.id }}/update" class="watch-form compact">
@@ -67,7 +84,9 @@
               <label class="checkbox-row"><input type="checkbox" name="active" value="1" {% if c.active %}checked{% endif %}> Active contact</label>
               <div class="hint">{{ c.issue_count }} linked work item{{ '' if c.issue_count == 1 else 's' }} · {{ c.activity_count }} recorded interaction{{ '' if c.activity_count == 1 else 's' }}{% if c.subscriber_uuid %} · <a href="/subscribers?manage={{ c.subscriber_uuid }}#recipient-{{ c.subscriber_uuid }}">Alert Recipient: {{ c.ntfy_topic }}</a>{% endif %}</div>
               <button class="primary-button" type="submit">Save Contact</button>
+              <button type="button" data-clean-contact>Clean up this form</button><span class="hint">Trim whitespace and remove repeated phone numbers and emails, then review and save.</span>
             </form>
+            <div class="outlook-contact-actions" data-contact-id="{{ c.id }}"></div>
             {% if c.linked_issues or c.recent_activity %}
             <details class="advanced-options"><summary>Linked work and recent activity</summary><div class="advanced-options-body">
               {% for issue in c.linked_issues %}<div class="advanced-reference">{{ issue.title }} · {{ issue.status }}</div>{% endfor %}
@@ -83,5 +102,33 @@
 </section>
 <footer><span>City Manager OS</span><span>One shared contact directory</span></footer>
 </main>
+{% if not readonly %}
+<dialog id="outlook-import-dialog" class="outlook-dialog"><form id="outlook-import-form" class="watch-form">
+  <h2>Review contact import</h2><p id="outlook-import-warnings"></p>
+  <label>Name<input name="name" maxlength="200" required></label>
+  <div class="form-grid two-col"><label>Organization<input name="organization" maxlength="200"></label><label>Title<input name="title" maxlength="200"></label></div>
+  <label>Phones<textarea name="phones" rows="2" maxlength="2000"></textarea></label>
+  <label>Email addresses<textarea name="emails" rows="2" maxlength="2000"></textarea></label>
+  <label>Address<input name="address" maxlength="1000"></label>
+  <label id="outlook-match-label">Matching directory contact<select name="contact_id"><option value="">Create a new private contact</option></select></label>
+  <p class="hint">Linking an existing contact keeps its current information and access settings. You can review differences before pushing to Outlook.</p>
+  <label class="checkbox-row" id="outlook-separate-label" hidden><input name="create_separate" type="checkbox">Create a separate contact despite the match</label>
+  <p id="outlook-import-notice" role="status"></p>
+  <div class="ms-buttons"><button type="submit" class="primary-button">Import or link contact</button><button type="button" data-outlook-close="outlook-import-dialog">Cancel</button></div>
+</form></dialog>
+<dialog id="outlook-address-dialog" class="outlook-dialog"><form id="outlook-address-form" class="watch-form">
+  <h2>Review Outlook update</h2><p id="outlook-local-summary"></p>
+  <label class="checkbox-row"><input type="checkbox" name="include_address">Include an address update</label>
+  <p class="hint">For a changed address, enter each part separately so Outlook keeps Street, City, State, ZIP and Country in the right fields.</p>
+  <fieldset id="outlook-address-fields" disabled><legend>Outlook address</legend>
+    <label>Type<select name="kind"><option value="businessAddress">Business</option><option value="homeAddress">Home</option><option value="otherAddress">Other</option></select></label>
+    <label>Street<input name="street" maxlength="1000"></label><div class="form-grid two-col"><label>City<input name="city" maxlength="200"></label><label>State<input name="state" maxlength="200"></label><label>ZIP / postal code<input name="postalCode" maxlength="200"></label><label>Country<input name="countryOrRegion" maxlength="200"></label></div>
+  </fieldset>
+  <p id="outlook-address-notice" role="status"></p><div class="ms-buttons"><button type="submit" class="primary-button">Show exact changes</button><button type="button" data-outlook-close="outlook-address-dialog">Cancel</button></div>
+</form></dialog>
+<dialog id="outlook-review-dialog" class="outlook-dialog"><h2>Confirm Outlook changes</h2><div id="outlook-review-content"></div><p id="outlook-review-notice" role="status"></p><div class="ms-buttons"><button id="outlook-confirm" type="button" class="primary-button">Push these changes to Outlook</button><button id="outlook-cancel-review" type="button">Cancel review</button></div></dialog>
+<dialog id="outlook-consent-dialog" class="outlook-dialog"><h2>Enable Outlook contact updates</h2><p>Microsoft will ask for Contacts.ReadWrite so you can update a linked contact after reviewing the changes here. The existing Microsoft action permissions for email, drafts and calendar appointments are also included.</p><p>Connecting does not change any contacts. Your organization may require administrator approval.</p><button type="button" id="outlook-consent-continue" class="primary-button">Continue to Microsoft</button><button type="button" data-outlook-close="outlook-consent-dialog">Cancel</button></dialog>
+{% endif %}
+<script src="/static/outlook_contacts.js?v=1" defer></script>
 </body>
 </html>

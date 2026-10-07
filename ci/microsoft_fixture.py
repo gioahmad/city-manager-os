@@ -17,7 +17,12 @@ from fastapi.staticfiles import StaticFiles
 REAL_CLIENT=httpx.Client
 
 class Provider:
-    def __init__(self):self.writes=[];self.outcome='ok';self.mailbox='fixture@example.com';self.read_failure=False;self.token_count=0
+    def __init__(self):
+        self.writes=[];self.outcome='ok';self.mailbox='fixture@example.com';self.read_failure=False;self.token_count=0
+        self.contacts={'contact-jane': {'id':'contact-jane','displayName':'Jane Fixture','companyName':'Test Town','jobTitle':'Coordinator',
+            'emailAddresses':[{'address':'Jane@Example.com','name':'Jane'}], 'mobilePhone':'201-555-1234', 'businessPhones':[], 'homePhones':[],
+            'businessAddress':{'street':'1 Main St','city':'Weehawken','state':'NJ','postalCode':'07086','countryOrRegion':'US'},
+            'changeKey':'v1','@odata.etag':'W/"v1"'}}
     def __call__(self,request):
         host,path=request.url.host,request.url.path
         if host=='login.microsoftonline.com' and path.endswith('/token'):
@@ -39,10 +44,22 @@ class Provider:
                     'start':{'dateTime':start.replace(tzinfo=None).isoformat(),'timeZone':'UTC'},'end':{'dateTime':(start+timedelta(hours=1)).replace(tzinfo=None).isoformat(),'timeZone':'UTC'},
                     'location':{'displayName':'Test site'},'webLink':'https://outlook.office.com/calendar/item/fixture','isAllDay':False}]})
             if path=='/v1.0/me/mailFolders/inbox/messages':return httpx.Response(200,json={'value':[]})
-            if path=='/v1.0/me/contacts':return httpx.Response(200,json={'value':[]})
+            if path=='/v1.0/me/contacts':return httpx.Response(200,json={'value':list(self.contacts.values())})
+            if path.startswith('/v1.0/me/contacts/'):
+                contact=self.contacts.get(path.rsplit('/',1)[-1])
+                return httpx.Response(200,json=contact) if contact else httpx.Response(404,json={})
             if path.startswith('/v1.0/me/messages/'):
                 assert 'ImmutableId' in request.headers.get('Prefer','')
                 return httpx.Response(200,json={'from':{'emailAddress':{'address':'sender@example.com'}},'replyTo':[{'emailAddress':{'address':'reply-desk@example.com'}}]})
+        if request.method=='PATCH' and path.startswith('/v1.0/me/contacts/'):
+            contact=self.contacts.get(path.rsplit('/',1)[-1])
+            if not contact:return httpx.Response(404,json={})
+            if request.headers.get('If-Match')!=contact['@odata.etag']:return httpx.Response(412,json={})
+            self.writes.append({'path':path,'body':json.loads(request.content),'method':'PATCH'})
+            if self.outcome=='timeout':raise httpx.ReadTimeout('fixture contact timeout',request=request)
+            if self.outcome=='rejected':return httpx.Response(403,json={})
+            contact.update(json.loads(request.content));contact['changeKey']='v'+str(len(self.writes)+1);contact['@odata.etag']='W/"'+contact['changeKey']+'"'
+            return httpx.Response(200,json=contact)
         if request.method=='POST':
             self.writes.append({'path':path,'body':json.loads(request.content)})
             if self.outcome=='timeout':raise httpx.ReadTimeout('fixture timeout after acceptance',request=request)
@@ -64,13 +81,15 @@ def setup():
         CMOS_MICROSOFT_TENANT='organizations',CMOS_CALENDAR_KEY=Fernet.generate_key().decode())
     with psycopg.connect(dsn,autocommit=True) as c:
         c.execute("DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='citymanager_app') THEN CREATE ROLE citymanager_app; END IF; END $$")
-        for prefix in ['001_','002_','003_','015_','017_','035_','036_','037_','038_','039_','040_','042_']:
+        for prefix in ['001_','002_','003_','015_','017_','035_','036_','037_','038_','039_','040_','042_','043_']:
             path=next((ROOT/'deploy/postgis/init').glob(prefix+'*.sql'));c.execute(path.read_text())
         # Repeat the new migration to prove additive/idempotent installation.
         c.execute((ROOT/'deploy/postgis/init/042_microsoft_workspace.sql').read_text())
+        c.execute((ROOT/'deploy/postgis/init/043_outlook_contacts.sql').read_text())
     import app as core
     import workspace_calendar as calendar
     import microsoft_workspace as ms
+    import microsoft_contacts
     import workspace_hub as hub
     import private_auth as auth
     if core._POOL:core._POOL.close();core._POOL=None
@@ -84,7 +103,7 @@ def setup():
         c.execute('INSERT INTO workspace_microsoft_mail(id,owner_username,provider_key,title,body,sender_email,received_at) VALUES(%s,%s,%s,%s,%s,%s,now())',(mail_id,owner,'mail-'+mail_id,'Fixture contractor email','Review the site visit. Private source body.','sender@example.com'))
     application=FastAPI();application.mount('/static',StaticFiles(directory=str(ROOT/'dashboard/static')),name='static')
     for route in list(core.app.routes):
-        if getattr(route,'path','') in {'/email','/calendar','/important','/appearance'} or getattr(route,'path','').startswith(('/workspace/api/microsoft/','/workspace/api/hub','/workspace/calendar/microsoft/')):application.router.routes.append(route)
+        if getattr(route,'path','') in {'/contacts','/email','/calendar','/important','/appearance'} or getattr(route,'path','').startswith(('/contacts/','/workspace/api/microsoft/','/workspace/api/hub','/workspace/calendar/microsoft/')):application.router.routes.append(route)
     auth.configure_private_auth(application)
     cookie=auth._issue_session(auth.Account('MSTest','EXECUTIVE',''))
     csrf=hmac.new(auth._session_secret(),cookie.encode(),hashlib.sha256).hexdigest()

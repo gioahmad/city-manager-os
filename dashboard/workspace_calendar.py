@@ -21,13 +21,13 @@ from private_auth import COOKIE_NAME
 
 CALENDAR_SCOPE='offline_access https://graph.microsoft.com/Calendars.ReadBasic'
 SCOPE=CALENDAR_SCOPE+' https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Contacts.Read'
-WRITE_PERMISSIONS={'Mail.ReadWrite','Mail.Send','Calendars.ReadWrite'}
+WRITE_PERMISSIONS={'Mail.ReadWrite','Mail.Send','Calendars.ReadWrite','Contacts.ReadWrite'}
 WRITE_SCOPE=SCOPE+' '+' '.join('https://graph.microsoft.com/'+s for s in sorted(WRITE_PERMISSIONS))
 GRAPH='https://graph.microsoft.com/v1.0/'
 
 
 def permissions(scopes):
-    canonical={s.casefold():s for s in ('offline_access','Calendars.ReadBasic','Mail.Read','Contacts.Read','Mail.ReadWrite','Mail.Send','Calendars.ReadWrite')}
+    canonical={s.casefold():s for s in ('offline_access','Calendars.ReadBasic','Mail.Read','Contacts.Read','Contacts.ReadWrite','Mail.ReadWrite','Mail.Send','Calendars.ReadWrite')}
     return {canonical.get(s.rsplit('/',1)[-1].casefold(),s.rsplit('/',1)[-1]) for s in str(scopes).split()}
 
 
@@ -136,7 +136,7 @@ def status(owner,lookup=query_one):
         FROM workspace_calendar_connections WHERE owner_username=%s''',(owner,owner,owner))
     scopes=permissions((row or {}).get('scopes',CALENDAR_SCOPE))
     return {'ready':settings()['ready'],'connected':bool(row),'mail_enabled':bool(scopes & {'Mail.Read','Mail.ReadWrite'}),
-            'contacts_enabled':'Contacts.Read' in scopes,**{k:v for k,v in (row or {}).items() if k!='scopes'}}
+            'contacts_enabled':bool(scopes & {'Contacts.Read','Contacts.ReadWrite'}),**{k:v for k,v in (row or {}).items() if k!='scopes'}}
 
 
 def begin(owner,request,*,enable_write=False):
@@ -260,7 +260,7 @@ def sync(owner):
                         '$orderby':'receivedDateTime desc',
                         '$select':'id,subject,body,from,toRecipients,receivedDateTime,isRead,webLink,conversationId'})
                     mails=[mail_row(owner,e) for e in graph_pages(client,url,tokens['access_token'],limit=250,truncate=True,mail=True,deadline=deadline)]
-                if 'Contacts.Read' in granted:
+                if granted & {'Contacts.Read','Contacts.ReadWrite'}:
                     url=GRAPH+'me/contacts?'+urlencode({'$top':'100',
                         '$select':'id,displayName,givenName,surname,emailAddresses,mobilePhone,businessPhones,homePhones,businessAddress,homeAddress,companyName,jobTitle,birthday'})
                     contacts=[contact_row(owner,e) for e in graph_pages(client,url,tokens['access_token'],limit=500,truncate=True,deadline=deadline)]

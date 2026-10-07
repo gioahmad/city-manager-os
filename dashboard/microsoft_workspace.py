@@ -27,7 +27,7 @@ import workspace_hub as hub
 from workspace_app import config, uid
 
 UTC = timezone.utc
-OPS = {'MAIL_SEND', 'MAIL_DRAFT', 'CALENDAR_CREATE'}
+OPS = {'MAIL_SEND', 'MAIL_DRAFT', 'CALENDAR_CREATE', 'CONTACT_UPDATE'}
 
 
 def clean(value: Any, limit: int, *, required: bool = False) -> str:
@@ -99,21 +99,21 @@ def capabilities(scopes: str) -> dict[str, bool]:
     granted = microsoft.permissions(scopes)
     return {'mail_read': bool(granted & {'Mail.Read', 'Mail.ReadWrite'}),
             'mail_send': 'Mail.Send' in granted, 'mail_draft': 'Mail.ReadWrite' in granted,
-            'calendar_write': 'Calendars.ReadWrite' in granted}
+            'calendar_write': 'Calendars.ReadWrite' in granted, 'contacts_write': 'Contacts.ReadWrite' in granted}
 
 
 def require(scopes: str, operation: str) -> None:
-    field = {'MAIL_SEND': 'mail_send', 'MAIL_DRAFT': 'mail_draft', 'CALENDAR_CREATE': 'calendar_write'}[operation]
+    field = {'MAIL_SEND': 'mail_send', 'MAIL_DRAFT': 'mail_draft', 'CALENDAR_CREATE': 'calendar_write', 'CONTACT_UPDATE': 'contacts_write'}[operation]
     if not capabilities(scopes)[field]:
         raise HTTPException(403, 'Approve the additional Microsoft permissions using Enable Microsoft actions. Existing read access remains available.')
 
 
-def request_graph(client: httpx.Client, method: str, path: str, token: str, *, payload=None) -> httpx.Response:
+def request_graph(client: httpx.Client, method: str, path: str, token: str, *, payload=None, if_match=None) -> httpx.Response:
     # Paths are built in this module, never accepted as a complete user-supplied URL.
     if not path.startswith('me/') or '..' in path.split('?')[0].split('/') or '://' in path:
         raise ValueError('Invalid Microsoft endpoint')
     response = client.request(method, microsoft.GRAPH + path,
-        headers={'Authorization': 'Bearer ' + token, 'Prefer': ('IdType="ImmutableId"' if path.startswith(('me/messages','me/sendMail')) else 'outlook.timezone="UTC"')},
+        headers={'Authorization': 'Bearer ' + token, 'Prefer': ('IdType="ImmutableId"' if path.startswith(('me/messages','me/sendMail')) else 'outlook.timezone="UTC"'), **({'If-Match': if_match} if if_match else {})},
         **({'json': payload} if payload is not None else {}))
     response.raise_for_status()
     return response
@@ -202,7 +202,7 @@ def status_page(request: Request):
     status['account_email'] = (row or {}).get('account_email')
     status['access_complete'] = bool(
         status.get('connected') and status.get('mail_read') and status.get('contacts_enabled')
-        and status.get('mail_send') and status.get('mail_draft') and status.get('calendar_write')
+        and status.get('mail_send') and status.get('mail_draft') and status.get('calendar_write') and status.get('contacts_write')
     )
     cfg = microsoft.settings()
     origin = str(cfg.get('redirect') or '').removesuffix('/workspace/calendar/microsoft/callback')
@@ -223,7 +223,7 @@ def status_page(request: Request):
     )
     status['requested_permissions'] = [
         'Mail.Read', 'Contacts.Read', 'Calendars.ReadBasic',
-        'Mail.Send', 'Mail.ReadWrite', 'Calendars.ReadWrite',
+        'Mail.Send', 'Mail.ReadWrite', 'Calendars.ReadWrite', 'Contacts.ReadWrite',
     ]
     status['calendars'] = query_all('SELECT calendar_key,name,can_edit,last_sync_at FROM workspace_microsoft_calendars WHERE owner_username=%s ORDER BY name', (owner,))
     status['operations'] = query_all('''SELECT id,operation,status,account_email,created_at,updated_at,result
@@ -446,6 +446,9 @@ def calendar_data(request: Request, calendar_key: str = 'primary', start: str = 
 
 
 def prepare(owner: str, data: dict) -> dict:
+    if data.get('operation') == 'CONTACT_UPDATE':
+        from microsoft_contacts import prepare_contact
+        return prepare_contact(owner, data)
     operation = data.get('operation')
     if operation not in OPS:
         raise HTTPException(400, 'Choose a Microsoft action.')
@@ -575,9 +578,12 @@ def execute_operation(owner: str, data: dict) -> dict:
                 allowed = calendars(client, token, account, owner)
                 if not any(r['calendar_key'] == payload['calendar_key'] and r['can_edit'] for r in allowed):
                     raise HTTPException(403, 'The selected calendar is no longer editable.')
+            if row['operation'] == 'CONTACT_UPDATE':
+                from microsoft_contacts import verify_contact
+                verify_contact(owner, payload, client, token)
             submitted = True
-            response = request_graph(client, 'POST', payload['path'], token, payload=payload['json'])
-            expected = 202 if row['operation'] == 'MAIL_SEND' else 201
+            response = request_graph(client, 'PATCH' if row['operation'] == 'CONTACT_UPDATE' else 'POST', payload['path'], token, payload=payload['json'], **({'if_match': payload['etag']} if payload.get('etag') else {}))
+            expected = 200 if row['operation'] == 'CONTACT_UPDATE' else 202 if row['operation'] == 'MAIL_SEND' else 201
             if response.status_code != expected:
                 raise ValueError('Unexpected response')
             status = 'SUCCEEDED'
@@ -589,6 +595,10 @@ def execute_operation(owner: str, data: dict) -> dict:
                     raise ValueError('Missing result ID')
                 result = {'message': 'Saved to Outlook Drafts. Not sent.' if row['operation'] == 'MAIL_DRAFT' else 'Created in your Microsoft calendar.',
                           'provider_id': remote['id'], 'outlook_url': microsoft.safe_outlook_url(remote.get('webLink'))}
+                if row['operation'] == 'CONTACT_UPDATE':
+                    from microsoft_contacts import finish_contact
+                    finish_contact(owner, payload, remote)
+                    result = {'message': 'Linked Outlook contact updated.', 'provider_id': remote['id']}
     except httpx.HTTPStatusError as exc:
         # A definite 4xx is a rejection; timeout/5xx could have happened after acceptance.
         definite = 400 <= exc.response.status_code < 500 and exc.response.status_code != 408

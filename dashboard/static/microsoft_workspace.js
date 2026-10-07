@@ -41,13 +41,14 @@
       if(!setup.tenant)missing.push('tenant');
       $('ms-access').textContent='One-time setup needed: '+(missing.join(', ')||'review the Microsoft app configuration')+'.';
     }else if(!connected){
-      $('ms-access').textContent='One Microsoft sign-in enables Email, Contacts, Calendar, Send, Drafts and calendar creation.';
+      $('ms-access').textContent='One Microsoft sign-in enables Email, Contacts, Calendar, Send, Drafts, contact updates and calendar creation.';
     }else if(complete){
-      $('ms-access').textContent='Ready · Email + contacts + send/drafts + calendar read/write are approved.';
+      $('ms-access').textContent='Ready · Email + contacts read/write + send/drafts + calendar read/write are approved.';
     }else{
       const missing=[];
       if(!status.mail_read)missing.push('email');
       if(!status.contacts_enabled)missing.push('contacts');
+      if(!status.contacts_write)missing.push('contact updates');
       if(!status.mail_send)missing.push('sending');
       if(!status.mail_draft)missing.push('drafts');
       if(!status.calendar_write)missing.push('calendar write');

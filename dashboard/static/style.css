@@ -1,5 +1,6 @@
 *{box-sizing:border-box}
 .location-picker [hidden],.distance-field[hidden]{display:none!important}
+.outlook-dialog{width:min(680px,90vw);max-height:85vh;overflow:auto;border:1px solid #ccc;border-radius:12px;padding:24px}.outlook-dialog::backdrop{background:#0008}.outlook-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere}.outlook-dialog [hidden],#outlook-connect[hidden],#outlook-enable[hidden],#outlook-more[hidden]{display:none!important}
 :root{
   --bg:#f4f7fa;
   --surface:#ffffff;

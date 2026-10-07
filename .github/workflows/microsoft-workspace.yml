@@ -50,6 +50,10 @@ jobs:
         env:
           CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
         run: python ci/check_microsoft_workflows.py
+      - name: Outlook contact import and reviewed update lifecycle
+        env:
+          CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
+        run: python ci/check_outlook_contacts.py
       - name: Variable-order BNN pipe classifier
         run: python ci/check_bnn_pipe_classifier.py
       - name: Historical Watch preview against real PostgreSQL
@@ -59,6 +63,7 @@ jobs:
       - name: JavaScript and installer syntax
         run: |
           node --check dashboard/static/microsoft_workspace.js
+          node --check dashboard/static/outlook_contacts.js
           node --check dashboard/static/workspace_hub.js
           node --check dashboard/static/workspace.js
           node --check dashboard/static/macro_layer.js
@@ -111,3 +116,4 @@ jobs:
           path: browser-check-results
           retention-days: 7
           if-no-files-found: ignore
+
