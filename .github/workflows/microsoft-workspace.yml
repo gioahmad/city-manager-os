@@ -85,7 +85,10 @@ jobs:
           bash -n deploy/postgis/release-snapshot.sh
           bash -n deploy/postgis/install-backup-timer.sh
       - name: Install Firefox and Chromium
-        run: python -m playwright install --with-deps firefox chromium > "$RUNNER_TEMP/browser-install.log" 2>&1 || { tail -80 "$RUNNER_TEMP/browser-install.log"; exit 1; }
+        timeout-minutes: 5
+        env:
+          PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: '60000'
+        run: timeout --kill-after=10s 240s python -m playwright install --with-deps firefox chromium > "$RUNNER_TEMP/browser-install.log" 2>&1 || { tail -80 "$RUNNER_TEMP/browser-install.log"; exit 1; }
       - name: Watch creation and all mapped activity through real PostGIS and delivery guard
         env:
           CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
