@@ -25,19 +25,42 @@
 </fieldset>
 {% endmacro %}
 
-{% macro location_picker(query='', kind='TYPED_ADDRESS', source_id='', latitude='', longitude='', selected_label='', distance=5280) %}
+{% macro location_picker(query='', kind='TYPED_ADDRESS', source_id='', latitude='', longitude='', selected_label='', distance=5280, municipality='') %}
+{% set scope = 'ANYWHERE' if not query and not latitude and not selected_label else kind if kind in ['COUNTY','MUNICIPALITY','MAP_POINT','EXISTING'] else 'TYPED_ADDRESS' if kind in ['ADDRESS','TYPED_ADDRESS','RESOLVED_ADDRESS'] else 'SAVED' %}
 <div class="location-picker" data-location-picker>
-  <label>Find a Location
-    <input class="location-search" name="location_query" value="{{ query or '' }}" autocomplete="off" placeholder="County, city/town, address, street, parcel, or saved area">
-    <span class="hint">Optional. Leave blank for anywhere. Counties and cities use their boundary; addresses, intersections, points, parcels, and places can use a distance.</span>
+  <label>Location type
+    <select name="location_scope" data-location-scope>
+      {% for value,label in [('ANYWHERE','Anywhere'),('COUNTY','County'),('MUNICIPALITY','City or town'),('TYPED_ADDRESS','Street address'),('MAP_POINT','Intersection or exact point'),('SAVED','Saved place, area, or parcel')] %}
+      <option value="{{ value }}" {% if scope == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+      {% if scope == 'EXISTING' %}<option value="EXISTING" selected>Keep this saved location</option>{% endif %}
+    </select>
+    <span class="hint" data-location-help>Optional. Leave blank for anywhere, or choose a location type above.</span>
+  </label>
+  <label data-county-field {% if scope != 'COUNTY' %}hidden{% endif %}>County · New Jersey
+    <select data-county-choice>
+      <option value="">Choose a county</option>
+      {% if scope == 'COUNTY' and query %}<option value="{{ source_id or query }}" selected>{{ query }}</option>{% endif %}
+      {% for county in county_choices %}<option value="{{ county }}">{{ county }} County</option>{% endfor %}
+    </select>
+  </label>
+  <label data-location-query-field {% if scope in ['ANYWHERE','COUNTY'] %}hidden{% endif %}>
+    <span data-location-query-label>Location</span>
+    <input class="location-search" name="location_query" value="{{ query or '' }}" autocomplete="off" placeholder="Choose a location type first">
+  </label>
+  <label data-address-town-field {% if scope != 'TYPED_ADDRESS' %}hidden{% endif %}>City or town
+    <input name="municipality" value="{{ municipality or '' }}" autocomplete="off" placeholder="Example: Weehawken">
+    <span class="hint">Enter the town here, or paste a full street address with municipality and state above.</span>
   </label>
   <input type="hidden" name="location_kind" value="{{ kind or 'TYPED_ADDRESS' }}">
   <input type="hidden" name="location_id" value="{{ source_id or '' }}">
-  <input type="hidden" name="latitude" value="{{ latitude or '' }}">
-  <input type="hidden" name="longitude" value="{{ longitude or '' }}">
+  <div class="form-grid two-col" data-point-coordinates {% if scope != 'MAP_POINT' %}hidden{% endif %}>
+    <label>Latitude<input type="number" step="any" min="-90" max="90" name="latitude" value="{{ latitude if latitude is not none else '' }}" placeholder="Example: 40.77"></label>
+    <label>Longitude<input type="number" step="any" min="-180" max="180" name="longitude" value="{{ longitude if longitude is not none else '' }}" placeholder="Example: -74.02"></label>
+  </div>
   <div class="location-search-actions">
-    <button class="secondary-button verify-location" type="button">Verify full address</button>
-    <a class="secondary-button" href="/map" data-cmos-quicklook data-cmos-title="Choose Watch Location">Choose exact point on map</a>
+    <button class="secondary-button verify-location" type="button" {% if scope != 'TYPED_ADDRESS' %}hidden{% endif %}>Verify full address</button>
+    <a class="secondary-button" href="/map" data-location-map data-cmos-quicklook data-cmos-title="Choose Watch Location" {% if scope not in ['MAP_POINT','SAVED'] %}hidden{% endif %}>Choose exact point on map</a>
   </div>
   <div class="location-selected" data-location-selected {% if not selected_label and not latitude %}hidden{% endif %}>
     <strong>Selected Location</strong>
@@ -166,7 +189,7 @@
         <div class="simple-watch-number">2</div>
         <div>
           <h3>Where should we watch?</h3>
-          <p class="hint simple-watch-intro">Leave this blank for anywhere. Counties such as Hudson County are supported too. Type a county, city/town, address, street, parcel, or saved area. For an exact intersection or spot, choose it on the map, then pick the distance.</p>
+          <p class="hint simple-watch-intro">Choose the area first. County and city Watches match alert geography; an address, intersection, or point uses the distance you choose.</p>
           {{ location_picker(prefill.location_query, prefill.location_kind, prefill.location_id, prefill.latitude, prefill.longitude, prefill.location_query, 5280) }}
         </div>
       </section>
@@ -339,7 +362,7 @@
               <div class="simple-watch-number">2</div>
               <div>
                 <h3>Where should we watch?</h3>
-                {{ location_picker(w.location_label, w.location_kind, w.location_id, '', '', w.location_label, w.radius_ft or 5280) }}
+                {{ location_picker(w.location_label, w.location_kind, w.location_id, '', '', w.location_label, w.radius_ft or 5280, w.municipality or '') }}
               </div>
             </section>
 
@@ -847,10 +870,11 @@
     const locationId = form.querySelector('[name="location_id"]');
     const latitude = form.querySelector('[name="latitude"]');
     const longitude = form.querySelector('[name="longitude"]');
+    const locationScope = form.querySelector('[name="location_scope"]');
     const message = form.querySelector('[data-simple-watch-message]');
 
     const state = () => {
-      const hasLocation = Boolean(
+      const hasLocation = locationScope ? locationScope.value !== 'ANYWHERE' : Boolean(
         locationId?.value.trim()
         || latitude?.value.trim()
         || longitude?.value.trim()
@@ -1026,15 +1050,75 @@
     const latitude = picker.querySelector('[name="latitude"]');
     const longitude = picker.querySelector('[name="longitude"]');
     const distanceField = picker.nextElementSibling;
+    const scope = picker.querySelector('[data-location-scope]');
+    const countyChoice = picker.querySelector('[data-county-choice]');
+    const town = picker.querySelector('[name="municipality"]');
     let timer;
+    let generation = 0;
+    let controller;
+
+    const cancelSearch = () => {
+      clearTimeout(timer);
+      generation += 1;
+      controller?.abort();
+      results.replaceChildren();
+    };
+    const syncFields = () => {
+      const type = scope.value;
+      const hints = {
+        ANYWHERE: 'No location filter. Choose a source and/or topic above.',
+        COUNTY: 'All alerts labeled for this county. No distance is needed.',
+        MUNICIPALITY: 'All alerts labeled for this city or town. Choose a result below; no distance is needed.',
+        TYPED_ADDRESS: 'Enter a street address and town, then choose a result or verify the full address.',
+        MAP_POINT: 'Use the map to start a Watch at an exact spot, or enter both coordinates here. An intersection name alone is not an exact point.',
+        SAVED: 'Search saved places, imported areas, or parcels, then choose a result.',
+        EXISTING: 'The saved location is kept. Choose another type to replace it.',
+      };
+      picker.querySelector('[data-location-help]').textContent = hints[type];
+      picker.querySelector('[data-county-field]').hidden = type !== 'COUNTY';
+      picker.querySelector('[data-location-query-field]').hidden = ['ANYWHERE', 'COUNTY'].includes(type);
+      picker.querySelector('[data-address-town-field]').hidden = type !== 'TYPED_ADDRESS';
+      picker.querySelector('[data-point-coordinates]').hidden = type !== 'MAP_POINT';
+      picker.querySelector('.verify-location').hidden = type !== 'TYPED_ADDRESS';
+      picker.querySelector('[data-location-map]').hidden = !['MAP_POINT', 'SAVED'].includes(type);
+      const labels = {MUNICIPALITY: 'City or town', TYPED_ADDRESS: 'Street address', MAP_POINT: 'Intersection or point name (optional)', SAVED: 'Saved place, area, or parcel', EXISTING: 'Saved location'};
+      picker.querySelector('[data-location-query-label]').textContent = labels[type] || 'Location';
+      search.placeholder = {MUNICIPALITY: 'Example: Weehawken', TYPED_ADDRESS: 'Example: 400 Park Avenue', MAP_POINT: 'Example: Park Avenue & 48th Street', SAVED: 'Search a place name, address, block, or lot'}[type] || '';
+      search.readOnly = type === 'EXISTING';
+      search.required = ['MUNICIPALITY', 'TYPED_ADDRESS', 'SAVED'].includes(type);
+      countyChoice.required = type === 'COUNTY';
+      town.disabled = type !== 'TYPED_ADDRESS';
+      latitude.required = longitude.required = type === 'MAP_POINT';
+      if (distanceField?.classList.contains('distance-field')) distanceField.hidden = ['ANYWHERE', 'COUNTY', 'MUNICIPALITY'].includes(type);
+    };
+
+    const clearSelection = () => {
+      cancelSearch();
+      sourceId.value = '';
+      latitude.value = longitude.value = '';
+      kind.value = ['COUNTY', 'MUNICIPALITY', 'MAP_POINT'].includes(scope.value) ? scope.value : 'TYPED_ADDRESS';
+      selected.hidden = true;
+    };
+
+    scope.addEventListener('change', () => {
+      clearSelection();
+      search.value = '';
+      countyChoice.value = '';
+      town.value = '';
+      setMessage(message, '');
+      syncFields();
+    });
 
     const choose = (item) => {
+      cancelSearch();
       search.value = item.label || '';
       kind.value = item.kind || 'TYPED_ADDRESS';
       sourceId.value = item.source_id || '';
       latitude.value = item.latitude || '';
       longitude.value = item.longitude || '';
-      if (distanceField?.classList.contains('distance-field')) distanceField.hidden = ['MUNICIPALITY', 'COUNTY'].includes(item.kind);
+      scope.value = ['COUNTY', 'MUNICIPALITY', 'MAP_POINT'].includes(item.kind) ? item.kind : ['ADDRESS', 'RESOLVED_ADDRESS'].includes(item.kind) ? 'TYPED_ADDRESS' : 'SAVED';
+      if (item.municipality) town.value = item.municipality;
+      syncFields();
       selected.hidden = false;
       selectedText.textContent = `${item.kind_label || 'Location'}: ${item.label}${item.detail ? ` · ${item.detail}` : ''}`;
       results.replaceChildren();
@@ -1055,34 +1139,52 @@
         button.addEventListener('click', () => choose(item));
         results.appendChild(button);
       });
-      if (!items.length) setMessage(message, 'No saved Location matched. Enter a complete address and choose Verify full address.');
+      if (!items.length) setMessage(message, scope.value === 'TYPED_ADDRESS' ? 'No address matched. Check the town or choose Verify full address.' : 'No location matched this type. Check the name or choose another location type.');
     };
 
-    search.addEventListener('input', () => {
-      kind.value = 'TYPED_ADDRESS';
-      sourceId.value = '';
-      latitude.value = '';
-      longitude.value = '';
-      if (distanceField?.classList.contains('distance-field')) distanceField.hidden = true;
-      selected.hidden = true;
-      clearTimeout(timer);
+    const searchLocations = () => {
+      if (scope.value === 'MAP_POINT') {
+        cancelSearch();
+        return;
+      }
+      clearSelection();
       const query = search.value.trim();
-      if (query.length < 2) {
-        results.replaceChildren();
+      if (query.length < 2 || !['MUNICIPALITY', 'TYPED_ADDRESS', 'SAVED'].includes(scope.value)) {
         setMessage(message, '');
         return;
       }
+      const current = generation;
+      const params = new URLSearchParams({q: query, kind: scope.value, municipality: town.disabled ? '' : town.value.trim()});
+      setMessage(message, 'Searching…');
       timer = setTimeout(async () => {
+        controller = new AbortController();
         try {
-          const response = await fetch(`/api/watch-locations/search?q=${encodeURIComponent(query)}`);
+          const response = await fetch(`/api/watch-locations/search?${params}`, {signal: controller.signal});
           if (!response.ok) throw new Error('search');
           const data = await response.json();
+          if (current !== generation) return;
+          setMessage(message, '');
           render(data.items || []);
-        } catch (_) {
-          setMessage(message, 'Location search is temporarily unavailable. A complete address can still be verified.', true);
+        } catch (error) {
+          if (current !== generation || error.name === 'AbortError') return;
+          setMessage(message, 'Location search is temporarily unavailable. Try again shortly.', true);
         }
       }, 250);
+    };
+    search.addEventListener('input', searchLocations);
+    town.addEventListener('input', searchLocations);
+    countyChoice.addEventListener('change', () => {
+      if (countyChoice.value) choose({kind: 'COUNTY', source_id: countyChoice.value, label: countyChoice.value, kind_label: 'County'});
+      else { clearSelection(); search.value = ''; setMessage(message, 'Choose a county.'); }
     });
+    form.addEventListener('submit', (event) => {
+      if (scope.value === 'SAVED' && !sourceId.value) {
+        event.preventDefault();
+        setMessage(message, 'Choose a saved place, area, or parcel from the search results.', true);
+        search.focus();
+      }
+    });
+    syncFields();
 
     picker.querySelector('.verify-location')?.addEventListener('click', async () => {
       const query = search.value.trim();
@@ -1094,13 +1196,17 @@
       const body = new FormData();
       body.append('location_query', query);
       body.append('municipality', form.querySelector('[name="municipality"]')?.value || '');
+      cancelSearch();
+      const current = generation;
       setMessage(message, 'Verifying address…');
       try {
         const response = await fetch('/api/watch-locations/resolve', {method: 'POST', body});
         const data = await response.json();
+        if (current !== generation) return;
         if (!response.ok || !data.ok) throw new Error(data.message || 'Address was not found.');
         choose(data.location);
       } catch (error) {
+        if (current !== generation) return;
         setMessage(message, error.message || 'Address could not be verified.', true);
       }
     });
