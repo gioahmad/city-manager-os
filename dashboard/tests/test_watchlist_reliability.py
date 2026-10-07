@@ -79,7 +79,7 @@ def test_watchlist_has_simple_modes_health_and_friendly_errors():
 
 def test_normal_watch_setup_hides_technical_nomenclature_until_advanced():
     template = (DASHBOARD_ROOT / "templates/watchlist.html").read_text()
-    normal_setup, advanced = template.split('<details class="advanced-options">', 1)
+    normal_setup = template.split('<article class="panel watch-saved-panel">', 1)[0]
     visible_normal = normal_setup.lower()
     for forbidden in (
         "spatial geometry",
