@@ -63,7 +63,12 @@ WITH records AS (
 ), candidates AS (
   SELECT r.*,md5(jsonb_build_array(r.title,r.message,r.priority,r.tags,r.click_url,r.expires_at,r.municipality,r.county,ST_AsEWKT(r.geom))::text) AS fingerprint
   FROM records r
-  WHERE r.geom IS NOT NULL AND r.changed_at>=TIMESTAMPTZ '__CMOS_ACTIVATED_AT__'
+  WHERE r.geom IS NOT NULL AND (r.changed_at>=TIMESTAMPTZ '__CMOS_ACTIVATED_AT__' OR EXISTS (
+      SELECT 1 FROM alerts queued WHERE queued.alert_id=r.alert_id
+        AND queued.metadata->>'mapped_activity_candidate' IS NOT NULL
+        AND coalesce(queued.metadata#>>'{_cmos,mapped_activity_fingerprint}','')<>
+            queued.metadata->>'mapped_activity_candidate'
+    ))
     AND (r.expires_at IS NULL OR r.expires_at>now())
     AND EXISTS (
       SELECT 1 FROM watch_items w
@@ -93,7 +98,8 @@ WITH records AS (
          p.tags,p.click_url,p.source_url,p.changed_at,p.changed_at,p.expires_at,
          coalesce(a.metadata,'{}'::jsonb)||jsonb_build_object('mapped_activity_only',true,
            'mapped_record_kind',p.kind,'mapped_record_id',p.record_id,'mapped_activity_candidate',p.fingerprint,
-           'mapped_activity_queued_at',now()),
+           'mapped_activity_queued_at',CASE WHEN a.metadata->>'mapped_activity_candidate'=p.fingerprint
+             THEN coalesce(a.metadata->'mapped_activity_queued_at',to_jsonb(now())) ELSE to_jsonb(now()) END),
          concat_ws(' ',p.source,p.category,p.title,p.message,p.municipality,p.county,p.address),p.geom
   FROM pending p LEFT JOIN alerts a ON a.alert_id=p.alert_id
   ON CONFLICT(alert_id) DO UPDATE SET

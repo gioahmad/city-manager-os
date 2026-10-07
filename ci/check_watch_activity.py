@@ -37,7 +37,7 @@ headers = {'Origin': 'https://fixture.example.com'}
 
 def sql(query, params=()):
     with core.db_conn() as c:
-        return c.execute(query, params).fetchall()
+        return c.execute(query.replace('$1', '%s'), params).fetchall()
 
 subscribers = [uuid4(), uuid4()]
 for index, subscriber in enumerate(subscribers):

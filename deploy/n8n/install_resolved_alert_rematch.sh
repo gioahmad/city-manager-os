@@ -62,15 +62,24 @@ N8N_DIR="$(docker inspect n8n --format '{{range .Mounts}}{{if eq .Destination "/
 N8N_DB="$N8N_DIR/database.sqlite"
 [[ -f "$N8N_DB" ]] || fail "n8n database not found"
 
-if python3 - "$N8N_DB" "$WORKFLOW_ID" <<'PY'
-import json,sqlite3,sys
-db,wid=sys.argv[1:]
+if python3 - "$N8N_DB" "$WORKFLOW_ID" "$SOURCE" <<'PY'
+import json,re,sqlite3,sys
+db,wid,source=sys.argv[1:]
 con=sqlite3.connect(db); con.row_factory=sqlite3.Row
-row=con.execute("SELECT active,nodes FROM workflow_entity WHERE id=?",(wid,)).fetchone()
+row=con.execute("SELECT active,activeVersionId,nodes FROM workflow_entity WHERE id=?",(wid,)).fetchone()
 con.close()
-if not row or not row["active"]:
+if not row or not row["active"] or not row['activeVersionId']:
     raise SystemExit(1)
 nodes={n.get("name"):n for n in json.loads(row["nodes"])}
+for expected in json.load(open(source))['nodes']:
+    actual=nodes.get(expected['name']) or {}
+    def parameters(node):
+        p=dict(node.get('parameters') or {})
+        if isinstance(p.get('query'),str):
+            p['query']=re.sub(r"TIMESTAMPTZ '[^']+'", "TIMESTAMPTZ '__CMOS_ACTIVATED_AT__'",p['query'])
+        return p
+    if actual.get('type')!=expected['type'] or parameters(actual)!=parameters(expected):
+        raise SystemExit(1)
 q=((nodes.get("Load Newly Resolved Alerts") or {}).get("parameters") or {}).get("query","")
 m=((nodes.get("Mark Resolved Alert Rematched") or {}).get("parameters") or {}).get("query","")
 if "nullif(w.county,'') IS NOT NULL" not in q or "geo-v3" not in q or "geo-v3" not in m:
