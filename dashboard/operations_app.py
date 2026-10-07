@@ -1085,6 +1085,15 @@ def contacts_page(
 ):
     scope, params = _contact_scope(request)
     where = [scope]
+    if focus:
+        try:
+            focused_id = uuid.UUID(focus)
+        except ValueError:
+            focus = ''
+        else:
+            where.append('c.id=%s')
+            params.append(focused_id)
+            q, contact_type, state = '', 'ALL', 'all'
     q = q.strip()[:160]
     if q:
         needle = f"%{q}%"
