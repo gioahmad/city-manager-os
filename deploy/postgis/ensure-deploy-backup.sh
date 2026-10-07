@@ -4,7 +4,7 @@ set -Eeuo pipefail
 REPO="${CMOS_REPO:-/opt/city-manager-os}"
 PREVIOUS="${1:-}"
 TARGET="${2:-$(git -C "$REPO" rev-parse HEAD)}"
-MAX_AGE_HOURS="${CMOS_DEPLOY_BACKUP_MAX_AGE_HOURS:-12}"
+MAX_AGE_HOURS="${CMOS_DEPLOY_BACKUP_MAX_AGE_HOURS:-30}"
 
 cd "$REPO"
 
@@ -16,7 +16,6 @@ RETRY_BACKUP="${CMOS_DEPLOY_RETRY_BACKUP:-}"
 SENSITIVE_PATHS=(
   deploy/postgis/init deploy/gis schemas
   dashboard/gis_import.py dashboard/geo_resolver.py
-  dashboard/spatial_reference_app.py dashboard/spatial_watch_app.py
 )
 if [[ "${CMOS_FORCE_FULL_BACKUP:-false}" != "true" && -n "$RETRY_FROM" && -n "$RETRY_BACKUP" ]]; then
   if [[ "$RETRY_FROM" =~ ^[0-9a-f]{40}$ ]] &&
@@ -42,6 +41,10 @@ if [[ "${CMOS_FORCE_FULL_BACKUP:-false}" != "true" && -n "$RETRY_FROM" && -n "$R
   echo "BACKUP GATE: falling back to normal recovery-point requirements"
 fi
 
+# Every routine deploy gets a small control-plane recovery snapshot. This is
+# deliberately not called a full/incremental database backup.
+bash deploy/postgis/release-snapshot.sh "$PREVIOUS" "$TARGET"
+
 force=false
 reason="routine application release"
 
@@ -62,10 +65,10 @@ if [[ "$force" == "true" ]]; then
   exit 0
 fi
 
-echo "BACKUP GATE: routine release — checking for validated backup <= ${MAX_AGE_HOURS}h"
+echo "BACKUP GATE: routine release — checking for nightly validated full backup <= ${MAX_AGE_HOURS}h"
 if BACKUP_MAX_AGE_HOURS="$MAX_AGE_HOURS" bash deploy/postgis/verify-backup.sh; then
-  echo "BACKUP GATE: PASS — reusing recent validated recovery point; no new multi-GB dump required"
+  echo "BACKUP GATE: PASS — routine snapshot created and recent full backup reused; no new multi-GB dump required"
 else
-  echo "BACKUP GATE: recent recovery point unavailable — creating fresh full logical backup"
+  echo "BACKUP GATE: scheduled full backup is stale/missing — creating one now for safety"
   bash deploy/postgis/backup.sh
 fi
