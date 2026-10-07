@@ -84,7 +84,7 @@ echo "BACKUP GATE: $reason — checking for nightly validated full backup <= ${M
 if BACKUP_MAX_AGE_HOURS="$MAX_AGE_HOURS" bash deploy/postgis/verify-backup.sh; then
   if [[ -f deploy/postgis/release-snapshot.sh ]]; then
     bash deploy/postgis/release-snapshot.sh "$PREVIOUS" "$TARGET"
-    echo "BACKUP GATE: PASS — recent full backup plus fresh application snapshot; no new GIS dump"
+    echo "BACKUP GATE: PASS — reusing recent validated recovery point plus fresh application snapshot; no new GIS dump"
   else
     echo "BACKUP GATE: application snapshot helper missing — creating a full backup"
     bash deploy/postgis/backup.sh
