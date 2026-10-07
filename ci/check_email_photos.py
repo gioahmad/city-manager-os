@@ -56,7 +56,7 @@ with TestClient(application) as client:
     assert len(detail['item']['metadata']['email_photos']) == 2
     links, _ = hub.context(owner, hub.find(owner, 'BRAIN', result['id']))
     assert len([r for r in links if r['kind'] == 'DOCUMENT']) == 2
-    client.cookies.set(auth.COOKIE_NAME, auth._issue_session(auth.Account('OtherOwner', 'EXECUTIVE', '')))
+    client.cookies.set(auth.COOKIE_NAME, auth._issue_session(auth.Account('Reader', 'READ_ONLY', '')))
     assert client.get(result['photos'][0]['url']).status_code == 404
     assert client.get('/workspace/api/microsoft/mail/' + mail_id + '/photos').status_code == 404
     client.cookies.set(auth.COOKIE_NAME, cookie)
