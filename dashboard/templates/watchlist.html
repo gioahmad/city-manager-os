@@ -28,8 +28,8 @@
 {% macro location_picker(query='', kind='TYPED_ADDRESS', source_id='', latitude='', longitude='', selected_label='', distance=5280) %}
 <div class="location-picker" data-location-picker>
   <label>Find a Location
-    <input class="location-search" name="location_query" value="{{ query or '' }}" autocomplete="off" placeholder="Address, parcel, street, municipality, or saved map area">
-    <span class="hint">Optional. Leave blank for anywhere, or type a county, city/town, address, street, parcel, or saved area.</span>
+    <input class="location-search" name="location_query" value="{{ query or '' }}" autocomplete="off" placeholder="County, city/town, address, intersection, street, parcel, or saved area">
+    <span class="hint">Optional. Leave blank for anywhere. Counties and cities use their boundary; addresses, intersections, points, parcels, and places can use a distance.</span>
   </label>
   <input type="hidden" name="location_kind" value="{{ kind or 'TYPED_ADDRESS' }}">
   <input type="hidden" name="location_id" value="{{ source_id or '' }}">
@@ -46,7 +46,7 @@
   <div class="location-results" role="listbox" aria-label="Location results"></div>
   <div class="location-message" aria-live="polite"></div>
 </div>
-<label class="distance-field" {% if (not selected_label and not latitude) or kind in ['MUNICIPALITY','COUNTY'] %}hidden{% endif %}>Distance
+<label class="distance-field" {% if (not selected_label and not latitude) or kind in ['MUNICIPALITY','COUNTY'] %}hidden{% endif %}>How far around this location?
   <select name="radius_ft">
     {% if distance and distance not in [1, 50, 100, 500, 1000, 2640, 5280, 10560, 26400] %}
     <option value="{{ distance }}" selected>Current · {{ distance|round|int }} feet</option>
@@ -61,7 +61,7 @@
     <option value="10560" {% if distance == 10560 %}selected{% endif %}>2 miles</option>
     <option value="26400" {% if distance == 26400 %}selected{% endif %}>5 miles</option>
   </select>
-  <span class="hint">The Watch looks this far around the selected Location.</span>
+  <span class="hint">Use feet for a building, intersection, block, or corridor; use miles for a broader area.</span>
 </label>
 {% endmacro %}
 
@@ -130,8 +130,20 @@
       {% endif %}
       {% if prefill.from_alert %}
       <aside class="watch-from-alert">
-        <strong>Started from: {{ prefill.source_alert_title }}</strong>
+        <div class="panel-kicker">STARTED FROM ALERT</div>
+        <strong>{{ prefill.source_alert_title }}</strong>
         <span>We carried over the useful parts. You can simplify them before saving.</span>
+        {% if prefill.keyword_choices %}
+        <div class="alert-keyword-picker" data-alert-keywords>
+          <span>Use any of these phrases</span>
+          <div class="alert-keyword-choices">
+            {% for keyword in prefill.keyword_choices %}
+            <label><input type="checkbox" name="alert_keywords" value="{{ keyword }}" data-alert-keyword {% if keyword in prefill.selected_keywords %}checked{% endif %}> {{ keyword }}</label>
+            {% endfor %}
+          </div>
+          <small>These choices come from this alert, not a fixed list.</small>
+        </div>
+        {% endif %}
       </aside>
       {% endif %}
 
@@ -159,7 +171,7 @@
         <div class="simple-watch-number">2</div>
         <div>
           <h3>Where should we watch?</h3>
-          <p class="hint simple-watch-intro">Leave this blank for anywhere. For a geographic Watch, type Hudson County, Jersey City, Weehawken, an address, street, parcel, or saved map area and choose the result.</p>
+          <p class="hint simple-watch-intro">Leave this blank for anywhere. Counties such as Hudson County are supported too. Type Hudson County, Jersey City, Weehawken, an address, intersection, street, parcel, or saved map area and choose the result.</p>
           {{ location_picker(prefill.location_query, prefill.location_kind, prefill.location_id, prefill.latitude, prefill.longitude, prefill.location_query, 5280) }}
         </div>
       </section>
@@ -206,7 +218,7 @@
               </select>
               <button class="secondary-button test-notification-button" type="button">Send Test Notification</button>
             </div>
-            <div class="hint">This sends a test only. It does not create a Match.</div>
+            <div class="hint">This sends a test only. It does not create an alert, Match, or Watch.</div>
             <div class="test-notification-result" aria-live="polite"></div>
           </div>
         </div>
