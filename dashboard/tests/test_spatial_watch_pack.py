@@ -152,8 +152,8 @@ def test_mapping_center_previews_and_reuses_canonical_references():
     assert "Create Watch Here" in template
     assert "Search Visible Area" in template
     assert "View nearby alert history data" in watchlist
-    assert "Only these alert sources" in watchlist
-    assert "Only these alert categories" in watchlist
+    assert 'name="source_filter"' in watchlist
+    assert 'name="alert_category_filter"' in watchlist
     assert "Recipients" in watchlist
 
 
