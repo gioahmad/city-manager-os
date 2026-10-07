@@ -188,3 +188,6 @@ footer{display:flex;justify-content:space-between;gap:20px;margin-top:30px;paddi
   .watch-summary-strip{gap:6px}
   .watch-summary-strip a{padding:6px 9px}
 }
+
+.watch-select{display:none}
+.watch-bulk-mode .watch-select{display:inline-flex}
