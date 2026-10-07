@@ -207,7 +207,8 @@ if [[ "$MODE" == "clean" ]]; then
   fi
 
   echo
-  echo "No volumes, running containers, GIS staging/rollback tables, staff uploads, security backups, or unknown /var/backups trees were deleted."
+  echo "No volumes, running containers, GIS artifacts, n8n data volumes, staff uploads, security backups, or unknown /var/backups trees were deleted."
+  echo "Only explicitly named, age/count-limited City Manager OS recovery snapshots were trimmed."
 fi
 
 section "FINAL STORAGE"
