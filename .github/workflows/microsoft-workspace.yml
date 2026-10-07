@@ -68,6 +68,7 @@ jobs:
           bash -n deploy/cmos-source
           bash -n deploy/cmos-maintenance
           bash -n deploy/n8n/install_spatial_watch_matcher.sh
+          bash -n deploy/n8n/install_resolved_alert_rematch.sh
           bash -n deploy/postgis/ensure-deploy-backup.sh
           bash -n deploy/postgis/release-snapshot.sh
           bash -n deploy/postgis/install-backup-timer.sh
