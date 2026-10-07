@@ -28,7 +28,7 @@
 {% macro location_picker(query='', kind='TYPED_ADDRESS', source_id='', latitude='', longitude='', selected_label='', distance=5280) %}
 <div class="location-picker" data-location-picker>
   <label>Find a Location
-    <input class="location-search" name="location_query" value="{{ query or '' }}" autocomplete="off" placeholder="Address, parcel, street, municipality, or saved map area">
+    <input class="location-search" name="location_query" value="{{ query or '' }}" autocomplete="off" placeholder="Address, county, city/town, parcel, street, or saved map area">
     <span class="hint">Start typing, then choose a result. A complete address can also be verified directly.</span>
   </label>
   <input type="hidden" name="location_kind" value="{{ kind or 'TYPED_ADDRESS' }}">
@@ -164,6 +164,10 @@
             <span class="hint">Use a short private name you will recognize later.</span>
           </label>
           {{ mode_choices(prefill.setup_mode, 'What about this alert matters?' if prefill.from_alert else 'Choose one') }}
+          <label>Only from this alert source (optional)
+            <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Example: BNN">
+            <span class="hint">For “any BNN alert in Hudson County,” choose BNN here and Hudson County under Location. Leave topic blank.</span>
+          </label>
           <div data-needs-topic {% if prefill.setup_mode == 'LOCATION' %}hidden{% endif %}>
             <label>{{ 'Primary keyword or phrase' if prefill.from_alert else 'Topic or phrase' }}
               <input name="search_term" value="{{ prefill.search_term }}" data-primary-keyword placeholder="Example: water main, PSEG, road closure, or Park Avenue">
@@ -236,10 +240,6 @@
             <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
             <label>Municipality context<input name="municipality" placeholder="Optional"></label>
           </div>
-          <label>Only these alert sources
-            <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Leave blank for every source; separate several with commas" autocomplete="off">
-            <span class="hint">Use exact current source names. The Watch name never populates this filter.</span>
-          </label>
           <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ prefill.alert_category_filter }}" placeholder="Leave blank for every category; separate several with commas" autocomplete="off"></label>
           <span class="hint">Leave both blank to evaluate every alert point inside the saved area. The Watch name never filters alerts.</span>
           <div class="form-grid two-col">
@@ -329,6 +329,9 @@
             <div>
               <div class="field-label">What should we watch for?</div>
               {{ mode_choices(w.setup_mode) }}
+              <label>Only from this alert source (optional)
+                <input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}" placeholder="Example: BNN">
+              </label>
             </div>
             <div data-needs-topic {% if w.setup_mode == 'LOCATION' %}hidden{% endif %}>
               {% if w.keyword_choices %}
@@ -362,7 +365,6 @@
                   <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == w.min_priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label>
                   <label>Municipality context<input name="municipality" value="{{ w.municipality or '' }}"></label>
                 </div>
-                <label>Only these alert sources<input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}" autocomplete="off"></label>
                 <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ (w.alert_category_filter or [])|join(', ') }}" autocomplete="off"></label>
                 <span class="hint">Leave both blank to evaluate every alert point inside the saved area. The Watch name never filters alerts.</span>
                 <div class="form-grid two-col">
@@ -983,7 +985,7 @@
       sourceId.value = item.source_id || '';
       latitude.value = item.latitude || '';
       longitude.value = item.longitude || '';
-      if (distanceField?.classList.contains('distance-field')) distanceField.hidden = item.kind === 'MUNICIPALITY';
+      if (distanceField?.classList.contains('distance-field')) distanceField.hidden = ['MUNICIPALITY', 'COUNTY'].includes(item.kind);
       selected.hidden = false;
       selectedText.textContent = `${item.kind_label || 'Location'}: ${item.label}${item.detail ? ` · ${item.detail}` : ''}`;
       results.replaceChildren();
