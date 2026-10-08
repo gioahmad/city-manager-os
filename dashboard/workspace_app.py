@@ -258,6 +258,9 @@ async def workspace_action(request: Request):
     if not isinstance(data,dict) or not isinstance(data.get('csrf'),str):
         raise HTTPException(400,'Refresh the page and try again')
     owner=_write(request,data['csrf'])
+    if data.get('action') == 'CAPTURE' and data.get('destination') == 'BRAIN':
+        from workspace_modules import require_enabled
+        require_enabled(request, 'brain')
     try:
         result=await run_in_threadpool(action,owner,data,request)
     except (ValueError,TypeError,KeyError,ZoneInfoNotFoundError):

@@ -4,13 +4,16 @@
 <link rel="stylesheet" href="/static/product.css?v=20261003-1">
 <link rel="stylesheet" href="/static/macro_layer.css?v=9a3041fa85ca">
 <script src="/static/appearance.js?v=20261003-1" defer></script>
-<script src="/static/macro_layer.js?v=803508e70e30" defer></script>
+<script src="/static/macro_layer.js?v=20261008-modules1" defer></script>
 <style>
 /* Inactive controls must not be exposed by module grid/layout rules. */
 .bulk-action-toolbar [hidden], .alert-global-search [hidden] { display: none !important; }
 </style>
 
 {% set p = request.url.path %}
+{% set disabled_modules = request.state.disabled_modules if request.state is defined and request.state.disabled_modules is defined else [] %}
+{% set disabled_tool_paths = request.state.disabled_tool_paths if request.state is defined and request.state.disabled_tool_paths is defined else [] %}
+<script id="cmos-disabled-tool-paths" type="application/json">{{ disabled_tool_paths|tojson }}</script>
 <aside class="cmos-rail" id="cmos-primary-navigation" aria-label="Primary navigation">
   <div class="cmos-rail-brand">
     <a href="/" class="cmos-rail-home"><span class="cmos-rail-mark">CM</span><span><strong>City Manager OS</strong><small>Weehawken · Executive Workspace</small></span></a>
@@ -38,8 +41,12 @@
       <a href="/issues" class="{% if p.startswith('/issues') %}active{% endif %}"><span>✓</span>Command Center</a>
       <a href="/inbox" class="{% if p.startswith('/inbox') %}active{% endif %}"><span>↳</span>Quick Capture Inbox</a>
       <a href="/library" class="{% if p.startswith('/library') %}active{% endif %}"><span>▤</span>Library</a>
+{% if 'brain' not in disabled_modules %}
       <a href="/brain" class="{% if p.startswith('/brain') %}active{% endif %}"><span>◉</span>Brain</a>
+{% endif %}
+{% if 'events' not in disabled_modules %}
       <a href="/schedule" class="{% if p.startswith('/schedule') %}active{% endif %}"><span>◇</span>Events</a>
+{% endif %}
     </nav>
   </div>
 
@@ -47,10 +54,16 @@
     <div class="cmos-rail-label">INTELLIGENCE</div>
     <nav class="cmos-rail-nav">
       <a href="/alerts" class="{% if p.startswith('/alerts') %}active{% endif %}"><span>!</span>Alerts</a>
+{% if 'mapping' not in disabled_modules %}
       <a href="/map" class="{% if p.startswith('/map') or p.startswith('/flood') %}active{% endif %}"><span>⌖</span>Mapping</a>
+{% endif %}
       <a href="/watchlist" class="{% if p.startswith('/watchlist') %}active{% endif %}"><span>◎</span>Watches</a>
+{% if 'event_intelligence' not in disabled_modules %}
       <a href="/event-intelligence" class="{% if p.startswith('/event-intelligence') %}active{% endif %}"><span>≋</span>Event Intelligence</a>
+{% endif %}
+{% if 'transit' not in disabled_modules %}
       <a href="/transit" class="{% if p.startswith('/transit') %}active{% endif %}"><span>⇄</span>Transit</a>
+{% endif %}
     </nav>
   </div>
 
@@ -59,21 +72,30 @@
     <nav class="cmos-rail-nav compact">
       <a href="/contacts" class="{% if p.startswith('/contacts') %}active{% endif %}">Contacts</a>
       <a href="/subscribers" class="{% if p.startswith('/subscribers') %}active{% endif %}">Recipients</a>
+{% if 'places' not in disabled_modules %}
       <a href="/spatial-reference" class="{% if p.startswith('/spatial-reference') %}active{% endif %}">Places / References</a>
+{% endif %}
     </nav>
   </details>
 
   <details class="cmos-rail-section cmos-rail-group" {% if p.startswith('/staff-admin') or p.startswith('/today-board') or p.startswith('/share') %}open{% endif %}>
     <summary><span>OPERATIONS</span><span>›</span></summary>
     <nav class="cmos-rail-nav compact">
+{% if 'staff' not in disabled_modules %}
       <a href="/staff-admin" class="{% if p.startswith('/staff-admin') %}active{% endif %}">Staff</a>
+{% endif %}
+{% if 'today_board' not in disabled_modules %}
       <a href="/today-board/setup">Today Board Setup</a>
+{% endif %}
+{% if 'today_board' not in disabled_modules %}
       <a href="/today-board" class="{% if p.startswith('/today-board') %}active{% endif %}">Today Board</a>
+{% endif %}
       <a href="/share" class="{% if p.startswith('/share') %}active{% endif %}">Share / SMS</a>
+      {% if 'routines' not in disabled_modules %}<a href="/operations-routines" class="{% if p.startswith('/operations-routines') %}active{% endif %}">Routines</a>{% endif %}
     </nav>
   </details>
 
-  <details class="cmos-rail-section cmos-rail-group cmos-system-group" {% if p.startswith('/integrations') or p.startswith('/source-health') or p.startswith('/deliveries') or p.startswith('/database') or p.startswith('/api-lab') or p.startswith('/admin-tools') or p.startswith('/search') or p.startswith('/what-changed') or p.startswith('/workspace') %}open{% endif %}>
+  <details class="cmos-rail-section cmos-rail-group cmos-system-group" {% if p.startswith('/integrations') or p.startswith('/source-health') or p.startswith('/deliveries') or p.startswith('/database') or p.startswith('/api-lab') or p.startswith('/admin-tools') or p.startswith('/modules') or p.startswith('/search') or p.startswith('/what-changed') or p.startswith('/workspace') %}open{% endif %}>
     <summary><span>SYSTEM</span><span>›</span></summary>
     <nav class="cmos-rail-nav compact">
       <a href="/search" class="{% if p.startswith('/search') %}active{% endif %}">Search Everything</a>
@@ -84,6 +106,7 @@
       <a href="/database" class="{% if p.startswith('/database') %}active{% endif %}">Database Viewer</a>
       <a href="/api-lab" class="{% if p.startswith('/api-lab') %}active{% endif %}">API Lab</a>
       <a href="/admin-tools" class="{% if p.startswith('/admin-tools') %}active{% endif %}">Admin Tools</a>
+      <a href="/modules" class="{% if p.startswith('/modules') %}active{% endif %}">Modules</a>
       <a href="/workspace/display" target="_blank" rel="noopener">Area Display</a>
       <a href="https://ops.nhnj.us/staff" target="_blank" rel="noopener">Employee Portal</a>
       <a href="/workspace?view=today" class="{% if p.startswith('/workspace') %}active{% endif %}">Workspace</a>
@@ -114,3 +137,4 @@
 {% include "quick_capture_global.html" %}
 {% endif %}
 {% include "share_dialog.html" %}
+

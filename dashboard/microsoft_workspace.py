@@ -388,6 +388,9 @@ def capture(owner: str, data: dict) -> dict:
 @app.post('/workspace/api/microsoft/capture')
 async def capture_page(request: Request):
     owner, data = await values(request)
+    if data.get('destination') in {'BRAIN', 'EVENT'}:
+        from workspace_modules import require_enabled
+        require_enabled(request, 'brain' if data['destination'] == 'BRAIN' else 'events')
     return hub.reply(await run_in_threadpool(capture, owner, data))
 
 

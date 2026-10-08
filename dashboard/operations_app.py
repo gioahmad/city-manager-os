@@ -2764,13 +2764,11 @@ def subscriber_watches_update(
     )
 
 
-@app.get("/modules")
 @app.get("/rules")
 @app.get("/routing")
 @app.get("/alert-admin")
 def legacy_control_center_redirect(request: Request):
     target = {
-        "/modules": "/admin-tools",
         "/rules": "/watchlist",
         "/routing": "/subscribers",
         "/alert-admin": "/watchlist",

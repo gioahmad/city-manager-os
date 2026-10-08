@@ -260,6 +260,9 @@ async def hub_action(request:Request):
     except (ValueError,TypeError):raise HTTPException(400,'Invalid request')
     if not isinstance(values,dict):raise HTTPException(400,'Invalid request')
     _write(request,str(values.get('csrf','')))
+    if values.get('action') in {'BRAIN', 'EVENT'}:
+        from workspace_modules import require_enabled
+        require_enabled(request, 'brain' if values['action'] == 'BRAIN' else 'events')
     return reply(await run_in_threadpool(action,owner,values))
 
 

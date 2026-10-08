@@ -93,6 +93,10 @@ jobs:
         env:
           CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
         run: python ci/check_watch_activity.py
+      - name: Workspace module switches through real settings and both browsers
+        env:
+          CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
+        run: python ci/check_workspace_modules.py
       - name: Existing browser regression
         run: python ci/check_release_browser.py
       - name: Existing authenticated navigation
@@ -115,12 +119,12 @@ jobs:
         run: |
           docker run --rm -i --entrypoint python -e DB_PASSWORD=ci-test-only cmos-release-check - <<'PY'
           from phase3_app import app
-          required={'/','/my-day','/what-changed','/issues','/inbox','/intake','/workspace','/map','/alerts','/watchlist','/watch-preview','/subscribers','/schedule','/event-intelligence','/transit','/spatial-reference','/source-health','/deliveries','/staff-admin','/operations-routines','/context/{item_kind}/{item_id}','/records/{record_id}','/email','/calendar','/important'}
+          required={'/','/my-day','/what-changed','/issues','/inbox','/intake','/workspace','/map','/alerts','/watchlist','/watch-preview','/subscribers','/schedule','/event-intelligence','/transit','/spatial-reference','/source-health','/deliveries','/staff-admin','/operations-routines','/context/{item_kind}/{item_id}','/records/{record_id}','/email','/calendar','/important','/modules'}
           paths=[r.path for r in app.routes if 'GET' in (getattr(r,'methods',set()) or set())]
           assert not required-set(paths),required-set(paths)
-          for path in ('/','/my-day','/issues','/intake','/workspace','/map','/alerts','/watchlist','/watch-preview','/schedule','/email','/calendar','/important'):
+          for path in ('/','/my-day','/issues','/intake','/workspace','/map','/alerts','/watchlist','/watch-preview','/schedule','/email','/calendar','/important','/modules'):
               assert paths.count(path)==1,(path,paths.count(path))
-          print('ROUTE CONTRACT: PASS — 25 required routes, no duplicate core handlers')
+          print('ROUTE CONTRACT: PASS —', len(required), 'required routes, no duplicate core handlers')
           PY
       - name: Save test evidence
         if: always()
@@ -130,4 +134,3 @@ jobs:
           path: browser-check-results
           retention-days: 7
           if-no-files-found: ignore
-

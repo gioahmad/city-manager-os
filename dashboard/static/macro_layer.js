@@ -39,9 +39,15 @@
     ['⇢','Notification History','Delivery audit and routing results','/deliveries'],
     ['▦','Database Viewer','Operational database inspection','/database'],
     ['⚙','Admin Tools','System controls and maintenance','/admin-tools'],
+    ['⚙','Modules','Turn workspace tools on or off','/modules'],
     ['⌕','Search','Search operational records','/search']
   ];
 
+  const disabledToolPaths=JSON.parse(document.getElementById('cmos-disabled-tool-paths')?.textContent||'[]');
+  const toolAvailable=url=>{
+    const path=new URL(url,location.href).pathname;
+    return !disabledToolPaths.some(prefix=>path===prefix||path.startsWith(prefix+'/'));
+  };
   const recentKey='cmos.macro.recent.v1';
   const readRecent=()=>{try{return JSON.parse(localStorage.getItem(recentKey)||'[]')}catch{return[]}};
   const remember=(url,title)=>{
@@ -65,9 +71,9 @@
 
   function filtered(){
     const q=input.value.trim().toLowerCase();
-    const actions=quickActions.map(x=>({icon:x[0],title:x[1],detail:x[2],url:x[3],recent:false,action:true}));
-    const base=commands.map(x=>({icon:x[0],title:x[1],detail:x[2],url:x[3],recent:false,action:false}));
-    const recent=readRecent().map(x=>({icon:'↺',title:x.title,detail:'Recently opened',url:x.url,recent:true}));
+    const actions=quickActions.filter(x=>toolAvailable(x[3])).map(x=>({icon:x[0],title:x[1],detail:x[2],url:x[3],recent:false,action:true}));
+    const base=commands.filter(x=>toolAvailable(x[3])).map(x=>({icon:x[0],title:x[1],detail:x[2],url:x[3],recent:false,action:false}));
+    const recent=readRecent().filter(x=>toolAvailable(x.url)).map(x=>({icon:'↺',title:x.title,detail:'Recently opened',url:x.url,recent:true}));
     const pool=[...actions,...base,...recent];
     const all=q?pool.filter(x=>(x.title+' '+x.detail).toLowerCase().includes(q)):[...actions,...recent.slice(0,3),...base];
     return all.filter((x,i,a)=>a.findIndex(y=>y.url===x.url)===i).slice(0,28);
@@ -110,7 +116,7 @@
       const term=q.slice(6).trim();
       return {url:'/watchlist?'+new URLSearchParams({setup_mode:'TOPIC',search_term:term,display_name:term}),title:'New Watch'};
     }
-    if(customHours||/\b(map|show|near|around)\b/.test(lower)){
+    if(toolAvailable('/map')&&(customHours||/\b(map|show|near|around)\b/.test(lower))){
       const term=stripTime(q);
       const params=new URLSearchParams({map_view:'1',tab:'layers'});
       if(term)params.set('area_q',term);
@@ -359,3 +365,4 @@
     },80);
   }
 })();
+
