@@ -377,6 +377,10 @@
           {% if w.last_match_at %}<span>Last match {{ w.last_match_at.strftime('%m/%d %I:%M %p') }}</span>{% endif %}
         </div>
 
+        <div class="meta watch-rule-summary" data-watch-recipients>
+          <strong>Recipients:</strong> {{ (w.recipient_names or [])|join(', ') if w.recipient_names else 'No active recipients' }}
+        </div>
+
         <details class="watch-card-more">
           <summary>Details</summary>
           <div class="watch-state-explanation"><strong>Watch:</strong> {{ w.lifecycle_reason }}<br><strong>Notification:</strong> {{ w.delivery_reason }}</div>
@@ -385,7 +389,6 @@
             {% if not source_rule and w.setup_mode != 'LOCATION' %}<span><strong>Words or phrases:</strong> {{ ([w.search_term] + (w.aliases or []))|join(' · ') }}</span>{% endif %}
             {% if w.last_match_at %}<span><strong>Latest Match:</strong> {{ w.last_match_at.strftime('%m/%d/%Y %I:%M %p') }}{% if w.last_match_title %} · {{ w.last_match_title }}{% endif %}</span>{% else %}<span><strong>Latest Match:</strong> none yet</span>{% endif %}
             {% if w.last_delivery_at %}<span><strong>Latest Notification:</strong> {{ w.last_delivery_status|title }} · {{ w.last_delivery_at.strftime('%m/%d/%Y %I:%M %p') }}</span>{% else %}<span><strong>Latest Notification:</strong> none yet</span>{% endif %}
-            <span><strong>Recipients:</strong> {{ (w.recipient_names or [])|join(', ') if w.recipient_names else 'None selected' }}</span>
           </div>
         </details>
 
