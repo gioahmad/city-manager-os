@@ -211,7 +211,12 @@ def _same_origin_ok(request: Request) -> bool:
     if not configured:
         return True
     origin = request.headers.get("origin", "").strip().rstrip("/")
-    return not origin or hmac.compare_digest(origin, configured)
+    # The private address may differ from the canonical HTTPS callback address.
+    request_origin = f"{request.url.scheme}://{request.url.netloc}"
+    return not origin or any(
+        hmac.compare_digest(origin, allowed)
+        for allowed in (configured, request_origin)
+    )
 
 
 def _role_allows(account: Account, request: Request) -> bool:

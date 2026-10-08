@@ -346,7 +346,8 @@ with socket.socket() as sock:
     sock.bind(('127.0.0.1',0))
     port = sock.getsockname()[1]
 base = 'http://127.0.0.1:'+str(port)
-os.environ['CMOS_PUBLIC_ORIGIN'] = base
+# Keep the canonical HTTPS origin while the browser uses the direct HTTP address.
+assert os.environ['CMOS_PUBLIC_ORIGIN'] == 'https://fixture.example.com'
 server = uvicorn.Server(uvicorn.Config(application,host='127.0.0.1',port=port,log_level='error'))
 thread = threading.Thread(target=server.run,daemon=True)
 thread.start()
@@ -393,7 +394,14 @@ try:
             form.get_by_text('More options',exact=True).click()
             source_name = engine+' source picker '+str(uuid4())
             form.locator('[name="display_name"]').fill(source_name)
-            form.get_by_role('button',name='Save Paused',exact=True).click()
+            with page.expect_response(lambda response: response.request.method=='POST'
+                                      and response.url==base+'/watchlist/create') as native_submit:
+                form.get_by_role('button',name='Save Paused',exact=True).click()
+            response = native_submit.value
+            assert response.status==303, (response.status,response.text())
+            native_headers = response.request.all_headers()
+            assert native_headers.get('origin')==base, native_headers.get('origin')
+            assert native_headers.get('host')==urlsplit(base).netloc, native_headers.get('host')
             page.wait_for_url('**/watchlist?msg=*')
             selected = sql('SELECT * FROM watch_items WHERE display_name=%s',(source_name,))[0]
             assert set(selected['source_filter'])=={'BNN','OPERATIONS'} and selected['watch_type']=='SOURCE'
@@ -406,7 +414,14 @@ try:
             assert picker.locator('[data-source-choice][value="OPERATIONS"]').is_checked()
             picker.locator('[data-source-choice][value="BNN"]').uncheck()
             assert edit.locator('[name="source_filter"]').input_value()=='OPERATIONS'
-            edit.get_by_role('button',name='Save Changes',exact=True).click()
+            with page.expect_response(lambda response: response.request.method=='POST'
+                                      and response.url==base+'/watchlist/'+str(selected['id'])+'/update') as native_submit:
+                edit.get_by_role('button',name='Save Changes',exact=True).click()
+            response = native_submit.value
+            assert response.status==303, (response.status,response.text())
+            native_headers = response.request.all_headers()
+            assert native_headers.get('origin')==base, native_headers.get('origin')
+            assert native_headers.get('host')==urlsplit(base).netloc, native_headers.get('host')
             page.wait_for_url('**/watchlist?msg=*')
             assert sql('SELECT source_filter FROM watch_items WHERE id=%s',(selected['id'],))[0]['source_filter']==['OPERATIONS']
             page.goto(base+'/watchlist?focus='+str(selected['id']))
@@ -425,7 +440,7 @@ try:
             page.wait_for_url('**/watchlist?msg=*')
             selected = sql('SELECT * FROM watch_items WHERE id=%s',(selected['id'],))[0]
             assert selected['source_filter']==[] and selected['search_term']=='mayday' and not selected['active']
-            print('SOURCE PICKER BROWSER PASS:',engine,'unknown prefill preserved; two sources saved/reopened; one removed; All sources clears restrictions')
+            print('SOURCE PICKER BROWSER PASS:',engine,'native direct HTTP Origin/Host and 303 with separate canonical HTTPS origin; unknown prefill preserved; two sources saved/reopened; one removed; All sources clears restrictions')
             page.goto(base+'/watchlist?from_record=EVENT_INTELLIGENCE&record_id='+str(event_id))
             form = page.locator('form[action="/watchlist/create"]')
             assert form.is_visible()
