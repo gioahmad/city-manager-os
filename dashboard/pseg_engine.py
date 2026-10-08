@@ -605,11 +605,15 @@ def _standard_alert(
     priority: int, county: str | None, municipality: str | None,
     location: Mapping[str, Any], metadata: Mapping[str, Any], observed_at: datetime | None,
     route_pending: bool, tags: Iterable[str] | None = None,
+    content_sections: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     mapping_center_url = _mapping_center_url()
+    sections = list(content_sections or [{"key": "core", "text": message}])
     if mapping_center_url:
-        message = f"{message}\nMapping Center: {mapping_center_url}"
+        mapping_text = f"\nMapping Center: {mapping_center_url}"
+        message += mapping_text
+        sections.append({"key": "mapping_link", "text": mapping_text})
     payload = {
         "schema_version": "1.0",
         "alert_id": alert_id,
@@ -634,6 +638,7 @@ def _standard_alert(
         "expires_at": None,
         "metadata": {
             **dict(metadata),
+            "content_sections": sections,
             "location_approximate": True,
             "location_not_customer_specific": True,
             "mapping_center_path": "/map",
@@ -662,6 +667,7 @@ def build_hudson_alert(
     previous_out = int(previous.get("customers_out") or 0)
     municipality = str(record["municipality"])
     display = _display_town(municipality)
+    sections = []
     if current_out <= 0:
         action, status, priority = "RESOLVED", "RESOLVED", 4
         title = f"PSEG - {display} - Power Restored"
@@ -680,14 +686,18 @@ def build_hudson_alert(
         message = f"{current_out:,}"
         if served:
             message += f" of {int(served):,}"
-        message += f" customers out in {display}.\nETR {_display_time(record.get('etr'))}."
-        message += f"\nStarted {_display_time(record.get('started_at'))}."
+        message += f" customers out in {display}."
+        sections = [
+            {"key": "core", "text": message},
+            {"key": "pseg_etr", "text": f"\nETR {_display_time(record.get('etr'))}."},
+            {"key": "pseg_started", "text": f"\nStarted {_display_time(record.get('started_at'))}."},
+        ]
         operations = []
         for label, key in (("Jobs", "outage_count"), ("Working", "jobs_working"), ("Circuits", "circuits")):
             if record.get(key) is not None:
                 operations.append(f"{label} {int(record[key]):,}")
         if operations:
-            message += "\n" + " | ".join(operations)
+            sections.append({"key": "pseg_operations", "text": "\n" + " | ".join(operations)})
         damage = []
         for label, key in (
             ("Pending", "pending_damage"), ("Pole", "confirmed_poles"),
@@ -696,17 +706,19 @@ def build_hudson_alert(
             if int(record.get(key) or 0) > 0:
                 damage.append(f"{label} {int(record[key]):,}")
         if damage:
-            message += "\nDamage: " + " | ".join(damage)
+            sections.append({"key": "pseg_damage", "text": "\nDamage: " + " | ".join(damage)})
         if previous_out != current_out:
             delta = current_out - previous_out
-            message += f"\nChange {delta:+,} since the previous check."
+            sections.append({"key": "pseg_change", "text": f"\nChange {delta:+,} since the previous check."})
         areas = context.get("areas") or []
         labels = list(dict.fromkeys(str(item.get("label")) for item in areas if item.get("label")))
         if labels:
-            message += "\nApproximate outage area: " + "; ".join(labels[:3]) + "."
-            message += " Provider map areas are not customer addresses."
+            area_text = "\nApproximate outage area: " + "; ".join(labels[:3]) + "."
+            area_text += " Provider map areas are not customer addresses."
         else:
-            message += f"\nApproximate location: {context.get('label', display)}; not customer-specific."
+            area_text = f"\nApproximate location: {context.get('label', display)}; not customer-specific."
+        sections.append({"key": "pseg_area", "text": area_text})
+        message = "".join(section["text"] for section in sections)
         if action == "NEW" or current_out > previous_out:
             tags = ["warning", "zap"]
         elif current_out < previous_out:
@@ -758,6 +770,7 @@ def build_hudson_alert(
         observed_at=(previous.get("started_at") if status == "RESOLVED" else record.get("started_at")) or now,
         route_pending=True,
         tags=tags,
+        content_sections=sections,
     )
 
 
@@ -784,8 +797,11 @@ def build_statewide_alert(
         lines.append("\nRESTORED")
         lines.extend(f"• {row['county']} - {_display_town(str(row['municipality']))}" for row in restored[:20])
     reasons = sorted({reason.replace("_", " ").title() for _, reason in changes})
-    lines.append("\nReason: " + ", ".join(reasons or ["Scheduled reminder"]) + ".")
-    lines.append("Locations are approximate municipality areas, never customer-specific.")
+    sections = [
+        {"key": "core", "text": "\n".join(lines)},
+        {"key": "pseg_change", "text": "\n\nReason: " + ", ".join(reasons or ["Scheduled reminder"]) + "."},
+        {"key": "pseg_area", "text": "\nLocations are approximate municipality areas, never customer-specific."},
+    ]
     only_restored = not rows and bool(restored)
     threshold_crossing = any(reason == "THRESHOLD_CROSSING" for _, reason in changes)
     action = "RESOLVED" if only_restored else "NEW" if threshold_crossing else "UPDATE"
@@ -794,7 +810,7 @@ def build_statewide_alert(
     return _standard_alert(
         alert_id=f"PSEG:STATEWIDE:{now.strftime('%Y%m%dT%H%M')}:{fingerprint}",
         title=title,
-        message="\n".join(lines),
+        message="".join(section["text"] for section in sections),
         event_action=action,
         status="RESOLVED" if only_restored else "ACTIVE",
         priority=4 if only_restored else 5,
@@ -819,6 +835,7 @@ def build_statewide_alert(
         observed_at=now,
         route_pending=True,
         tags=["white_check_mark", "zap"] if only_restored else ["warning", "zap"],
+        content_sections=sections,
     )
 
 
@@ -832,15 +849,17 @@ def build_map_alert(
     status = "ACTIVE" if active else "RESOLVED"
     action = "NEW" if active and not (previous or {}).get("eligible") else "UPDATE" if active else "RESOLVED"
     title = f"PSEG - {_display_town(municipality)} - {count:,} Out" if active else f"PSEG - {_display_town(municipality)} - Below Alert Threshold"
-    message = (
-        f"{count:,} customers out. Approximate municipality outage area; not customer-specific."
-        if active else
-        f"This municipality no longer meets the configured statewide threshold. Provider currently reports {count:,} out."
-    )
+    sections = [
+        {"key": "core", "text": f"{count:,} customers out."},
+        {"key": "pseg_area", "text": " Approximate municipality outage area; not customer-specific."},
+    ] if active else [{
+        "key": "core",
+        "text": f"This municipality no longer meets the configured statewide threshold. Provider currently reports {count:,} out.",
+    }]
     return _standard_alert(
         alert_id=f"PSEG:MAP:{_slug(county)}:{_slug(municipality)}:{cycle_token}",
         title=title,
-        message=message,
+        message="".join(section["text"] for section in sections),
         event_action=action,
         status=status,
         priority=3,
@@ -859,6 +878,7 @@ def build_map_alert(
         },
         observed_at=record.get("updated_at") or now,
         route_pending=False,
+        content_sections=sections,
     )
 
 
@@ -1079,7 +1099,7 @@ def process_snapshot(
                 UPDATE alerts
                 SET status='RESOLVED',event_action='RESOLVED',
                     message='Statewide PSEG mapping is disabled in Integrations Center.',
-                    metadata=jsonb_set(metadata,'{_cmos,route_pending}','false'::jsonb,true),
+                    metadata=jsonb_set(metadata-'content_sections','{_cmos,route_pending}','false'::jsonb,true),
                     updated_at=now()
                 WHERE source='PSEG' AND metadata->>'scope'='STATEWIDE_MAP_CONTEXT'
                   AND status<>'RESOLVED'

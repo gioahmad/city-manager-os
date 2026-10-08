@@ -35,8 +35,9 @@ with core.db_conn() as c:
     c.commit()
 import spatial_watch_app as spatial
 import map_app
+import operations_app
 for route in core.app.routes:
-    if getattr(route, 'path', '') in {'/watchlist','/watch-preview','/map','/api/watch-lab/evaluate'} or getattr(route, 'path', '').startswith('/watchlist/'):
+    if getattr(route, 'path', '') in {'/watchlist','/watch-preview','/map','/api/watch-lab/evaluate','/alerts','/alerts/appearance'} or getattr(route, 'path', '').startswith('/watchlist/'):
         application.router.routes.append(route)
 client = TestClient(application, base_url='https://fixture.example.com')
 client.cookies.set(auth.COOKIE_NAME, cookie)
@@ -208,32 +209,106 @@ script="const d=JSON.parse(require('fs').readFileSync(0,'utf8'));const m=require
 subprocess.run(['node','-e',script,str(ROOT/'dashboard/static/watch_matcher.js')],input=json.dumps(small),text=True,check=True)
 print('MULTIPLE SOURCES PASS: source-only Watch accepts each selected source and rejects other sources')
 
-# The central sender reads one dynamic global setting and preserves all audit data.
+# Per-source appearance changes presentation while the actual matcher keeps its rules/evidence.
+from alert_appearance import APPEARANCE_DEFAULTS
+from pseg_engine import build_hudson_alert
 sender = {n['name']:n for n in json.loads((ROOT/'workflows/core/CORE_ntfy_Sender_v1.json').read_text())['nodes']}
 original_settings = sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']
-for show in (False,True):
-    response = client.post('/watchlist/notification-settings',data={'explanations':'on'} if show else {},headers=headers,follow_redirects=False)
-    assert response.status_code==303
+def appearance_form(source, dashboard, notification):
+    return {'source':source, **{channel+'.'+key:str(value).lower()
+        for channel,options in [('dashboard',dashboard),('notification',notification)]
+        for key,value in options.items()}}
+all_off = dict.fromkeys(APPEARANCE_DEFAULTS,False)
+all_on = dict.fromkeys(APPEARANCE_DEFAULTS,True)
+bnn_options = {**APPEARANCE_DEFAULTS,'mapping_link':True}
+post('/alerts/appearance',appearance_form('BNN',bnn_options,bnn_options))
+bnn_saved = sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']['alert_appearance']['BNN']
+appearance_payloads = []
+appearance_matches = []
+appearance_ids = []
+def appearance_match(payload):
+    normalized = js(matcher['Normalize Alert']['parameters']['jsCode'],payload,[])
+    rows = sql(matcher['Load Active Watchlist + Recipients']['parameters']['query'],(Jsonb(normalized),))
+    return js(matcher['Match + Resolve Recipients']['parameters']['jsCode'],normalized,rows)
+for structured in (False,True):
+    payload = build_hudson_alert(
+        {'municipality':'WEEHAWKEN','customers_out':700,'customers_served':2000,
+         'outage_count':3,'jobs_working':2,'circuits':1,'confirmed_poles':1},
+        {'customers_out':600},
+        {'label':'Weehawken','latitude':40.77,'longitude':-74.02,
+         'areas':[{'label':'working fire area'}]},str(uuid4()),datetime.now(timezone.utc))
+    if not structured:
+        payload['metadata'] = {}
+    ident = sql('''INSERT INTO alerts(alert_id,source,category,subtype,status,event_action,title,message,
+        priority,county,municipality,click_url,search_text,location,metadata,raw_payload,geom)
+        VALUES(%s,'PSEG','UTILITY','POWER_OUTAGE','ACTIVE','UPDATE',%s,%s,4,'Hudson','Weehawken',
+        %s,%s,%s,%s,%s,ST_GeomFromEWKT(%s)) RETURNING id''',
+        (payload['alert_id'],payload['title'],payload['message'],payload['click_url'],payload['search_text'],
+         Jsonb(payload['location']),Jsonb(payload['metadata']),Jsonb(payload),inside))[0]['id']
+    result = appearance_match(payload)
+    assert term_watch['watch_id'] in result['matched_watch_ids'],result
+    sql(matcher['Persist Watch Matches']['parameters']['query'],(Jsonb(result),))
+    delivery = next(p for p in result['delivery_payloads'] if term_watch['watch_id'] in p['matched_watch_ids'])
+    assert 'source' not in delivery and 'metadata' not in delivery, delivery
+    appearance_payloads.append(payload)
+    appearance_matches.append(result)
+    appearance_ids.append(ident)
+appearance_raw = sql('SELECT id,message,search_text,metadata,raw_payload FROM alerts WHERE id=ANY(%s) ORDER BY id',(appearance_ids,))
+def appearance_counts():
+    return sql('''SELECT (SELECT count(*) FROM watch_items) AS watches,
+        (SELECT count(*) FROM alert_watch_matches) AS matches,
+        (SELECT count(*) FROM deliveries) AS deliveries''')[0]
+appearance_before = appearance_counts()
+sender_code = sender['Prepare ntfy Requests']['parameters']['jsCode']
+sender_script = "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(new Function('$input',d.code)({first:()=>({json:d.input})})));"
+for dashboard_on in (False,True):
+    dashboard_options,notification_options = (all_on,all_off) if dashboard_on else (all_off,all_on)
+    post('/alerts/appearance',appearance_form('PSEG',dashboard_options,notification_options))
     settings = sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']
-    assert settings=={**original_settings,'notification_explanations':show}
-    bundle={'delivery_payloads':[{'ntfy_topic':'ci-only-'+source,'subscriber_id':source,'source':source,
-        'message':'Original body','match_reasons':['CONTAINS search_text matched search_term "working fire"']}
-        for source in ('BNN','OTHER')]}
+    assert settings['alert_appearance']['PSEG']=={'dashboard':dashboard_options,'notification':notification_options}
+    assert settings['alert_appearance']['BNN']==bnn_saved
+    assert {k:v for k,v in settings.items() if k!='alert_appearance'}=={k:v for k,v in original_settings.items() if k!='alert_appearance'}
+    bundle = {'delivery_payloads':[
+        next(p for p in result['delivery_payloads'] if term_watch['watch_id'] in p['matched_watch_ids'])
+        for result in appearance_matches] + [{'source':'BNN','ntfy_topic':'ci-only-bnn',
+        'message':'Original BNN body\nMapping Center: https://fixture.example.com/map'}]}
     loaded=sql(sender['Load Notification Options']['parameters']['query'],(Jsonb(bundle),))[0]
-    code=sender['Prepare ntfy Requests']['parameters']['jsCode']
-    script="const d=JSON.parse(require('fs').readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(new Function('$input',d.code)({first:()=>({json:d.input})})));"
-    output=json.loads(subprocess.run(['node','-e',script],input=json.dumps({'code':code,'input':loaded}),text=True,capture_output=True,check=True).stdout)
-    assert len(output)==2
-    for item in output:
-        assert ('Why you received this:' in item['json']['ntfy_body']['message']) is show
-        assert item['json']['match_reasons']==bundle['delivery_payloads'][0]['match_reasons']
-        if not show:assert item['json']['ntfy_body']['message']=='Original body'
+    for index,payload in enumerate(appearance_payloads):
+        enriched = loaded['sender_input']['delivery_payloads'][index]
+        assert enriched['source']=='PSEG' and enriched['metadata']==payload['metadata']
+    output=json.loads(subprocess.run(['node','-e',sender_script],input=json.dumps({'code':sender_code,'input':loaded}),text=True,capture_output=True,check=True).stdout)
+    assert len(output)==3
+    for index,item in enumerate(output[:2]):
+        rendered = item['json']['ntfy_body']
+        for optional in ('ETR ','Started ','Jobs 3','Damage: Pole 1','Change +100',
+                         'Approximate outage area:','Mapping Center:','Why you received this:',
+                         'Matched Watches:','Matched keywords:'):
+            assert (optional in rendered['message']) is (not dashboard_on),(optional,rendered)
+        assert bool(rendered.get('click')) is (not dashboard_on),rendered
+        assert item['json']['message']==appearance_payloads[index]['message']
+        assert item['json']['match_reasons']==bundle['delivery_payloads'][index]['match_reasons']
+        assert item['json']['matched_watch_ids']==bundle['delivery_payloads'][index]['matched_watch_ids']
+        if dashboard_on:
+            assert rendered['message']=='700 of 2,000 customers out in Weehawken.'
+        assert appearance_match(appearance_payloads[index])==appearance_matches[index]
+    assert output[2]['json']['ntfy_body']['message']==bundle['delivery_payloads'][2]['message']
 os.environ.update(CMOS_READONLY_USERNAME='ReadOnly',CMOS_READONLY_PASSWORD_HASH='unused-test-hash')
 readonly = auth._issue_session(auth.Account('ReadOnly','READ_ONLY',''))
-denied = client.post('/watchlist/notification-settings',data={'explanations':'off'},headers={**headers,'Cookie':auth.COOKIE_NAME+'='+readonly},follow_redirects=False)
-assert denied.status_code==403,(denied.status_code,denied.text)
-assert sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']['notification_explanations'] is True
-print('GLOBAL NOTIFICATION OPTIONS PASS: real settings + central sender; all sources/recipients on/off, original body and evidence retained, read-only denied, no send')
+appearance_saved = sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']
+for data,request_headers,code in [
+    ({'source':'PSEG'}, {**headers,'Cookie':auth.COOKIE_NAME+'='+readonly},403),
+    ({'source':'PSEG'}, {'Origin':'https://unrelated.example.com'},403),
+    ({'source':'NOT_A_REAL_SOURCE'}, headers,400),
+    ({'source':'PSEG','dashboard.unknown':'true'}, headers,400),
+    ({'source':'PSEG','notification.mapping_link':'not-a-boolean'}, headers,400),
+    ({'source':['PSEG','BNN']}, headers,400),
+]:
+    denied = client.post('/alerts/appearance',data=data,headers=request_headers,follow_redirects=False)
+    assert denied.status_code==code,(denied.status_code,denied.text)
+    assert sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']==appearance_saved
+assert appearance_counts()==appearance_before
+assert sql('SELECT id,message,search_text,metadata,raw_payload FROM alerts WHERE id=ANY(%s) ORDER BY id',(appearance_ids,))==appearance_raw
+print('ALERT APPEARANCE API/SENDER PASS: real source/channel config, legacy and sectioned PSEG enriched by alert_id, actual matcher and keyword evidence retained, BNN isolated, invalid/origin/read-only saves rejected before writes; no send')
 
 # A historical preview uses saved rules or a point directly, independently of prior Matches.
 history_tag = str(uuid4())
@@ -644,17 +719,75 @@ try:
             assert modified['source_filter']==[] and modified['search_term']=='mayday'
             assert modified['aliases']==[r'tier \d'] and modified['match_mode']=='CONTAINS' and not modified['active']
             page.locator('#notification-options summary').click()
-            options = page.locator('form[action="/watchlist/notification-settings"]')
-            options.locator('[name="explanations"]').uncheck()
-            options.get_by_role('button',name='Save notification options',exact=True).click()
-            page.wait_for_url('**/watchlist?msg=*')
-            assert sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']['notification_explanations'] is False
-            page.locator('#notification-options summary').click()
-            options = page.locator('form[action="/watchlist/notification-settings"]')
-            options.locator('[name="explanations"]').check()
-            options.get_by_role('button',name='Save notification options',exact=True).click()
-            page.wait_for_url('**/watchlist?msg=*')
-            assert sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']['notification_explanations'] is True
+            assert page.locator('form[action="/watchlist/notification-settings"]').count()==0
+            page.get_by_role('link',name='Set alert appearance',exact=True).click()
+            page.wait_for_url('**/alerts#alert-appearance')
+            assert page.locator('#alert-appearance').get_attribute('open') is not None
+
+            # Both panels render stored examples; only Save persists source-specific choices.
+            post('/alerts/appearance',appearance_form('PSEG',all_on,all_off))
+            page.goto(base+'/alerts?source=PSEG#alert-appearance')
+            options = page.locator('form[data-alert-appearance]')
+            source_picker = options.locator('[data-appearance-source]')
+            assert source_picker.input_value()=='PSEG'
+            pseg_card = page.locator('[data-alert-id="'+str(appearance_ids[1])+'"]')
+            card_message = pseg_card.locator('[data-alert-content-message]')
+            assert 'Mapping Center:' in card_message.inner_text()
+            assert 'Matched keywords:' in card_message.inner_text()
+            source_picker.select_option('BNN')
+            bnn_checkbox = options.locator('[name="dashboard.mapping_link"]')
+            assert bnn_checkbox.is_checked()
+            bnn_checkbox.uncheck()
+            source_picker.select_option('PSEG')
+            assert options.locator('[name="dashboard.mapping_link"]').is_checked()
+            source_picker.select_option('BNN')
+            assert not bnn_checkbox.is_checked(), 'Changing sources must retain unsaved choices'
+            source_picker.select_option('PSEG')
+            preview_before = history_counts()
+            settings_before_preview = sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']
+            for channel,enabled in [('dashboard',False),('notification',True)]:
+                for checkbox in options.locator('[data-appearance-channel="'+channel+'"]').all():
+                    checkbox.set_checked(enabled)
+                options.locator('[data-appearance-preview="'+channel+'"]').click()
+                preview = options.locator('[data-appearance-message="'+channel+'"]').inner_text()
+                for optional in ('Mapping Center:','ETR ','Damage:','Matched keywords:','Why you received this:'):
+                    assert (optional in preview) is enabled,(channel,optional,preview)
+            assert options.locator('[data-appearance-message="dashboard"]').inner_text()=='700 of 2,000 customers out in Weehawken.'
+            assert history_counts()==preview_before
+            assert sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']==settings_before_preview
+            with page.expect_response(lambda response: response.request.method=='POST'
+                                      and response.url==base+'/alerts/appearance') as saved_response:
+                options.get_by_role('button',name='Save appearance',exact=True).click()
+            assert saved_response.value.status==200,saved_response.value.text()
+            page.wait_for_function("document.querySelector('[data-alert-appearance] [type=submit]').disabled===false")
+            saved_appearance = sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']['alert_appearance']
+            assert saved_appearance['PSEG']=={'dashboard':all_off,'notification':all_on}
+            assert saved_appearance['BNN']==bnn_saved
+            assert card_message.inner_text()=='700 of 2,000 customers out in Weehawken.'
+            assert not pseg_card.locator('[data-alert-source-link]').is_visible()
+            assert history_counts()==preview_before
+            assert term_watch['watch_id'] in appearance_match(appearance_payloads[1])['matched_watch_ids']
+            assert sql('SELECT id,message,search_text,metadata,raw_payload FROM alerts WHERE id=ANY(%s) ORDER BY id',(appearance_ids,))==appearance_raw
+            page.reload()
+            options = page.locator('form[data-alert-appearance]')
+            assert not options.locator('[name="dashboard.mapping_link"]').is_checked()
+            assert options.locator('[name="notification.mapping_link"]').is_checked()
+            assert not options.locator('[name="dashboard.keywords"]').is_checked()
+            assert page.locator('[data-alert-id="'+str(appearance_ids[1])+'"] [data-alert-content-message]').inner_text()=='700 of 2,000 customers out in Weehawken.'
+            options.screenshot(path=str(ARTIFACTS/(engine+'-alert-appearance.png')))
+            fresh = browser.new_context(viewport={'width':390,'height':844})
+            fresh.add_cookies([{'name':auth.COOKIE_NAME,'value':cookie,'url':base}])
+            fresh_page = fresh.new_page()
+            fresh_page.on('pageerror',lambda error: errors.append(str(error)))
+            fresh_page.goto(base+'/alerts?source=PSEG#alert-appearance')
+            fresh_options = fresh_page.locator('form[data-alert-appearance]')
+            assert not fresh_options.locator('[name="dashboard.mapping_link"]').is_checked()
+            assert fresh_options.locator('[name="notification.mapping_link"]').is_checked()
+            assert not fresh_options.locator('[name="dashboard.keywords"]').is_checked()
+            fresh_page.screenshot(path=str(ARTIFACTS/(engine+'-alert-appearance-phone.png')),full_page=True)
+            fresh.close()
+            assert history_counts()==preview_before
+            print('ALERT APPEARANCE BROWSER PASS:',engine,'source drafts retained; opposite dashboard/notification previews; explicit save; BNN isolated; card Mapping Center and keyword display removed; real matching/raw evidence retained; reload and fresh phone context persist; previews make zero writes')
             history_snapshot = history_counts()
             page.goto(base+'/watchlist?focus='+str(watch['id']))
             card=page.locator('.watch-card').filter(has=page.locator('a[href*="watch_item_id='+str(watch['id'])+'"]')).first
@@ -716,7 +849,7 @@ try:
             assert history_counts()==history_snapshot
             print('MAP HISTORY BROWSER PASS:',engine,'click actual map, redraw radius, all-history native GET, older un-matched alerts, re-preview radius, optional Watch draft keeps point/radius, picker works through polygon overlays; no writes')
             assert not errors,errors
-            print('WATCH BROWSER PASS:',engine,'Intel/Map/Alert drafts, all activity, selectable 34 terms, source/location/recipient controls, paused save/edit, global explanation on/off')
+            print('WATCH BROWSER PASS:',engine,'Intel/Map/Alert drafts, all activity, selectable 34 terms, source/location/recipient controls, paused save/edit, per-source alert appearance')
             context.close()
             browser.close()
 finally:

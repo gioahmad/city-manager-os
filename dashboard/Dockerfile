@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 COPY issues_app.py .
 COPY operations_app.py .
+COPY alert_appearance.py .
 COPY schedule_app.py .
 COPY attention_engine.py .
 COPY waiting_actions_app.py .

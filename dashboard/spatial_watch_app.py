@@ -2326,13 +2326,10 @@ def notification_settings(request: Request, explanations: str = Form("off")):
         raise HTTPException(403, "Executive access is required to change notification settings.")
     if explanations not in {"on", "off"}:
         raise HTTPException(400, "Choose whether notification explanations are on or off.")
-    with db_conn() as conn:
-        conn.execute("""INSERT INTO workspace_config(singleton,settings)
-            VALUES(true,jsonb_build_object('notification_explanations',%s::boolean))
-            ON CONFLICT(singleton) DO UPDATE SET settings=workspace_config.settings||EXCLUDED.settings""",
-            (explanations == "on",))
-        conn.commit()
-    return _watch_redirect(message="Notification explanations " + ("on" if explanations == "on" else "off") + " for all sources and recipients")
+    return RedirectResponse(
+        "/alerts?msg=Choose+a+source+and+save+its+alert+appearance#alert-appearance",
+        status_code=303,
+    )
 
 
 @app.post("/watchlist/create")

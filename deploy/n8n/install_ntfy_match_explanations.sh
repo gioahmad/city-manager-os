@@ -132,19 +132,19 @@ nodes={node.get('name'):node for node in workflow.get('nodes') or []}
 prepare=nodes.get('Prepare ntfy Requests') or {}
 code=(prepare.get('parameters') or {}).get('jsCode','')
 required=(
-    'function explainMatch',
+    'CmosAlertContent.render',
     'Why you received this:',
-    'Keyword',
     'Watch center',
-    'payload.match_reasons',
-    'const message = explanations.length',
-    'includeExplanations',
+    'settings.alert_appearance',
+    'mapping_link',
+    'source_link',
+    'keywords',
 )
 if not all(marker in code for marker in required):
     raise SystemExit('plain-language match explanation contract is incomplete')
 options=((nodes.get('Load Notification Options') or {}).get('parameters') or {}).get('query','')
-if 'workspace_config' not in options or 'notification_explanations' not in options:
-    raise SystemExit('global notification settings are not loaded')
+if 'workspace_config' not in options or 'alert_appearance' not in options:
+    raise SystemExit('per-source notification settings are not loaded')
 if 'Publish to ntfy' not in nodes or 'Return Send Results' not in nodes:
     raise SystemExit('central ntfy sender path is incomplete')
 workflow['id']=workflow_id
@@ -161,17 +161,20 @@ workflow=json.load(open(sys.argv[1]))
 nodes={node.get('name'):node for node in workflow.get('nodes') or []}
 code=(nodes['Prepare ntfy Requests'].get('parameters') or {})['jsCode']
 script=f'''const run=new Function('$input',{json.dumps(code)});
-const prepare=(payload,show=true)=>run({{first:()=>({{json:{{sender_input:{{delivery_payloads:[payload]}},include_match_explanations:show}}}})}})[0].json.ntfy_body.message;
-const base={{ntfy_topic:'contract-only',title:'Contract',message:'Original alert',priority:3,tags:[]}};
-const keyword=prepare({{...base,match_reasons:['CONTAINS search_text matched search_term "CONTRACT KEYWORD"']}});
-if(!keyword.includes('Why you received this:')||!keyword.includes('Keyword “CONTRACT KEYWORD” matched this alert'))throw new Error('keyword explanation missing');
+const prepare=(payload,choices={{explanation:true,keywords:true}})=>run({{first:()=>({{json:{{sender_input:{{delivery_payloads:[payload]}},alert_appearance:{{PSEG:{{notification:choices}}}}}}}})}})[0].json.ntfy_body;
+const base={{ntfy_topic:'contract-only',source:'PSEG',title:'Contract',message:'Original alert',priority:3,tags:[]}};
+const keyword=prepare({{...base,match_reasons:['CONTAINS search_text matched search_term "CONTRACT KEYWORD"']}}).message;
+if(!keyword.includes('Why you received this:')||!keyword.includes('Matched keywords: “CONTRACT KEYWORD”'))throw new Error('keyword explanation missing');
 if(keyword.includes('search_text')||keyword.includes('search_term'))throw new Error('technical keyword terms leaked');
-const location=prepare({{...base,match_reasons:['PROXIMITY alert geometry is 125.0 ft from target, inside 5280.0 ft buffer']}});
+const location=prepare({{...base,match_reasons:['PROXIMITY alert geometry is 125.0 ft from target, inside 5280.0 ft buffer']}}).message;
 if(!location.includes('Watch center')||!location.includes('5,280-foot Distance'))throw new Error('Location explanation missing');
 if(location.includes('geometry')||location.includes('buffer'))throw new Error('technical Location terms leaked');
-if(prepare(base)!=='Original alert')throw new Error('message without reasons changed');
-if(prepare({{...base,match_reasons:['Location reason']}},false)!=='Original alert')throw new Error('global explanation off ignored');
-console.log('NTFY_EXPLANATION_CONTRACT keyword=PASS location=PASS unchanged=PASS global_off=PASS notification_sent=NO');
+if(prepare(base).message!=='Original alert')throw new Error('message without reasons changed');
+const optional={{...base,message:'Original alert\\nMapping Center: https://private.example/map',click:'https://outagecenter.pseg.com/',match_reasons:['CONTAINS search_text matched search_term "CONTRACT KEYWORD"']}};
+const clean=prepare(optional,{{source_link:false}});
+if(clean.message!=='Original alert'||clean.click)throw new Error('clean source defaults ignored');
+if(!prepare(optional,{{mapping_link:true}}).message.includes('Mapping Center:'))throw new Error('mapping link checkbox ignored');
+console.log('NTFY_CONTENT_CONTRACT keyword=PASS location=PASS unchanged=PASS source_options=PASS notification_sent=NO');
 '''
 open(sys.argv[2],'w').write(script)
 PY
@@ -197,12 +200,12 @@ if not row or row['name']!='CORE - ntfy Sender v1': raise SystemExit('ntfy sende
 if not row['active'] or not row['activeVersionId']: raise SystemExit('ntfy sender is not active and published')
 nodes={node.get('name'):node for node in json.loads(row['nodes'])}
 code=((nodes.get('Prepare ntfy Requests') or {}).get('parameters') or {}).get('jsCode','')
-required=('function explainMatch','Why you received this:','payload.match_reasons','Watch center','includeExplanations')
+required=('CmosAlertContent.render','Why you received this:','settings.alert_appearance','mapping_link','keywords')
 if not all(marker in code for marker in required): raise SystemExit('published sender explanation contract is incomplete')
 options=((nodes.get('Load Notification Options') or {}).get('parameters') or {}).get('query','')
-if 'workspace_config' not in options or 'notification_explanations' not in options:
-    raise SystemExit('published sender does not load global notification settings')
-print('NTFY_SENDER active=1 published=1 plain_language_reason=YES global_on_off=YES')
+if 'workspace_config' not in options or 'alert_appearance' not in options:
+    raise SystemExit('published sender does not load per-source notification settings')
+print('NTFY_SENDER active=1 published=1 shared_content=YES per_source_on_off=YES')
 con.close()
 PY
 

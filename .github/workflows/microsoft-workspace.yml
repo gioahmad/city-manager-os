@@ -71,6 +71,7 @@ jobs:
           node --check dashboard/static/microsoft_workspace.js
           node --check dashboard/static/outlook_contacts.js
           node ci/check_outlook_request_errors.js
+          node ci/check_alert_content.js
           node --check dashboard/static/workspace_hub.js
           node --check dashboard/static/workspace.js
           node --check dashboard/static/macro_layer.js

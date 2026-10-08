@@ -28,10 +28,22 @@ separate **With matches · 7 days** count shows Watches with actual recent match
 Matches shows recorded matches; Preview History tests the current rule against
 stored alerts even if those alerts predate the Watch.
 
-**Notification options** on Watches offers an Executive-controlled global switch
-for “Why you received this.” The central ntfy sender reads the saved setting for
-each delivery, covering every source and recipient without republishing workflows.
-It defaults on and changes no matching, routing, original alert body, or audit data.
+**Alert appearance** on Alerts saves separate **Dashboard** and **Notification**
+checkboxes for each source. Watches links to this same panel. Mapping Center links,
+match explanations, matched Watch names, and keyword text default off; the original
+source link defaults on. PSEG additionally offers individual switches for estimated
+restoration, outage start time, jobs/work/circuits, damage, changes, and approximate
+area details. An approximate area's accuracy qualification stays with its details.
+
+Both previews use a recent stored alert and the same formatter as the real card and
+central ntfy sender. Only actual matched keywords can be shown; the full saved term
+list stays in the Watch editor. Changing sources retains unsaved choices until each
+source is saved. An Executive can save preferences, which apply across devices and
+recipients; other users can inspect the saved appearance. Saves update only display
+preferences. Stored alerts, Watch matching, delivery evidence, and duplicate guards
+are preserved, and previews send nothing. New notification formatting applies to
+future sends; messages already delivered stay as sent. The prior global explanation
+control now points to these source-specific choices.
 
 Operational activity includes incidents, open work items, active Event Intelligence
 records at any impact level, managed events, mapped transit WATCH/ALERT observations,

@@ -163,14 +163,9 @@
 </div>
 
 <details class="advanced-options" id="notification-options">
-  <summary>Notification options · explanation {{ 'on' if notification_explanations else 'off' }}</summary>
-  <p class="hint">Controls the “Why you received this” text in notifications from every source to every recipient. Match evidence stays available in Alerts and Watches.</p>
-  {% if can_edit_notification_settings %}
-  <form method="post" action="/watchlist/notification-settings">
-    <label class="checkbox-row"><input type="checkbox" name="explanations" value="on" {% if notification_explanations %}checked{% endif %}> Include “Why you received this” in notifications</label>
-    <button type="submit" class="secondary-button">Save notification options</button>
-  </form>
-  {% endif %}
+  <summary>Alert appearance · saved by source</summary>
+  <p class="hint">Choose which links, explanations, keywords, and source details appear on alert cards and in notifications.</p>
+  <a class="secondary-button" href="/alerts#alert-appearance">Set alert appearance</a>
 </details>
 
 <nav class="watch-summary-strip" aria-label="Watch status summary">

@@ -147,20 +147,23 @@ def test_ntfy_sender_appends_plain_language_reason_and_preserves_unmatched_messa
     workflow = json.loads(workflow_path.read_text())
     nodes = {node["name"]: node for node in workflow["nodes"]}
     code = nodes["Prepare ntfy Requests"]["parameters"]["jsCode"]
+    shared = (REPOSITORY_ROOT / "dashboard/static/alert_content.js").read_text().rstrip()
+    assert code.startswith(shared + "\n\n")
     script = f"""
 const run = new Function('$input', {json.dumps(code)});
-function prepare(payload) {{
-  return run({{first:()=>({{json:{{delivery_payloads:[payload]}}}})}})[0].json.ntfy_body.message;
+function prepare(payload,options={{explanation:true,keywords:true}}) {{
+  return run({{first:()=>({{json:{{sender_input:{{delivery_payloads:[payload]}},alert_appearance:{{SYSTEM_TEST:{{notification:options}}}}}}}})}})[0].json.ntfy_body.message;
 }}
-const base={{ntfy_topic:'contract',title:'Contract',message:'Original alert',priority:3,tags:[]}};
+const base={{ntfy_topic:'contract',source:'SYSTEM_TEST',title:'Contract',message:'Original alert',priority:3,tags:[]}};
 const keyword=prepare({{...base,match_reasons:['CONTAINS search_text matched search_term "PSEG"']}});
-if(!keyword.includes('Why you received this:')||!keyword.includes('Keyword “PSEG” matched this alert')) throw new Error('keyword reason missing');
+if(!keyword.includes('Why you received this:')||!keyword.includes('Matched keywords: “PSEG”')) throw new Error('keyword reason missing');
 if(keyword.includes('search_text')||keyword.includes('search_term')) throw new Error('technical terms leaked');
 const location=prepare({{...base,match_reasons:['PROXIMITY alert geometry is 125.0 ft from target, inside 5280.0 ft buffer']}});
 if(!location.includes('Watch center')||!location.includes('5,280-foot Distance')) throw new Error('location reason missing');
 if(location.includes('geometry')||location.includes('buffer')) throw new Error('spatial jargon leaked');
 const unchanged=prepare(base);
 if(unchanged!=='Original alert') throw new Error('message without match reasons changed');
+if(prepare({{...base,match_reasons:['CONTAINS search_text matched search_term "PSEG"']}},{{}})!=='Original alert') throw new Error('clean defaults ignored');
 console.log('NTFY_REASON_CONTRACT=PASS');
 """
     path = tmp_path / "contract.js"
