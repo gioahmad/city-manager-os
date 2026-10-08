@@ -267,9 +267,9 @@ full_rule = sql('''INSERT INTO watch_items(watch_id,display_name,watch_type,sear
     'search_text','WORD',ARRAY['BNN','OPERATIONS'],ARRAY['INCIDENT','WORK'],3,true,
     ST_SetSRID(ST_MakePoint(-74.02,40.77),4326),1000,false,now()-interval '10 days',now()-interval '1 day') RETURNING *''',
     ('HISTORY_RULE_'+history_tag,))[0]
-boundary_rule = sql('''INSERT INTO watch_items(watch_id,display_name,watch_type,nearby_enabled,
+boundary_rule = sql('''INSERT INTO watch_items(watch_id,display_name,watch_type,search_term,match_field,match_mode,nearby_enabled,
     spatial_target_geom,spatial_scope,radius_ft,active)
-    VALUES(%s,'Historical saved boundary','AREA',true,ST_GeomFromEWKT(%s),'ENTITY',50,false) RETURNING *''',
+    VALUES(%s,'Historical saved boundary','AREA','','search_text','CONTAINS',true,ST_GeomFromEWKT(%s),'ENTITY',50,false) RETURNING *''',
     ('HISTORY_BOUNDARY_'+history_tag,'SRID=4326;POLYGON((-74.025 40.765,-74.015 40.765,-74.015 40.775,-74.025 40.775,-74.025 40.765))'))[0]
 def history_counts():
     return sql('''SELECT (SELECT count(*) FROM watch_items) AS watches,
