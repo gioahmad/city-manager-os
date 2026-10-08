@@ -378,7 +378,7 @@ def _selected_location(
                 "spatial": False,
                 "replace_target": False,
             }
-        if str(current.get("watch_type") or "").upper() == "COUNTY" and current.get("county"):
+        if str(current.get("watch_type") or "").upper() in {"COUNTY", "LOCATION_TOPIC"} and current.get("county"):
             return {
                 "kind": "COUNTY",
                 "label": current["county"],
@@ -1520,7 +1520,7 @@ def spatial_watchlist(
             else "MUNICIPALITY"
             if row.get("municipality") and not row.get("spatial_target_type")
             else "COUNTY"
-            if row.get("watch_type") == "COUNTY" and row.get("county") and not row.get("spatial_target_type")
+            if row.get("watch_type") in {"COUNTY", "LOCATION_TOPIC"} and row.get("county") and not row.get("spatial_target_type")
             else "EXISTING"
         )
         row["location_id"] = str(
@@ -1758,12 +1758,25 @@ def _save_recipients(cur, watch_item_id: uuid.UUID, subscriber_ids: list[uuid.UU
         )
 
 
-def _validate_alert_filters(cur, source_values: list[str], category_values: list[str]) -> None:
-    """Keep private Watch labels out of exact source/category filters."""
-    for column, label, values in (
-        ("source", "source", source_values),
-        ("category", "category", category_values),
+def _validate_alert_filters(
+    cur, source_values: list[str], category_values: list[str], *, existing: dict | None = None,
+) -> None:
+    """Reject unknown new filters without discarding saved ones when history expires."""
+    saved = existing or {}
+    saved_sources = list(saved.get("source_filter") or [])
+    if (
+        not saved_sources and not saved.get("nearby_enabled")
+        and str(saved.get("watch_type") or "").upper() == "SOURCE"
+        and str(saved.get("match_mode") or "").upper() == "FIELD"
+        and str(saved.get("match_field") or "").strip().casefold() == "source"
     ):
+        saved_sources = [saved.get("search_term"), *(saved.get("aliases") or [])]
+    for column, label, values, retained in (
+        ("source", "source", source_values, saved_sources),
+        ("category", "category", category_values, saved.get("alert_category_filter") or []),
+    ):
+        retained_keys = {str(value or "").strip().casefold() for value in retained}
+        values = [value for value in values if value.strip().casefold() not in retained_keys]
         if not values:
             continue
         cur.execute(
@@ -2525,6 +2538,7 @@ def spatial_watch_update(
             cur.execute(
                 """
                 SELECT id,active,watch_type,display_name,search_term,match_mode,match_field,
+                       aliases,source_filter,alert_category_filter,
                        address,municipality,county,state,block,lot,parcel_id,
                        nearby_enabled,radius_ft,gis_lookup,spatial_reference_entity_id,
                        ST_AsEWKT(spatial_target_geom) AS target_wkt,
@@ -2645,7 +2659,7 @@ def spatial_watch_update(
         )
         active_value = current.get("active") if keep_state else active is not None
         with conn.cursor() as cur:
-            _validate_alert_filters(cur, saved_source_filter, saved_category_filter)
+            _validate_alert_filters(cur, saved_source_filter, saved_category_filter, existing=current)
             cur.execute(
                 """
                 UPDATE watch_items SET

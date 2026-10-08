@@ -388,6 +388,8 @@
         </details>
 
         {% if focus_id and w.id == focus_id %}
+        {% set source_rule = w.watch_type == 'SOURCE' and not w.nearby_enabled and w.match_mode == 'FIELD' and (w.match_field or '')|lower == 'source' %}
+        {% set edit_sources = w.source_filter or ([w.search_term] + (w.aliases or []) if source_rule else []) %}
         <details id="edit-watch" class="watch-edit-panel" open>
           <summary>Edit Watch</summary>
           <form method="post" action="/watchlist/{{ w.id }}/update" class="watch-form compact simple-watch-form" data-simple-watch-form>
@@ -411,8 +413,8 @@
                   <span class="hint">Includes mapped incidents, work items, events, and transit activity from every source and priority. Reference layers are excluded.</span>
                 </label>
                 <div data-match-filters>
-                {{ source_picker((w.source_filter or [])|join(', ')) }}
-                {{ word_picker('' if w.watch_type == 'SOURCE' or w.setup_mode == 'LOCATION' else w.search_term, w.aliases if w.setup_mode != 'LOCATION' else [], w.match_mode) }}
+                {{ source_picker(edit_sources|join(', ')) }}
+                {{ word_picker('' if source_rule or w.setup_mode == 'LOCATION' else w.search_term, w.aliases if not source_rule and w.setup_mode != 'LOCATION' else [], w.match_mode) }}
                 </div>
               </div>
             </section>
@@ -442,7 +444,7 @@
                   <input name="display_name" value="{{ w.display_name }}" required>
                 </label>
                 <label data-match-filters>Also match these phrases <span class="optional-label">optional</span>
-                  <input name="aliases" value="{{ (w.aliases or [])|join(', ') if w.match_mode not in ['CONTAINS','WORD'] else '' }}" data-other-keywords placeholder="Separate phrases with commas">
+                  <input name="aliases" value="{{ (w.aliases or [])|join(', ') if not source_rule and w.match_mode not in ['CONTAINS','WORD'] else '' }}" data-other-keywords placeholder="Separate phrases with commas">
                 </label>
                 <div class="form-grid two-col" data-match-filters>
                   <label>Minimum priority
@@ -461,6 +463,7 @@
               </div>
             </details>
 
+            <div class="simple-watch-message" data-simple-watch-message aria-live="polite"></div>
             <div class="watch-card-actions">
               <button class="primary-button" type="submit">Save Changes</button>
               <a class="secondary-button" href="/watchlist">Cancel</a>

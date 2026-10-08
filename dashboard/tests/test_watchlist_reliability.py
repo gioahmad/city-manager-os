@@ -96,7 +96,7 @@ def test_watch_name_cannot_be_saved_as_an_unknown_alert_filter():
     source = (DASHBOARD_ROOT / "spatial_watch_app.py").read_text()
     template = (DASHBOARD_ROOT / "templates/watchlist.html").read_text()
     assert "def _validate_alert_filters" in source
-    assert source.count("_validate_alert_filters(cur, saved_source_filter, saved_category_filter)") == 2
+    assert source.count("_validate_alert_filters(cur, saved_source_filter, saved_category_filter") == 2
     assert "Unknown alert {label}" in source
     assert 'name="source_filter"' in template
     assert "def _automatic_watch_name" in source

@@ -441,6 +441,80 @@ try:
             selected = sql('SELECT * FROM watch_items WHERE id=%s',(selected['id'],))[0]
             assert selected['source_filter']==[] and selected['search_term']=='mayday' and not selected['active']
             print('SOURCE PICKER BROWSER PASS:',engine,'native direct HTTP Origin/Host and 303 with separate canonical HTTPS origin; unknown prefill preserved; two sources saved/reopened; one removed; All sources clears restrictions')
+
+            # Existing SOURCE rules predate source_filter and may have no alert history.
+            legacy_name = engine+' legacy source '+str(uuid4())
+            legacy = sql('''INSERT INTO watch_items(watch_id,display_name,watch_type,search_term,aliases,
+                match_mode,match_field,source_filter,active,min_priority,municipality)
+                VALUES(%s,%s,'SOURCE','EXEC_ASSISTANT',ARRAY['CI_RETIRED_SOURCE'],
+                'FIELD','source',ARRAY[]::text[],false,4,'Weehawken') RETURNING *''',
+                ('CI_LEGACY_'+str(uuid4()),legacy_name))[0]
+            sql('INSERT INTO watch_item_recipients(watch_item_id,subscriber_id,active) VALUES(%s,%s,true) RETURNING id',
+                (legacy['id'],subscribers[0]))
+            page.goto(base+'/watchlist?focus='+str(legacy['id']))
+            edit = page.locator('form[action="/watchlist/'+str(legacy['id'])+'/update"]')
+            assert set(edit.locator('[name="source_filter"]').input_value().split(', '))=={'EXEC_ASSISTANT','CI_RETIRED_SOURCE'}
+            assert edit.locator('[name="search_term"]').input_value()==''
+            assert edit.locator('[name="location_scope"]').input_value()=='ANYWHERE'
+            edit.get_by_text('More options',exact=True).click()
+            edit.locator('[name="display_name"]').fill(legacy_name+' edited')
+            edit.locator('[name="notes"]').fill('Saved without rebuilding this rule')
+            edit.locator('[name="subscriber_ids"][value="'+str(subscribers[0])+'"]').uncheck()
+            edit.locator('[name="subscriber_ids"][value="'+str(subscribers[1])+'"]').check()
+            with page.expect_response(lambda response: response.request.method=='POST'
+                                      and response.url==base+'/watchlist/'+str(legacy['id'])+'/update') as saved_response:
+                edit.get_by_role('button',name='Save Changes',exact=True).click()
+            assert saved_response.value.status==303, saved_response.value.text()
+            page.wait_for_url('**/watchlist?msg=*')
+            saved = sql('SELECT * FROM watch_items WHERE id=%s',(legacy['id'],))[0]
+            assert saved['display_name']==legacy_name+' edited' and saved['notes']=='Saved without rebuilding this rule'
+            assert (saved['watch_type'],saved['match_mode'],saved['match_field'])==('SOURCE','FIELD','source')
+            assert set([saved['search_term'],*saved['aliases']])==set(saved['source_filter'])=={'EXEC_ASSISTANT','CI_RETIRED_SOURCE'}
+            assert not saved['active'] and saved['min_priority']==4 and saved['municipality']=='Weehawken'
+            assert [row['subscriber_id'] for row in sql('SELECT subscriber_id FROM watch_item_recipients WHERE watch_item_id=%s AND active',(legacy['id'],))]==[subscribers[1]]
+            page.goto(base+'/watchlist?focus='+str(legacy['id']))
+            edit = page.locator('form[action="/watchlist/'+str(legacy['id'])+'/update"]')
+            assert set(edit.locator('[name="source_filter"]').input_value().split(', '))=={'EXEC_ASSISTANT','CI_RETIRED_SOURCE'}
+            edit.locator('[data-source-picker] summary').click()
+            edit.locator('[data-source-all]').check()
+            edit.locator('[data-source-picker] summary').click()
+            rejected_posts=[]
+            def capture_empty_rule(request):
+                if request.method=='POST' and request.url==base+'/watchlist/'+str(legacy['id'])+'/update':
+                    rejected_posts.append(request.url)
+            page.on('request',capture_empty_rule)
+            edit.get_by_role('button',name='Save Changes',exact=True).click()
+            assert edit.locator('[data-simple-watch-message]').is_visible()
+            assert edit.locator('[data-simple-watch-message]').inner_text()=='Choose a source, enter a topic, or choose a location.'
+            assert not rejected_posts
+            page.remove_listener('request',capture_empty_rule)
+
+            # County + keyword watches must retain their county when only the name changes.
+            county_name = engine+' county edit '+str(uuid4())
+            post('/watchlist/create',{'display_name':county_name,'setup_mode':'LOCATION_TOPIC',
+                'search_term':'working fire','source_filter':'BNN','location_scope':'COUNTY',
+                'location_kind':'COUNTY','location_id':'Hudson','location_query':'Hudson',
+                'activation':'paused','subscriber_ids':str(subscribers[0])})
+            county_watch=sql('SELECT * FROM watch_items WHERE display_name=%s',(county_name,))[0]
+            page.goto(base+'/watchlist?focus='+str(county_watch['id']))
+            edit=page.locator('form[action="/watchlist/'+str(county_watch['id'])+'/update"]')
+            assert edit.locator('[name="location_scope"]').input_value()=='COUNTY'
+            assert edit.locator('[name="location_id"]').input_value()=='Hudson'
+            assert edit.locator('[data-county-choice]').input_value()=='Hudson'
+            edit.get_by_text('More options',exact=True).click()
+            edit.locator('[name="display_name"]').fill(county_name+' edited')
+            with page.expect_response(lambda response: response.request.method=='POST'
+                                      and response.url==base+'/watchlist/'+str(county_watch['id'])+'/update') as saved_response:
+                edit.get_by_role('button',name='Save Changes',exact=True).click()
+            assert saved_response.value.status==303, saved_response.value.text()
+            page.wait_for_url('**/watchlist?msg=*')
+            saved=sql('SELECT * FROM watch_items WHERE id=%s',(county_watch['id'],))[0]
+            assert saved['display_name']==county_name+' edited'
+            assert saved['watch_type']=='LOCATION_TOPIC' and saved['county']=='Hudson' and saved['state']=='NJ'
+            assert saved['search_term']=='working fire' and saved['source_filter']==['BNN'] and not saved['active']
+            assert not saved['nearby_enabled'] and saved['spatial_target_geom'] is None
+            print('EXISTING WATCH EDIT BROWSER PASS:',engine,'legacy exact sources and retired source preserved; name/notes/recipients saved; empty rule explains blocked save; county/topic name edit keeps location')
+
             page.goto(base+'/watchlist?from_record=EVENT_INTELLIGENCE&record_id='+str(event_id))
             form = page.locator('form[action="/watchlist/create"]')
             assert form.is_visible()
