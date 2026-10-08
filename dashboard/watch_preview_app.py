@@ -428,7 +428,7 @@ def watch_preview(
     if watch_item_id:
         builder_url = '/watchlist?' + urlencode({'focus': str(watch_item_id)}) + '#edit-watch'
     elif map_point:
-        builder.update(setup_mode='LOCATION_TOPIC' if rule['topic_required'] else 'LOCATION', location_kind='MAP_POINT',
+        builder.update(display_name='Map area watch', setup_mode='LOCATION_TOPIC' if rule['topic_required'] else 'LOCATION', location_kind='MAP_POINT',
                        latitude=latitude, longitude=longitude, radius_ft=radius_ft, location_query='', location_id='',
                        match_selection='ANY' if not source and not category and min_priority == 1 and not rule['topic_required'] else 'FILTERED')
         builder_url = '/watchlist?' + urlencode(builder) + '#new-watch'

@@ -484,8 +484,22 @@ try:
             assert draft.locator('[name="radius_ft"]').input_value()=='500'
             assert abs(float(draft.locator('[name="latitude"]').input_value())-float(params['latitude']))<1e-9
             assert draft.locator('[name="match_selection"]').input_value()=='ANY'
+            page.goto(map_url)
+            page.wait_for_function("typeof map!=='undefined' && typeof geoOptions==='function'")
+            # A real clickable polygon must not steal the picker click or substitute its center.
+            page.evaluate("""L.geoJSON({type:'Feature',properties:{name:'Picker coverage'},geometry:{type:'Polygon',
+                coordinates:[[[-74.021,40.769],[-74.015,40.769],[-74.015,40.775],[-74.021,40.775],[-74.021,40.769]]]}},
+                geoOptions('parcels','#7fb3d5','Parcels')).addTo(map)""")
+            page.get_by_role('button',name='Tools',exact=True).click()
+            page.get_by_role('button',name='Pick Watch Point / Search History',exact=True).click()
+            box=page.locator('#city-map').bounding_box()
+            page.mouse.click(box['x']+box['width']/2,box['y']+box['height']/2)
+            popup=page.locator('.leaflet-popup-content')
+            assert popup.locator('[name="radius_ft"]').input_value()=='1000'
+            assert abs(float(popup.locator('[name="latitude"]').input_value())-40.77)<1e-4
+            assert abs(float(popup.locator('[name="longitude"]').input_value())+74.02)<1e-4
             assert history_counts()==history_snapshot
-            print('MAP HISTORY BROWSER PASS:',engine,'click actual map, redraw radius, all-history native GET, older un-matched alerts, re-preview radius, optional Watch draft keeps point/radius; no writes')
+            print('MAP HISTORY BROWSER PASS:',engine,'click actual map, redraw radius, all-history native GET, older un-matched alerts, re-preview radius, optional Watch draft keeps point/radius, picker works through polygon overlays; no writes')
             assert not errors,errors
             print('WATCH BROWSER PASS:',engine,'Intel/Map/Alert drafts, all activity, selectable 34 terms, source/location/recipient controls, paused save/edit, global explanation on/off')
             context.close()
