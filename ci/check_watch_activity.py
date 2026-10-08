@@ -262,10 +262,10 @@ history_alert('unresolved',geometry=None,resolution='UNRESOLVED')
 history_alert('unmapped',geometry=None)
 full_rule = sql('''INSERT INTO watch_items(watch_id,display_name,watch_type,search_term,aliases,
     match_field,match_mode,source_filter,alert_category_filter,min_priority,nearby_enabled,
-    spatial_target_geom,radius_ft,active,starts_at,expires_at)
+    spatial_target_geom,spatial_scope,radius_ft,active,starts_at,expires_at)
     VALUES(%s,'Historical full radius rule','LOCATION_TOPIC','working fire',ARRAY['TIER \\d'],
     'search_text','WORD',ARRAY['BNN','OPERATIONS'],ARRAY['INCIDENT','WORK'],3,true,
-    ST_SetSRID(ST_MakePoint(-74.02,40.77),4326),1000,false,now()-interval '10 days',now()-interval '1 day') RETURNING *''',
+    ST_SetSRID(ST_MakePoint(-74.02,40.77),4326),'RADIUS',1000,false,now()-interval '10 days',now()-interval '1 day') RETURNING *''',
     ('HISTORY_RULE_'+history_tag,))[0]
 boundary_rule = sql('''INSERT INTO watch_items(watch_id,display_name,watch_type,search_term,match_field,match_mode,nearby_enabled,
     spatial_target_geom,spatial_scope,radius_ft,active)
