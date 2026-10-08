@@ -17,6 +17,8 @@ from fastapi.testclient import TestClient
 from psycopg.types.json import Jsonb
 
 ROOT = Path(__file__).resolve().parents[1]
+ARTIFACTS = ROOT/'browser-check-results'
+ARTIFACTS.mkdir(exist_ok=True)
 sys.path.insert(0, str(ROOT/'ci'))
 application, core, ms, calendar, hub, auth, provider, owner, mail_id, cookie, csrf = __import__('microsoft_fixture').setup()
 with core.db_conn() as c:
@@ -301,7 +303,7 @@ assert history_titles['outside'] in boundary_preview.text and history_titles['st
 watch_page = client.get('/watchlist',params={'focus':str(watch['id'])})
 assert '/watch-preview?watch_item_id='+str(watch['id']) in watch_page.text
 evidence_page = client.get('/watchlist',params={'evidence':str(watch['id'])})
-assert 'Could Have Matched' in evidence_page.text and 'watch_item_id='+str(watch['id']) in evidence_page.text
+assert 'Preview History' in evidence_page.text and 'watch_item_id='+str(watch['id']) in evidence_page.text
 for params,code in [({'latitude':40.77},400),({**area_params,'latitude':91},422),
                     ({**area_params,'radius_ft':0},422),({**area_params,'radius_ft':26401},422),
                     ({**area_params,'latitude':'nan'},422),({'watch_item_id':'bad'},422),
@@ -370,13 +372,69 @@ try:
             page = context.new_page()
             errors=[]
             page.on('pageerror',lambda error: errors.append(str(error)))
+            # Choose multiple sources, save, then edit through the real checkbox UI.
+            page.goto(base+'/watchlist?'+urlencode({'create':'1','setup_mode':'TOPIC',
+                'source_filter':'CI_RETIRED_SOURCE'}))
+            form = page.locator('form[action="/watchlist/create"]')
+            picker = form.locator('[data-source-picker]')
+            picker.locator('summary').click()
+            retired = picker.locator('[data-source-choice][value="CI_RETIRED_SOURCE"]')
+            assert retired.is_visible() and retired.is_checked()
+            assert form.locator('[name="source_filter"]').input_value()=='CI_RETIRED_SOURCE'
+            picker.locator('[data-source-all]').check()
+            assert form.locator('[name="source_filter"]').input_value()==''
+            assert not retired.is_checked()
+            for source in ('BNN','OPERATIONS'):
+                picker.locator('[data-source-choice][value="'+source+'"]').check()
+            assert not picker.locator('[data-source-all]').is_checked()
+            assert {value.strip() for value in form.locator('[name="source_filter"]').input_value().split(',')}=={'BNN','OPERATIONS'}
+            page.screenshot(path=str(ARTIFACTS/(engine+'-watch-sources.png')))
+            picker.locator('summary').click()
+            form.get_by_text('More options',exact=True).click()
+            source_name = engine+' source picker '+str(uuid4())
+            form.locator('[name="display_name"]').fill(source_name)
+            form.get_by_role('button',name='Save Paused',exact=True).click()
+            page.wait_for_url('**/watchlist?msg=*')
+            selected = sql('SELECT * FROM watch_items WHERE display_name=%s',(source_name,))[0]
+            assert set(selected['source_filter'])=={'BNN','OPERATIONS'} and selected['watch_type']=='SOURCE'
+            page.locator('.watch-card').filter(has_text=source_name).screenshot(path=str(ARTIFACTS/(engine+'-watch-card.png')))
+            page.goto(base+'/watchlist?focus='+str(selected['id']))
+            edit = page.locator('form[action="/watchlist/'+str(selected['id'])+'/update"]')
+            picker = edit.locator('[data-source-picker]')
+            picker.locator('summary').click()
+            assert picker.locator('[data-source-choice][value="BNN"]').is_checked()
+            assert picker.locator('[data-source-choice][value="OPERATIONS"]').is_checked()
+            picker.locator('[data-source-choice][value="BNN"]').uncheck()
+            assert edit.locator('[name="source_filter"]').input_value()=='OPERATIONS'
+            edit.get_by_role('button',name='Save Changes',exact=True).click()
+            page.wait_for_url('**/watchlist?msg=*')
+            assert sql('SELECT source_filter FROM watch_items WHERE id=%s',(selected['id'],))[0]['source_filter']==['OPERATIONS']
+            page.goto(base+'/watchlist?focus='+str(selected['id']))
+            edit = page.locator('form[action="/watchlist/'+str(selected['id'])+'/update"]')
+            picker = edit.locator('[data-source-picker]')
+            picker.locator('summary').click()
+            assert picker.locator('[data-source-choice][value="OPERATIONS"]').is_checked()
+            assert not picker.locator('[data-source-choice][value="BNN"]').is_checked()
+            picker.locator('[data-source-all]').check()
+            assert picker.locator('[data-source-choice]:checked').count()==0
+            assert edit.locator('[name="source_filter"]').input_value()==''
+            picker.locator('summary').click()
+            edit.locator('[name="search_term"]').fill('mayday')
+            edit.locator('[name="word_mode"]').select_option('CONTAINS')
+            edit.get_by_role('button',name='Save Changes',exact=True).click()
+            page.wait_for_url('**/watchlist?msg=*')
+            selected = sql('SELECT * FROM watch_items WHERE id=%s',(selected['id'],))[0]
+            assert selected['source_filter']==[] and selected['search_term']=='mayday' and not selected['active']
+            print('SOURCE PICKER BROWSER PASS:',engine,'unknown prefill preserved; two sources saved/reopened; one removed; All sources clears restrictions')
             page.goto(base+'/watchlist?from_record=EVENT_INTELLIGENCE&record_id='+str(event_id))
             form = page.locator('form[action="/watchlist/create"]')
             assert form.is_visible()
             original_lat = form.locator('[name="latitude"]').input_value()
             original_lon = form.locator('[name="longitude"]').input_value()
             form.get_by_text('More options',exact=True).click()
-            form.locator('[name="source_filter"]').fill('stale-source')
+            form.locator('[data-source-picker] summary').click()
+            form.locator('[data-source-choice][value="BNN"]').check()
+            form.locator('[data-source-picker] summary').click()
             form.locator('[name="search_term"]').fill('stale-topic')
             form.locator('[name="aliases"]').fill('stale-alias')
             form.locator('[name="alert_category_filter"]').fill('stale-category')
@@ -430,7 +488,9 @@ try:
             page.goto(base+'/watchlist?focus='+str(draft_watch['id']))
             edit = page.locator('form[action="/watchlist/'+str(draft_watch['id'])+'/update"]')
             assert len(edit.locator('[name="search_term"]').input_value().splitlines())==34
-            edit.locator('[name="source_filter"]').fill('')
+            edit.locator('[data-source-picker] summary').click()
+            edit.locator('[data-source-all]').check()
+            edit.locator('[data-source-picker] summary').click()
             edit.locator('[name="search_term"]').fill('mayday\ntier \\d')
             edit.locator('[name="word_mode"]').select_option('CONTAINS')
             edit.locator('[name="subscriber_ids"][value="'+str(subscribers[1])+'"]').check()

@@ -61,12 +61,10 @@ def test_watchlist_has_simple_modes_health_and_friendly_errors():
         "Who should be notified?",
         "Test it",
         "Turn it on",
-        "Watching",
         "Paused",
         "Expired",
-        "Needs Recipient",
-        "Matching",
-        "Delivery Problem",
+        "Needs recipient",
+        "Delivery issue",
     ):
         assert label in template
     assert "1 mile · recommended" in template

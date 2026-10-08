@@ -1480,6 +1480,14 @@ def spatial_watchlist(
     )
     for row in all_items:
         row["state_label"], row["state_class"], row["state_reason"] = _watch_state(row)
+        row["state_display"] = row["state_label"]
+        if row["state_label"] == "Watching":
+            row["state_display"] = "Scheduled" if row["state_class"] == "waiting" else "On"
+        elif row["state_label"] == "Matching":
+            row["state_display"] = (
+                "Repeat held" if str(row.get("last_delivery_status") or "").upper() == "SUPPRESSED"
+                else "Notification pending"
+            )
         row["starts_local"] = _local_value(row.get("starts_at"))
         row["expires_local"] = _local_value(row.get("expires_at"))
         row["duration"] = "CUSTOM" if row.get("expires_at") else "PERMANENT"
@@ -1530,17 +1538,20 @@ def spatial_watchlist(
         "failed": "delivery_problem",
     }
     normalized_state = state_aliases.get(state, state)
+    now = datetime.now(timezone.utc)
+    active_items = [
+        row for row in all_items
+        if row.get("active")
+        and (not row.get("starts_at") or row["starts_at"] <= now)
+        and (not row.get("expires_at") or row["expires_at"] > now)
+    ]
+    matched_items = [row for row in all_items if _safe_int(row.get("matches_7d")) > 0]
     if normalized_state == "location":
         items = [row for row in all_items if row["setup_mode"] in {"LOCATION", "LOCATION_TOPIC"}]
     elif normalized_state == "active":
-        now = datetime.now(timezone.utc)
-        items = [
-            row
-            for row in all_items
-            if row.get("active")
-            and (not row.get("starts_at") or row["starts_at"] <= now)
-            and (not row.get("expires_at") or row["expires_at"] > now)
-        ]
+        items = active_items
+    elif normalized_state == "matched":
+        items = matched_items
     elif normalized_state != "all":
         label = normalized_state.replace("_", " ").title()
         items = [row for row in all_items if row["state_label"] == label]
@@ -1549,6 +1560,8 @@ def spatial_watchlist(
 
     status_counts = {
         "total": len(all_items),
+        "on": len(active_items),
+        "matched": len(matched_items),
         "watching": sum(row["state_label"] == "Watching" for row in all_items),
         "paused": sum(row["state_label"] == "Paused" for row in all_items),
         "expired": sum(row["state_label"] == "Expired" for row in all_items),

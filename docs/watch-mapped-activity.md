@@ -13,6 +13,17 @@ recipients, duration and on/paused state remain selectable. Saved terms all appe
 in the editor, and history preview retains the full list instead of stopping at 12.
 No BNN keyword list or recipient is embedded in application code.
 
+**Sources** uses the same checkbox dropdown in Create and Edit. Select any number
+of sources, or choose **All sources** to remove the source restriction, including
+for sources added later. The dropdown retains saved or prefilled source choices.
+
+Saved Watch cards always offer **Edit**, **Matches**, **Preview History**, and
+**Manage**. **On** means the Watch is enabled for current activity; the separate
+**With matches · 7 days** count shows Watches with actual recent matches. Cards
+show **Scheduled**, **Notification pending**, or **Repeat held** when applicable.
+Matches shows recorded matches; Preview History tests the current rule against
+stored alerts even if those alerts predate the Watch.
+
 **Notification options** on Watches offers an Executive-controlled global switch
 for “Why you received this.” The central ntfy sender reads the saved setting for
 each delivery, covering every source and recipient without republishing workflows.

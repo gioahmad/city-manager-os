@@ -25,6 +25,26 @@
 </fieldset>
 {% endmacro %}
 
+{% macro source_picker(selected='') %}
+{% set selected_values = selected.split(',')|map('trim')|reject('equalto','')|list %}
+{% set selected_keys = selected_values|map('lower')|list %}
+{% set choices = (selected_values + (alert_sources|map(attribute='source')|list))|unique(case_sensitive=false)|sort(case_sensitive=false) %}
+<div class="watch-source-field">
+  <span class="field-label">Sources <span class="optional-label">optional</span></span>
+  <details class="watch-source-picker" data-source-picker>
+    <summary aria-label="Choose sources"><span data-source-summary>{{ selected_values|join(', ') if selected_values else 'All sources' }}</span></summary>
+    <input type="hidden" name="source_filter" value="{{ selected_values|join(', ') }}">
+    <div class="watch-source-options">
+      <label class="checkbox-row watch-source-all"><input type="checkbox" data-source-all {% if not selected_values %}checked{% endif %}> All sources</label>
+      {% for value in choices %}
+      <label class="checkbox-row"><input type="checkbox" data-source-choice value="{{ value }}" {% if value|lower in selected_keys %}checked{% endif %}> {{ value }}</label>
+      {% endfor %}
+    </div>
+  </details>
+  <span class="hint">Select one or more. All sources includes new sources added later.</span>
+</div>
+{% endmacro %}
+
 {% macro word_picker(topic='', aliases=[], mode='CONTAINS') %}
 <input type="hidden" name="term_list" value="1">
 <label>Words or phrases <span class="optional-label">optional</span>
@@ -154,12 +174,13 @@
 </details>
 
 <nav class="watch-summary-strip" aria-label="Watch status summary">
-  <a href="/watchlist?state=watching"><strong>{{ counts.watching or 0 }}</strong><span>On</span></a>
-  <a href="/watchlist?state=matching"><strong>{{ counts.matching or 0 }}</strong><span>Matching</span></a>
+  <a href="/watchlist?state=active"><strong>{{ counts.on or 0 }}</strong><span>On</span></a>
+  <a href="/watchlist?state=matched"><strong>{{ counts.matched or 0 }}</strong><span>With matches · 7 days</span></a>
   <a href="/watchlist?state=needs_recipient"><strong>{{ counts.needs_recipient or 0 }}</strong><span>Needs recipient</span></a>
   <a href="/watchlist?state=delivery_problem"><strong>{{ counts.delivery_problem or 0 }}</strong><span>Delivery issue</span></a>
   <a href="/watchlist?state=paused"><strong>{{ counts.paused or 0 }}</strong><span>Paused</span></a>
 </nav>
+<p class="hint watch-status-help">On means checking new activity. Matches are alerts already caught; Preview History shows what the current rule would have caught.</p>
 
 <section id="new-watch" class="watch-primary-layout" style="margin-top:16px">
 <details class="panel watch-create-panel" {% if create_open %}open{% endif %}>
@@ -210,10 +231,7 @@
             <span class="hint">Includes mapped incidents, work items, events, and transit activity from every source and priority. Reference layers are excluded.</span>
           </label>
           <div data-match-filters>
-          <label>Source <span class="optional-label">optional</span>
-            <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Any source">
-            <span class="hint">Example: BNN. Leave blank for every source. Separate multiple sources with commas.</span>
-          </label>
+          {{ source_picker(prefill.source_filter) }}
           {{ word_picker(prefill.search_term, prefill.aliases.split(',') if prefill.aliases else [], prefill.match_mode) }}
           </div>
         </div>
@@ -295,7 +313,7 @@
     <form class="watch-filters" method="get" action="/watchlist">
       <input name="q" value="{{ q }}" placeholder="Search Watch name, topic, Location, or group">
       <select name="state">
-        {% for value,label in [('all','All statuses'),('watching','Watching'),('matching','Matching'),('needs_recipient','Needs Recipient'),('delivery_problem','Delivery Problem'),('paused','Paused'),('expired','Expired'),('location','Uses a Location')] %}
+        {% for value,label in [('all','All Watches'),('active','On'),('matched','With matches in the last 7 days'),('watching','Ready or scheduled'),('matching','Notification pending or repeat held'),('needs_recipient','Needs recipient'),('delivery_problem','Delivery issue'),('paused','Paused'),('expired','Expired'),('location','Uses a location')] %}
         <option value="{{ value }}" {% if state == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
@@ -329,7 +347,7 @@
         <div class="watch-card-summary">
           <div class="watch-summary-main">
             <label class="watch-select"><input type="checkbox" name="watch_item_ids" value="{{ w.id }}" form="watch-bulk-form" data-watch-select aria-label="Select {{ w.display_name }}"></label>
-            <span class="status {{ w.state_class }}">{{ w.state_label }}</span>
+            <span class="status {{ w.state_class }}" title="{{ w.state_reason }}">{{ w.state_display or w.state_label }}</span>
             <div>
               <strong>{{ w.display_name }}</strong>
               <div class="meta watch-rule-summary">
@@ -351,8 +369,8 @@
           </div>
         </div>
         <div class="watch-compact-evidence">
-          <span><strong>{{ w.matches_7d or 0 }}</strong> matches</span>
-          <span><strong>{{ w.sent_7d or 0 }}</strong> sent</span>
+          <span><strong>{{ w.matches_7d or 0 }}</strong> matches · 7 days</span>
+          <span><strong>{{ w.sent_7d or 0 }}</strong> sent · 7 days</span>
           <span><strong>{{ w.active_recipient_count or 0 }}</strong> recipient{{ '' if w.active_recipient_count == 1 else 's' }}</span>
           {% if w.last_match_at %}<span>Last match {{ w.last_match_at.strftime('%m/%d %I:%M %p') }}</span>{% endif %}
         </div>
@@ -393,10 +411,7 @@
                   <span class="hint">Includes mapped incidents, work items, events, and transit activity from every source and priority. Reference layers are excluded.</span>
                 </label>
                 <div data-match-filters>
-                <label>Source <span class="optional-label">optional</span>
-                  <input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}" placeholder="Any source">
-                  <span class="hint">Example: BNN. Leave blank for every source. Separate multiple sources with commas.</span>
-                </label>
+                {{ source_picker((w.source_filter or [])|join(', ')) }}
                 {{ word_picker('' if w.watch_type == 'SOURCE' or w.setup_mode == 'LOCATION' else w.search_term, w.aliases if w.setup_mode != 'LOCATION' else [], w.match_mode) }}
                 </div>
               </div>
@@ -454,13 +469,9 @@
         </details>
         {% endif %}
         <div class="watch-card-actions watch-card-primary-actions">
-          {% if focus_id and w.id == focus_id %}
-          <a class="secondary-button" href="/watchlist">Back to Watches</a>
-          {% else %}
           <a class="secondary-button" href="/watchlist?focus={{ w.id }}#edit-watch">Edit</a>
-          {% endif %}
-          <a class="secondary-button" href="/watchlist?evidence={{ w.id }}&evidence_view=matched#watch-evidence">Matches</a>
-          {% if w.historical_preview_url %}<a class="secondary-button" href="{{ w.historical_preview_url }}">Preview History</a>{% endif %}
+          <a class="secondary-button" href="/watchlist?evidence={{ w.id }}&evidence_view=matched#watch-evidence" title="Alerts this Watch actually caught">Matches</a>
+          <a class="secondary-button" href="{{ w.historical_preview_url }}" title="Test this saved rule against all stored history">Preview History</a>
           <details class="watch-manage-menu">
             <summary class="secondary-button">Manage</summary>
             <div class="watch-manage-actions">
@@ -501,7 +512,7 @@
     <div class="watch-card-actions" style="margin-bottom:12px">
       <a class="secondary-button {% if evidence_view == 'matched' %}active{% endif %}" href="/watchlist?evidence={{ evidence_watch.id }}&evidence_view=matched#watch-evidence">Matched Alerts</a>
       <a class="secondary-button {% if evidence_view == 'notified' %}active{% endif %}" href="/watchlist?evidence={{ evidence_watch.id }}&evidence_view=notified#watch-evidence">Notifications</a>
-      {% if evidence_watch.historical_preview_url %}<a class="secondary-button" href="{{ evidence_watch.historical_preview_url }}">Could Have Matched</a>{% endif %}
+      <a class="secondary-button" href="{{ evidence_watch.historical_preview_url }}">Preview History</a>
     </div>
 
     <form class="watch-filters" method="get" action="/watchlist">
@@ -517,7 +528,7 @@
       {% else %}
       These are delivery records tied to this Watch, including sent, suppressed, failed, or pending attempts.
       {% endif %}
-      “Could Have Matched” is read-only historical evaluation and creates no Match or Notification.
+      “Preview History” tests the current saved rule against older alerts and creates no Match or Notification.
     </p>
 
     <div class="data-list">
@@ -759,7 +770,6 @@
   </div>
 </details>
 
-<datalist id="alert-source-values">{% for value in alert_sources %}<option value="{{ value.source }}">{% endfor %}</datalist>
 <datalist id="alert-category-values">{% for value in alert_categories %}<option value="{{ value.category }}">{% endfor %}</datalist>
 <footer><span>City Manager OS</span><span>One Watch system · one Notification path</span></footer>
 </main>
@@ -772,6 +782,31 @@
     element.textContent = message;
     element.classList.toggle('error-text', isError);
   };
+
+  document.querySelectorAll('[data-source-picker]').forEach((picker) => {
+    const field = picker.querySelector('[name="source_filter"]');
+    const summary = picker.querySelector('[data-source-summary]');
+    const all = picker.querySelector('[data-source-all]');
+    const choices = [...picker.querySelectorAll('[data-source-choice]')];
+    const sync = () => {
+      const values = choices.filter((choice) => choice.checked).map((choice) => choice.value);
+      field.value = values.join(', ');
+      all.checked = values.length === 0;
+      summary.textContent = values.length > 2
+        ? `${values.slice(0, 2).join(', ')} +${values.length - 2}`
+        : values.join(', ') || 'All sources';
+      summary.title = values.join(', ') || 'All sources';
+    };
+    picker.addEventListener('change', (event) => {
+      if (event.target === all && all.checked) choices.forEach((choice) => { choice.checked = false; });
+      sync();
+    });
+    picker.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { picker.open = false; picker.querySelector('summary').focus(); }
+    });
+    document.addEventListener('click', (event) => { if (!picker.contains(event.target)) picker.open = false; });
+    sync();
+  });
 
   const watchLabForm = document.querySelector('[data-watch-lab-form]');
   if (watchLabForm) {
@@ -951,7 +986,7 @@
       if (!current.hasLocation && !current.hasTopic && !current.hasSource) {
         event.preventDefault();
         setMessage(message, 'Choose a source, enter a topic, or choose a location.', true);
-        source?.focus();
+        form.querySelector('[data-source-picker] summary')?.focus();
         return;
       }
       setMessage(message, '');

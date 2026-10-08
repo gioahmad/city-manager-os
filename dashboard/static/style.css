@@ -177,6 +177,17 @@ footer{display:flex;justify-content:space-between;gap:20px;margin-top:30px;paddi
 .simple-watch-more{margin:10px 0 14px}
 .simple-watch-submit{margin-top:14px}
 .simple-watch-message{min-height:1.2em;margin-top:8px}
+.watch-source-field{display:grid;gap:6px}
+.watch-source-field>.field-label{margin:0}
+.watch-source-picker{position:relative;border:1px solid var(--border,#dfe3e8);border-radius:8px;background:var(--surface,#fff)}
+.watch-source-picker>summary{padding:10px 12px;cursor:pointer;color:var(--text);font-size:.88rem;overflow-wrap:anywhere}
+.watch-source-picker>summary:focus-visible{outline:2px solid var(--brand-2,#236996);outline-offset:2px;border-radius:8px}
+.watch-source-options{position:absolute;z-index:20;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;padding:8px;background:var(--surface,#fff);border:1px solid var(--border,#dfe3e8);border-radius:8px;box-shadow:0 8px 24px #0002}
+.watch-source-options .checkbox-row{display:flex;align-items:center;gap:8px;padding:7px 8px;cursor:pointer;text-transform:none;letter-spacing:normal;font-size:.85rem}
+.watch-source-options input[type=checkbox]{width:auto;min-height:0;flex:none;margin:0}
+.watch-source-options .checkbox-row:hover{background:var(--surface-2,#eef1f4);border-radius:4px}
+.watch-source-all{border-bottom:1px solid var(--border,#dfe3e8);margin-bottom:5px}
+.watch-status-help{margin:8px 0 0}
 .watch-bulk-disclosure{margin:10px 0}
 .watch-bulk-disclosure>summary{cursor:pointer;font-size:.82rem;color:var(--muted,#68707c);width:max-content}
 .watch-bulk-disclosure[open]{padding-bottom:8px}

@@ -16,7 +16,7 @@ def test_normal_watch_location_search_includes_counties():
 
 def test_source_filter_is_visible_in_normal_create_and_edit_flow():
     template = (ROOT / "templates" / "watchlist.html").read_text()
-    assert "<label>Source" in template
+    assert "{% macro source_picker(" in template
     assert "name=\"source_filter\"" in template
-    assert "Example: BNN. Leave blank for every source." in template
-    assert template.count('name="source_filter"') >= 2
+    assert 'data-source-choice' in template and 'data-source-all' in template
+    assert template.count('{{ source_picker(') == 2
