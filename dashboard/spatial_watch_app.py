@@ -874,6 +874,47 @@ def _watch_state(row: dict) -> tuple[str, str, str]:
     return "Watching", "active", "The watch is on. Its latest Match and Notification evidence are shown below."
 
 
+def _watch_display(row: dict) -> dict:
+    """Separate the Watch's schedule from recorded delivery evidence and setup issues."""
+    now = datetime.now(timezone.utc)
+    if row.get("expires_at") and row["expires_at"] <= now:
+        lifecycle = ("Expired", "inactive-status", "The Watch reached its end time.")
+    elif not row.get("active"):
+        lifecycle = ("Paused", "inactive-status", "The Watch is paused.")
+    elif row.get("starts_at") and row["starts_at"] > now:
+        lifecycle = ("Scheduled", "waiting", "The Watch will begin at its scheduled start time.")
+    else:
+        lifecycle = ("On", "active", "The Watch is enabled and within its scheduled time window.")
+
+    issues = []
+    if row.get("nearby_enabled") and not row.get("spatial_target_type"):
+        issues.append("Saved Location missing. Edit this Watch and choose the Location again.")
+    if _safe_int(row.get("active_recipient_count")) == 0:
+        issues.append("No active Recipient. Matches can be recorded, but Notifications need a Recipient.")
+
+    status = str(row.get("last_delivery_status") or "").upper()
+    last_match, last_delivery = row.get("last_match_at"), row.get("last_delivery_at")
+    if status == "PENDING":
+        delivery = ("Queued", "waiting", "The latest delivery record is pending.")
+    elif last_match and (not last_delivery or last_match > last_delivery):
+        delivery = ("No delivery recorded", "warning", "No delivery event is recorded at or after the latest Match. This does not confirm a queued Notification.")
+    elif status == "FAILED":
+        delivery = ("Failed", "error", "The latest recorded Notification failed. Review delivery history.")
+    elif status == "SUPPRESSED":
+        delivery = ("Repeat held", "waiting", "Delivery Guard held the latest recorded repeat or duplicate Notification.")
+    elif status == "SENT":
+        delivery = ("Sent", "active", "The latest delivery record is marked sent.")
+    elif last_delivery:
+        delivery = ("Delivery recorded", "waiting", "A delivery event is recorded. Review delivery history for its result.")
+    else:
+        delivery = ("No matches yet", "inactive-status", "No stored Match or delivery is recorded for this Watch.")
+    return {
+        "lifecycle_label": lifecycle[0], "lifecycle_class": lifecycle[1], "lifecycle_reason": lifecycle[2],
+        "delivery_label": delivery[0], "delivery_class": delivery[1], "delivery_reason": delivery[2],
+        "setup_issues": issues,
+    }
+
+
 def _saved_watch_preview_url(row: dict) -> str:
     """Preview the complete saved rule, including its area and multiple filters."""
     return "/watch-preview?" + urlencode({"watch_item_id": str(row["id"]), "window": "all"})
@@ -1094,7 +1135,7 @@ def watch_lab_evaluate(
           e.stored_alert_geom IS NOT NULL AND e.supplied_geom IS NOT NULL AS supplied_point_ignored,
           e.id::text AS watch_item_uuid,e.watch_id,e.active,e.watch_type,e.display_name,
           e.search_term,e.aliases,e.match_mode,e.match_field,e.min_priority,e.address,
-          e.municipality,e.source_filter,e.alert_category_filter,e.starts_at,e.expires_at,
+          e.municipality,e.county,e.state,e.source_filter,e.alert_category_filter,e.starts_at,e.expires_at,
           e.nearby_enabled,e.radius_ft,e.spatial_scope,
           e.effective_alert_geom IS NOT NULL AS alert_geometry_ready,
           coalesce(e.spatial_target_geom,e.geom) IS NOT NULL AND e.spatial_geom IS NOT NULL
@@ -1480,14 +1521,12 @@ def spatial_watchlist(
     )
     for row in all_items:
         row["state_label"], row["state_class"], row["state_reason"] = _watch_state(row)
+        row.update(_watch_display(row))
         row["state_display"] = row["state_label"]
         if row["state_label"] == "Watching":
             row["state_display"] = "Scheduled" if row["state_class"] == "waiting" else "On"
         elif row["state_label"] == "Matching":
-            row["state_display"] = (
-                "Repeat held" if str(row.get("last_delivery_status") or "").upper() == "SUPPRESSED"
-                else "Notification pending"
-            )
+            row["state_display"] = row["delivery_label"]
         row["starts_local"] = _local_value(row.get("starts_at"))
         row["expires_local"] = _local_value(row.get("expires_at"))
         row["duration"] = "CUSTOM" if row.get("expires_at") else "PERMANENT"

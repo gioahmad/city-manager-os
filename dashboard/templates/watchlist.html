@@ -180,7 +180,7 @@
   <a href="/watchlist?state=delivery_problem"><strong>{{ counts.delivery_problem or 0 }}</strong><span>Delivery issue</span></a>
   <a href="/watchlist?state=paused"><strong>{{ counts.paused or 0 }}</strong><span>Paused</span></a>
 </nav>
-<p class="hint watch-status-help">On means checking new activity. Matches are alerts already caught; Preview History shows what the current rule would have caught.</p>
+<p class="hint watch-status-help">Watch status shows whether the rule is on. Notification status is shown separately. Matches are alerts already caught; Preview History tests the current rule against older alerts.</p>
 
 <section id="new-watch" class="watch-primary-layout" style="margin-top:16px">
 <details class="panel watch-create-panel" {% if create_open %}open{% endif %}>
@@ -313,7 +313,7 @@
     <form class="watch-filters" method="get" action="/watchlist">
       <input name="q" value="{{ q }}" placeholder="Search Watch name, topic, Location, or group">
       <select name="state">
-        {% for value,label in [('all','All Watches'),('active','On'),('matched','With matches in the last 7 days'),('watching','Ready or scheduled'),('matching','Notification pending or repeat held'),('needs_recipient','Needs recipient'),('delivery_problem','Delivery issue'),('paused','Paused'),('expired','Expired'),('location','Uses a location')] %}
+        {% for value,label in [('all','All Watches'),('active','On'),('matched','With matches in the last 7 days'),('watching','Ready or scheduled'),('matching','Queued, unrecorded, or held'),('needs_recipient','Needs recipient'),('delivery_problem','Delivery issue'),('paused','Paused'),('expired','Expired'),('location','Uses a location')] %}
         <option value="{{ value }}" {% if state == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
@@ -343,31 +343,38 @@
 
     <div class="watch-list">
     {% for w in items %}
-      <article class="watch-card {% if w.state_label in ['Paused','Expired'] %}inactive{% endif %}">
+      {% set source_rule = w.watch_type == 'SOURCE' and not w.nearby_enabled and w.match_mode == 'FIELD' and (w.match_field or '')|lower == 'source' %}
+      {% set edit_sources = w.source_filter or ([w.search_term] + (w.aliases or []) if source_rule else []) %}
+      <article class="watch-card {% if w.lifecycle_label in ['Paused','Expired'] %}inactive{% endif %}">
         <div class="watch-card-summary">
           <div class="watch-summary-main">
             <label class="watch-select"><input type="checkbox" name="watch_item_ids" value="{{ w.id }}" form="watch-bulk-form" data-watch-select aria-label="Select {{ w.display_name }}"></label>
-            <span class="status {{ w.state_class }}" title="{{ w.state_reason }}">{{ w.state_display or w.state_label }}</span>
-            <div>
-              <strong>{{ w.display_name }}</strong>
+            <div class="watch-summary-copy">
+              <strong class="watch-name">{{ w.display_name }}</strong>
               <div class="meta watch-rule-summary">
-                {% if w.source_filter %}<strong>{{ (w.source_filter or [])|join(', ') }}</strong> · {% endif %}
+                {% if edit_sources %}<strong>{{ edit_sources|join(', ') }}</strong> · {% endif %}
                 {% if w.watch_type == 'SOURCE' %}
                   All alerts
                 {% elif w.setup_mode == 'LOCATION' %}
                   {{ 'Any mapped activity' if w.match_selection == 'ANY' else 'Activity' }} in {{ w.location_label }}
                 {% elif w.setup_mode == 'LOCATION_TOPIC' %}
-                  “{{ w.search_term }}” in {{ w.location_label }}
+                  “{{ w.search_term }}”{% if w.aliases %} + {{ w.aliases|length }} more term{{ '' if w.aliases|length == 1 else 's' }}{% endif %} in {{ w.location_label }}
                 {% else %}
-                  “{{ w.search_term }}” anywhere
+                  “{{ w.search_term }}”{% if w.aliases %} + {{ w.aliases|length }} more term{{ '' if w.aliases|length == 1 else 's' }}{% endif %} anywhere
                 {% endif %}
-                {% if w.setup_mode != 'TOPIC' and w.distance_label and w.watch_type not in ['TOWN','COUNTY'] %} · {{ w.distance_label }}{% endif %}
+                {% if w.setup_mode != 'TOPIC' and w.distance_label and w.location_kind not in ['MUNICIPALITY','COUNTY'] %} · {{ w.distance_label }}{% endif %}
                 {% if w.alert_category_filter %} · {{ w.alert_category_filter|join(', ') }}{% endif %}
                 {% if w.min_priority > 1 %} · P{{ w.min_priority }}+{% endif %}
               </div>
             </div>
           </div>
+          <span class="status {{ w.lifecycle_class }}" data-watch-lifecycle title="{{ w.lifecycle_reason }}">{{ w.lifecycle_label }}</span>
         </div>
+        <div class="watch-notification-line">
+          <span>Notification</span>
+          <span class="status {{ w.delivery_class }}" data-watch-delivery title="{{ w.delivery_reason }}">{{ w.delivery_label }}</span>
+        </div>
+        {% if w.setup_issues %}<p class="watch-setup-issues">{{ w.setup_issues|join(' · ') }}</p>{% endif %}
         <div class="watch-compact-evidence">
           <span><strong>{{ w.matches_7d or 0 }}</strong> matches · 7 days</span>
           <span><strong>{{ w.sent_7d or 0 }}</strong> sent · 7 days</span>
@@ -377,19 +384,17 @@
 
         <details class="watch-card-more">
           <summary>Details</summary>
-          <div class="watch-state-explanation"><strong>Why this status:</strong> {{ w.state_reason }}</div>
+          <div class="watch-state-explanation"><strong>Watch:</strong> {{ w.lifecycle_reason }}<br><strong>Notification:</strong> {{ w.delivery_reason }}</div>
           <div class="watch-last-evidence">
             {% if w.parent_group %}<span><strong>Group:</strong> {{ w.parent_group }}</span>{% endif %}
+            {% if not source_rule and w.setup_mode != 'LOCATION' %}<span><strong>Words or phrases:</strong> {{ ([w.search_term] + (w.aliases or []))|join(' · ') }}</span>{% endif %}
             {% if w.last_match_at %}<span><strong>Latest Match:</strong> {{ w.last_match_at.strftime('%m/%d/%Y %I:%M %p') }}{% if w.last_match_title %} · {{ w.last_match_title }}{% endif %}</span>{% else %}<span><strong>Latest Match:</strong> none yet</span>{% endif %}
             {% if w.last_delivery_at %}<span><strong>Latest Notification:</strong> {{ w.last_delivery_status|title }} · {{ w.last_delivery_at.strftime('%m/%d/%Y %I:%M %p') }}</span>{% else %}<span><strong>Latest Notification:</strong> none yet</span>{% endif %}
             <span><strong>Recipients:</strong> {{ (w.recipient_names or [])|join(', ') if w.recipient_names else 'None selected' }}</span>
-            {% if w.parent_group %}<span><strong>Group:</strong> {{ w.parent_group }}</span>{% endif %}
           </div>
         </details>
 
         {% if focus_id and w.id == focus_id %}
-        {% set source_rule = w.watch_type == 'SOURCE' and not w.nearby_enabled and w.match_mode == 'FIELD' and (w.match_field or '')|lower == 'source' %}
-        {% set edit_sources = w.source_filter or ([w.search_term] + (w.aliases or []) if source_rule else []) %}
         <details id="edit-watch" class="watch-edit-panel" open>
           <summary>Edit Watch</summary>
           <form method="post" action="/watchlist/{{ w.id }}/update" class="watch-form compact simple-watch-form" data-simple-watch-form>
@@ -619,7 +624,7 @@
       <label>Saved Watch
         <select name="watch_item_id" required>
           <option value="">Choose a Watch</option>
-          {% for w in watch_lab_items %}<option value="{{ w.id }}">{{ w.display_name }} · {{ w.state_label }}</option>{% endfor %}
+          {% for w in watch_lab_items %}<option value="{{ w.id }}">{{ w.display_name }} · {{ w.lifecycle_label }}</option>{% endfor %}
         </select>
       </label>
       <label>Alert ID
@@ -649,6 +654,9 @@
         <a class="secondary-button" data-watch-lab-alert-link href="/alerts?window=all">Open Alert History</a>
         <a class="secondary-button" href="/map" data-cmos-quicklook data-cmos-title="Mapping Center">Open Mapping Center</a>
       </div>
+      <label data-watch-lab-copy-fallback hidden>Automatic copy is unavailable. Copy the selected receipt below.
+        <textarea readonly rows="8" aria-label="Diagnostic receipt"></textarea>
+      </label>
     </div>
   </div>
 </details>
@@ -777,7 +785,7 @@
 <footer><span>City Manager OS</span><span>One Watch system · one Notification path</span></footer>
 </main>
 
-<script src="/static/watch_matcher.js?v=5"></script>
+<script src="/static/watch_matcher.js?v=6"></script>
 <script>
 (() => {
   const setMessage = (element, message, isError = false) => {
@@ -821,6 +829,7 @@
     const gates = resultPanel?.querySelector('[data-watch-lab-gates]');
     const evidence = resultPanel?.querySelector('[data-watch-lab-evidence]');
     const copyButton = resultPanel?.querySelector('[data-watch-lab-copy]');
+    const copyFallback = resultPanel?.querySelector('[data-watch-lab-copy-fallback]');
     const alertLink = resultPanel?.querySelector('[data-watch-lab-alert-link]');
     let receipt = '';
 
@@ -851,13 +860,14 @@
       facts.replaceChildren();
       gates.replaceChildren();
       evidence.replaceChildren();
+      copyFallback.hidden = true;
       receipt = '';
       try {
         const response = await fetch('/api/watch-lab/evaluate', {
           method: 'POST',
           body: new FormData(watchLabForm)
         });
-        const payload = await response.json();
+        const payload = await window.CMOS.readJsonResponse(response);
         if (!response.ok || !payload.ok) throw new Error(payload.message || 'Watch Lab request failed');
         if (!window.CmosWatchMatcher) throw new Error('Shared Watch matcher did not load');
         const decision = window.CmosWatchMatcher.evaluateWatch(payload.alert, payload.watch);
@@ -924,9 +934,17 @@
 
     copyButton?.addEventListener('click', async () => {
       if (!receipt) return;
-      await navigator.clipboard.writeText(receipt);
-      copyButton.textContent = 'Diagnostic Copied';
-      setTimeout(() => { copyButton.textContent = 'Copy Diagnostic Receipt'; }, 1800);
+      try {
+        await navigator.clipboard.writeText(receipt);
+        copyButton.textContent = 'Diagnostic Copied';
+        setTimeout(() => { copyButton.textContent = 'Copy Diagnostic Receipt'; }, 1800);
+      } catch {
+        copyFallback.hidden = false;
+        const field = copyFallback.querySelector('textarea');
+        field.value = receipt;
+        field.focus();
+        field.select();
+      }
     });
   }
 
@@ -1258,14 +1276,13 @@
         controller = new AbortController();
         try {
           const response = await fetch(`/api/watch-locations/search?${params}`, {signal: controller.signal});
-          if (!response.ok) throw new Error('search');
-          const data = await response.json();
+          const data = await window.CMOS.readJsonResponse(response);
           if (current !== generation) return;
           setMessage(message, '');
           render(data.items || []);
         } catch (error) {
           if (current !== generation || error.name === 'AbortError') return;
-          setMessage(message, 'Location search is temporarily unavailable. Try again shortly.', true);
+          setMessage(message, error.message || 'Location search is temporarily unavailable. Try again shortly.', true);
         }
       }, 250);
     };
@@ -1299,7 +1316,7 @@
       setMessage(message, 'Verifying address…');
       try {
         const response = await fetch('/api/watch-locations/resolve', {method: 'POST', body});
-        const data = await response.json();
+        const data = await window.CMOS.readJsonResponse(response);
         if (current !== generation) return;
         if (!response.ok || !data.ok) throw new Error(data.message || 'Address was not found.');
         choose(data.location);
@@ -1326,7 +1343,7 @@
       setMessage(result, 'Sending test…');
       try {
         const response = await fetch('/api/watchlist/test-notification', {method: 'POST', body});
-        const data = await response.json();
+        const data = await window.CMOS.readJsonResponse(response);
         if (!response.ok || !data.ok) throw new Error(data.message || 'Test failed.');
         setMessage(result, data.message);
       } catch (error) {

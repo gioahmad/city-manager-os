@@ -67,10 +67,29 @@ def test_search_template_compiles_and_has_friendly_failure_state():
     assert "Enter at least two characters to search." in source
 
 
-def test_map_startup_avoids_full_extent_and_eager_flood_load():
+def test_map_startup_avoids_full_extent_and_eager_flood_load(monkeypatch):
+    monkeypatch.chdir(DASHBOARD_ROOT)
+    monkeypatch.setenv("DB_PASSWORD", "test")
+    import map_app
+
+    queries = []
+
+    def query(sql, params=()):
+        queries.append(sql)
+        assert "gis_parcels" not in sql.lower()
+        assert "st_extent" not in sql.lower()
+        return []
+
+    monkeypatch.setattr(map_app, "query_all", query)
+    monkeypatch.setattr(map_app, "query_one", query)
+    monkeypatch.setattr(map_app.templates, "TemplateResponse", lambda **kwargs: kwargs)
+    response = map_app.mapping_center(object())
+    assert queries
+    assert response["name"] == "map.html"
+    assert response["context"]["local_bounds"] is None
+
     source = (DASHBOARD_ROOT / "map_app.py").read_text()
     template = (DASHBOARD_ROOT / "templates/map.html").read_text()
-    assert "ST_EstimatedExtent('public','gis_parcels','geom')" in source
     assert '"key": "flood"' in source
     flood_line = next(line for line in source.splitlines() if '"key": "flood"' in line)
     assert '"default_visible": False' in flood_line

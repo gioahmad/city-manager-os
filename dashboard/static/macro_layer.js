@@ -8,7 +8,7 @@
 
   const quickActions=[
     ['＋','New Work','Create a new accountable work item','/issues#new-work'],
-    ['◎','New Watch','Create a topic, location, or spatial Watch','/watchlist#new-watch'],
+    ['◎','New Watch','Create a topic, location, or spatial Watch','/watchlist?create=1#new-watch'],
     ['⌖','Open Map','Open the full Mapping Center','/map'],
     ['▣','Quick Capture','Capture something now and organize it later','#quick-capture'],
     ['⌕','Search Records','Search across alerts, work, places, people, events and sources','/search']
@@ -114,7 +114,7 @@
     }
     if(lower.startsWith('watch ')){
       const term=q.slice(6).trim();
-      return {url:'/watchlist?'+new URLSearchParams({setup_mode:'TOPIC',search_term:term,display_name:term}),title:'New Watch'};
+      return {url:'/watchlist?'+new URLSearchParams({create:'1',setup_mode:'TOPIC',search_term:term,display_name:term})+'#new-watch',title:'New Watch'};
     }
     if(toolAvailable('/map')&&(customHours||/\b(map|show|near|around)\b/.test(lower))){
       const term=stripTime(q);
@@ -221,8 +221,23 @@
     if(!row||event.target.closest('a,button,input,select,textarea,summary,[contenteditable]'))return;
     event.preventDefault();navigatePage(row.dataset.cmosContext,row.dataset.cmosTitle);
   });
+  async function readJsonResponse(response){
+    const body=await response.text();
+    const html=(response.headers.get('content-type')||'').includes('text/html')||/^\s*</.test(body);
+    const login=response.redirected&&new URL(response.url,location.href).pathname==='/login';
+    if(login||(html&&response.ok))throw new Error('Refresh the page and sign in again, then retry.');
+    let data;
+    try{data=JSON.parse(body);}catch{}
+    if(!response.ok){
+      const detail=data?.message||data?.detail;
+      const message=typeof detail==='string'?detail:Array.isArray(detail)?detail.map(item=>item.msg).filter(Boolean).join('; '):'';
+      throw new Error(message||(!html&&body.trim())||'Request failed (HTTP '+response.status+').');
+    }
+    if(data===undefined)throw new Error('The server returned an unexpected response. Refresh the page and try again.');
+    return data;
+  }
   // Legacy data-cmos-quicklook anchors are metadata only, never intercepted.
-  window.CMOS={openSidecar,openCommand,navigatePage};
+  window.CMOS={openSidecar,openCommand,navigatePage,readJsonResponse};
 
   // Reorganize inherited module layouts around the user's primary task.
   // Existing forms, routes, controls and data stay untouched; only presentation order changes.
@@ -358,11 +373,14 @@
     }
   }
   if(location.pathname==='/watchlist'&&location.hash==='#new-watch'){
-    setTimeout(()=>{
-      const input=document.querySelector('.watch-layout input[name="display_name"]');
-      input?.scrollIntoView({behavior:'smooth',block:'center'});
-      input?.focus();
-    },80);
+    const capture=document.querySelector('#new-watch .watch-create-panel');
+    if(capture){
+      capture.open=true;
+      setTimeout(()=>{
+        capture.scrollIntoView({behavior:'smooth',block:'start'});
+        (capture.querySelector('[name="search_term"]:not(:disabled)')||capture.querySelector('[data-source-picker] summary'))?.focus();
+      },80);
+    }
   }
 })();
 

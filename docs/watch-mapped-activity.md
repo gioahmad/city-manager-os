@@ -18,9 +18,13 @@ of sources, or choose **All sources** to remove the source restriction, includin
 for sources added later. The dropdown retains saved or prefilled source choices.
 
 Saved Watch cards always offer **Edit**, **Matches**, **Preview History**, and
-**Manage**. **On** means the Watch is enabled for current activity; the separate
-**With matches · 7 days** count shows Watches with actual recent matches. Cards
-show **Scheduled**, **Notification pending**, or **Repeat held** when applicable.
+**Manage**. Each card separates Watch status (**On**, **Paused**, **Scheduled**, or
+**Expired**) from the latest recorded notification status. **Queued** requires an
+actual pending delivery record; a newer match without a delivery shows **No delivery
+recorded**. **Sent**, **Failed**, and **Repeat held** describe recorded delivery
+results. Missing locations or recipients remain visible as setup issues. The
+separate **With matches · 7 days** count shows Watches with actual recent matches.
+**Details** expands the rule, recipients, status explanations, and latest evidence.
 Matches shows recorded matches; Preview History tests the current rule against
 stored alerts even if those alerts predate the Watch.
 

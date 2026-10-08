@@ -33,6 +33,7 @@ def test_watch_lab_endpoint_is_read_only_and_uses_canonical_spatial_matcher():
     assert "a.tags AS alert_tags" in endpoint
     assert "e.alert_category AS category" in endpoint
     assert "e.alert_tags AS tags" in endpoint
+    assert "e.municipality,e.county,e.state,e.source_filter" in endpoint
     assert "stored_alert_geom IS NOT NULL THEN" in endpoint
     assert "WHEN p.supplied_geom IS NOT NULL THEN" in endpoint
     assert "WHEN p.resolver_status='RESOLVED'" in endpoint
@@ -51,7 +52,7 @@ def test_watch_lab_ui_states_safety_and_loads_shared_matcher():
     assert "never creates an alert, Match, delivery, or Notification" in template
     assert 'value="WATCH_CENTER"' in template
     assert 'value="CUSTOM"' in template
-    assert '<script src="/static/watch_matcher.js?v=5"></script>' in template
+    assert '<script src="/static/watch_matcher.js?v=6"></script>' in template
     assert "window.CmosWatchMatcher.evaluateWatch" in template
     assert "Copy Diagnostic Receipt" in template
 
@@ -116,6 +117,24 @@ const both = matcher.evaluateWatch(alert, {
 if (!both.matched || both.match_type !== 'LOCATION_TOPIC') throw new Error('Location plus topic did not require both');
 const missingLocation = matcher.evaluateWatch(alert, {...spatial, watch_type: 'LOCATION_TOPIC', spatial_match_type: null});
 if (missingLocation.matched) throw new Error('Location plus topic matched outside its Location');
+const countyTopic = {...spatial, watch_type: 'LOCATION_TOPIC', nearby_enabled: false,
+  spatial_match_type: null, county: 'Hudson', state: 'NJ', search_term: 'UTILITY EVENT',
+  alert_geometry_ready: false, watch_target_ready: false};
+const countyAlert = {...alert, county: 'Hudson'};
+for (const rule of [countyTopic, {...countyTopic, watch_type: 'COUNTY'},
+                   {...countyTopic, municipality: 'RIDGEWOOD'},
+                   {...countyTopic, watch_type: 'TOWN', municipality: 'RIDGEWOOD'}]) {
+  const decision = matcher.evaluateWatch(countyAlert, rule);
+  if (!decision.matched || !decision.notification_ready
+      || decision.gates.filter(g => ['alert_geometry', 'watch_target'].includes(g.key))
+          .some(g => g.status !== 'NOT_APPLICABLE')) {
+    throw new Error('County/town Watch should match and route without geometry failures');
+  }
+}
+if (matcher.evaluateWatch({...countyAlert, county: 'Bergen'}, countyTopic).matched
+    || matcher.evaluateWatch(countyAlert, {...countyTopic, search_term: 'ROAD CLOSURE'}).matched) {
+  throw new Error('County plus topic Watch did not require both county and topic');
+}
 console.log('WATCH_MATCHER_CONTRACT=PASS');
 """
     completed = subprocess.run(

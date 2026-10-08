@@ -162,30 +162,6 @@ def _store_imported_features(layer_id: uuid.UUID, features: list[dict], *, repla
 
 @app.get("/map", response_class=HTMLResponse)
 def mapping_center(request: Request, msg: str = ""):
-    bounds = query_one(
-        """
-        WITH e AS (
-          SELECT coalesce(
-            ST_EstimatedExtent('public','gis_parcels','geom'),
-            (SELECT ST_Extent(geom) FROM gis_parcels WHERE geom IS NOT NULL)
-          ) AS b
-        )
-        SELECT ST_XMin(b) AS minx,ST_YMin(b) AS miny,ST_XMax(b) AS maxx,ST_YMax(b) AS maxy
-        FROM e WHERE b IS NOT NULL
-        """
-    )
-    local_bounds = query_one(
-        """
-        SELECT ST_XMin(b) AS minx,ST_YMin(b) AS miny,ST_XMax(b) AS maxx,ST_YMax(b) AS maxy
-        FROM (
-          SELECT ST_Extent(geom) AS b
-          FROM gis_parcels
-          WHERE geom IS NOT NULL
-            AND position('WEEHAWKEN' in upper(coalesce(mun_name,'')))=1
-        ) x
-        WHERE b IS NOT NULL
-        """
-    )
     custom_layers = query_all(
         """
         SELECT l.id,l.layer_key,l.name,l.layer_type,l.source_url,l.attribution,
@@ -216,8 +192,8 @@ def mapping_center(request: Request, msg: str = ""):
         context={
             "page": "map",
             "msg": msg,
-            "bounds": bounds,
-            "local_bounds": local_bounds,
+            # Use the template's Weehawken home view without scanning parcel geometry.
+            "local_bounds": None,
             "system_layers": SYSTEM_LAYERS,
             "custom_layers": custom_layers,
             "editable_layers": editable_layers,

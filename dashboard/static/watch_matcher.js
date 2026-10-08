@@ -291,7 +291,7 @@
     const explicitAlertGeometry = watch.alert_geometry_ready;
     const explicitWatchTarget = watch.watch_target_ready;
 
-    if (nearby || locationPlusTopic) {
+    if (nearby) {
       gates.push(gate(
         'alert_geometry',
         'Effective alert point',

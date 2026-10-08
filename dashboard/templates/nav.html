@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="/static/product.css?v=20261003-1">
 <link rel="stylesheet" href="/static/macro_layer.css?v=9a3041fa85ca">
 <script src="/static/appearance.js?v=20261003-1" defer></script>
-<script src="/static/macro_layer.js?v=9f4dc724b81c" defer></script>
+<script src="/static/macro_layer.js?v=4fc81a8e181b" defer></script>
 <style>
 /* Inactive controls must not be exposed by module grid/layout rules. */
 .bulk-action-toolbar [hidden], .alert-global-search [hidden] { display: none !important; }
@@ -57,7 +57,7 @@
 {% if 'mapping' not in disabled_modules %}
       <a href="/map" class="{% if p.startswith('/map') or p.startswith('/flood') %}active{% endif %}"><span>⌖</span>Mapping</a>
 {% endif %}
-      <a href="/watchlist" class="{% if p.startswith('/watchlist') %}active{% endif %}"><span>◎</span>Watches</a>
+      <a href="/watchlist" class="{% if p.startswith('/watchlist') or p.startswith('/watch-preview') %}active{% endif %}"><span>◎</span>Watches</a>
 {% if 'event_intelligence' not in disabled_modules %}
       <a href="/event-intelligence" class="{% if p.startswith('/event-intelligence') %}active{% endif %}"><span>≋</span>Event Intelligence</a>
 {% endif %}

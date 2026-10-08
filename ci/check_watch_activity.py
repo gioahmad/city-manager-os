@@ -36,7 +36,7 @@ with core.db_conn() as c:
 import spatial_watch_app as spatial
 import map_app
 for route in core.app.routes:
-    if getattr(route, 'path', '') in {'/watchlist','/watch-preview','/map'} or getattr(route, 'path', '').startswith('/watchlist/'):
+    if getattr(route, 'path', '') in {'/watchlist','/watch-preview','/map','/api/watch-lab/evaluate'} or getattr(route, 'path', '').startswith('/watchlist/'):
         application.router.routes.append(route)
 client = TestClient(application, base_url='https://fixture.example.com')
 client.cookies.set(auth.COOKIE_NAME, cookie)
@@ -335,6 +335,47 @@ with core.db_conn() as c:
     c.execute("DELETE FROM alerts WHERE source='CI_HISTORY_SCALE'")
 print('HISTORY SCALE PASS: every one of 25,001 older alerts counted; pages 1/2/251 give distinct 100/100/1 results; no Watch/Match/delivery writes')
 
+# These isolated records distinguish enabled Watches from delivery evidence; no sender runs.
+status_alert = sql('''INSERT INTO alerts(alert_id,source,category,subtype,status,event_action,title,
+    message,priority,county) VALUES(%s,'BNN','INCIDENT','TEST','ACTIVE','NEW','Working fire','',4,'Hudson')
+    RETURNING id,alert_id''', ('CI_STATUS:'+str(uuid4()),))[0]
+status_watches = {}
+for delivery_label in ('No delivery recorded','Queued'):
+    status_name = 'CI delivery status '+str(uuid4())
+    post('/watchlist/create', {'display_name':status_name,'setup_mode':'LOCATION_TOPIC',
+        'search_term':'working fire','location_scope':'COUNTY','location_kind':'COUNTY',
+        'location_id':'Hudson','subscriber_ids':str(subscribers[0])})
+    status_watch = sql('SELECT * FROM watch_items WHERE display_name=%s',(status_name,))[0]
+    status_watches[delivery_label] = status_watch
+    sql('''INSERT INTO alert_watch_matches(alert_id,watch_item_id,match_type,match_reason)
+        VALUES(%s,%s,'LOCATION_TOPIC','CI status evidence') RETURNING id''',
+        (status_alert['id'],status_watch['id']))
+    if delivery_label == 'Queued':
+        sql('''INSERT INTO deliveries(delivery_key,alert_id,subscriber_id,ntfy_topic,status,matched_watch_ids)
+            VALUES(%s,%s,%s,'ci-status-only','PENDING',%s) RETURNING id''',
+            ('CI_STATUS:'+str(uuid4()),status_alert['id'],subscribers[0],Jsonb([status_watch['watch_id']])))
+
+lab_before = history_counts()
+lab_response = client.post('/api/watch-lab/evaluate', data={
+    'watch_item_id':str(status_watches['No delivery recorded']['id']),
+    'alert_id':status_alert['alert_id']}, headers=headers)
+assert lab_response.status_code == 200, (lab_response.status_code,lab_response.text)
+lab = lab_response.json()
+assert (lab['watch']['county'],lab['watch']['state']) == ('Hudson','NJ'), lab
+assert not lab['watch']['nearby_enabled'] and not lab['watch']['watch_target_ready']
+script = """const d=JSON.parse(require('fs').readFileSync(0,'utf8'));
+const m=require(process.argv[1]);
+const decision=m.evaluateWatch(d.alert,d.watch);
+if(!decision.matched)throw Error('Lab county/topic did not match');
+if(decision.gates.filter(g=>['alert_geometry','watch_target'].includes(g.key))
+    .some(g=>g.status!=='NOT_APPLICABLE'))throw Error('Lab county/topic falsely requires geometry');
+if(m.evaluateWatch({...d.alert,county:'Bergen'},d.watch).matched)throw Error('Lab ignored county');
+if(m.evaluateWatch(d.alert,{...d.watch,search_term:'road closure'}).matched)throw Error('Lab ignored topic');"""
+subprocess.run(['node','-e',script,str(ROOT/'dashboard/static/watch_matcher.js')],
+    input=json.dumps(lab),text=True,check=True)
+assert history_counts() == lab_before
+print('WATCH LAB API PASS: real PostgreSQL projection retains county/state; real matcher requires county and topic without geometry; no writes')
+
 # Exercise the actual new form behavior in both supported browser engines.
 import socket
 import threading
@@ -373,6 +414,20 @@ try:
             page = context.new_page()
             errors=[]
             page.on('pageerror',lambda error: errors.append(str(error)))
+            for delivery_label,status_watch in status_watches.items():
+                page.goto(base+'/watchlist?'+urlencode({'q':status_watch['display_name']}))
+                card = page.locator('.watch-card').filter(has_text=status_watch['display_name'])
+                assert card.locator('[data-watch-lifecycle]').inner_text().strip() == 'On'
+                assert card.locator('[data-watch-delivery]').inner_text().strip() == delivery_label
+                details = card.locator('.watch-card-more')
+                assert details.locator('summary').is_visible()
+                details.locator('summary').click()
+                explanation = details.locator('.watch-state-explanation')
+                assert explanation.is_visible()
+                assert 'The Watch is enabled and within its scheduled time window.' in explanation.inner_text()
+                card.screenshot(path=str(ARTIFACTS/(
+                    engine+'-watch-status-'+delivery_label.lower().replace(' ','-')+'.png')))
+            print('WATCH STATUS BROWSER PASS:',engine,'both enabled Watches show On; only an actual PENDING delivery shows Queued; a match alone shows No delivery recorded')
             # Choose multiple sources, save, then edit through the real checkbox UI.
             page.goto(base+'/watchlist?'+urlencode({'create':'1','setup_mode':'TOPIC',
                 'source_filter':'CI_RETIRED_SOURCE'}))

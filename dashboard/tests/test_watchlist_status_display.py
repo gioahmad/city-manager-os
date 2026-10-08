@@ -14,8 +14,8 @@ class WatchlistStatusDisplay(unittest.TestCase):
             ("on", {}, "Watching", "On"),
             ("scheduled", {"starts_at": now + timedelta(days=1)}, "Watching", "Scheduled"),
             ("held", {"last_delivery_status": "SUPPRESSED", "matches_7d": 1}, "Matching", "Repeat held"),
-            ("pending", {"last_delivery_status": "PENDING", "matches_7d": 1}, "Matching", "Notification pending"),
-            ("new_match", {"last_match_at": matched_at, "matches_7d": 1}, "Matching", "Notification pending"),
+            ("pending", {"last_delivery_status": "PENDING", "matches_7d": 1}, "Matching", "Queued"),
+            ("new_match", {"last_match_at": matched_at, "matches_7d": 1}, "Matching", "No delivery recorded"),
             ("delivered", {"last_match_at": matched_at, "last_delivery_at": now,
                            "last_delivery_status": "SENT", "matches_7d": 1}, "Watching", "On"),
             ("failed", {"last_delivery_status": "FAILED", "matches_7d": 1}, "Delivery Problem", "Delivery Problem"),
@@ -33,7 +33,7 @@ class WatchlistStatusDisplay(unittest.TestCase):
 
         # Load the real read-only handler without FastAPI or a database service.
         path = Path(__file__).resolve().parents[1] / "spatial_watch_app.py"
-        names = {"_safe_int", "_distance_label", "_local_value", "_watch_state",
+        names = {"_safe_int", "_distance_label", "_local_value", "_watch_state", "_watch_display",
                  "_saved_watch_preview_url", "spatial_watchlist"}
         nodes = [node for node in ast.parse(path.read_text()).body
                  if isinstance(node, ast.FunctionDef) and node.name in names]
@@ -60,6 +60,26 @@ class WatchlistStatusDisplay(unittest.TestCase):
         self.assertEqual(page["counts"]["matched"], 8)
         self.assertEqual(page["counts"]["watching"], 3)
         self.assertEqual(page["counts"]["matching"], 3)
+        by_id = {row["id"]: row for row in page["items"]}
+        for key in ("on", "held", "pending", "new_match", "delivered", "failed", "unrouted"):
+            self.assertEqual(by_id[key]["lifecycle_label"], "On")
+        for key, label in (("scheduled", "Scheduled"), ("paused", "Paused"), ("expired", "Expired")):
+            self.assertEqual(by_id[key]["lifecycle_label"], label)
+        for key, label in (("on", "No matches yet"), ("held", "Repeat held"), ("pending", "Queued"),
+                           ("new_match", "No delivery recorded"), ("delivered", "Sent"), ("failed", "Failed")):
+            self.assertEqual(by_id[key]["delivery_label"], label)
+        self.assertTrue(by_id["unrouted"]["setup_issues"])
+        self.assertFalse(by_id["delivered"]["setup_issues"])
+        display = namespace["_watch_display"]
+        for previous_status in (None, "SENT", "FAILED", "SUPPRESSED"):
+            value = display({"active": True, "active_recipient_count": 1,
+                             "last_match_at": now, "last_delivery_at": matched_at,
+                             "last_delivery_status": previous_status})
+            self.assertEqual(value["delivery_label"], "No delivery recorded")
+        value = display({"active": True, "starts_at": now + timedelta(days=1),
+                         "nearby_enabled": True, "active_recipient_count": 0})
+        self.assertEqual(value["lifecycle_label"], "Scheduled")
+        self.assertEqual(len(value["setup_issues"]), 2)
         for state, expected in {
             "active": {"on", "held", "pending", "new_match", "delivered", "failed", "unrouted"},
             "matched": {"held", "pending", "new_match", "delivered", "failed", "unrouted", "paused", "expired"},
