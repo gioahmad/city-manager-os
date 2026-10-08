@@ -9,11 +9,17 @@ from threading import Thread
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlencode, urlsplit
 import json
+import os
+import sys
 from jinja2 import ChoiceLoader, DictLoader, Environment, FileSystemLoader
 from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD = ROOT/'dashboard'
+sys.path.insert(0,str(DASHBOARD))
+os.chdir(DASHBOARD)
+from alert_appearance import APPEARANCE_DEFAULTS, APPEARANCE_FIELDS
+
 ARTIFACTS = ROOT/'browser-check-results'
 ARTIFACTS.mkdir(exist_ok=True)
 env = Environment(loader=ChoiceLoader([
@@ -30,15 +36,24 @@ def alerts_context(query):
         rows.append(dict(alert_uuid=uid,alert_id=f'FIXTURE:{i}',title=f'Synthetic alert {i+1}',message='Fixture only',
             source='BNN',category='OTHER',subtype='TEST',priority=2,status='ACTIVE',municipality='Weehawken',
             county='Hudson',activity_at=None,received_at=None,activity_local_value='2026-10-05T12:00',
-            received_local_value='2026-10-05T12:01',watch_evidence=[],keyword_choices=[],
+            received_local_value='2026-10-05T12:01',watch_evidence=[],keyword_choices=[],metadata={},
             map_latitude=None,map_longitude=None,map_url='/map',map_status='Location not mapped',
             location_label='Fixture',watch_from_alert_url='',track_alert_url='',share_url='',click_url=''))
+    for row in rows:
+        row['appearance_payload'] = {key:row[key] for key in
+            ('source','title','message','click_url','metadata','watch_evidence')}
+    appearance_sources = ['BNN','PSEG']
     return dict(**filters,alerts=rows,counties=[dict(county='Hudson',total=2),dict(county='Bergen',total=1)],
         municipalities=[dict(municipality='Weehawken',county='Hudson',total=1),dict(municipality='Union City',county='Hudson',total=1),dict(municipality='Hackensack',county='Bergen',total=1)],
         sources=[dict(source='BNN',total=2)],categories=[dict(category='OTHER',total=2)],
         counts=dict(total=2,active=2,resolved=0),result_total=2,current_page=1,total_pages=2,
         previous_url='',next_url='/alerts?'+urlencode({**filters,'page':2}),current_url='/alerts?'+urlencode(filters),
         msg='',error='',can_delete_alerts=True,can_correct_alert_locations=True,can_correct_alert_times=True,
+        appearance_sources=appearance_sources,appearance_selected_source=filters['source'] if filters['source'] in appearance_sources else 'PSEG',
+        appearance_fields=APPEARANCE_FIELDS,appearance_defaults=APPEARANCE_DEFAULTS,
+        appearance_settings={source:{channel:dict(APPEARANCE_DEFAULTS) for channel in ('dashboard','notification')} for source in appearance_sources},
+        appearance_samples={'BNN':{**rows[0]['appearance_payload'],'id':rows[0]['alert_uuid'],'alert_id':rows[0]['alert_id'],'received_at':None}},
+        appearance_can_edit=True,
         request=SimpleNamespace(url=SimpleNamespace(path='/alerts'),query_params=query),page='alerts')
 
 def intake_fixture():

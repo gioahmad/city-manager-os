@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from geo_resolver import resolve_payload
 from pseg_engine import (
     HUDSON_TOWNS,
@@ -10,6 +12,7 @@ from pseg_engine import (
     _save_state,
     _upsert_alert,
     build_hudson_alert,
+    build_map_alert,
     build_statewide_alert,
     decode_polyline,
     hudson_quadkeys,
@@ -136,6 +139,63 @@ def test_alert_copy_is_explicitly_approximate_and_not_customer_specific():
     assert alert["metadata"]["mapping_center_url"] == "https://private.example/map"
     assert alert["metadata"]["earliest_current_outage"] == record["started_at"]
     assert alert["metadata"]["_cmos"]["route_pending"] is True
+    sections = alert["metadata"]["content_sections"]
+    assert [section["key"] for section in sections] == [
+        "core", "pseg_etr", "pseg_started", "pseg_operations", "pseg_damage",
+        "pseg_change", "pseg_area", "mapping_link",
+    ]
+    assert "".join(section["text"] for section in sections) == alert["message"]
+    assert sections[-2]["text"] == (
+        "\nApproximate outage area: Park Avenue corridor."
+        " Provider map areas are not customer addresses."
+    )
+
+
+@pytest.mark.parametrize("origin", ["", "https://private.example"])
+@pytest.mark.parametrize("scope,active,expected", [
+    ("hudson", True, "12 customers out in Weehawken.\nETR --.\nStarted --."
+     "\nApproximate location: Park Avenue corridor; not customer-specific."),
+    ("hudson", False, "Power restored in Weehawken. 12 customers were out during the previous check."),
+    ("statewide", True, "NJ STATEWIDE - HUDSON COUNTY EXCLUDED\n700 customers out across 1 alert-level municipalities."
+     "\n\nBERGEN\n• Fort Lee: 700 (2.10%)\n\nReason: Threshold Crossing."
+     "\nLocations are approximate municipality areas, never customer-specific."),
+    ("statewide", False, "NJ STATEWIDE - HUDSON COUNTY EXCLUDED\n0 customers out across 0 alert-level municipalities."
+     "\n\nRESTORED\n• BERGEN - Fort Lee\n\nReason: Restoration."
+     "\nLocations are approximate municipality areas, never customer-specific."),
+    ("map", True, "700 customers out. Approximate municipality outage area; not customer-specific."),
+    ("map", False, "This municipality no longer meets the configured statewide threshold. Provider currently reports 0 out."),
+])
+def test_pseg_content_sections_preserve_each_raw_message_and_route(scope, active, expected, origin):
+    now = datetime(2026, 9, 14, 12, tzinfo=timezone.utc)
+    context = {"label": "Park Avenue corridor", "latitude": 40.77, "longitude": -74.02}
+    record = {"county": "BERGEN", "municipality": "FORT LEE",
+              "customers_out": 700 if active else 0, "percent_out": 2.1}
+    with patch.dict("os.environ", {"CMOS_PUBLIC_ORIGIN": origin}):
+        if scope == "hudson":
+            record.update(county="HUDSON", municipality="WEEHAWKEN", customers_out=12 if active else 0)
+            alert = build_hudson_alert(record, {"customers_out": 12}, context, "CYCLE", now)
+        elif scope == "statewide":
+            reason = "THRESHOLD_CROSSING" if active else "RESTORATION"
+            alert = build_statewide_alert([record] if active else [], [(record, reason)], now)
+        else:
+            alert = build_map_alert(record, {"eligible": True}, context, "CYCLE", active, now)
+    if origin:
+        expected += f"\nMapping Center: {origin}/map"
+    sections = alert["metadata"]["content_sections"]
+    assert all(set(section) == {"key", "text"} for section in sections)
+    assert sections[0]["key"] == "core"
+    assert "".join(section["text"] for section in sections) == alert["message"] == expected
+    assert any(section["key"] == "mapping_link" for section in sections) == bool(origin)
+    assert alert["search_text"] == " ".join(value for value in [
+        "PSEG", "UTILITY", "POWER_OUTAGE", alert["title"], expected,
+        alert["county"], alert["municipality"], *alert["tags"],
+    ] if value)
+    assert alert["click_url"] == alert["source_url"] == "https://outagecenter.pseg.com/"
+    assert alert["metadata"]["_cmos"]["route_pending"] is (scope != "map")
+    assert alert["status"] == ("ACTIVE" if active else "RESOLVED")
+    if scope != "statewide":
+        assert alert["location"]["latitude"] == context["latitude"]
+        assert alert["location"]["longitude"] == context["longitude"]
 
 
 def test_statewide_alert_is_compact_grouped_and_hudson_free():

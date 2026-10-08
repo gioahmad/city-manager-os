@@ -5,7 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const VERSION = 'watch-matcher-v4';
+  const VERSION = 'watch-matcher-v5';
 
   function normalize(value) {
     if (value === undefined || value === null) return '';
@@ -42,6 +42,13 @@
 
   function escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function phrasePattern(value) {
+    // Only the digit placeholder is special; every other character remains literal.
+    return String(value).trim().split('\\d')
+      .map((part) => escapeRegExp(normalize(`A${part}Z`).slice(1, -1)))
+      .join('[0-9]');
   }
 
   function enabled(value, fallback) {
@@ -136,9 +143,11 @@
           ? geographyMatch(alert, geographyField, candidate.value)
           : haystack === candidate.normalized;
       }
-      else if (mode === 'CONTAINS') matched = haystack.includes(candidate.normalized);
+      else if (mode === 'CONTAINS') matched = String(candidate.value).includes('\\d')
+        ? new RegExp(phrasePattern(candidate.value)).test(haystack)
+        : haystack.includes(candidate.normalized);
       else if (mode === 'WORD') {
-        matched = new RegExp(`(^|\\s)${escapeRegExp(candidate.normalized)}(?=\\s|$)`).test(haystack);
+        matched = new RegExp(`(^|\\s)${phrasePattern(candidate.value)}(?=\\s|$)`).test(haystack);
       }
       if (matched) {
         return {
@@ -274,10 +283,15 @@
     const countyOnly = !nearby && watchType === 'COUNTY';
     const locationRequired = nearby || locationPlusTopic || municipalityOnly || countyOnly;
     const topicRequired = locationPlusTopic || (!nearby && !municipalityOnly && !countyOnly);
+    const activityOk = !alert.metadata?.mapped_activity_only || locationRequired;
+    if (alert.metadata?.mapped_activity_only) {
+      gates.push(gate('mapped_activity', 'Mapped activity area Watch', activityOk,
+        activityOk ? 'Operational map record evaluated in this Watch area' : 'Mapped activity requires an area Watch'));
+    }
     const explicitAlertGeometry = watch.alert_geometry_ready;
     const explicitWatchTarget = watch.watch_target_ready;
 
-    if (nearby || locationPlusTopic) {
+    if (nearby) {
       gates.push(gate(
         'alert_geometry',
         'Effective alert point',
@@ -342,7 +356,7 @@
       topicRequired ? (topic.matched ? 'PASS' : 'FAIL') : 'NOT_APPLICABLE'
     ));
 
-    const matched = scheduleOk && priorityOk && sourceOk && categoryOk
+    const matched = scheduleOk && priorityOk && sourceOk && categoryOk && activityOk
       && (!locationRequired || locationMatched)
       && (!topicRequired || topic.matched);
     let result = { matched };
@@ -407,3 +421,4 @@
     evaluateWatch
   };
 });
+

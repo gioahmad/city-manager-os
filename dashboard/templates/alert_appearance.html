@@ -1,0 +1,42 @@
+<link rel="stylesheet" href="/static/alert_appearance.css?v=80b8d3a08552">
+<details class="panel alert-appearance" id="alert-appearance">
+  <summary><strong>Alert appearance</strong><span>Choose what appears on alert cards and in notifications, separately for each source.</span></summary>
+  <div class="panel-body">
+    <form method="post" action="/alerts/appearance" data-alert-appearance>
+      <label>Source
+        <select name="source" data-appearance-source>{% for item in appearance_sources %}<option value="{{ item }}" {% if item == appearance_selected_source %}selected{% endif %}>{{ item }}</option>{% endfor %}</select>
+      </label>
+      <p class="hint">These choices apply to everyone using City Manager OS. Stored alert details and Watch matching are preserved.</p>
+      {% if not appearance_can_edit %}<p class="hint">An Executive can save changes. You can preview the saved appearance below.</p>{% endif %}
+      <fieldset {% if not appearance_can_edit %}disabled{% endif %}>
+        <legend class="sr-only">Optional alert content</legend>
+        <div class="appearance-table">
+          <div class="appearance-head"><span>Include</span><strong>Dashboard</strong><strong>Notification</strong></div>
+          {% for key,label,pseg_only in appearance_fields %}
+          <div class="appearance-option" {% if pseg_only %}data-appearance-pseg{% endif %}>
+            <span>{{ label }}</span>
+            {% for channel in ['dashboard','notification'] %}
+            <label><input type="checkbox" name="{{ channel }}.{{ key }}" value="true" data-appearance-channel="{{ channel }}" data-appearance-key="{{ key }}" {% if appearance_settings[appearance_selected_source][channel][key] %}checked{% endif %}><span class="sr-only">{{ label }} in {{ channel }}</span></label>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+        <button class="primary-button" type="submit">Save appearance</button>
+      </fieldset>
+      <p class="hint" data-appearance-status role="status">Preview uses a recent stored alert and sends nothing.</p>
+      <div class="appearance-previews">
+        {% for channel,label in [('dashboard','Dashboard'),('notification','Notification')] %}
+        <section class="appearance-preview">
+          <button class="secondary-button" type="button" data-appearance-preview="{{ channel }}">Preview {{ label|lower }}</button>
+          <p class="hint" data-appearance-sample="{{ channel }}"></p>
+          <strong data-appearance-title="{{ channel }}"></strong>
+          <pre data-appearance-message="{{ channel }}"></pre>
+          <a data-appearance-link="{{ channel }}" target="_blank" rel="noopener noreferrer" hidden>Open original source</a>
+        </section>
+        {% endfor %}
+      </div>
+    </form>
+  </div>
+</details>
+<script type="application/json" id="alert-appearance-data">{{ {'settings':appearance_settings,'samples':appearance_samples,'defaults':appearance_defaults}|tojson }}</script>
+<script src="/static/alert_appearance.js?v=3cf21309a22a" defer></script>

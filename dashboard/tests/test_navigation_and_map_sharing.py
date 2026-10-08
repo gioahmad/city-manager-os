@@ -42,10 +42,11 @@ def test_navigation_is_task_grouped_without_removing_destinations():
         "/source-health",
         "/deliveries",
         "/api-lab",
+        "/modules",
     ):
         assert f'href="{route}"' in nav
 
-    for retired_route in ("/modules", "/rules", "/routing", "/alert-admin"):
+    for retired_route in ("/rules", "/routing", "/alert-admin"):
         assert f'href="{retired_route}"' not in nav
 
     assert ".cmos-rail{" in macro

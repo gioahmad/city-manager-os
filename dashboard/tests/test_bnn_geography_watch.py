@@ -107,3 +107,17 @@ def test_bnn_county_plus_topic_watch_requires_both_conditions():
     wrong_county["match_field"] = "search_text"
     wrong_county["match_mode"] = "CONTAINS"
     assert _evaluate(alert, wrong_county)["matched"] is False
+
+
+def test_source_only_bnn_watch_needs_no_topic():
+    alert = _alert("NJ | Hudson | Jersey City | FIRE | 123 Newark Ave | BNN123")
+    watch = _watch("SOURCE", term="BNN")
+    watch["match_mode"] = "FIELD"
+    watch["match_field"] = "source"
+    result = _evaluate(alert, watch)
+    assert result["matched"] is True
+    assert result["match_field"] == "source"
+
+    other = dict(alert)
+    other["source"] = "PSEG"
+    assert _evaluate(other, watch)["matched"] is False

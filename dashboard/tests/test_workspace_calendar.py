@@ -249,7 +249,7 @@ def test_microsoft_authentication_ui_is_one_guided_flow():
     assert "'client_secret': bool(cfg.get('secret'))" in api
     assert "'encryption_key': bool(cfg.get('key'))" in api
     assert "'redirect_uri': cfg.get('redirect')" in api
-    assert "One Microsoft sign-in enables Email, Contacts, Calendar, Send, Drafts and calendar creation." in ui
+    assert "One Microsoft sign-in enables Email, Contacts, Calendar, Send, Drafts, contact updates and calendar creation." in ui
     assert "Finish Microsoft setup" in ui
     assert "auth==='connected'" in ui and "auth==='cancelled'" in ui and "auth==='failed'" in ui
     assert "Connect Microsoft 365" in template

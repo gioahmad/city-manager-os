@@ -112,7 +112,8 @@ headers={'Cookie':COOKIE_NAME+'='+_issue_session(account)}
 for path in (
     '/','/my-day','/what-changed','/issues','/intake','/workspace?view=today',
     '/workspace/api/hub','/email','/calendar','/important',
-    '/map','/alerts?window=24h','/watchlist','/watch-preview','/subscribers',
+    '/map','/alerts?window=24h','/watchlist','/watch-preview',
+    '/watch-preview?source=BNN&window=1h','/subscribers',
     '/schedule','/event-intelligence','/transit','/spatial-reference',
     '/source-health','/deliveries','/staff-admin','/operations-routines'
 ):
@@ -125,7 +126,7 @@ for path in (
             assert urlsplit(r.geturl()).path!='/login','Unexpected login redirect'
             print(f'PASS {path} {r.status} ({time.monotonic()-started:.2f}s)',flush=True)
     except Exception as exc:
-        print(f'FAIL {path} after {time.monotonic()-started:.2f}s: {type(exc).__name__}',flush=True)
+        print(f'FAIL {path} after {time.monotonic()-started:.2f}s: {type(exc).__name__}: {exc}',flush=True)
         raise
 PY
 

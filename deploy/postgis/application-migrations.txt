@@ -1,0 +1,9 @@
+# Reviewed application-only migrations. Changed SQL must be reviewed again.
+02c755a8e13ca22d03b261faf6ab42230dcd06a4 deploy/postgis/init/036_brain.sql
+b932e9aa770e3dc689fbd26b3758f7af5377b387 deploy/postgis/init/037_workspace.sql
+780a5e41c6724f736473b76c4f0367c2263d15c3 deploy/postgis/init/038_workspace_calendar.sql
+bf42d39524948110f384f4fc0eae7f5ec7f735d0 deploy/postgis/init/039_workspace_inbox.sql
+1c11f06575586d775a79da45ff0c2767f577ef4b deploy/postgis/init/040_executive_intake.sql
+f93f015cd91bfb44388a5016abebc45223e6de04 deploy/postgis/init/041_performance_indexes.sql
+c1e6bba3c5e7c3a564603c4e5e28c4d597be9d50 deploy/postgis/init/042_microsoft_workspace.sql
+25f50453e65ff3fd2b50f288f5c131a6e0111286 deploy/postgis/init/043_outlook_contacts.sql

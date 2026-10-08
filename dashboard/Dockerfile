@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 COPY issues_app.py .
 COPY operations_app.py .
+COPY alert_appearance.py .
 COPY schedule_app.py .
 COPY attention_engine.py .
 COPY waiting_actions_app.py .
@@ -23,7 +24,8 @@ COPY today_board_app.py .
 COPY executive_workflow_app.py .
 COPY brain_app.py .
 COPY workspace_app.py workspace_engine.py workspace_calendar.py workspace_hub.py workspace_ingest.py ./
-COPY context_app.py microsoft_workspace.py ./
+COPY workspace_modules.py .
+COPY context_app.py microsoft_workspace.py microsoft_contacts.py microsoft_mail_photos.py ./
 COPY operations_occurrence_controls.py .
 COPY operations_engine.py .
 COPY flood_app.py .

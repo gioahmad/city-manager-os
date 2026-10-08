@@ -61,24 +61,23 @@ def test_watchlist_has_simple_modes_health_and_friendly_errors():
         "Who should be notified?",
         "Test it",
         "Turn it on",
-        "Watching",
         "Paused",
         "Expired",
-        "Needs Recipient",
-        "Matching",
-        "Delivery Problem",
+        "Needs recipient",
+        "Delivery issue",
     ):
         assert label in template
     assert "1 mile · recommended" in template
     assert "Send Test Notification" in template
     assert "does not create an alert, Match, or Watch" in template
     assert "Verify full address" in template
-    assert "Address, parcel, street, municipality, or saved map area" in template
+    assert "Optional. Leave blank for anywhere" in template
+    assert "How far around this location?" in template
 
 
 def test_normal_watch_setup_hides_technical_nomenclature_until_advanced():
     template = (DASHBOARD_ROOT / "templates/watchlist.html").read_text()
-    normal_setup, advanced = template.split('<details class="advanced-options">', 1)
+    normal_setup = template.split('<article class="panel watch-saved-panel">', 1)[0]
     visible_normal = normal_setup.lower()
     for forbidden in (
         "spatial geometry",
@@ -88,16 +87,19 @@ def test_normal_watch_setup_hides_technical_nomenclature_until_advanced():
         "match mode",
     ):
         assert forbidden not in visible_normal
-    assert "match mode" in advanced.lower()
+    assert 'type="hidden" name="match_mode"' in template
+    assert "technical watch type" not in template.lower()
+    assert ">match mode<" not in template.lower()
 
 
 def test_watch_name_cannot_be_saved_as_an_unknown_alert_filter():
     source = (DASHBOARD_ROOT / "spatial_watch_app.py").read_text()
     template = (DASHBOARD_ROOT / "templates/watchlist.html").read_text()
     assert "def _validate_alert_filters" in source
-    assert source.count("_validate_alert_filters(cur, saved_source_filter, saved_category_filter)") == 2
+    assert source.count("_validate_alert_filters(cur, saved_source_filter, saved_category_filter") == 2
     assert "Unknown alert {label}" in source
-    assert "The Watch name never" in template
+    assert 'name="source_filter"' in template
+    assert "def _automatic_watch_name" in source
     assert template.count('autocomplete="off"') >= 4
 
 
@@ -210,10 +212,10 @@ def test_alert_can_start_an_editable_watch_draft_without_writing_data():
     assert "Create a Watch from this alert" not in watch_template
     assert "STARTED FROM ALERT" in watch_template
     assert "What about this alert matters?" in watch_template
-    assert "topic, the Location, or both" in watch_template
-    assert "Nothing is saved until you choose Turn On Watch." in watch_template
-    assert 'data-alert-filter="source_filter"' in watch_template
-    assert 'data-alert-filter="alert_category_filter"' in watch_template
+    assert "Keep or clear the source, topic, and location below." in watch_template
+    assert 'name="source_filter"' in watch_template
+    assert 'data-alert-keyword' in watch_template
+    assert "Nothing is saved until" not in watch_template
     assert "watch_from_alert_url" in operations_source
     assert "Create Watch From Alert" in alert_template
     assert "Create Watch From Alert" in map_template

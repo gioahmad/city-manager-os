@@ -42,20 +42,19 @@ def test_county_group_allows_individual_town_selection():
     assert "data-bulk-feature" in template
 
 
-def test_saved_keywords_and_watch_bulk_actions_use_existing_watch_rows():
+def test_saved_aliases_and_watch_bulk_actions_use_existing_watch_rows():
     source = (DASHBOARD_ROOT / "spatial_watch_app.py").read_text()
     template = (DASHBOARD_ROOT / "templates/watchlist.html").read_text()
 
-    assert 'row["keyword_choices"]' in source
-    assert "Keywords currently on" in template
-    assert "not a hardcoded list" in template
-    assert template.count("data-primary-keyword") >= 2
-    assert template.count("data-other-keywords") >= 2
+    assert 'name="aliases"' in template
+    assert "Also match these phrases" in template
+    assert 'row["keyword_choices"]' not in source
     assert '@app.post("/watchlist/bulk-action")' in source
     assert 'action not in {"pause", "activate", "delete"}' in source
     assert "Type DELETE to permanently delete the selected Watches" in source
     assert 'name="watch_item_ids"' in template
     assert "Select all Watches shown" in template
+    assert "data-watch-bulk-disclosure" in template
     assert "CREATE TABLE" not in source
 
 

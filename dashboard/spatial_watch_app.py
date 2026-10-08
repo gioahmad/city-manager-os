@@ -38,6 +38,7 @@ from app import (
     validate_watch,
 )
 from geo_resolver import MIN_PRECISE_CONFIDENCE, resolve_payload
+from watch_preview_app import COUNTIES, watch_terms
 
 
 RELEASE_ID = "alerting-spatial-watch-simplification-v1"
@@ -68,6 +69,10 @@ SPATIAL_WATCH_TYPES = [
     "PARCEL",
     "CORRIDOR",
 ]
+LOCATION_RULE_WATCH_TYPES = {
+    "ADDRESS", "FACILITY", "AREA", "POINT", "INTERSECTION", "PLACE",
+    "PARCEL", "CORRIDOR", "TOWN", "COUNTY", "LOCATION_TOPIC",
+}
 BULK_WATCH_LIMIT = 250
 BULK_WATCH_ACTION_LIMIT = 500
 BULK_NO_PROPERTY = "__none__"
@@ -90,6 +95,25 @@ LOCATION_KINDS = {
     "TYPED_ADDRESS",
     "EXISTING",
 }
+LOCATION_SCOPES = {"ANYWHERE", "COUNTY", "MUNICIPALITY", "TYPED_ADDRESS", "MAP_POINT", "SAVED", "EXISTING"}
+
+
+def _matching_inputs(selection, scope, topic, aliases, source, category, priority):
+    if selection not in {"", "ANY", "FILTERED"}:
+        raise HTTPException(400, "Choose which jobs this Watch should match")
+    if selection == "ANY":
+        if scope == "ANYWHERE":
+            raise HTTPException(400, "Choose a location for Any mapped activity in this area")
+        return "", "", "", "", 1
+    return topic, aliases, source, category, priority
+
+
+def _location_setup_mode(mode: str, scope: str, topic: str) -> str:
+    if not scope:
+        return mode
+    if scope not in LOCATION_SCOPES:
+        raise HTTPException(400, "Choose a valid location type")
+    return "TOPIC" if scope == "ANYWHERE" else "LOCATION_TOPIC" if topic.strip() else "LOCATION"
 
 def _setup_mode(value: str) -> str:
     mode = SETUP_MODE_ALIASES.get(value.strip().upper(), value.strip().upper())
@@ -99,6 +123,53 @@ def _setup_mode(value: str) -> str:
             "Choose Near a location, About a topic, or Location plus topic",
         )
     return mode
+
+
+def _automatic_watch_name(
+    *,
+    source_filters: list[str],
+    topic: str,
+    target: dict | None,
+    source_only: bool = False,
+) -> str:
+    source = source_filters[0] if len(source_filters) == 1 else ""
+    location = ""
+    if target:
+        location = str(target.get("label") or "").strip()
+        if target.get("kind") == "COUNTY" and location and not location.lower().endswith(" county"):
+            location = f"{location} County"
+    pieces: list[str] = []
+    if source:
+        pieces.append(source)
+    if topic and not source_only and topic.casefold() != source.casefold():
+        pieces.append(topic)
+    if location:
+        pieces.append(location)
+    if pieces:
+        return " · ".join(pieces)[:120]
+    return "Watch"
+
+
+def _topic_rule_from_existing(
+    current_type: str,
+    requested_type: str,
+    requested_mode: str,
+    requested_field: str,
+) -> tuple[str, str, str | None]:
+    current = str(current_type or "").upper()
+    candidate = str(requested_type or "").upper() or current
+    mode = str(requested_mode or "").upper() or "CONTAINS"
+    field = str(requested_field or "").strip() or None
+    if candidate in LOCATION_RULE_WATCH_TYPES or candidate == "SOURCE":
+        candidate = "PHRASE"
+    if (
+        current in LOCATION_RULE_WATCH_TYPES
+        or current == "SOURCE"
+        or str(field or "").lower() in {"county", "municipality", "source", "geom"}
+    ):
+        mode = "CONTAINS"
+        field = None
+    return candidate or "PHRASE", mode, field
 
 
 def _safe_int(value, default: int = 0) -> int:
@@ -205,8 +276,8 @@ def _resolve_target(conn, location_query: str, latitude: str, longitude: str, mu
     ):
         raise HTTPException(
             400,
-            "That location was not found in the local statewide address data. "
-            "Try a full street address with municipality and state, or use coordinates under Advanced.",
+            "That street address could not be verified. Enter a full street address with municipality and state, "
+            "or choose Intersection or exact point and enter coordinates. For a county or city, choose that location type instead.",
         )
     return result
 
@@ -252,12 +323,26 @@ def _selected_location(
     longitude: str,
     municipality: str,
     current: dict | None = None,
+    scope: str = "",
 ) -> dict:
     """Resolve a UI location through existing local PostGIS sources only."""
     kind = _location_kind(kind)
     source_id = source_id.strip()
     location_query = location_query.strip()
     municipality = municipality.strip()
+
+    if scope:
+        if scope not in LOCATION_SCOPES or scope == "ANYWHERE":
+            raise HTTPException(400, "Choose a location type")
+        if scope in {"COUNTY", "MUNICIPALITY", "MAP_POINT", "EXISTING"}:
+            kind = scope
+        elif scope == "TYPED_ADDRESS" and kind not in {"ADDRESS", "RESOLVED_ADDRESS", "TYPED_ADDRESS"}:
+            kind = "TYPED_ADDRESS"
+        elif scope == "SAVED" and (kind not in {"PARCEL", "REFERENCE", "CUSTOM_FEATURE"} or not source_id):
+            raise HTTPException(400, "Choose a saved place, area, or parcel from the search results")
+
+    if kind == "MAP_POINT" and (not latitude.strip() or not longitude.strip()):
+        raise HTTPException(400, "Choose an exact point on the map or enter both latitude and longitude")
 
     if kind == "EXISTING":
         if not current:
@@ -293,7 +378,7 @@ def _selected_location(
                 "spatial": False,
                 "replace_target": False,
             }
-        if str(current.get("watch_type") or "").upper() == "COUNTY" and current.get("county"):
+        if str(current.get("watch_type") or "").upper() in {"COUNTY", "LOCATION_TOPIC"} and current.get("county"):
             return {
                 "kind": "COUNTY",
                 "label": current["county"],
@@ -417,24 +502,9 @@ def _selected_location(
             watch_type = _watch_type_for_geometry(row.get("geometry_type") if row else "")
         elif kind == "COUNTY":
             candidate = re.sub(r"\s+County$", "", source_id or location_query, flags=re.I).strip()
-            if not candidate:
-                raise HTTPException(400, "Choose a county")
-            cur.execute(
-                """
-                SELECT county AS label
-                FROM gis_addresses
-                WHERE geom IS NOT NULL
-                  AND lower(trim(regexp_replace(coalesce(county,''),'[[:space:]]+County$','','i')))=lower(trim(%s))
-                GROUP BY county
-                ORDER BY count(*) DESC
-                LIMIT 1
-                """,
-                (candidate,),
-            )
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(400, "That county was not found in the local address data")
-            county_name = re.sub(r"\s+County$", "", str(row["label"]), flags=re.I).strip()
+            county_name = next((name.title() for name in COUNTIES["NJ"] if name.casefold() == candidate.casefold()), "")
+            if not county_name:
+                raise HTTPException(400, "Choose a New Jersey county from the county list")
             return {
                 "kind": "COUNTY",
                 "label": county_name,
@@ -674,6 +744,41 @@ def _watch_prefill_from_alert(alert_reference: str) -> dict:
     if not alert:
         return {}
 
+    return _watch_prefill_values(alert, alert_reference)
+
+
+def _watch_prefill_from_record(kind: str, reference: str) -> dict:
+    """Open an editable draft even when an Intel record has not emitted an alert."""
+    try:
+        record_id = uuid.UUID(reference)
+    except ValueError:
+        raise HTTPException(400, "Choose a valid record to start this Watch")
+    queries = {
+        "EVENT_INTELLIGENCE": """SELECT title,description AS message,'EVENT_INTELLIGENCE' AS source,
+          'EVENT' AS category,event_type AS subtype,municipality,
+          coalesce(nullif(address,''),nullif(venue,''),municipality) AS location_label,
+          coalesce(ST_Y(geom),latitude) AS latitude,coalesce(ST_X(geom),longitude) AS longitude
+          FROM event_intelligence WHERE id=%s AND active""",
+        "TRANSIT": """SELECT title,description AS message,'TRANSIT_INTELLIGENCE' AS source,
+          'TRANSIT' AS category,mode AS subtype,municipality,
+          coalesce(nullif(asset_name,''),nullif(route_name,''),municipality) AS location_label,
+          coalesce(ST_Y(geom),latitude) AS latitude,coalesce(ST_X(geom),longitude) AS longitude
+          FROM transit_observations WHERE id=%s AND active""",
+    }
+    if kind not in queries:
+        raise HTTPException(400, "Choose Event Intelligence or Transit Intelligence")
+    row = query_one(queries[kind], (record_id,))
+    if not row:
+        raise HTTPException(404, "That Intelligence record was not found")
+    # A venue/route name without coordinates is not a street address.
+    if row.get("latitude") is None or row.get("longitude") is None:
+        row["location_label"] = row.get("municipality") or ""
+    draft = _watch_prefill_values(row, reference)
+    draft.update(from_alert="", from_record=kind, notes=f"Started from {kind} {record_id}")
+    return draft
+
+
+def _watch_prefill_values(alert: dict, alert_reference: str) -> dict:
     topic = str(
         alert.get("title")
         or alert.get("subtype")
@@ -769,44 +874,50 @@ def _watch_state(row: dict) -> tuple[str, str, str]:
     return "Watching", "active", "The watch is on. Its latest Match and Notification evidence are shown below."
 
 
-def _saved_watch_preview_url(row: dict) -> str:
-    """Build a read-only historical preview URL from one saved non-spatial Watch."""
-    source_filters = list(row.get("source_filter") or [])
-    category_filters = list(row.get("alert_category_filter") or [])
-    if len(source_filters) > 1 or len(category_filters) > 1:
-        return ""
-    params: dict[str, str] = {
-        "window": "all",
-        "min_priority": str(max(1, min(int(row.get("min_priority") or 1), 5))),
-    }
-    if source_filters:
-        params["source"] = str(source_filters[0])
-    if category_filters:
-        params["category"] = str(category_filters[0])
-    watch_type = str(row.get("watch_type") or "").upper()
-    if watch_type == "TOWN":
-        value = str(row.get("municipality") or row.get("search_term") or "").strip()
-        if not value:
-            return ""
-        params["municipality"] = value
-    elif watch_type == "COUNTY":
-        value = str(row.get("county") or row.get("search_term") or "").strip()
-        if not value:
-            return ""
-        params["county"] = value
-    elif row.get("nearby_enabled"):
-        return ""
+def _watch_display(row: dict) -> dict:
+    """Separate the Watch's schedule from recorded delivery evidence and setup issues."""
+    now = datetime.now(timezone.utc)
+    if row.get("expires_at") and row["expires_at"] <= now:
+        lifecycle = ("Expired", "inactive-status", "The Watch reached its end time.")
+    elif not row.get("active"):
+        lifecycle = ("Paused", "inactive-status", "The Watch is paused.")
+    elif row.get("starts_at") and row["starts_at"] > now:
+        lifecycle = ("Scheduled", "waiting", "The Watch will begin at its scheduled start time.")
     else:
-        term = str(row.get("search_term") or "").strip()
-        if not term:
-            return ""
-        params["field"] = str(row.get("match_field") or "search_text")
-        params["mode"] = str(row.get("match_mode") or "CONTAINS")
-        params["term"] = term
-        aliases = [str(value).strip() for value in (row.get("aliases") or []) if str(value).strip()]
-        if aliases:
-            params["aliases"] = "|".join(aliases[:12])
-    return "/watch-preview?" + urlencode(params)
+        lifecycle = ("On", "active", "The Watch is enabled and within its scheduled time window.")
+
+    issues = []
+    if row.get("nearby_enabled") and not row.get("spatial_target_type"):
+        issues.append("Saved Location missing. Edit this Watch and choose the Location again.")
+    if _safe_int(row.get("active_recipient_count")) == 0:
+        issues.append("No active Recipient. Matches can be recorded, but Notifications need a Recipient.")
+
+    status = str(row.get("last_delivery_status") or "").upper()
+    last_match, last_delivery = row.get("last_match_at"), row.get("last_delivery_at")
+    if status == "PENDING":
+        delivery = ("Queued", "waiting", "The latest delivery record is pending.")
+    elif last_match and (not last_delivery or last_match > last_delivery):
+        delivery = ("No delivery recorded", "warning", "No delivery event is recorded at or after the latest Match. This does not confirm a queued Notification.")
+    elif status == "FAILED":
+        delivery = ("Failed", "error", "The latest recorded Notification failed. Review delivery history.")
+    elif status == "SUPPRESSED":
+        delivery = ("Repeat held", "waiting", "Delivery Guard held the latest recorded repeat or duplicate Notification.")
+    elif status == "SENT":
+        delivery = ("Sent", "active", "The latest delivery record is marked sent.")
+    elif last_delivery:
+        delivery = ("Delivery recorded", "waiting", "A delivery event is recorded. Review delivery history for its result.")
+    else:
+        delivery = ("No matches yet", "inactive-status", "No stored Match or delivery is recorded for this Watch.")
+    return {
+        "lifecycle_label": lifecycle[0], "lifecycle_class": lifecycle[1], "lifecycle_reason": lifecycle[2],
+        "delivery_label": delivery[0], "delivery_class": delivery[1], "delivery_reason": delivery[2],
+        "setup_issues": issues,
+    }
+
+
+def _saved_watch_preview_url(row: dict) -> str:
+    """Preview the complete saved rule, including its area and multiple filters."""
+    return "/watch-preview?" + urlencode({"watch_item_id": str(row["id"]), "window": "all"})
 
 
 def _watch_evidence(watch_item_id: uuid.UUID, view: str, query: str) -> tuple[dict | None, list[dict]]:
@@ -1024,7 +1135,7 @@ def watch_lab_evaluate(
           e.stored_alert_geom IS NOT NULL AND e.supplied_geom IS NOT NULL AS supplied_point_ignored,
           e.id::text AS watch_item_uuid,e.watch_id,e.active,e.watch_type,e.display_name,
           e.search_term,e.aliases,e.match_mode,e.match_field,e.min_priority,e.address,
-          e.municipality,e.source_filter,e.alert_category_filter,e.starts_at,e.expires_at,
+          e.municipality,e.county,e.state,e.source_filter,e.alert_category_filter,e.starts_at,e.expires_at,
           e.nearby_enabled,e.radius_ft,e.spatial_scope,
           e.effective_alert_geom IS NOT NULL AS alert_geometry_ready,
           coalesce(e.spatial_target_geom,e.geom) IS NOT NULL AND e.spatial_geom IS NOT NULL
@@ -1127,135 +1238,136 @@ def watch_lab_evaluate(
 
 @app.get("/api/watch-locations/search")
 @_friendly_watch_api_errors
-def watch_location_search(q: str = ""):
+def watch_location_search(q: str = "", kind: str = "", municipality: str = ""):
+    selected_kind = kind.strip().upper()
+    search_kinds = {selected_kind}
+    if selected_kind == "TYPED_ADDRESS":
+        search_kinds = {"ADDRESS"}
+    elif selected_kind == "SAVED":
+        search_kinds = {"PARCEL", "REFERENCE", "CUSTOM_FEATURE"}
+    if selected_kind and selected_kind not in LOCATION_SCOPES | LOCATION_KINDS:
+        raise HTTPException(400, "Choose a valid location type")
+    if selected_kind in {"ANYWHERE", "MAP_POINT", "EXISTING"}:
+        return {"items": []}
     needle = q.strip()
     if len(needle) < 2:
         return {"items": []}
     like = f"%{needle}%"
     county_needle = re.sub(r"\s+County$", "", needle, flags=re.I).strip()
-    county_like = f"%{county_needle or needle}%"
     items: list[dict] = []
-    items.extend(
-        query_all(
-            """
-            SELECT 'ADDRESS' AS kind,objectid::text AS source_id,fulladdr AS label,
-                   concat_ws(' · ',coalesce(nullif(inc_muni,''),post_comm),post_code) AS detail,
-                   'Address' AS kind_label
-            FROM gis_addresses
-            WHERE geom IS NOT NULL AND coalesce(status,'A')='A' AND fulladdr ILIKE %s
-            ORDER BY fulladdr
-            LIMIT 8
-            """,
-            (like,),
+    if not selected_kind or "ADDRESS" in search_kinds:
+        items.extend(
+            query_all(
+                """
+                SELECT 'ADDRESS' AS kind,objectid::text AS source_id,fulladdr AS label,
+                       coalesce(nullif(inc_muni,''),post_comm) AS municipality,
+                       concat_ws(' · ',coalesce(nullif(inc_muni,''),post_comm),post_code) AS detail,
+                       'Address' AS kind_label
+                FROM gis_addresses
+                WHERE geom IS NOT NULL AND coalesce(status,'A')='A' AND fulladdr ILIKE %s
+                  AND (%s='' OR coalesce(nullif(inc_muni,''),post_comm) ILIKE %s)
+                ORDER BY fulladdr
+                LIMIT 8
+                """,
+                (like, municipality.strip(), f"%{municipality.strip()}%"),
+            )
         )
-    )
-    items.extend(
-        query_all(
-            """
-            SELECT 'PARCEL' AS kind,objectid::text AS source_id,
-                   coalesce(nullif(prop_loc,''),'Block '||coalesce(pclblock,'?')||' Lot '||coalesce(pcllot,'?')) AS label,
-                   concat_ws(' · ',mun_name,'Block '||coalesce(pclblock,'?'),'Lot '||coalesce(pcllot,'?'),nullif(pams_pin,'')) AS detail,
-                   'Parcel' AS kind_label
-            FROM gis_parcels
-            WHERE geom IS NOT NULL
-              AND (prop_loc ILIKE %s OR pams_pin ILIKE %s OR pclblock ILIKE %s OR pcllot ILIKE %s)
-            ORDER BY prop_loc NULLS LAST,objectid
-            LIMIT 8
-            """,
-            (like, like, like, like),
+    if not selected_kind or "PARCEL" in search_kinds:
+        items.extend(
+            query_all(
+                """
+                SELECT 'PARCEL' AS kind,objectid::text AS source_id,
+                       coalesce(nullif(prop_loc,''),'Block '||coalesce(pclblock,'?')||' Lot '||coalesce(pcllot,'?')) AS label,
+                       concat_ws(' · ',mun_name,'Block '||coalesce(pclblock,'?'),'Lot '||coalesce(pcllot,'?'),nullif(pams_pin,'')) AS detail,
+                       'Parcel' AS kind_label
+                FROM gis_parcels
+                WHERE geom IS NOT NULL
+                  AND (prop_loc ILIKE %s OR pams_pin ILIKE %s OR pclblock ILIKE %s OR pcllot ILIKE %s)
+                ORDER BY prop_loc NULLS LAST,objectid
+                LIMIT 8
+                """,
+                (like, like, like, like),
+            )
         )
-    )
-    items.extend(
-        query_all(
-            """
-            SELECT 'REFERENCE' AS kind,entity_id::text AS source_id,canonical_name AS label,
-                   concat_ws(' · ',
-                     CASE WHEN entity_type='CORRIDOR' THEN 'Street / corridor' ELSE initcap(replace(entity_type,'_',' ')) END,
-                     municipality,state) AS detail,
-                   CASE WHEN entity_type='CORRIDOR' THEN 'Street / corridor' ELSE 'Saved place or area' END AS kind_label
-            FROM spatial_reference_entities
-            WHERE active=true AND geom IS NOT NULL
-              AND (canonical_name ILIKE %s OR coalesce(normalized_address,'') ILIKE %s
-                   OR EXISTS (SELECT 1 FROM unnest(aliases) alias WHERE alias ILIKE %s))
-            ORDER BY importance_tier,canonical_name
-            LIMIT 8
-            """,
-            (like, like, like),
+    if not selected_kind or "REFERENCE" in search_kinds:
+        items.extend(
+            query_all(
+                """
+                SELECT 'REFERENCE' AS kind,entity_id::text AS source_id,canonical_name AS label,
+                       concat_ws(' · ',
+                         CASE WHEN entity_type='CORRIDOR' THEN 'Street / corridor' ELSE initcap(replace(entity_type,'_',' ')) END,
+                         municipality,state) AS detail,
+                       CASE WHEN entity_type='CORRIDOR' THEN 'Street / corridor' ELSE 'Saved place or area' END AS kind_label
+                FROM spatial_reference_entities
+                WHERE active=true AND geom IS NOT NULL
+                  AND (canonical_name ILIKE %s OR coalesce(normalized_address,'') ILIKE %s
+                       OR EXISTS (SELECT 1 FROM unnest(aliases) alias WHERE alias ILIKE %s))
+                ORDER BY importance_tier,canonical_name
+                LIMIT 8
+                """,
+                (like, like, like),
+            )
         )
-    )
-    items.extend(
-        query_all(
-            """
-            SELECT 'CUSTOM_FEATURE' AS kind,f.id::text AS source_id,
-                   coalesce(nullif(f.name,''),nullif(inferred.label,''),l.name) AS label,l.name AS detail,
-                   'Drawn or imported Location' AS kind_label
-            FROM map_features f
-            JOIN map_layers l ON l.id=f.layer_id
-            LEFT JOIN LATERAL (
-              SELECT value AS label
-              FROM jsonb_each_text(f.properties)
-              WHERE lower(key) IN (
-                'name','title','label','municipality','mun_name','munname','city','town',
-                'county','county_name','route_name','route','highway','road_name','road'
-              ) AND nullif(trim(value),'') IS NOT NULL
-              ORDER BY CASE lower(key)
-                WHEN 'name' THEN 1 WHEN 'title' THEN 2 WHEN 'label' THEN 3
-                WHEN 'municipality' THEN 4 WHEN 'mun_name' THEN 5 WHEN 'munname' THEN 6
-                WHEN 'city' THEN 7 WHEN 'town' THEN 8 WHEN 'county' THEN 9
-                WHEN 'county_name' THEN 10 WHEN 'route_name' THEN 11 WHEN 'route' THEN 12
-                WHEN 'highway' THEN 13 WHEN 'road_name' THEN 14 ELSE 15 END
-              LIMIT 1
-            ) inferred ON true
-            WHERE f.active=true AND l.active=true AND f.geom IS NOT NULL
-              AND (f.name ILIKE %s OR f.properties::text ILIKE %s)
-            ORDER BY l.name,f.name NULLS LAST
-            LIMIT 6
-            """,
-            (like, like),
+    if not selected_kind or "CUSTOM_FEATURE" in search_kinds:
+        items.extend(
+            query_all(
+                """
+                SELECT 'CUSTOM_FEATURE' AS kind,f.id::text AS source_id,
+                       coalesce(nullif(f.name,''),nullif(inferred.label,''),l.name) AS label,l.name AS detail,
+                       'Drawn or imported Location' AS kind_label
+                FROM map_features f
+                JOIN map_layers l ON l.id=f.layer_id
+                LEFT JOIN LATERAL (
+                  SELECT value AS label
+                  FROM jsonb_each_text(f.properties)
+                  WHERE lower(key) IN (
+                    'name','title','label','municipality','mun_name','munname','city','town',
+                    'county','county_name','route_name','route','highway','road_name','road'
+                  ) AND nullif(trim(value),'') IS NOT NULL
+                  ORDER BY CASE lower(key)
+                    WHEN 'name' THEN 1 WHEN 'title' THEN 2 WHEN 'label' THEN 3
+                    WHEN 'municipality' THEN 4 WHEN 'mun_name' THEN 5 WHEN 'munname' THEN 6
+                    WHEN 'city' THEN 7 WHEN 'town' THEN 8 WHEN 'county' THEN 9
+                    WHEN 'county_name' THEN 10 WHEN 'route_name' THEN 11 WHEN 'route' THEN 12
+                    WHEN 'highway' THEN 13 WHEN 'road_name' THEN 14 ELSE 15 END
+                  LIMIT 1
+                ) inferred ON true
+                WHERE f.active=true AND l.active=true AND f.geom IS NOT NULL
+                  AND (f.name ILIKE %s OR f.properties::text ILIKE %s)
+                ORDER BY l.name,f.name NULLS LAST
+                LIMIT 6
+                """,
+                (like, like),
+            )
         )
-    )
-    items.extend(
-        query_all(
-            """
-            SELECT 'COUNTY' AS kind,label AS source_id,label,
-                   'Any alert labeled for this county' AS detail,
-                   'County' AS kind_label
-            FROM (
-              SELECT regexp_replace(trim(county),'[[:space:]]+County$','','i') AS label,
-                     count(*) AS total
-              FROM gis_addresses
-              WHERE geom IS NOT NULL
-                AND nullif(trim(county),'') IS NOT NULL
-                AND regexp_replace(trim(county),'[[:space:]]+County$','','i') ILIKE %s
-              GROUP BY regexp_replace(trim(county),'[[:space:]]+County$','','i')
-            ) counties
-            WHERE label IS NOT NULL
-            ORDER BY total DESC,label
-            LIMIT 6
-            """,
-            (county_like,),
+    if not selected_kind or selected_kind == "COUNTY":
+        items.extend(
+            {"kind": "COUNTY", "source_id": name.title(), "label": name.title(),
+             "detail": "Alerts labeled for this county", "kind_label": "County"}
+            for name in sorted(COUNTIES["NJ"])
+            if county_needle.casefold() in name.casefold()
         )
-    )
-    items.extend(
-        query_all(
-            """
-            SELECT 'MUNICIPALITY' AS kind,label AS source_id,label,
-                   'All alerts labeled for this municipality' AS detail,
-                   'Municipality' AS kind_label
-            FROM (
-              SELECT coalesce(nullif(inc_muni,''),nullif(post_comm,'')) AS label,count(*) AS total
-              FROM gis_addresses
-              WHERE geom IS NOT NULL
-                AND coalesce(nullif(inc_muni,''),nullif(post_comm,'')) ILIKE %s
-              GROUP BY coalesce(nullif(inc_muni,''),nullif(post_comm,''))
-            ) towns
-            WHERE label IS NOT NULL
-            ORDER BY total DESC,label
-            LIMIT 6
-            """,
-            (like,),
+    if not selected_kind or "MUNICIPALITY" in search_kinds:
+        items.extend(
+            query_all(
+                """
+                SELECT 'MUNICIPALITY' AS kind,label AS source_id,label,
+                       'All alerts labeled for this municipality' AS detail,
+                       'Municipality' AS kind_label
+                FROM (
+                  SELECT coalesce(nullif(inc_muni,''),nullif(post_comm,'')) AS label,count(*) AS total
+                  FROM gis_addresses
+                  WHERE geom IS NOT NULL
+                    AND coalesce(nullif(inc_muni,''),nullif(post_comm,'')) ILIKE %s
+                  GROUP BY coalesce(nullif(inc_muni,''),nullif(post_comm,''))
+                ) towns
+                WHERE label IS NOT NULL
+                ORDER BY total DESC,label
+                LIMIT 6
+                """,
+                (like,),
+            )
         )
-    )
     return JSONResponse(_json_safe({"items": items[:30]}))
 
 
@@ -1299,6 +1411,9 @@ def spatial_watchlist(
     location_kind: str = "",
     location_id: str = "",
     from_alert: str = "",
+    from_record: str = "",
+    record_id: str = "",
+    match_selection: str = "",
     setup_mode: str = "",
     search_term: str = "",
     aliases: str = "",
@@ -1319,6 +1434,7 @@ def spatial_watchlist(
     evidence_view: str = "matched",
     evidence_q: str = "",
     create: str = "",
+    radius_ft: float = Query(default=5280, ge=1, le=26400),
 ):
     where = []
     params = []
@@ -1405,6 +1521,12 @@ def spatial_watchlist(
     )
     for row in all_items:
         row["state_label"], row["state_class"], row["state_reason"] = _watch_state(row)
+        row.update(_watch_display(row))
+        row["state_display"] = row["state_label"]
+        if row["state_label"] == "Watching":
+            row["state_display"] = "Scheduled" if row["state_class"] == "waiting" else "On"
+        elif row["state_label"] == "Matching":
+            row["state_display"] = row["delivery_label"]
         row["starts_local"] = _local_value(row.get("starts_at"))
         row["expires_local"] = _local_value(row.get("expires_at"))
         row["duration"] = "CUSTOM" if row.get("expires_at") else "PERMANENT"
@@ -1419,7 +1541,14 @@ def spatial_watchlist(
         row["location_label"] = (
             ""
             if row["setup_mode"] == "TOPIC"
+            else f"{row.get('county')} County"
+            if row.get("watch_type") == "COUNTY" and row.get("county")
             else row.get("address") or row.get("municipality") or row.get("county") or "Saved map Location"
+        )
+        row["match_selection"] = (
+            "ANY" if row["setup_mode"] == "LOCATION"
+            and not row.get("source_filter") and not row.get("alert_category_filter")
+            and row.get("min_priority", 1) == 1 else "FILTERED"
         )
         row["distance_label"] = _distance_label(row.get("radius_ft"))
         row["location_kind"] = (
@@ -1430,7 +1559,7 @@ def spatial_watchlist(
             else "MUNICIPALITY"
             if row.get("municipality") and not row.get("spatial_target_type")
             else "COUNTY"
-            if row.get("watch_type") == "COUNTY" and row.get("county") and not row.get("spatial_target_type")
+            if row.get("watch_type") in {"COUNTY", "LOCATION_TOPIC"} and row.get("county") and not row.get("spatial_target_type")
             else "EXISTING"
         )
         row["location_id"] = str(
@@ -1438,13 +1567,6 @@ def spatial_watchlist(
             or (row.get("municipality") if row["location_kind"] == "MUNICIPALITY" else "")
             or (row.get("county") if row["location_kind"] == "COUNTY" else "")
         )
-        row["keyword_choices"] = list(
-            dict.fromkeys(
-                value
-                for value in [row.get("search_term"), *(row.get("aliases") or [])]
-                if value
-            )
-        ) if row["setup_mode"] != "LOCATION" else []
         row["historical_preview_url"] = _saved_watch_preview_url(row)
 
     state_aliases = {
@@ -1455,17 +1577,20 @@ def spatial_watchlist(
         "failed": "delivery_problem",
     }
     normalized_state = state_aliases.get(state, state)
+    now = datetime.now(timezone.utc)
+    active_items = [
+        row for row in all_items
+        if row.get("active")
+        and (not row.get("starts_at") or row["starts_at"] <= now)
+        and (not row.get("expires_at") or row["expires_at"] > now)
+    ]
+    matched_items = [row for row in all_items if _safe_int(row.get("matches_7d")) > 0]
     if normalized_state == "location":
         items = [row for row in all_items if row["setup_mode"] in {"LOCATION", "LOCATION_TOPIC"}]
     elif normalized_state == "active":
-        now = datetime.now(timezone.utc)
-        items = [
-            row
-            for row in all_items
-            if row.get("active")
-            and (not row.get("starts_at") or row["starts_at"] <= now)
-            and (not row.get("expires_at") or row["expires_at"] > now)
-        ]
+        items = active_items
+    elif normalized_state == "matched":
+        items = matched_items
     elif normalized_state != "all":
         label = normalized_state.replace("_", " ").title()
         items = [row for row in all_items if row["state_label"] == label]
@@ -1474,6 +1599,8 @@ def spatial_watchlist(
 
     status_counts = {
         "total": len(all_items),
+        "on": len(active_items),
+        "matched": len(matched_items),
         "watching": sum(row["state_label"] == "Watching" for row in all_items),
         "paused": sum(row["state_label"] == "Paused" for row in all_items),
         "expired": sum(row["state_label"] == "Expired" for row in all_items),
@@ -1546,6 +1673,7 @@ def spatial_watchlist(
     needs_recipient_watches = [row for row in all_items if row["state_label"] == "Needs Recipient"]
     prefill = {
         "from_alert": "",
+        "from_record": "",
         "previewed": previewed.strip() == "1",
         "source_alert_title": "",
         "suggested_source": "",
@@ -1566,10 +1694,13 @@ def spatial_watchlist(
         "location_kind": location_kind or ("MAP_POINT" if latitude and longitude else "TYPED_ADDRESS"),
         "location_id": location_id,
         "source_filter": source_filter.strip(),
+        "radius_ft": radius_ft,
         "alert_category_filter": alert_category_filter.strip(),
         "notes": "",
     }
-    if from_alert.strip():
+    if from_record.strip():
+        prefill.update(_watch_prefill_from_record(from_record.strip().upper(), record_id))
+    elif from_alert.strip():
         alert_prefill = _watch_prefill_from_alert(from_alert)
         if alert_prefill:
             prefill.update(alert_prefill)
@@ -1588,6 +1719,17 @@ def spatial_watchlist(
                 prefill["aliases"] = ", ".join(chosen[1:])
         elif not error:
             error = "That alert could not be found. No Watch was created."
+    if setup_mode.strip() == "LOCATION" or match_selection == "ANY":
+        prefill.update(search_term="", aliases="", selected_keywords=[])
+    if match_selection == "ANY":
+        prefill.update(source_filter="", alert_category_filter="", min_priority=1)
+    prefill["match_selection"] = (
+        "ANY" if match_selection == "ANY" or (
+            setup_mode.strip() == "LOCATION" and not prefill["source_filter"]
+            and not prefill["alert_category_filter"] and prefill["min_priority"] == 1
+            and bool(prefill["location_query"] or prefill["latitude"])
+        ) else "FILTERED"
+    )
     evidence_watch = None
     evidence_rows: list[dict] = []
     evidence_id = None
@@ -1626,13 +1768,17 @@ def spatial_watchlist(
             "bulk_context": bulk_context,
             "bulk_watch_limit": BULK_WATCH_LIMIT,
             "prefill": prefill,
+            "notification_explanations": (query_one("SELECT settings FROM workspace_config WHERE singleton=true").get("settings") or {}).get("notification_explanations") is not False,
+            "can_edit_notification_settings": getattr(request.state, "cmos_role", "") == "EXECUTIVE",
+            "county_choices": sorted(name.title() for name in COUNTIES["NJ"]),
             "focus_id": focus_id,
             "evidence_id": evidence_id,
             "evidence_watch": evidence_watch,
             "evidence_rows": evidence_rows,
             "evidence_view": normalized_evidence_view,
             "evidence_q": evidence_q,
-            "create_open": create.strip() == "1" or bool(prefill.get("from_alert")) or bool(prefill.get("previewed")),
+            "create_open": create.strip() == "1" or bool(prefill.get("from_alert")) or bool(prefill.get("from_record"))
+                or bool(prefill.get("previewed")) or bool(location_query or location_id or latitude or longitude),
         },
     )
 
@@ -1651,12 +1797,25 @@ def _save_recipients(cur, watch_item_id: uuid.UUID, subscriber_ids: list[uuid.UU
         )
 
 
-def _validate_alert_filters(cur, source_values: list[str], category_values: list[str]) -> None:
-    """Keep private Watch labels out of exact source/category filters."""
-    for column, label, values in (
-        ("source", "source", source_values),
-        ("category", "category", category_values),
+def _validate_alert_filters(
+    cur, source_values: list[str], category_values: list[str], *, existing: dict | None = None,
+) -> None:
+    """Reject unknown new filters without discarding saved ones when history expires."""
+    saved = existing or {}
+    saved_sources = list(saved.get("source_filter") or [])
+    if (
+        not saved_sources and not saved.get("nearby_enabled")
+        and str(saved.get("watch_type") or "").upper() == "SOURCE"
+        and str(saved.get("match_mode") or "").upper() == "FIELD"
+        and str(saved.get("match_field") or "").strip().casefold() == "source"
     ):
+        saved_sources = [saved.get("search_term"), *(saved.get("aliases") or [])]
+    for column, label, values, retained in (
+        ("source", "source", source_values, saved_sources),
+        ("category", "category", category_values, saved.get("alert_category_filter") or []),
+    ):
+        retained_keys = {str(value or "").strip().casefold() for value in retained}
+        values = [value for value in values if value.strip().casefold() not in retained_keys]
         if not values:
             continue
         cur.execute(
@@ -2161,14 +2320,29 @@ def spatial_watch_bulk_action(
     return _watch_redirect(message=f"{total} Watch{'es' if total != 1 else ''} {label}{suffix}")
 
 
+@app.post("/watchlist/notification-settings")
+def notification_settings(request: Request, explanations: str = Form("off")):
+    if getattr(request.state, "cmos_role", "") != "EXECUTIVE":
+        raise HTTPException(403, "Executive access is required to change notification settings.")
+    if explanations not in {"on", "off"}:
+        raise HTTPException(400, "Choose whether notification explanations are on or off.")
+    return RedirectResponse(
+        "/alerts?msg=Choose+a+source+and+save+its+alert+appearance#alert-appearance",
+        status_code=303,
+    )
+
+
 @app.post("/watchlist/create")
 @_friendly_watch_errors
 def spatial_watch_create(
-    display_name: str = Form(...),
+    display_name: str = Form(""),
+    match_selection: str = Form(""),
     setup_mode: str = Form("LOCATION"),
     watch_type: str = Form(""),
     search_term: str = Form(""),
     match_mode: str = Form("CONTAINS"),
+    word_mode: str = Form(""),
+    term_list: str = Form(""),
     match_field: str = Form(""),
     aliases: str = Form(""),
     category: str = Form(""),
@@ -2182,6 +2356,7 @@ def spatial_watch_create(
     spatial_enabled: str | None = Form(None),
     location_query: str = Form(""),
     location_kind: str = Form("TYPED_ADDRESS"),
+    location_scope: str = Form(""),
     location_id: str = Form(""),
     latitude: str = Form(""),
     longitude: str = Form(""),
@@ -2194,12 +2369,25 @@ def spatial_watch_create(
     activation: str = Form("on"),
 ):
     display_name = display_name.strip()
-    if not display_name:
-        raise HTTPException(400, "Name this watch before turning it on")
+    if word_mode:
+        if word_mode not in {"CONTAINS", "WORD"}:
+            raise HTTPException(400, "Choose a listed word matching option.")
+        match_mode, match_field = word_mode, "search_text"
+    if term_list == "1" and match_mode in {"CONTAINS", "WORD"}:
+        terms = watch_terms(search_term, aliases)
+        search_term, aliases = (terms[0] if terms else ""), ", ".join(terms[1:])
+    search_term, aliases, source_filter, alert_category_filter, min_priority = _matching_inputs(
+        match_selection, location_scope, search_term, aliases, source_filter, alert_category_filter, min_priority,
+    )
+    if match_selection == "ANY":
+        setup_mode, alert_keywords, match_mode, match_field = "LOCATION", [], "CONTAINS", ""
     setup_mode = _setup_mode(setup_mode)
-    location_required = setup_mode in {"LOCATION", "LOCATION_TOPIC"} or spatial_enabled is not None
+    setup_mode = _location_setup_mode(setup_mode, location_scope, search_term)
+    location_required = location_scope != "ANYWHERE" and (setup_mode in {"LOCATION", "LOCATION_TOPIC"} or spatial_enabled is not None)
     topic_required = setup_mode in {"TOPIC", "LOCATION_TOPIC"}
     topic = search_term.strip()
+    saved_source_filter = csv_array(source_filter)
+    source_only = setup_mode == "TOPIC" and not topic and bool(saved_source_filter)
     alias_values = csv_array(aliases)
     selected_keywords: list[str] = []
     for value in alert_keywords:
@@ -2214,8 +2402,13 @@ def spatial_watch_create(
             if value.casefold() not in seen_aliases:
                 seen_aliases.add(value.casefold())
                 alias_values.append(value)
-    if topic_required and not topic:
-        raise HTTPException(400, "Enter the topic, phrase, organization, or incident wording to watch for")
+    if topic_required and not topic and not source_only:
+        raise HTTPException(400, "Choose a source, enter a topic, or choose a location")
+    if source_only:
+        topic = saved_source_filter[0]
+        alias_values = saved_source_filter[1:]
+        match_mode = "FIELD"
+        match_field = "source"
     match_mode = match_mode.upper().strip() or "CONTAINS"
     validate_watch(match_mode, match_field, min_priority)
     radius_ft = max(1.0, min(float(radius_ft), 26400.0))
@@ -2236,6 +2429,7 @@ def spatial_watch_create(
                 latitude=latitude,
                 longitude=longitude,
                 municipality=municipality,
+                scope=location_scope,
             )
         spatial_requested = bool(target and target.get("spatial"))
         if setup_mode == "LOCATION_TOPIC":
@@ -2258,13 +2452,19 @@ def spatial_watch_create(
                 saved_match_mode = "CONTAINS"
                 saved_match_field = None
         else:
-            saved_watch_type = watch_type.strip().upper() or "PHRASE"
+            saved_watch_type = "SOURCE" if source_only else (watch_type.strip().upper() or "PHRASE")
             saved_search_term = topic
-            saved_match_mode = match_mode
-            saved_match_field = match_field.strip() or None
+            saved_match_mode = "FIELD" if source_only else match_mode
+            saved_match_field = "source" if source_only else (match_field.strip() or None)
 
-        saved_source_filter = csv_array(source_filter)
         saved_category_filter = csv_array(alert_category_filter)
+        if not display_name:
+            display_name = _automatic_watch_name(
+                source_filters=saved_source_filter,
+                topic=topic,
+                target=target,
+                source_only=source_only,
+            )
 
         saved_address = (target or {}).get("address") or (location_query or address).strip() or None
         saved_municipality = (target or {}).get("municipality") or municipality.strip() or None
@@ -2320,10 +2520,13 @@ def spatial_watch_create(
 def spatial_watch_update(
     item_id: uuid.UUID,
     display_name: str = Form(...),
+    match_selection: str = Form(""),
     setup_mode: str = Form(""),
     watch_type: str = Form(""),
     search_term: str = Form(""),
     match_mode: str = Form("CONTAINS"),
+    word_mode: str = Form(""),
+    term_list: str = Form(""),
     match_field: str = Form(""),
     aliases: str = Form(""),
     category: str = Form(""),
@@ -2337,6 +2540,7 @@ def spatial_watch_update(
     spatial_enabled: str | None = Form(None),
     location_query: str = Form(""),
     location_kind: str = Form("EXISTING"),
+    location_scope: str = Form(""),
     location_id: str = Form(""),
     latitude: str = Form(""),
     longitude: str = Form(""),
@@ -2349,8 +2553,20 @@ def spatial_watch_update(
     subscriber_ids: list[uuid.UUID] = Form([]),
 ):
     display_name = display_name.strip()
+    if word_mode:
+        if word_mode not in {"CONTAINS", "WORD"}:
+            raise HTTPException(400, "Choose a listed word matching option.")
+        match_mode, match_field = word_mode, "search_text"
+    if term_list == "1" and match_mode in {"CONTAINS", "WORD"}:
+        terms = watch_terms(search_term, aliases)
+        search_term, aliases = (terms[0] if terms else ""), ", ".join(terms[1:])
     if not display_name:
         raise HTTPException(400, "Name this watch before saving it")
+    search_term, aliases, source_filter, alert_category_filter, min_priority = _matching_inputs(
+        match_selection, location_scope, search_term, aliases, source_filter, alert_category_filter, min_priority,
+    )
+    if match_selection == "ANY":
+        setup_mode, match_mode, match_field = "LOCATION", "CONTAINS", ""
     radius_ft = max(1.0, min(float(radius_ft), 26400.0))
     start, end = _schedule(duration, starts_at, expires_at)
     with db_conn() as conn:
@@ -2358,6 +2574,7 @@ def spatial_watch_update(
             cur.execute(
                 """
                 SELECT id,active,watch_type,display_name,search_term,match_mode,match_field,
+                       aliases,source_filter,alert_category_filter,
                        address,municipality,county,state,block,lot,parcel_id,
                        nearby_enabled,radius_ft,gis_lookup,spatial_reference_entity_id,
                        ST_AsEWKT(spatial_target_geom) AS target_wkt,
@@ -2384,8 +2601,9 @@ def spatial_watch_update(
         else:
             saved_setup_mode = "TOPIC"
 
+        saved_setup_mode = _location_setup_mode(saved_setup_mode, location_scope, search_term)
         target = None
-        if saved_setup_mode in {"LOCATION", "LOCATION_TOPIC"} or spatial_enabled is not None:
+        if location_scope != "ANYWHERE" and (saved_setup_mode in {"LOCATION", "LOCATION_TOPIC"} or spatial_enabled is not None):
             target = _selected_location(
                 conn,
                 kind=location_kind,
@@ -2395,18 +2613,32 @@ def spatial_watch_update(
                 longitude=longitude,
                 municipality=municipality,
                 current=current,
+                scope=location_scope,
             )
         topic = search_term.strip()
-        if saved_setup_mode in {"TOPIC", "LOCATION_TOPIC"} and not topic:
-            raise HTTPException(400, "Enter the topic, phrase, organization, or incident wording to watch for")
+        saved_source_filter = csv_array(source_filter)
+        source_only = saved_setup_mode == "TOPIC" and not topic and bool(saved_source_filter)
+        if saved_setup_mode in {"TOPIC", "LOCATION_TOPIC"} and not topic and not source_only:
+            raise HTTPException(400, "Choose a source, enter a topic, or choose a location")
 
         match_mode = match_mode.upper().strip() or "CONTAINS"
+        if source_only:
+            topic = saved_source_filter[0]
+            aliases = ", ".join(saved_source_filter[1:])
+            match_mode = "FIELD"
+            match_field = "source"
         spatial_requested = bool(target and target.get("spatial"))
         if saved_setup_mode == "LOCATION_TOPIC":
             saved_watch_type = "LOCATION_TOPIC"
             saved_search_term = topic
-            saved_match_mode = match_mode
-            saved_match_field = match_field.strip() or None
+            current_type = str(current.get("watch_type") or "").upper()
+            current_field = str(match_field or "").strip().lower()
+            if not word_mode and (current_type != "LOCATION_TOPIC" or current_field in {"county", "municipality", "source", "geom"}):
+                saved_match_mode = "CONTAINS"
+                saved_match_field = None
+            else:
+                saved_match_mode = match_mode
+                saved_match_field = match_field.strip() or None
         elif saved_setup_mode == "LOCATION":
             saved_watch_type = (target or {}).get("watch_type") or watch_type.strip().upper() or "ADDRESS"
             saved_search_term = (target or {}).get("label") or (location_query or address).strip()
@@ -2422,14 +2654,21 @@ def spatial_watch_update(
                 saved_match_mode = "CONTAINS"
                 saved_match_field = None
         else:
-            saved_watch_type = watch_type.strip().upper() or (
-                current.get("watch_type") if current.get("watch_type") != "LOCATION_TOPIC" else "PHRASE"
-            ) or "PHRASE"
             saved_search_term = topic
-            saved_match_mode = match_mode
-            saved_match_field = match_field.strip() or None
+            if source_only:
+                saved_watch_type = "SOURCE"
+                saved_match_mode = "FIELD"
+                saved_match_field = "source"
+            else:
+                saved_watch_type, saved_match_mode, saved_match_field = _topic_rule_from_existing(
+                    str(current.get("watch_type") or ""),
+                    watch_type,
+                    match_mode,
+                    match_field,
+                )
+        if word_mode and saved_setup_mode in {"TOPIC", "LOCATION_TOPIC"} and not source_only:
+            saved_match_mode, saved_match_field = word_mode, "search_text"
         validate_watch(saved_match_mode, saved_match_field, min_priority)
-        saved_source_filter = csv_array(source_filter)
         saved_category_filter = csv_array(alert_category_filter)
 
         saved_address = (
@@ -2456,7 +2695,7 @@ def spatial_watch_update(
         )
         active_value = current.get("active") if keep_state else active is not None
         with conn.cursor() as cur:
-            _validate_alert_filters(cur, saved_source_filter, saved_category_filter)
+            _validate_alert_filters(cur, saved_source_filter, saved_category_filter, existing=current)
             cur.execute(
                 """
                 UPDATE watch_items SET
@@ -2697,3 +2936,5 @@ def alert_impact_buffer(alert_id: str, radius_ft: float = 500.0):
         },
         media_type="application/geo+json",
     )
+
+

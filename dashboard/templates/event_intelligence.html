@@ -124,6 +124,7 @@
 
             <div class="panel-kicker" style="margin-top:10px">WHAT DO YOU WANT TO DO?</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <a class="secondary-button" href="/watchlist?from_record=EVENT_INTELLIGENCE&record_id={{ e.id }}#new-watch">Create Monitoring Watch</a>
               <form method="post" action="/event-intelligence/{{ e.id }}/level" style="display:flex;gap:6px;align-items:center">
                 <select name="impact_level"><option value="AWARENESS" {% if e.impact_level=='AWARENESS' %}selected{% endif %}>Awareness</option><option value="WATCH" {% if e.impact_level=='WATCH' %}selected{% endif %}>Watch</option><option value="ALERT" {% if e.impact_level=='ALERT' %}selected{% endif %}>Alert</option></select>
                 <button class="secondary-button" type="submit">Set Level</button>
@@ -144,3 +145,4 @@
 </main>
 </body>
 </html>
+

@@ -3,6 +3,46 @@
 ## Purpose
 Restore City Manager OS after VPS loss, database corruption, accidental destructive change, or a failed infrastructure migration.
 
+## Deployment backup policy
+
+Routine releases and the exact application-only SQL revisions listed in
+`deploy/postgis/application-migrations.txt` reuse a checksum-verified full
+backup no older than 72 hours. They also create a fresh
+`/var/backups/city-manager-os/release-snapshots/<timestamp>/application.dump`
+before migrations. This archive contains the entire current database schema
+and application data, including contacts, Outlook links, credentials, workspace,
+selected email photo originals, watchlist, alerts and issues. The adjacent `excluded-data-tables.txt` lists
+bulk GIS reference/staging tables whose rows are omitted. GIS version/refresh
+metadata is retained. Failed snapshots stop the release.
+
+These are scoped logical snapshots, **not differential or incremental PostgreSQL
+backups**. They avoid copying millions of GIS rows for a small application change.
+Full database backups remain necessary for GIS data and disaster recovery.
+Unreviewed SQL changes, GIS/schema changes, an unknown previous release, a stale
+or invalid full backup, and `CMOS_FORCE_FULL_BACKUP=true` require a new full dump.
+Editing an approved migration changes its Git blob ID and removes its exemption.
+
+The workspace installer and system updater enable the full-backup timer:
+03:20 America/New_York plus up to 20 minutes of jitter, with missed runs caught
+up by systemd. Enabling the timer does not start a full dump synchronously.
+Application snapshots retain the newest 10 for up to 14 days; full local dumps
+retain the newest two for up to 10 days. Neither retention rule pins a full dump
+to an application snapshot. Off-box full backup settings remain in
+`deploy/postgis/.env`; application snapshots are local and contain private data.
+
+### Recovering an application snapshot
+
+Verify its checksum and archive list first. Restore into an **empty scratch
+database**, never run a whole-archive `--clean` against production. The snapshot
+can restore application data independently but its omitted GIS tables are empty.
+Use the normal full-backup recovery below when GIS data is needed. Review and
+transfer only the affected application tables from the scratch database for a
+scoped rollback; restore FK dependencies and schema changes together. Do not
+blindly overlay data-only dumps onto a populated database.
+
+Old `control-plane.dump` snapshots contain only selected table data and cannot
+recover the complete application schema/data.
+
 This runbook covers the recovery order for:
 1. host/network prerequisites
 2. local secrets/environment configuration

@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from issues_app import app
 from app import db_conn, execute, query_all, query_one, templates
+from alert_appearance import alert_appearance_context
 from integration_runtime import apply_literal_auth, perform_http_request, redact_text
 
 LOGGER = logging.getLogger(__name__)
@@ -108,7 +109,7 @@ def _contact_phones(value: str) -> list[str]:
 
 
 def _contact_emails(value: str) -> list[str]:
-    emails = [email.lower() for email in _contact_values(value)]
+    emails = list(dict.fromkeys(email.lower() for email in _contact_values(value)))
     if any(not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) for email in emails):
         raise ValueError("Enter valid email addresses")
     return emails
@@ -1081,9 +1082,19 @@ def contacts_page(
     state: str = "active",
     msg: str = "",
     error: str = "",
+    focus: str = "",
 ):
     scope, params = _contact_scope(request)
     where = [scope]
+    if focus:
+        try:
+            focused_id = uuid.UUID(focus)
+        except ValueError:
+            focus = ''
+        else:
+            where.append('c.id=%s')
+            params.append(focused_id)
+            q, contact_type, state = '', 'ALL', 'all'
     q = q.strip()[:160]
     if q:
         needle = f"%{q}%"
@@ -1104,6 +1115,12 @@ def contacts_page(
         where.append("c.active")
     elif state == "inactive":
         where.append("NOT c.active")
+    elif state == "duplicates":
+        duplicate_scope, duplicate_params = _contact_scope(request, 'duplicate')
+        where.append(f"""c.active AND EXISTS(SELECT 1 FROM contacts duplicate
+            WHERE duplicate.active AND duplicate.id<>c.id AND {duplicate_scope}
+            AND (lower(duplicate.name)=lower(c.name) OR duplicate.emails && c.emails OR duplicate.phones && c.phones))""")
+        params.extend(duplicate_params)
     else:
         state = "all"
     rows = query_all(
@@ -1138,6 +1155,7 @@ def contacts_page(
         f"SELECT count(*) AS total,count(*) FILTER (WHERE active) AS active FROM contacts c WHERE {count_scope}",
         count_params,
     )
+    from brain_app import _csrf
     return templates.TemplateResponse(
         request=request,
         name="contacts.html",
@@ -1151,6 +1169,9 @@ def contacts_page(
             "msg": msg,
             "error": error,
             "page": "contacts",
+            "focus": focus,
+            "csrf": _csrf(request) if getattr(request.state, 'cmos_account', None) else '',
+            "readonly": getattr(request.state, 'cmos_role', None) == 'READ_ONLY',
         },
     )
 
@@ -1280,7 +1301,9 @@ def alerts_page(
                a.observed_at,coalesce(a.observed_at,a.received_at) AS activity_at,
                to_char(coalesce(a.observed_at,a.received_at) AT TIME ZONE current_setting('TimeZone'),'YYYY-MM-DD"T"HH24:MI') AS activity_local_value,
                to_char(a.received_at AT TIME ZONE current_setting('TimeZone'),'YYYY-MM-DD"T"HH24:MI') AS received_local_value,
-               a.click_url,a.tags,
+               a.click_url,a.tags,jsonb_build_object(
+                 'content_sections',a.metadata->'content_sections',
+                 'mapping_center_url',a.metadata->'mapping_center_url') AS metadata,
                coalesce(
                  CASE WHEN r.match_type='MANUAL_COORDINATE_CORRECTION' THEN r.resolved_label END,
                  nullif(a.location->>'label',''),nullif(a.location->>'address',''),r.resolved_label
@@ -1338,6 +1361,7 @@ def alerts_page(
         alert["watch_evidence"] = [
             {
                 "watch_name": item.get("watch_name") or "Saved Watch",
+                "raw_match_reason": item.get("match_reason") or "",
                 "reason": _humanize_match_reason(item.get("match_reason")),
             }
             for item in (alert.get("watch_evidence") or [])
@@ -1369,6 +1393,10 @@ def alerts_page(
             if alert.get("map_latitude") is not None
             else "Location not mapped"
         )
+        alert["appearance_payload"] = {
+            key: alert.get(key) for key in
+            ("source", "title", "message", "click_url", "metadata", "watch_evidence")
+        }
     sources = query_all("SELECT source,count(*) AS total FROM alerts GROUP BY source ORDER BY source")
     categories = query_all("SELECT category,count(*) AS total FROM alerts GROUP BY category ORDER BY category")
     municipalities = query_all(
@@ -1418,6 +1446,7 @@ def alerts_page(
         request=request,
         name="alerts.html",
         context={
+            **alert_appearance_context(request, sources),
             "alerts": alerts,
             "sources": sources,
             "categories": categories,
@@ -2744,13 +2773,11 @@ def subscriber_watches_update(
     )
 
 
-@app.get("/modules")
 @app.get("/rules")
 @app.get("/routing")
 @app.get("/alert-admin")
 def legacy_control_center_redirect(request: Request):
     target = {
-        "/modules": "/admin-tools",
         "/rules": "/watchlist",
         "/routing": "/subscribers",
         "/alert-admin": "/watchlist",

@@ -62,18 +62,32 @@ N8N_DIR="$(docker inspect n8n --format '{{range .Mounts}}{{if eq .Destination "/
 N8N_DB="$N8N_DIR/database.sqlite"
 [[ -f "$N8N_DB" ]] || fail "n8n database not found"
 
-if python3 - "$N8N_DB" "$WORKFLOW_ID" <<'PY'
-import json,sqlite3,sys
-db,wid=sys.argv[1:]
+if python3 - "$N8N_DB" "$WORKFLOW_ID" "$SOURCE" <<'PY'
+import json,re,sqlite3,sys
+db,wid,source=sys.argv[1:]
 con=sqlite3.connect(db); con.row_factory=sqlite3.Row
-row=con.execute("SELECT active,nodes FROM workflow_entity WHERE id=?",(wid,)).fetchone()
+row=con.execute("SELECT active,activeVersionId,nodes FROM workflow_entity WHERE id=?",(wid,)).fetchone()
 con.close()
-if not row or not row["active"]:
+if not row or not row["active"] or not row['activeVersionId']:
     raise SystemExit(1)
 nodes={n.get("name"):n for n in json.loads(row["nodes"])}
+for expected in json.load(open(source))['nodes']:
+    actual=nodes.get(expected['name']) or {}
+    def parameters(node):
+        p=dict(node.get('parameters') or {})
+        if isinstance(p.get('query'),str):
+            p['query']=re.sub(r"TIMESTAMPTZ '[^']+'", "TIMESTAMPTZ '__CMOS_ACTIVATED_AT__'",p['query'])
+        return p
+    if actual.get('type')!=expected['type'] or parameters(actual)!=parameters(expected):
+        raise SystemExit(1)
 q=((nodes.get("Load Newly Resolved Alerts") or {}).get("parameters") or {}).get("query","")
 m=((nodes.get("Mark Resolved Alert Rematched") or {}).get("parameters") or {}).get("query","")
 if "nullif(w.county,'') IS NOT NULL" not in q or "geo-v3" not in q or "geo-v3" not in m:
+    raise SystemExit(1)
+activity=nodes.get('Load Mapped Activity') or {}
+if 'mapped_activity_fingerprint' not in (activity.get('parameters') or {}).get('query',''):
+    raise SystemExit(1)
+if 'spatial_rematch_point' not in q or 'spatial_rematch_point' not in m:
     raise SystemExit(1)
 print("RESOLVED REMATCH already current")
 PY
@@ -130,6 +144,9 @@ q=((nodes["Load Newly Resolved Alerts"].get("parameters") or {}).get("query") or
 m=((nodes["Mark Resolved Alert Rematched"].get("parameters") or {}).get("query") or "")
 assert "nullif(w.county,'') IS NOT NULL" in q
 assert "geo-v3" in q and "geo-v3" in m
+assert 'spatial_rematch_point' in q and 'spatial_rematch_point' in m
+assert 'mapped_activity_fingerprint' in nodes['Load Mapped Activity']['parameters']['query']
+assert 'mapped_activity_fingerprint' in nodes['Mark Mapped Activity']['parameters']['query']
 print("RESOLVED REMATCH: PASS county_watch=YES version=geo-v3")
 PY
 
@@ -145,3 +162,4 @@ for path in "${stale[@]}"; do rm -rf -- "$path"; done
 PUBLISHED=0
 trap - ERR
 log "Resolved-alert rematch installed"
+

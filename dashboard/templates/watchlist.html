@@ -25,19 +25,77 @@
 </fieldset>
 {% endmacro %}
 
-{% macro location_picker(query='', kind='TYPED_ADDRESS', source_id='', latitude='', longitude='', selected_label='', distance=5280) %}
+{% macro source_picker(selected='') %}
+{% set selected_values = selected.split(',')|map('trim')|reject('equalto','')|list %}
+{% set selected_keys = selected_values|map('lower')|list %}
+{% set choices = (selected_values + (alert_sources|map(attribute='source')|list))|unique(case_sensitive=false)|sort(case_sensitive=false) %}
+<div class="watch-source-field">
+  <span class="field-label">Sources <span class="optional-label">optional</span></span>
+  <details class="watch-source-picker" data-source-picker>
+    <summary aria-label="Choose sources"><span data-source-summary>{{ selected_values|join(', ') if selected_values else 'All sources' }}</span></summary>
+    <input type="hidden" name="source_filter" value="{{ selected_values|join(', ') }}">
+    <div class="watch-source-options">
+      <label class="checkbox-row watch-source-all"><input type="checkbox" data-source-all {% if not selected_values %}checked{% endif %}> All sources</label>
+      {% for value in choices %}
+      <label class="checkbox-row"><input type="checkbox" data-source-choice value="{{ value }}" {% if value|lower in selected_keys %}checked{% endif %}> {{ value }}</label>
+      {% endfor %}
+    </div>
+  </details>
+  <span class="hint">Select one or more. All sources includes new sources added later.</span>
+</div>
+{% endmacro %}
+
+{% macro word_picker(topic='', aliases=[], mode='CONTAINS') %}
+<input type="hidden" name="term_list" value="1">
+<label>Words or phrases <span class="optional-label">optional</span>
+  <textarea name="search_term" rows="4" data-primary-keyword placeholder="One term per line, or separate terms with |">{{ topic }}{% if mode in ['WORD','CONTAINS'] and aliases %}{{ '\n' + aliases|join('\n') }}{% endif %}</textarea>
+  <span class="hint">Any one term can trigger this Watch. Case is ignored. Use \d for a digit, such as tier \d. Leave blank to watch the source or area alone.</span>
+</label>
+<label>How should words match?
+  <select name="word_mode" data-word-mode>
+    {% if mode not in ['WORD','CONTAINS'] %}<option value="" selected>Keep the current rule</option>{% endif %}
+    <option value="CONTAINS" {% if mode == 'CONTAINS' %}selected{% endif %}>Contains any term</option>
+    <option value="WORD" {% if mode == 'WORD' %}selected{% endif %}>Whole words or phrases only</option>
+  </select>
+</label>
+{% endmacro %}
+
+{% macro location_picker(query='', kind='TYPED_ADDRESS', source_id='', latitude='', longitude='', selected_label='', distance=5280, municipality='') %}
+{% set scope = 'ANYWHERE' if not query and not latitude and not selected_label else kind if kind in ['COUNTY','MUNICIPALITY','MAP_POINT','EXISTING'] else 'TYPED_ADDRESS' if kind in ['ADDRESS','TYPED_ADDRESS','RESOLVED_ADDRESS'] else 'SAVED' %}
 <div class="location-picker" data-location-picker>
-  <label>Find a Location
-    <input class="location-search" name="location_query" value="{{ query or '' }}" autocomplete="off" placeholder="Address, parcel, street, municipality, or saved map area">
-    <span class="hint">Start typing, then choose a result. Counties such as Hudson County are supported too. A complete address can also be verified directly.</span>
+  <label>Location type
+    <select name="location_scope" data-location-scope>
+      {% for value,label in [('ANYWHERE','Anywhere'),('COUNTY','County'),('MUNICIPALITY','City or town'),('TYPED_ADDRESS','Street address'),('MAP_POINT','Intersection or exact point'),('SAVED','Saved place, area, or parcel')] %}
+      <option value="{{ value }}" {% if scope == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+      {% if scope == 'EXISTING' %}<option value="EXISTING" selected>Keep this saved location</option>{% endif %}
+    </select>
+    <span class="hint" data-location-help>Optional. Leave blank for anywhere, or choose a location type above.</span>
+  </label>
+  <label data-county-field {% if scope != 'COUNTY' %}hidden{% endif %}>County · New Jersey
+    <select data-county-choice>
+      <option value="">Choose a county</option>
+      {% if scope == 'COUNTY' and query %}<option value="{{ source_id or query }}" selected>{{ query }}</option>{% endif %}
+      {% for county in county_choices %}<option value="{{ county }}">{{ county }} County</option>{% endfor %}
+    </select>
+  </label>
+  <label data-location-query-field {% if scope in ['ANYWHERE','COUNTY'] %}hidden{% endif %}>
+    <span data-location-query-label>Location</span>
+    <input class="location-search" name="location_query" value="{{ query or '' }}" autocomplete="off" placeholder="Choose a location type first">
+  </label>
+  <label data-address-town-field {% if scope != 'TYPED_ADDRESS' %}hidden{% endif %}>City or town
+    <input name="municipality" value="{{ municipality or '' }}" autocomplete="off" placeholder="Example: Weehawken">
+    <span class="hint">Enter the town here, or paste a full street address with municipality and state above.</span>
   </label>
   <input type="hidden" name="location_kind" value="{{ kind or 'TYPED_ADDRESS' }}">
   <input type="hidden" name="location_id" value="{{ source_id or '' }}">
-  <input type="hidden" name="latitude" value="{{ latitude or '' }}">
-  <input type="hidden" name="longitude" value="{{ longitude or '' }}">
+  <div class="form-grid two-col" data-point-coordinates {% if scope != 'MAP_POINT' %}hidden{% endif %}>
+    <label>Latitude<input type="number" step="any" min="-90" max="90" name="latitude" value="{{ latitude if latitude is not none else '' }}" placeholder="Example: 40.77"></label>
+    <label>Longitude<input type="number" step="any" min="-180" max="180" name="longitude" value="{{ longitude if longitude is not none else '' }}" placeholder="Example: -74.02"></label>
+  </div>
   <div class="location-search-actions">
-    <button class="secondary-button verify-location" type="button">Verify full address</button>
-    <a class="secondary-button" href="/map" data-cmos-quicklook data-cmos-title="Choose Watch Location">Choose on map</a>
+    <button class="secondary-button verify-location" type="button" {% if scope != 'TYPED_ADDRESS' %}hidden{% endif %}>Verify full address</button>
+    <a class="secondary-button" href="/map" data-location-map data-cmos-quicklook data-cmos-title="Choose Watch Location" {% if scope not in ['MAP_POINT','SAVED'] %}hidden{% endif %}>Choose exact point on map</a>
   </div>
   <div class="location-selected" data-location-selected {% if not selected_label and not latitude %}hidden{% endif %}>
     <strong>Selected Location</strong>
@@ -46,7 +104,7 @@
   <div class="location-results" role="listbox" aria-label="Location results"></div>
   <div class="location-message" aria-live="polite"></div>
 </div>
-<label class="distance-field" {% if kind in ['MUNICIPALITY','COUNTY'] %}hidden{% endif %}>Distance
+<label class="distance-field" {% if (not selected_label and not latitude) or kind in ['MUNICIPALITY','COUNTY'] %}hidden{% endif %}>How far around this location?
   <select name="radius_ft">
     {% if distance and distance not in [1, 50, 100, 500, 1000, 2640, 5280, 10560, 26400] %}
     <option value="{{ distance }}" selected>Current · {{ distance|round|int }} feet</option>
@@ -61,7 +119,7 @@
     <option value="10560" {% if distance == 10560 %}selected{% endif %}>2 miles</option>
     <option value="26400" {% if distance == 26400 %}selected{% endif %}>5 miles</option>
   </select>
-  <span class="hint">The Watch looks this far around the selected Location.</span>
+  <span class="hint">Use feet for a building, intersection, block, or corridor; use miles for a broader area.</span>
 </label>
 {% endmacro %}
 
@@ -104,153 +162,142 @@
   <a class="secondary-button" href="/subscribers">Recipients</a>
 </div>
 
-<section class="metrics watch-state-metrics" aria-label="Watch status summary">
-  <a class="metric" href="/watchlist?state=watching"><span>Watching</span><strong>{{ counts.watching or 0 }}</strong><small>On and ready</small></a>
-  <a class="metric" href="/watchlist?state=matching"><span>Matching</span><strong>{{ counts.matching or 0 }}</strong><small>Recent Match in progress</small></a>
-  <a class="metric" href="/watchlist?state=needs_recipient"><span>Needs Recipient</span><strong>{{ counts.needs_recipient or 0 }}</strong><small>Cannot notify yet</small></a>
-  <a class="metric" href="/watchlist?state=delivery_problem"><span>Delivery Problem</span><strong>{{ counts.delivery_problem or 0 }}</strong><small>Needs attention</small></a>
-  <a class="metric" href="/watchlist?state=paused"><span>Paused</span><strong>{{ counts.paused or 0 }}</strong><small>Not matching</small></a>
-  <a class="metric" href="/watchlist?state=expired"><span>Expired</span><strong>{{ counts.expired or 0 }}</strong><small>End time reached</small></a>
-</section>
+<details class="advanced-options" id="notification-options">
+  <summary>Alert appearance · saved by source</summary>
+  <p class="hint">Choose which links, explanations, keywords, and source details appear on alert cards and in notifications.</p>
+  <a class="secondary-button" href="/alerts#alert-appearance">Set alert appearance</a>
+</details>
 
-<section id="new-watch" class="grid watch-layout watch-primary-layout" style="margin-top:16px">
+<nav class="watch-summary-strip" aria-label="Watch status summary">
+  <a href="/watchlist?state=active"><strong>{{ counts.on or 0 }}</strong><span>On</span></a>
+  <a href="/watchlist?state=matched"><strong>{{ counts.matched or 0 }}</strong><span>With matches · 7 days</span></a>
+  <a href="/watchlist?state=needs_recipient"><strong>{{ counts.needs_recipient or 0 }}</strong><span>Needs recipient</span></a>
+  <a href="/watchlist?state=delivery_problem"><strong>{{ counts.delivery_problem or 0 }}</strong><span>Delivery issue</span></a>
+  <a href="/watchlist?state=paused"><strong>{{ counts.paused or 0 }}</strong><span>Paused</span></a>
+</nav>
+<p class="hint watch-status-help">Watch status shows whether the rule is on. Notification status is shown separately. Matches are alerts already caught; Preview History tests the current rule against older alerts.</p>
+
+<section id="new-watch" class="watch-primary-layout" style="margin-top:16px">
 <details class="panel watch-create-panel" {% if create_open %}open{% endif %}>
-  <summary class="panel-head"><div><div class="panel-kicker">NEW WATCH</div><h2>Create a Watch</h2></div><span class="count-pill">5 steps</span></summary>
+  <summary class="panel-head">
+    <div><div class="panel-kicker">NEW WATCH</div><h2>Create a Watch</h2></div>
+    <span class="count-pill">3 choices</span>
+  </summary>
   <div class="panel-body form-panel">
-    <form method="post" action="/watchlist/create" class="watch-form watch-editor" data-mode-form>
+    <form method="post" action="/watchlist/create" class="watch-form simple-watch-form" data-simple-watch-form>
+      <input type="hidden" name="setup_mode" value="{{ prefill.setup_mode or 'TOPIC' }}" data-simple-setup-mode>
+      <input type="hidden" name="match_mode" value="{{ prefill.match_mode }}">
+      <input type="hidden" name="match_field" value="{{ prefill.match_field }}">
+
       {% if prefill.previewed %}
       <aside class="watch-from-alert">
-        <div class="panel-kicker">HISTORICALLY PREVIEWED</div>
-        <strong>This rule came from the read-only historical preview.</strong>
-        <p>The source, phrase or field, matching settings, priority and alternatives below were carried over. Nothing is saved until you choose Turn On Watch or Save Paused.</p>
+        <strong>Started from Preview History.</strong>
+        <span>Review the rule below, choose a recipient, then turn it on.</span>
       </aside>
       {% endif %}
-      {% if prefill.from_alert %}
-      <aside class="watch-from-alert" data-alert-watch-draft>
-        <div class="panel-kicker">STARTED FROM ALERT</div>
+      {% if prefill.from_alert or prefill.from_record %}
+      <aside class="watch-from-alert">
+        <div class="panel-kicker">{% if prefill.from_record %}STARTED FROM INTELLIGENCE{% else %}STARTED FROM ALERT{% endif %}</div>
         <strong>{{ prefill.source_alert_title }}</strong>
-        <p>Choose whether the topic, the Location, or both were important. You can edit every suggestion below. This Watch will look for future alerts and will not change the original alert.</p>
+        <span>What about this alert matters? Keep or clear the source, topic, and location below.</span>
         {% if prefill.keyword_choices %}
-        <div class="alert-keyword-picker" data-alert-keywords>
-          <span>Choose keywords from this alert</span>
+        <div class="alert-keyword-picker" data-alert-keywords data-match-filters>
+          <span>Keywords: use any of these phrases</span>
           <div class="alert-keyword-choices">
-          {% for keyword in prefill.keyword_choices %}
+            {% for keyword in prefill.keyword_choices %}
             <label><input type="checkbox" name="alert_keywords" value="{{ keyword }}" data-alert-keyword {% if keyword in prefill.selected_keywords %}checked{% endif %}> {{ keyword }}</label>
-          {% endfor %}
+            {% endfor %}
           </div>
-          <small>Future alerts may Match any selected keyword or phrase. These choices come from this alert, not a fixed list.</small>
+          <small>These choices come from this alert, not a fixed list.</small>
         </div>
         {% endif %}
-        {% if prefill.suggested_source or prefill.suggested_category %}
-        <div class="watch-alert-filters">
-          <span>Optional: narrow future Matches</span>
-          {% if prefill.suggested_source %}
-          <label><input type="checkbox" data-alert-filter="source_filter" value="{{ prefill.suggested_source }}"> Only from {{ prefill.suggested_source }}</label>
-          {% endif %}
-          {% if prefill.suggested_category %}
-          <label><input type="checkbox" data-alert-filter="alert_category_filter" value="{{ prefill.suggested_category }}"> Only category {{ prefill.suggested_category }}</label>
-          {% endif %}
-        </div>
-        {% endif %}
-        <small>Nothing is saved until you choose Turn On Watch.</small>
       </aside>
       {% endif %}
-      <section class="watch-step">
-        <div class="watch-step-number">1</div>
-        <div class="watch-step-content">
+
+      <section class="simple-watch-section">
+        <div class="simple-watch-number">1</div>
+        <div>
           <h3>What should we watch for?</h3>
-          <label>Name this Watch
-            <input name="display_name" value="{{ prefill.display_name }}" required placeholder="Example: Town Hall area or Water main breaks">
-            <span class="hint">Use a short private name you will recognize later.</span>
+          <label>What should match?
+            <select name="match_selection" data-match-selection>
+              <option value="FILTERED" {% if prefill.match_selection != 'ANY' %}selected{% endif %}>Only activity matching filters</option>
+              <option value="ANY" {% if prefill.match_selection == 'ANY' %}selected{% endif %}>Any mapped activity in this area</option>
+            </select>
+            <span class="hint">Includes mapped incidents, work items, events, and transit activity from every source and priority. Reference layers are excluded.</span>
           </label>
-          {{ mode_choices(prefill.setup_mode, 'What about this alert matters?' if prefill.from_alert else 'Choose one') }}
-          <label>Only these alert sources (optional)
-            <input name="source_filter" list="alert-source-values" value="{{ prefill.source_filter }}" placeholder="Example: BNN">
-            <span class="hint">For “any BNN alert in Hudson County,” choose BNN here and Hudson County under Location. Leave topic blank.</span>
-          </label>
-          <div data-needs-topic {% if prefill.setup_mode == 'LOCATION' %}hidden{% endif %}>
-            <label>{{ 'Primary keyword or phrase' if prefill.from_alert else 'Topic or phrase' }}
-              <input name="search_term" value="{{ prefill.search_term }}" data-primary-keyword placeholder="Example: water main, PSEG, road closure, or Park Avenue">
-              <span class="hint">Use wording that is likely to appear in a future alert.</span>
-            </label>
-            <label>Also match these alternatives (optional)
-              <input name="aliases" value="{{ prefill.aliases or '' }}" data-other-keywords placeholder="Example: main break, water leak">
-              <span class="hint">Separate phrases with commas. Any one of them may create a Match.</span>
-            </label>
+          <div data-match-filters>
+          {{ source_picker(prefill.source_filter) }}
+          {{ word_picker(prefill.search_term, prefill.aliases.split(',') if prefill.aliases else [], prefill.match_mode) }}
           </div>
         </div>
       </section>
 
-      <section class="watch-step" data-needs-location {% if prefill.setup_mode == 'TOPIC' %}hidden{% endif %}>
-        <div class="watch-step-number">2</div>
-        <div class="watch-step-content">
+      <section class="simple-watch-section">
+        <div class="simple-watch-number">2</div>
+        <div>
           <h3>Where should we watch?</h3>
-          {{ location_picker(prefill.location_query, prefill.location_kind, prefill.location_id, prefill.latitude, prefill.longitude, prefill.location_query, 5280) }}
+          <p class="hint simple-watch-intro">Choose the area first. County and city Watches match alert geography; an address, intersection, or point uses the distance you choose.</p>
+          {{ location_picker(prefill.location_query, prefill.location_kind, prefill.location_id, prefill.latitude, prefill.longitude, prefill.location_query, prefill.radius_ft) }}
         </div>
       </section>
 
-      <section class="watch-step">
-        <div class="watch-step-number">3</div>
-        <div class="watch-step-content">
+      <section class="simple-watch-section">
+        <div class="simple-watch-number">3</div>
+        <div>
           <h3>Who should be notified?</h3>
-          <fieldset class="recipient-picker"><legend>Recipients</legend>
+          <fieldset class="recipient-picker simple-recipient-picker"><legend>Recipients</legend>
             {% for sub in subscribers %}
-            <label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}" {% if subscribers|length == 1 %}checked{% endif %}> {{ sub.name }}</label>
+            <label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}"> {{ sub.name }}</label>
             {% else %}
             <span>No active Recipients. <a href="/subscribers">Add one first</a>.</span>
             {% endfor %}
-            <div class="hint">Turning a Watch on requires a Recipient. You can save it Paused without one.</div>
           </fieldset>
         </div>
       </section>
 
-      <section class="watch-step test-notification">
-        <div class="watch-step-number">4</div>
-        <div class="watch-step-content">
-          <h3>Test it</h3>
-          <label>Test Recipient
-            <select data-test-recipient>
-              <option value="">Choose a separate test channel</option>
-              {% for sub in subscribers %}<option value="{{ sub.id }}">{{ sub.name }}</option>{% endfor %}
-            </select>
-          </label>
-          <button class="secondary-button test-notification-button" type="button">Send Test Notification</button>
-          <div class="hint">Sends one clearly labeled test message only. It does not create an alert, Match, or Watch.</div>
-          <div class="test-notification-result" aria-live="polite"></div>
-        </div>
-      </section>
-
-      <section class="watch-step">
-        <div class="watch-step-number">5</div>
-        <div class="watch-step-content">
-          <h3>Turn it on</h3>
-          {{ duration_picker('PERMANENT') }}
-          <div class="watch-card-actions">
-            <button class="primary-button watch-submit" type="submit" name="activation" value="on">Turn On Watch</button>
-            <button class="secondary-button" type="submit" name="activation" value="paused">Save Paused</button>
-          </div>
-          <span class="hint">You can edit, pause, reactivate, or delete it later.</span>
-        </div>
-      </section>
-
-      <details class="advanced-options">
-        <summary>Advanced Options</summary>
+      <details class="advanced-options simple-watch-more">
+        <summary>More options</summary>
         <div class="watch-form compact advanced-options-body">
-          <div class="form-grid two-col">
-            <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}">P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select></label>
-            <label>Municipality context<input name="municipality" placeholder="Optional"></label>
+          <label>Watch name <span class="optional-label">optional</span>
+            <input name="display_name" value="{{ prefill.display_name }}" placeholder="Created automatically from the rule">
+          </label>
+          <label data-match-filters>Also match these phrases <span class="optional-label">optional</span>
+            <input name="aliases" value="{{ prefill.aliases if prefill.match_mode not in ['CONTAINS','WORD'] else '' }}" placeholder="Example: structure fire, 2nd alarm">
+          </label>
+          <div class="form-grid two-col" data-match-filters>
+            <label>Minimum priority
+              <select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == prefill.min_priority %}selected{% endif %}>P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select>
+            </label>
+            <label>Alert category <span class="optional-label">optional</span>
+              <input name="alert_category_filter" list="alert-category-values" value="{{ prefill.alert_category_filter }}" placeholder="Any category">
+            </label>
           </div>
-          <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ prefill.alert_category_filter }}" placeholder="Leave blank for every category; separate several with commas" autocomplete="off"></label>
-          <span class="hint">Leave both blank to evaluate every alert point inside the saved area. The Watch name never filters alerts.</span>
-          <div class="form-grid two-col">
-            <label>Technical watch type<select name="watch_type"><option value="">Automatic</option>{% for wt in watch_types %}<option value="{{ wt }}">{{ wt }}</option>{% endfor %}</select></label>
-            <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == prefill.match_mode %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
+          {{ duration_picker('PERMANENT') }}
+          <label>Private note <span class="optional-label">optional</span>
+            <textarea name="notes" rows="2" placeholder="Anything you want to remember about this Watch">{{ prefill.notes }}</textarea>
+          </label>
+
+          <div class="test-notification">
+            <div class="field-label">Test it</div>
+            <div class="form-grid two-col">
+              <select data-test-recipient>
+                <option value="">Choose test Recipient</option>
+                {% for sub in subscribers %}<option value="{{ sub.id }}">{{ sub.name }}</option>{% endfor %}
+              </select>
+              <button class="secondary-button test-notification-button" type="button">Send Test Notification</button>
+            </div>
+            <div class="hint">This sends a test only. It does not create an alert, Match, or Watch.</div>
+            <div class="test-notification-result" aria-live="polite"></div>
           </div>
-          <label>Match field<input name="match_field" value="{{ prefill.match_field or '' }}" placeholder="Required only for FIELD/EXACT field rules"></label>
-          <div class="form-grid two-col"><label>Internal category label<input name="category"></label><label>Tags<input name="tags" placeholder="Comma-separated"></label></div>
-          <label>Notes<textarea name="notes" rows="2" placeholder="Optional private note">{{ prefill.notes }}</textarea></label>
         </div>
       </details>
+
+      <div class="simple-watch-message" data-simple-watch-message aria-live="polite"></div>
+      <div class="watch-card-actions simple-watch-submit">
+        <button class="primary-button watch-submit" type="submit" name="activation" value="on">Turn On Watch</button>
+        <button class="secondary-button" type="submit" name="activation" value="paused">Save Paused</button>
+      </div>
+      <span class="hint">Turn it on now, or save it Paused and review it later.</span>
     </form>
   </div>
 </details>
@@ -261,7 +308,7 @@
     <form class="watch-filters" method="get" action="/watchlist">
       <input name="q" value="{{ q }}" placeholder="Search Watch name, topic, Location, or group">
       <select name="state">
-        {% for value,label in [('all','All statuses'),('watching','Watching'),('matching','Matching'),('needs_recipient','Needs Recipient'),('delivery_problem','Delivery Problem'),('paused','Paused'),('expired','Expired'),('location','Uses a Location')] %}
+        {% for value,label in [('all','All Watches'),('active','On'),('matched','With matches in the last 7 days'),('watching','Ready or scheduled'),('matching','Queued, unrecorded, or held'),('needs_recipient','Needs recipient'),('delivery_problem','Delivery issue'),('paused','Paused'),('expired','Expired'),('location','Uses a location')] %}
         <option value="{{ value }}" {% if state == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
@@ -269,7 +316,9 @@
     </form>
 
     {% if items %}
-    <form id="watch-bulk-form" method="post" action="/watchlist/bulk-action" class="bulk-action-toolbar" data-watch-bulk-form>
+    <details class="watch-bulk-disclosure" data-watch-bulk-disclosure>
+      <summary>Bulk actions</summary>
+      <form id="watch-bulk-form" method="post" action="/watchlist/bulk-action" class="bulk-action-toolbar" data-watch-bulk-form>
       <label class="checkbox-row"><input type="checkbox" data-watch-select-all> Select all Watches shown</label>
       <span data-watch-bulk-count>0 selected</span>
       <label>Action
@@ -284,107 +333,151 @@
       </label>
       <button class="secondary-button" type="submit">Apply to Selected</button>
     </form>
+    </details>
     {% endif %}
 
     <div class="watch-list">
     {% for w in items %}
-      <article class="watch-card {% if w.state_label in ['Paused','Expired'] %}inactive{% endif %}">
+      {% set source_rule = w.watch_type == 'SOURCE' and not w.nearby_enabled and w.match_mode == 'FIELD' and (w.match_field or '')|lower == 'source' %}
+      {% set edit_sources = w.source_filter or ([w.search_term] + (w.aliases or []) if source_rule else []) %}
+      <article class="watch-card {% if w.lifecycle_label in ['Paused','Expired'] %}inactive{% endif %}">
         <div class="watch-card-summary">
           <div class="watch-summary-main">
             <label class="watch-select"><input type="checkbox" name="watch_item_ids" value="{{ w.id }}" form="watch-bulk-form" data-watch-select aria-label="Select {{ w.display_name }}"></label>
-            <span class="status {{ w.state_class }}">{{ w.state_label }}</span>
-            <div>
-              <strong>{{ w.display_name }}</strong>
-              <div class="meta">
-                {% if w.setup_mode == 'LOCATION' %}Near {{ w.location_label }}{% elif w.setup_mode == 'LOCATION_TOPIC' %}Keywords: “{{ w.search_term }}”{% for alias in w.aliases or [] %}, “{{ alias }}”{% endfor %} near {{ w.location_label }}{% else %}Keywords: “{{ w.search_term }}”{% for alias in w.aliases or [] %}, “{{ alias }}”{% endfor %}{% endif %}
-                {% if w.setup_mode != 'TOPIC' and w.distance_label %} · {{ w.distance_label }}{% endif %}
+            <div class="watch-summary-copy">
+              <strong class="watch-name">{{ w.display_name }}</strong>
+              <div class="meta watch-rule-summary">
+                {% if edit_sources %}<strong>{{ edit_sources|join(', ') }}</strong> · {% endif %}
+                {% if w.watch_type == 'SOURCE' %}
+                  All alerts
+                {% elif w.setup_mode == 'LOCATION' %}
+                  {{ 'Any mapped activity' if w.match_selection == 'ANY' else 'Activity' }} in {{ w.location_label }}
+                {% elif w.setup_mode == 'LOCATION_TOPIC' %}
+                  “{{ w.search_term }}”{% if w.aliases %} + {{ w.aliases|length }} more term{{ '' if w.aliases|length == 1 else 's' }}{% endif %} in {{ w.location_label }}
+                {% else %}
+                  “{{ w.search_term }}”{% if w.aliases %} + {{ w.aliases|length }} more term{{ '' if w.aliases|length == 1 else 's' }}{% endif %} anywhere
+                {% endif %}
+                {% if w.setup_mode != 'TOPIC' and w.distance_label and w.location_kind not in ['MUNICIPALITY','COUNTY'] %} · {{ w.distance_label }}{% endif %}
+                {% if w.alert_category_filter %} · {{ w.alert_category_filter|join(', ') }}{% endif %}
+                {% if w.min_priority > 1 %} · P{{ w.min_priority }}+{% endif %}
               </div>
             </div>
           </div>
+          <span class="status {{ w.lifecycle_class }}" data-watch-lifecycle title="{{ w.lifecycle_reason }}">{{ w.lifecycle_label }}</span>
         </div>
+        <div class="watch-notification-line">
+          <span>Notification</span>
+          <span class="status {{ w.delivery_class }}" data-watch-delivery title="{{ w.delivery_reason }}">{{ w.delivery_label }}</span>
+        </div>
+        {% if w.setup_issues %}<p class="watch-setup-issues">{{ w.setup_issues|join(' · ') }}</p>{% endif %}
         <div class="watch-compact-evidence">
-          <span><strong>{{ w.matches_7d or 0 }}</strong> matches</span>
-          <span><strong>{{ w.sent_7d or 0 }}</strong> sent</span>
+          <span><strong>{{ w.matches_7d or 0 }}</strong> matches · 7 days</span>
+          <span><strong>{{ w.sent_7d or 0 }}</strong> sent · 7 days</span>
           <span><strong>{{ w.active_recipient_count or 0 }}</strong> recipient{{ '' if w.active_recipient_count == 1 else 's' }}</span>
           {% if w.last_match_at %}<span>Last match {{ w.last_match_at.strftime('%m/%d %I:%M %p') }}</span>{% endif %}
         </div>
 
+        <div class="meta watch-rule-summary" data-watch-recipients>
+          <strong>Recipients:</strong> {{ (w.recipient_names or [])|join(', ') if w.recipient_names else 'No active recipients' }}
+        </div>
+
         <details class="watch-card-more">
           <summary>Details</summary>
-          <div class="watch-state-explanation"><strong>Why this status:</strong> {{ w.state_reason }}</div>
+          <div class="watch-state-explanation"><strong>Watch:</strong> {{ w.lifecycle_reason }}<br><strong>Notification:</strong> {{ w.delivery_reason }}</div>
           <div class="watch-last-evidence">
             {% if w.parent_group %}<span><strong>Group:</strong> {{ w.parent_group }}</span>{% endif %}
+            {% if not source_rule and w.setup_mode != 'LOCATION' %}<span><strong>Words or phrases:</strong> {{ ([w.search_term] + (w.aliases or []))|join(' · ') }}</span>{% endif %}
             {% if w.last_match_at %}<span><strong>Latest Match:</strong> {{ w.last_match_at.strftime('%m/%d/%Y %I:%M %p') }}{% if w.last_match_title %} · {{ w.last_match_title }}{% endif %}</span>{% else %}<span><strong>Latest Match:</strong> none yet</span>{% endif %}
             {% if w.last_delivery_at %}<span><strong>Latest Notification:</strong> {{ w.last_delivery_status|title }} · {{ w.last_delivery_at.strftime('%m/%d/%Y %I:%M %p') }}</span>{% else %}<span><strong>Latest Notification:</strong> none yet</span>{% endif %}
-            <span><strong>Recipients:</strong> {{ (w.recipient_names or [])|join(', ') if w.recipient_names else 'None selected' }}</span>
-            {% if w.parent_group %}<span><strong>Group:</strong> {{ w.parent_group }}</span>{% endif %}
           </div>
         </details>
 
-        <details class="watch-edit-panel" {% if focus_id and w.id == focus_id %}open{% endif %}>
+        {% if focus_id and w.id == focus_id %}
+        <details id="edit-watch" class="watch-edit-panel" open>
           <summary>Edit Watch</summary>
-          <form method="post" action="/watchlist/{{ w.id }}/update" class="watch-form compact watch-editor" data-mode-form>
+          <form method="post" action="/watchlist/{{ w.id }}/update" class="watch-form compact simple-watch-form" data-simple-watch-form>
             <input type="hidden" name="keep_state" value="1">
-            <label>Watch name<input name="display_name" value="{{ w.display_name }}" required></label>
-            <div>
-              <div class="field-label">What should we watch for?</div>
-              {{ mode_choices(w.setup_mode) }}
-              <label>Only these alert sources (optional)
-                <input name="source_filter" list="alert-source-values" value="{{ (w.source_filter or [])|join(', ') }}" placeholder="Example: BNN">
-              </label>
-            </div>
-            <div data-needs-topic {% if w.setup_mode == 'LOCATION' %}hidden{% endif %}>
-              {% if w.keyword_choices %}
-              <div class="alert-keyword-picker" data-alert-keywords>
-                <span>Keywords currently on</span>
-                <div class="alert-keyword-choices">
-                  {% for keyword in w.keyword_choices %}<label><input type="checkbox" value="{{ keyword }}" data-alert-keyword checked> {{ keyword }}</label>{% endfor %}
-                </div>
-                <small>Clear a keyword to stop matching it, then save. These are this Watch's saved choices, not a hardcoded list.</small>
-              </div>
-              {% endif %}
-              <label>Topic or phrase<input name="search_term" value="{{ w.search_term if w.setup_mode != 'LOCATION' else '' }}" data-primary-keyword placeholder="Example: water main or road closure"></label>
-              <label>Also match these alternatives (optional)
-                <input name="aliases" value="{{ (w.aliases or [])|join(', ') }}" data-other-keywords placeholder="Separate phrases with commas">
-                <span class="hint">Any one of these phrases may create a Match.</span>
-              </label>
-            </div>
-            <div class="watch-mode-section" data-needs-location {% if w.setup_mode == 'TOPIC' %}hidden{% endif %}>
-              <div class="field-label">Location and Distance</div>
-              {{ location_picker(w.location_label, w.location_kind, w.location_id, '', '', w.location_label, w.radius_ft or 5280) }}
-            </div>
-            <fieldset class="recipient-picker"><legend>Recipients</legend>
-              {% for sub in subscribers %}<label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}" {% if sub.id in w.recipient_ids %}checked{% endif %}> {{ sub.name }}</label>{% else %}<span>No active Recipients.</span>{% endfor %}
-            </fieldset>
-            {{ duration_picker(w.duration, w.starts_local, w.expires_local) }}
+            <input type="hidden" name="setup_mode" value="{{ w.setup_mode }}" data-simple-setup-mode>
+            <input type="hidden" name="watch_type" value="{{ w.watch_type }}">
+            <input type="hidden" name="match_mode" value="{{ w.match_mode }}">
+            <input type="hidden" name="match_field" value="{{ w.match_field or '' }}">
+            <input type="hidden" name="category" value="{{ w.category or '' }}">
+            <input type="hidden" name="tags" value="{{ (w.tags or [])|join(', ') }}">
 
-            <details class="advanced-options">
-              <summary>Advanced Options</summary>
+            <section class="simple-watch-section">
+              <div class="simple-watch-number">1</div>
+              <div>
+                <h3>What should we watch for?</h3>
+                <label>What should match?
+                  <select name="match_selection" data-match-selection>
+                    <option value="ANY" {% if w.match_selection == 'ANY' %}selected{% endif %}>Any mapped activity in this area</option>
+                    <option value="FILTERED" {% if w.match_selection != 'ANY' %}selected{% endif %}>Only activity matching filters</option>
+                  </select>
+                  <span class="hint">Includes mapped incidents, work items, events, and transit activity from every source and priority. Reference layers are excluded.</span>
+                </label>
+                <div data-match-filters>
+                {{ source_picker(edit_sources|join(', ')) }}
+                {{ word_picker('' if source_rule or w.setup_mode == 'LOCATION' else w.search_term, w.aliases if not source_rule and w.setup_mode != 'LOCATION' else [], w.match_mode) }}
+                </div>
+              </div>
+            </section>
+
+            <section class="simple-watch-section">
+              <div class="simple-watch-number">2</div>
+              <div>
+                <h3>Where should we watch?</h3>
+                {{ location_picker(w.location_label, w.location_kind, w.location_id, '', '', w.location_label, w.radius_ft or 5280, w.municipality or '') }}
+              </div>
+            </section>
+
+            <section class="simple-watch-section">
+              <div class="simple-watch-number">3</div>
+              <div>
+                <h3>Who should be notified?</h3>
+                <fieldset class="recipient-picker simple-recipient-picker"><legend>Recipients</legend>
+                  {% for sub in subscribers %}<label class="checkbox-row"><input type="checkbox" name="subscriber_ids" value="{{ sub.id }}" {% if sub.id in w.recipient_ids %}checked{% endif %}> {{ sub.name }}</label>{% else %}<span>No active Recipients.</span>{% endfor %}
+                </fieldset>
+              </div>
+            </section>
+
+            <details class="advanced-options simple-watch-more">
+              <summary>More options</summary>
               <div class="watch-form compact advanced-options-body">
-                <div class="form-grid two-col">
-                  <label>Minimum alert priority<select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == w.min_priority %}selected{% endif %}>P{{ p }}</option>{% endfor %}</select></label>
-                  <label>Municipality context<input name="municipality" value="{{ w.municipality or '' }}"></label>
+                <label>Watch name
+                  <input name="display_name" value="{{ w.display_name }}" required>
+                </label>
+                <label data-match-filters>Also match these phrases <span class="optional-label">optional</span>
+                  <input name="aliases" value="{{ (w.aliases or [])|join(', ') if not source_rule and w.match_mode not in ['CONTAINS','WORD'] else '' }}" data-other-keywords placeholder="Separate phrases with commas">
+                </label>
+                <div class="form-grid two-col" data-match-filters>
+                  <label>Minimum priority
+                    <select name="min_priority">{% for p in [1,2,3,4,5] %}<option value="{{ p }}" {% if p == w.min_priority %}selected{% endif %}>P{{ p }}{% if p == 1 %} · include all{% endif %}</option>{% endfor %}</select>
+                  </label>
+                  <label>Alert category <span class="optional-label">optional</span>
+                    <input name="alert_category_filter" list="alert-category-values" value="{{ (w.alert_category_filter or [])|join(', ') }}" placeholder="Any category">
+                  </label>
                 </div>
-                <label>Only these alert categories<input name="alert_category_filter" list="alert-category-values" value="{{ (w.alert_category_filter or [])|join(', ') }}" autocomplete="off"></label>
-                <span class="hint">Leave both blank to evaluate every alert point inside the saved area. The Watch name never filters alerts.</span>
-                <div class="form-grid two-col">
-                  <label>Technical watch type<select name="watch_type">{% if w.watch_type not in watch_types %}<option value="{{ w.watch_type }}" selected>{{ w.watch_type }}</option>{% endif %}{% for wt in watch_types %}<option value="{{ wt }}" {% if wt == w.watch_type %}selected{% endif %}>{{ wt }}</option>{% endfor %}</select></label>
-                  <label>Match mode<select name="match_mode">{% for mm in match_modes %}<option value="{{ mm }}" {% if mm == w.match_mode %}selected{% endif %}>{{ mm }}</option>{% endfor %}</select></label>
-                </div>
-                <label>Match field<input name="match_field" value="{{ w.match_field or '' }}"></label>
-                <div class="form-grid two-col"><label>Internal category label<input name="category" value="{{ w.category or '' }}"></label><label>Tags<input name="tags" value="{{ (w.tags or [])|join(', ') }}"></label></div>
-                <label>Notes<textarea name="notes" rows="2">{{ w.notes or '' }}</textarea></label>
+                {{ duration_picker(w.duration, w.starts_local, w.expires_local) }}
+                <label>Private note <span class="optional-label">optional</span>
+                  <textarea name="notes" rows="2">{{ w.notes or '' }}</textarea>
+                </label>
                 <div class="advanced-reference">Internal reference: {{ w.watch_id }}</div>
                 {% if w.nearby_enabled %}<a href="/api/spatial-watch/{{ w.watch_id }}/nearby-history?radius_ft={{ w.radius_ft or 5280 }}&hours=24">View nearby alert history data</a>{% endif %}
               </div>
             </details>
-            <button class="primary-button" type="submit">Save Changes</button>
+
+            <div class="simple-watch-message" data-simple-watch-message aria-live="polite"></div>
+            <div class="watch-card-actions">
+              <button class="primary-button" type="submit">Save Changes</button>
+              <a class="secondary-button" href="/watchlist">Cancel</a>
+            </div>
           </form>
         </details>
-
+        {% endif %}
         <div class="watch-card-actions watch-card-primary-actions">
-          <a class="secondary-button" href="/watchlist?evidence={{ w.id }}&evidence_view=matched#watch-evidence">Matches</a>
-          {% if w.historical_preview_url %}<a class="secondary-button" href="{{ w.historical_preview_url }}">Preview History</a>{% endif %}
+          <a class="secondary-button" href="/watchlist?focus={{ w.id }}#edit-watch">Edit</a>
+          <a class="secondary-button" href="/watchlist?evidence={{ w.id }}&evidence_view=matched#watch-evidence" title="Alerts this Watch actually caught">Matches</a>
+          <a class="secondary-button" href="{{ w.historical_preview_url }}" title="Test this saved rule against all stored history">Preview History</a>
           <details class="watch-manage-menu">
             <summary class="secondary-button">Manage</summary>
             <div class="watch-manage-actions">
@@ -425,7 +518,7 @@
     <div class="watch-card-actions" style="margin-bottom:12px">
       <a class="secondary-button {% if evidence_view == 'matched' %}active{% endif %}" href="/watchlist?evidence={{ evidence_watch.id }}&evidence_view=matched#watch-evidence">Matched Alerts</a>
       <a class="secondary-button {% if evidence_view == 'notified' %}active{% endif %}" href="/watchlist?evidence={{ evidence_watch.id }}&evidence_view=notified#watch-evidence">Notifications</a>
-      {% if evidence_watch.historical_preview_url %}<a class="secondary-button" href="{{ evidence_watch.historical_preview_url }}">Could Have Matched</a>{% endif %}
+      <a class="secondary-button" href="{{ evidence_watch.historical_preview_url }}">Preview History</a>
     </div>
 
     <form class="watch-filters" method="get" action="/watchlist">
@@ -441,7 +534,7 @@
       {% else %}
       These are delivery records tied to this Watch, including sent, suppressed, failed, or pending attempts.
       {% endif %}
-      “Could Have Matched” is read-only historical evaluation and creates no Match or Notification.
+      “Preview History” tests the current saved rule against older alerts and creates no Match or Notification.
     </p>
 
     <div class="data-list">
@@ -529,7 +622,7 @@
       <label>Saved Watch
         <select name="watch_item_id" required>
           <option value="">Choose a Watch</option>
-          {% for w in watch_lab_items %}<option value="{{ w.id }}">{{ w.display_name }} · {{ w.state_label }}</option>{% endfor %}
+          {% for w in watch_lab_items %}<option value="{{ w.id }}">{{ w.display_name }} · {{ w.lifecycle_label }}</option>{% endfor %}
         </select>
       </label>
       <label>Alert ID
@@ -559,6 +652,9 @@
         <a class="secondary-button" data-watch-lab-alert-link href="/alerts?window=all">Open Alert History</a>
         <a class="secondary-button" href="/map" data-cmos-quicklook data-cmos-title="Mapping Center">Open Mapping Center</a>
       </div>
+      <label data-watch-lab-copy-fallback hidden>Automatic copy is unavailable. Copy the selected receipt below.
+        <textarea readonly rows="8" aria-label="Diagnostic receipt"></textarea>
+      </label>
     </div>
   </div>
 </details>
@@ -683,12 +779,11 @@
   </div>
 </details>
 
-<datalist id="alert-source-values">{% for value in alert_sources %}<option value="{{ value.source }}">{% endfor %}</datalist>
 <datalist id="alert-category-values">{% for value in alert_categories %}<option value="{{ value.category }}">{% endfor %}</datalist>
 <footer><span>City Manager OS</span><span>One Watch system · one Notification path</span></footer>
 </main>
 
-<script src="/static/watch_matcher.js?v=4"></script>
+<script src="/static/watch_matcher.js?v=6"></script>
 <script>
 (() => {
   const setMessage = (element, message, isError = false) => {
@@ -696,6 +791,31 @@
     element.textContent = message;
     element.classList.toggle('error-text', isError);
   };
+
+  document.querySelectorAll('[data-source-picker]').forEach((picker) => {
+    const field = picker.querySelector('[name="source_filter"]');
+    const summary = picker.querySelector('[data-source-summary]');
+    const all = picker.querySelector('[data-source-all]');
+    const choices = [...picker.querySelectorAll('[data-source-choice]')];
+    const sync = () => {
+      const values = choices.filter((choice) => choice.checked).map((choice) => choice.value);
+      field.value = values.join(', ');
+      all.checked = values.length === 0;
+      summary.textContent = values.length > 2
+        ? `${values.slice(0, 2).join(', ')} +${values.length - 2}`
+        : values.join(', ') || 'All sources';
+      summary.title = values.join(', ') || 'All sources';
+    };
+    picker.addEventListener('change', (event) => {
+      if (event.target === all && all.checked) choices.forEach((choice) => { choice.checked = false; });
+      sync();
+    });
+    picker.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { picker.open = false; picker.querySelector('summary').focus(); }
+    });
+    document.addEventListener('click', (event) => { if (!picker.contains(event.target)) picker.open = false; });
+    sync();
+  });
 
   const watchLabForm = document.querySelector('[data-watch-lab-form]');
   if (watchLabForm) {
@@ -707,6 +827,7 @@
     const gates = resultPanel?.querySelector('[data-watch-lab-gates]');
     const evidence = resultPanel?.querySelector('[data-watch-lab-evidence]');
     const copyButton = resultPanel?.querySelector('[data-watch-lab-copy]');
+    const copyFallback = resultPanel?.querySelector('[data-watch-lab-copy-fallback]');
     const alertLink = resultPanel?.querySelector('[data-watch-lab-alert-link]');
     let receipt = '';
 
@@ -737,13 +858,14 @@
       facts.replaceChildren();
       gates.replaceChildren();
       evidence.replaceChildren();
+      copyFallback.hidden = true;
       receipt = '';
       try {
         const response = await fetch('/api/watch-lab/evaluate', {
           method: 'POST',
           body: new FormData(watchLabForm)
         });
-        const payload = await response.json();
+        const payload = await window.CMOS.readJsonResponse(response);
         if (!response.ok || !payload.ok) throw new Error(payload.message || 'Watch Lab request failed');
         if (!window.CmosWatchMatcher) throw new Error('Shared Watch matcher did not load');
         const decision = window.CmosWatchMatcher.evaluateWatch(payload.alert, payload.watch);
@@ -810,9 +932,17 @@
 
     copyButton?.addEventListener('click', async () => {
       if (!receipt) return;
-      await navigator.clipboard.writeText(receipt);
-      copyButton.textContent = 'Diagnostic Copied';
-      setTimeout(() => { copyButton.textContent = 'Copy Diagnostic Receipt'; }, 1800);
+      try {
+        await navigator.clipboard.writeText(receipt);
+        copyButton.textContent = 'Diagnostic Copied';
+        setTimeout(() => { copyButton.textContent = 'Copy Diagnostic Receipt'; }, 1800);
+      } catch {
+        copyFallback.hidden = false;
+        const field = copyFallback.querySelector('textarea');
+        field.value = receipt;
+        field.focus();
+        field.select();
+      }
     });
   }
 
@@ -829,6 +959,58 @@
       if (input) input.required = mode !== 'LOCATION';
     });
   };
+
+  document.querySelectorAll('[data-simple-watch-form]').forEach((form) => {
+    const mode = form.querySelector('[data-simple-setup-mode]');
+    const source = form.querySelector('[name="source_filter"]');
+    const topic = form.querySelector('[name="search_term"]');
+    const locationQuery = form.querySelector('[name="location_query"]');
+    const locationId = form.querySelector('[name="location_id"]');
+    const latitude = form.querySelector('[name="latitude"]');
+    const longitude = form.querySelector('[name="longitude"]');
+    const locationScope = form.querySelector('[name="location_scope"]');
+    const message = form.querySelector('[data-simple-watch-message]');
+    const matching = form.querySelector('[data-match-selection]');
+    const syncMatching = () => {
+      const anyJob = matching?.value === 'ANY';
+      form.querySelectorAll('[data-match-filters]').forEach((group) => {
+        group.hidden = anyJob;
+        group.querySelectorAll('input, select, textarea').forEach((input) => { input.disabled = anyJob; });
+      });
+    };
+    matching?.addEventListener('change', syncMatching);
+    syncMatching();
+
+    const state = () => {
+      const hasLocation = locationScope ? locationScope.value !== 'ANYWHERE' : Boolean(
+        locationId?.value.trim()
+        || latitude?.value.trim()
+        || longitude?.value.trim()
+        || locationQuery?.value.trim()
+      );
+      const hasTopic = matching?.value !== 'ANY' && Boolean(topic?.value.trim());
+      const hasSource = matching?.value !== 'ANY' && Boolean(source?.value.trim());
+      if (mode) mode.value = hasLocation ? (hasTopic ? 'LOCATION_TOPIC' : 'LOCATION') : 'TOPIC';
+      return {hasLocation, hasTopic, hasSource};
+    };
+
+    form.addEventListener('submit', (event) => {
+      const current = state();
+      if (matching?.value === 'ANY' && !current.hasLocation) {
+        event.preventDefault();
+        setMessage(message, 'Choose a location for Any mapped activity in this area.', true);
+        locationScope?.focus();
+        return;
+      }
+      if (!current.hasLocation && !current.hasTopic && !current.hasSource) {
+        event.preventDefault();
+        setMessage(message, 'Choose a source, enter a topic, or choose a location.', true);
+        form.querySelector('[data-source-picker] summary')?.focus();
+        return;
+      }
+      setMessage(message, '');
+    });
+  });
 
   document.querySelectorAll('[data-mode-form]').forEach((form) => {
     form.querySelectorAll('[name="setup_mode"]').forEach((input) => {
@@ -956,6 +1138,11 @@
     syncAction();
   });
 
+  const bulkDisclosure = document.querySelector('[data-watch-bulk-disclosure]');
+  const syncBulkMode = () => document.body.classList.toggle('watch-bulk-mode', Boolean(bulkDisclosure?.open));
+  bulkDisclosure?.addEventListener('toggle', syncBulkMode);
+  syncBulkMode();
+
   document.querySelectorAll('[data-duration-select]').forEach((select) => {
     const schedule = select.parentElement.nextElementSibling;
     const sync = () => {
@@ -977,15 +1164,75 @@
     const latitude = picker.querySelector('[name="latitude"]');
     const longitude = picker.querySelector('[name="longitude"]');
     const distanceField = picker.nextElementSibling;
+    const scope = picker.querySelector('[data-location-scope]');
+    const countyChoice = picker.querySelector('[data-county-choice]');
+    const town = picker.querySelector('[name="municipality"]');
     let timer;
+    let generation = 0;
+    let controller;
+
+    const cancelSearch = () => {
+      clearTimeout(timer);
+      generation += 1;
+      controller?.abort();
+      results.replaceChildren();
+    };
+    const syncFields = () => {
+      const type = scope.value;
+      const hints = {
+        ANYWHERE: 'No location filter. Choose a source and/or topic above.',
+        COUNTY: 'All alerts labeled for this county. No distance is needed.',
+        MUNICIPALITY: 'All alerts labeled for this city or town. Choose a result below; no distance is needed.',
+        TYPED_ADDRESS: 'Enter a street address and town, then choose a result or verify the full address.',
+        MAP_POINT: 'Use the map to start a Watch at an exact spot, or enter both coordinates here. An intersection name alone is not an exact point.',
+        SAVED: 'Search saved places, imported areas, or parcels, then choose a result.',
+        EXISTING: 'The saved location is kept. Choose another type to replace it.',
+      };
+      picker.querySelector('[data-location-help]').textContent = hints[type];
+      picker.querySelector('[data-county-field]').hidden = type !== 'COUNTY';
+      picker.querySelector('[data-location-query-field]').hidden = ['ANYWHERE', 'COUNTY'].includes(type);
+      picker.querySelector('[data-address-town-field]').hidden = type !== 'TYPED_ADDRESS';
+      picker.querySelector('[data-point-coordinates]').hidden = type !== 'MAP_POINT';
+      picker.querySelector('.verify-location').hidden = type !== 'TYPED_ADDRESS';
+      picker.querySelector('[data-location-map]').hidden = !['MAP_POINT', 'SAVED'].includes(type);
+      const labels = {MUNICIPALITY: 'City or town', TYPED_ADDRESS: 'Street address', MAP_POINT: 'Intersection or point name (optional)', SAVED: 'Saved place, area, or parcel', EXISTING: 'Saved location'};
+      picker.querySelector('[data-location-query-label]').textContent = labels[type] || 'Location';
+      search.placeholder = {MUNICIPALITY: 'Example: Weehawken', TYPED_ADDRESS: 'Example: 400 Park Avenue', MAP_POINT: 'Example: Park Avenue & 48th Street', SAVED: 'Search a place name, address, block, or lot'}[type] || '';
+      search.readOnly = type === 'EXISTING';
+      search.required = ['MUNICIPALITY', 'TYPED_ADDRESS', 'SAVED'].includes(type);
+      countyChoice.required = type === 'COUNTY';
+      town.disabled = type !== 'TYPED_ADDRESS';
+      latitude.required = longitude.required = type === 'MAP_POINT';
+      if (distanceField?.classList.contains('distance-field')) distanceField.hidden = ['ANYWHERE', 'COUNTY', 'MUNICIPALITY'].includes(type);
+    };
+
+    const clearSelection = () => {
+      cancelSearch();
+      sourceId.value = '';
+      latitude.value = longitude.value = '';
+      kind.value = ['COUNTY', 'MUNICIPALITY', 'MAP_POINT'].includes(scope.value) ? scope.value : 'TYPED_ADDRESS';
+      selected.hidden = true;
+    };
+
+    scope.addEventListener('change', () => {
+      clearSelection();
+      search.value = '';
+      countyChoice.value = '';
+      town.value = '';
+      setMessage(message, '');
+      syncFields();
+    });
 
     const choose = (item) => {
+      cancelSearch();
       search.value = item.label || '';
       kind.value = item.kind || 'TYPED_ADDRESS';
       sourceId.value = item.source_id || '';
       latitude.value = item.latitude || '';
       longitude.value = item.longitude || '';
-      if (distanceField?.classList.contains('distance-field')) distanceField.hidden = ['MUNICIPALITY', 'COUNTY'].includes(item.kind);
+      scope.value = ['COUNTY', 'MUNICIPALITY', 'MAP_POINT'].includes(item.kind) ? item.kind : ['ADDRESS', 'RESOLVED_ADDRESS'].includes(item.kind) ? 'TYPED_ADDRESS' : 'SAVED';
+      if (item.municipality) town.value = item.municipality;
+      syncFields();
       selected.hidden = false;
       selectedText.textContent = `${item.kind_label || 'Location'}: ${item.label}${item.detail ? ` · ${item.detail}` : ''}`;
       results.replaceChildren();
@@ -1006,34 +1253,51 @@
         button.addEventListener('click', () => choose(item));
         results.appendChild(button);
       });
-      if (!items.length) setMessage(message, 'No saved Location matched. Enter a complete address and choose Verify full address.');
+      if (!items.length) setMessage(message, scope.value === 'TYPED_ADDRESS' ? 'No address matched. Check the town or choose Verify full address.' : 'No location matched this type. Check the name or choose another location type.');
     };
 
-    search.addEventListener('input', () => {
-      kind.value = 'TYPED_ADDRESS';
-      sourceId.value = '';
-      latitude.value = '';
-      longitude.value = '';
-      if (distanceField?.classList.contains('distance-field')) distanceField.hidden = false;
-      selected.hidden = true;
-      clearTimeout(timer);
+    const searchLocations = () => {
+      if (scope.value === 'MAP_POINT') {
+        cancelSearch();
+        return;
+      }
+      clearSelection();
       const query = search.value.trim();
-      if (query.length < 2) {
-        results.replaceChildren();
+      if (query.length < 2 || !['MUNICIPALITY', 'TYPED_ADDRESS', 'SAVED'].includes(scope.value)) {
         setMessage(message, '');
         return;
       }
+      const current = generation;
+      const params = new URLSearchParams({q: query, kind: scope.value, municipality: town.disabled ? '' : town.value.trim()});
+      setMessage(message, 'Searching…');
       timer = setTimeout(async () => {
+        controller = new AbortController();
         try {
-          const response = await fetch(`/api/watch-locations/search?q=${encodeURIComponent(query)}`);
-          if (!response.ok) throw new Error('search');
-          const data = await response.json();
+          const response = await fetch(`/api/watch-locations/search?${params}`, {signal: controller.signal});
+          const data = await window.CMOS.readJsonResponse(response);
+          if (current !== generation) return;
+          setMessage(message, '');
           render(data.items || []);
-        } catch (_) {
-          setMessage(message, 'Location search is temporarily unavailable. A complete address can still be verified.', true);
+        } catch (error) {
+          if (current !== generation || error.name === 'AbortError') return;
+          setMessage(message, error.message || 'Location search is temporarily unavailable. Try again shortly.', true);
         }
       }, 250);
+    };
+    search.addEventListener('input', searchLocations);
+    town.addEventListener('input', searchLocations);
+    countyChoice.addEventListener('change', () => {
+      if (countyChoice.value) choose({kind: 'COUNTY', source_id: countyChoice.value, label: countyChoice.value, kind_label: 'County'});
+      else { clearSelection(); search.value = ''; setMessage(message, 'Choose a county.'); }
     });
+    form.addEventListener('submit', (event) => {
+      if (scope.value === 'SAVED' && !sourceId.value) {
+        event.preventDefault();
+        setMessage(message, 'Choose a saved place, area, or parcel from the search results.', true);
+        search.focus();
+      }
+    });
+    syncFields();
 
     picker.querySelector('.verify-location')?.addEventListener('click', async () => {
       const query = search.value.trim();
@@ -1045,13 +1309,17 @@
       const body = new FormData();
       body.append('location_query', query);
       body.append('municipality', form.querySelector('[name="municipality"]')?.value || '');
+      cancelSearch();
+      const current = generation;
       setMessage(message, 'Verifying address…');
       try {
         const response = await fetch('/api/watch-locations/resolve', {method: 'POST', body});
-        const data = await response.json();
+        const data = await window.CMOS.readJsonResponse(response);
+        if (current !== generation) return;
         if (!response.ok || !data.ok) throw new Error(data.message || 'Address was not found.');
         choose(data.location);
       } catch (error) {
+        if (current !== generation) return;
         setMessage(message, error.message || 'Address could not be verified.', true);
       }
     });
@@ -1073,7 +1341,7 @@
       setMessage(result, 'Sending test…');
       try {
         const response = await fetch('/api/watchlist/test-notification', {method: 'POST', body});
-        const data = await response.json();
+        const data = await window.CMOS.readJsonResponse(response);
         if (!response.ok || !data.ok) throw new Error(data.message || 'Test failed.');
         setMessage(result, data.message);
       } catch (error) {
@@ -1087,3 +1355,5 @@
 </script>
 </body>
 </html>
+
+

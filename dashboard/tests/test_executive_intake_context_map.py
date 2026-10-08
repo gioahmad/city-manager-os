@@ -74,7 +74,7 @@ def test_mapping_center_activity_defaults_and_controls_are_preserve_first():
     assert '"default_visible": True' in alerts
     assert '"default_visible": False' in refs
     assert '"default_visible": False' in work
-    assert "local_bounds" in source and "WEEHAWKEN" in source
+    assert '"local_bounds": None' in source
 
     for value in ("1h", "2h", "4h", "6h", "12h", "24h", "3d", "7d", "30d", "custom", "all"):
         assert f'value="{value}"' in template
@@ -160,11 +160,15 @@ def test_full_alert_page_has_fixed_and_custom_time_windows():
         assert f"('{value}'," in template
 
 
-def test_local_map_extent_avoids_psycopg_percent_placeholders():
-    source=(ROOT/"map_app.py").read_text()
-    local=source.split("local_bounds = query_one(",1)[1].split("custom_layers = query_all(",1)[0]
-    assert "WEEHAWKEN%" not in local
-    assert "position('WEEHAWKEN'" in local
+def test_map_home_framing_preserves_shared_views_and_selected_features():
+    template=(ROOT/"templates"/"map.html").read_text()
+    for value in ("40.752", "-74.035", "40.783", "-74.008"):
+        assert value in template
+    assert "if(sharedMapView&&" in template
+    assert "map.setView([sharedLatitude,sharedLongitude]" in template
+    assert "else map.fitBounds(regionBounds" in template
+    assert "showSelectedFeature(feature,layers[index],'search','Search result')" in template
+    assert "if(!preserveView&&b.isValid())map.fitBounds(b" in template
 
 
 def test_release_installer_pins_a_real_rollback_image():

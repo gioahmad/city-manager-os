@@ -21,13 +21,13 @@ from private_auth import COOKIE_NAME
 
 CALENDAR_SCOPE='offline_access https://graph.microsoft.com/Calendars.ReadBasic'
 SCOPE=CALENDAR_SCOPE+' https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Contacts.Read'
-WRITE_PERMISSIONS={'Mail.ReadWrite','Mail.Send','Calendars.ReadWrite'}
+WRITE_PERMISSIONS={'Mail.ReadWrite','Mail.Send','Calendars.ReadWrite','Contacts.ReadWrite'}
 WRITE_SCOPE=SCOPE+' '+' '.join('https://graph.microsoft.com/'+s for s in sorted(WRITE_PERMISSIONS))
 GRAPH='https://graph.microsoft.com/v1.0/'
 
 
 def permissions(scopes):
-    canonical={s.casefold():s for s in ('offline_access','Calendars.ReadBasic','Mail.Read','Contacts.Read','Mail.ReadWrite','Mail.Send','Calendars.ReadWrite')}
+    canonical={s.casefold():s for s in ('offline_access','Calendars.ReadBasic','Mail.Read','Contacts.Read','Contacts.ReadWrite','Mail.ReadWrite','Mail.Send','Calendars.ReadWrite')}
     return {canonical.get(s.rsplit('/',1)[-1].casefold(),s.rsplit('/',1)[-1]) for s in str(scopes).split()}
 
 
@@ -72,12 +72,13 @@ def mail_row(owner,item):
 
 
 def contact_row(owner,item):
-    address=item.get('businessAddress') or item.get('homeAddress') or {}
+    address=next((value for key in ('businessAddress','homeAddress','otherAddress')
+                  if (value:=item.get(key)) and any(value.values())), {})
     phones=[item.get('mobilePhone'),*(item.get('businessPhones') or []),*(item.get('homePhones') or [])]
     attrs={'emails':[str(r.get('address'))[:320] for r in (item.get('emailAddresses') or [])[:20] if r.get('address')],
            'phones':[str(p)[:80] for p in phones[:20] if p], 'organization':str(item.get('companyName') or '')[:200],
            'title':str(item.get('jobTitle') or '')[:200],
-           'address':', '.join(str(address.get(k) or '') for k in ('street','city','state','postalCode') if address.get(k))[:1000],
+           'address':', '.join(str(address.get(k) or '') for k in ('street','city','state','postalCode','countryOrRegion') if address.get(k))[:1000],
            'birthday':str(item.get('birthday') or '')[:40], 'tags':['Microsoft 365']}
     name=item.get('displayName') or ' '.join(str(item.get(k) or '') for k in ('givenName','surname')).strip() or 'Unnamed contact'
     return (owner,str(item['id'])[:2000],str(name)[:200],json.dumps(attrs))
@@ -136,7 +137,7 @@ def status(owner,lookup=query_one):
         FROM workspace_calendar_connections WHERE owner_username=%s''',(owner,owner,owner))
     scopes=permissions((row or {}).get('scopes',CALENDAR_SCOPE))
     return {'ready':settings()['ready'],'connected':bool(row),'mail_enabled':bool(scopes & {'Mail.Read','Mail.ReadWrite'}),
-            'contacts_enabled':'Contacts.Read' in scopes,**{k:v for k,v in (row or {}).items() if k!='scopes'}}
+            'contacts_enabled':bool(scopes & {'Contacts.Read','Contacts.ReadWrite'}),**{k:v for k,v in (row or {}).items() if k!='scopes'}}
 
 
 def begin(owner,request,*,enable_write=False):
@@ -260,7 +261,7 @@ def sync(owner):
                         '$orderby':'receivedDateTime desc',
                         '$select':'id,subject,body,from,toRecipients,receivedDateTime,isRead,webLink,conversationId'})
                     mails=[mail_row(owner,e) for e in graph_pages(client,url,tokens['access_token'],limit=250,truncate=True,mail=True,deadline=deadline)]
-                if 'Contacts.Read' in granted:
+                if granted & {'Contacts.Read','Contacts.ReadWrite'}:
                     url=GRAPH+'me/contacts?'+urlencode({'$top':'100',
                         '$select':'id,displayName,givenName,surname,emailAddresses,mobilePhone,businessPhones,homePhones,businessAddress,homeAddress,companyName,jobTitle,birthday'})
                     contacts=[contact_row(owner,e) for e in graph_pages(client,url,tokens['access_token'],limit=500,truncate=True,deadline=deadline)]

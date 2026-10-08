@@ -33,6 +33,10 @@ def test_resolved_alerts_reenter_existing_matcher_once_with_visible_location():
         "Restore Resolved Standard Alert",
         "Send Resolved Alert to Central Watchlist Matcher",
         "Mark Resolved Alert Rematched",
+        "Load Mapped Activity",
+        "Restore Mapped Standard Alert",
+        "Send Mapped Activity to Central Watchlist Matcher",
+        "Mark Mapped Activity",
     }
     assert "geo_entity_resolutions" in load
     assert "coalesce(a.geom,r.geom) IS NOT NULL" in load
@@ -125,3 +129,4 @@ if __name__ == "__main__":
     for name in tests:
         globals()[name]()
         print(f"PASS {name}")
+

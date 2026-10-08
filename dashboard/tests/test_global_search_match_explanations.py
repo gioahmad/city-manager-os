@@ -67,10 +67,29 @@ def test_search_template_compiles_and_has_friendly_failure_state():
     assert "Enter at least two characters to search." in source
 
 
-def test_map_startup_avoids_full_extent_and_eager_flood_load():
+def test_map_startup_avoids_full_extent_and_eager_flood_load(monkeypatch):
+    monkeypatch.chdir(DASHBOARD_ROOT)
+    monkeypatch.setenv("DB_PASSWORD", "test")
+    import map_app
+
+    queries = []
+
+    def query(sql, params=()):
+        queries.append(sql)
+        assert "gis_parcels" not in sql.lower()
+        assert "st_extent" not in sql.lower()
+        return []
+
+    monkeypatch.setattr(map_app, "query_all", query)
+    monkeypatch.setattr(map_app, "query_one", query)
+    monkeypatch.setattr(map_app.templates, "TemplateResponse", lambda **kwargs: kwargs)
+    response = map_app.mapping_center(object())
+    assert queries
+    assert response["name"] == "map.html"
+    assert response["context"]["local_bounds"] is None
+
     source = (DASHBOARD_ROOT / "map_app.py").read_text()
     template = (DASHBOARD_ROOT / "templates/map.html").read_text()
-    assert "ST_EstimatedExtent('public','gis_parcels','geom')" in source
     assert '"key": "flood"' in source
     flood_line = next(line for line in source.splitlines() if '"key": "flood"' in line)
     assert '"default_visible": False' in flood_line
@@ -101,7 +120,7 @@ def test_every_map_feature_has_a_stable_click_and_details_contract():
     assert "interactive:false,bubblingMouseEvents:false" in template
     assert "if(map._popup)return" in template
     assert "map.on('click',ev=>" in template
-    assert "Create One-Mile Watch" in template
+    assert "Create Watch Here" in template
     assert ".map-selected-feature" in stylesheet
     assert ".leaflet-interactive{cursor:pointer}" in stylesheet
 
@@ -128,20 +147,23 @@ def test_ntfy_sender_appends_plain_language_reason_and_preserves_unmatched_messa
     workflow = json.loads(workflow_path.read_text())
     nodes = {node["name"]: node for node in workflow["nodes"]}
     code = nodes["Prepare ntfy Requests"]["parameters"]["jsCode"]
+    shared = (REPOSITORY_ROOT / "dashboard/static/alert_content.js").read_text().rstrip()
+    assert code.startswith(shared + "\n\n")
     script = f"""
 const run = new Function('$input', {json.dumps(code)});
-function prepare(payload) {{
-  return run({{first:()=>({{json:{{delivery_payloads:[payload]}}}})}})[0].json.ntfy_body.message;
+function prepare(payload,options={{explanation:true,keywords:true}}) {{
+  return run({{first:()=>({{json:{{sender_input:{{delivery_payloads:[payload]}},alert_appearance:{{SYSTEM_TEST:{{notification:options}}}}}}}})}})[0].json.ntfy_body.message;
 }}
-const base={{ntfy_topic:'contract',title:'Contract',message:'Original alert',priority:3,tags:[]}};
+const base={{ntfy_topic:'contract',source:'SYSTEM_TEST',title:'Contract',message:'Original alert',priority:3,tags:[]}};
 const keyword=prepare({{...base,match_reasons:['CONTAINS search_text matched search_term "PSEG"']}});
-if(!keyword.includes('Why you received this:')||!keyword.includes('Keyword “PSEG” matched this alert')) throw new Error('keyword reason missing');
+if(!keyword.includes('Why you received this:')||!keyword.includes('Matched keywords: “PSEG”')) throw new Error('keyword reason missing');
 if(keyword.includes('search_text')||keyword.includes('search_term')) throw new Error('technical terms leaked');
 const location=prepare({{...base,match_reasons:['PROXIMITY alert geometry is 125.0 ft from target, inside 5280.0 ft buffer']}});
 if(!location.includes('Watch center')||!location.includes('5,280-foot Distance')) throw new Error('location reason missing');
 if(location.includes('geometry')||location.includes('buffer')) throw new Error('spatial jargon leaked');
 const unchanged=prepare(base);
 if(unchanged!=='Original alert') throw new Error('message without match reasons changed');
+if(prepare({{...base,match_reasons:['CONTAINS search_text matched search_term "PSEG"']}},{{}})!=='Original alert') throw new Error('clean defaults ignored');
 console.log('NTFY_REASON_CONTRACT=PASS');
 """
     path = tmp_path / "contract.js"

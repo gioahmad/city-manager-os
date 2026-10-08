@@ -11,7 +11,7 @@ def test_saved_watches_expose_match_notification_and_historical_evidence():
     assert "FROM deliveries d" in source
     assert "matched_watch_ids ? %s" in source
     assert "def _saved_watch_preview_url" in source
-    assert "Could Have Matched" in template
+    assert "Preview History" in template
     assert "Matched Alerts" in template
     assert "Notifications" in template
     assert "Search Evidence" in template

@@ -4,7 +4,7 @@ This release adds `/email`, `/calendar`, and `/important` inside the shared City
 
 ## Reading and selective internal capture
 
-Email shows the existing owner-private working snapshot: up to 250 Inbox messages from the last 30 days, plus linked or Important sources retained outside that window. It is not a full mailbox archive. Other folders, shared mailboxes and attachments remain in Outlook. Sender/subject/body search is supported. Calendar shows agenda, day, week and month views for calendars owned by the connected mailbox. It refreshes the selected window (up to a 42-day grid), stores stable local source IDs and explicitly identifies retained, potentially incomplete data when Microsoft is unavailable. Shared/delegated calendars are intentionally excluded. Recurring and all-day appointments can be displayed; this release does not edit recurring series or create all-day appointments.
+Email shows the existing owner-private working snapshot: up to 250 Inbox messages from the last 30 days, plus linked or Important sources retained outside that window. It is not a full mailbox archive. Other folders and shared mailboxes remain in Outlook. Photo attachments can be selected when saving an email; other attachments remain in Outlook. Sender/subject/body search is supported. Calendar shows agenda, day, week and month views for calendars owned by the connected mailbox. It refreshes the selected window (up to a 42-day grid), stores stable local source IDs and explicitly identifies retained, potentially incomplete data when Microsoft is unavailable. Shared/delegated calendars are intentionally excluded. Recurring and all-day appointments can be displayed; this release does not edit recurring series or create all-day appointments.
 
 An Important flag is private to the signed-in workspace owner and does not alter Microsoft. Add to my system provides reviewed destinations: private follow-up, shared Command Center work, shared internal event, private Brain note, or private link to an accessible existing record. Copying into Work/Events requires explicit acknowledgement of shared visibility. Original sources and confirmed links are preserved. The saved result includes an exact destination link. A database receipt and transaction-scoped locking protect retries and simultaneous submissions. Existing Work/Event promotion reuses an already-linked target instead of silently duplicating it.
 
@@ -17,6 +17,7 @@ Existing connections and normal Connect keep delegated read-only scopes. To enab
 - `Mail.Send`: explicitly confirmed new mail and replies.
 - `Mail.ReadWrite`: Outlook drafts, including reply drafts. The granted permission is broader than draft creation; the UI does not expose mailbox delete/move actions.
 - `Calendars.ReadWrite`: appointments in a selected owned, editable calendar.
+- `Contacts.ReadWrite`: explicitly reviewed updates to linked Outlook contacts from `/contacts`.
 
 Keep the existing `Mail.Read`, `Contacts.Read`, `Calendars.ReadBasic`, and `offline_access` permissions, client ID, client secret, tenant, encryption key, and registered callback `/workspace/calendar/microsoft/callback`. Do not rotate the encryption key or disconnect merely to enable writes. A tenant administrator may need to consent under the organization's policy.
 
@@ -46,3 +47,47 @@ References:
 - https://learn.microsoft.com/en-us/graph/api/message-reply?view=graph-rest-1.0
 - https://learn.microsoft.com/en-us/graph/api/message-createreply?view=graph-rest-1.0
 - https://learn.microsoft.com/en-us/graph/api/user-post-events?view=graph-rest-1.0
+
+
+## Contacts directory and cleanup
+
+Open `/contacts` for Outlook search/import and local contact management. Retained search covers the existing private snapshot of up to 500 default-folder contacts. **Browse Outlook live** pages through the default Contacts folder, filtering each page by name, organization, email, phone or address; use **Search next Outlook page** for additional results. Other contact folders and the organizational address book remain in Outlook. The page reports which source is being searched.
+
+Review an import before saving. Phone numbers use the existing contact normalization, emails are lowercased and deduplicated, and unsupported source values appear as review warnings and are preserved in local notes. Matching accessible local names, emails or phones are offered for explicit linking; an intentional separate contact requires a checkbox. Imports start private; linking an existing record keeps its access settings and current data. Outlook provider ID and verified account identity are stored in a separate mapping so repeats open the existing import. The earlier private Intake/People import remains available independently.
+
+**Possible duplicates** in the directory filter finds visible active records with a repeated name, email or phone. **Clean up this form** trims whitespace and removes repeated phone/email entries before the user saves. **Review Outlook update** on a linked contact compares saved local fields with the import/last-success baseline. It reads the current Outlook values, shows exact before/after changes, and uses the existing encrypted review and durable operation claim. Name, organization, title, email and phone edits are supported. Phone updates preserve mobile/home/business placement and add new numbers to business phones; invalid raw source phone values are retained unless explicitly replaced in Outlook. Address changes require separately reviewed Street, City, State, ZIP and Country fields. Notes, tags, active state, contact type and access settings are internal. No delete, automatic merge or background push is exposed.
+
+The same account, local values and current remote digest are checked again immediately before PATCH; the remote ETag is sent when supplied. This detects changes after review, but does not promise cross-system transactional locking: edits during the last request can still race if Microsoft does not enforce the ETag. Failed/unknown operations are not automatically replayed. After a successful PATCH the link baseline advances without overwriting subsequent local edits.
+
+Existing Microsoft read access remains valid. Add delegated `Contacts.ReadWrite` to the existing Entra application, then use **Enable Outlook contact updates** and approve the additional consent in Microsoft. Current permission state appears directly on Contacts. No credentials are copied into the repository.
+
+Deployment must apply additive migration `043_outlook_contacts.sql` before restarting the new dashboard. Run the workspace installer (which includes it) as a child process; never source it into an SSH shell.
+
+References:
+- https://learn.microsoft.com/en-us/graph/api/contact-update?view=graph-rest-1.0
+- https://learn.microsoft.com/en-us/graph/api/user-list-contacts?view=graph-rest-1.0
+
+
+
+## Selected email photos
+
+In Email, open a message and choose **Add to my system**. The existing save
+form lists photo attachments, including inline images, with every checkbox
+unchecked. Only the checked photos are copied when **Save internally** succeeds.
+Email refresh, browsing, and marking Important never copy photos automatically.
+Non-image files and externally hosted images remain in Outlook.
+
+Original bytes reuse the owner-private `workspace_documents` store, with source
+mailbox, message, attachment, filename, inline flag and checksum metadata. They
+link to both the email and saved destination. Photos stay private even when the
+reviewed email text goes into shared work. Existing originals are reused across
+retries and concurrent saves; the text, file rows, links and save receipt commit
+together. A download failure stops the save without leaving partial records.
+Saved originals remain downloadable after disconnecting Microsoft. Downloads
+always verify the signed-in owner and force attachment disposition.
+
+Choose up to 10 photos per save, 20 MB per photo and 50 MB total. File contents
+are bounded while streaming. Image text extraction is not performed. No new SQL
+migration or storage service is needed; the application snapshot and full database
+backup already include these files. Access uses the existing delegated Mail.Read
+or Mail.ReadWrite grant.

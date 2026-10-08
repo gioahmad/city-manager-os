@@ -8,7 +8,7 @@
 
   const quickActions=[
     ['＋','New Work','Create a new accountable work item','/issues#new-work'],
-    ['◎','New Watch','Create a topic, location, or spatial Watch','/watchlist#new-watch'],
+    ['◎','New Watch','Create a topic, location, or spatial Watch','/watchlist?create=1#new-watch'],
     ['⌖','Open Map','Open the full Mapping Center','/map'],
     ['▣','Quick Capture','Capture something now and organize it later','#quick-capture'],
     ['⌕','Search Records','Search across alerts, work, places, people, events and sources','/search']
@@ -39,9 +39,15 @@
     ['⇢','Notification History','Delivery audit and routing results','/deliveries'],
     ['▦','Database Viewer','Operational database inspection','/database'],
     ['⚙','Admin Tools','System controls and maintenance','/admin-tools'],
+    ['⚙','Modules','Turn workspace tools on or off','/modules'],
     ['⌕','Search','Search operational records','/search']
   ];
 
+  const disabledToolPaths=JSON.parse(document.getElementById('cmos-disabled-tool-paths')?.textContent||'[]');
+  const toolAvailable=url=>{
+    const path=new URL(url,location.href).pathname;
+    return !disabledToolPaths.some(prefix=>path===prefix||path.startsWith(prefix+'/'));
+  };
   const recentKey='cmos.macro.recent.v1';
   const readRecent=()=>{try{return JSON.parse(localStorage.getItem(recentKey)||'[]')}catch{return[]}};
   const remember=(url,title)=>{
@@ -65,9 +71,9 @@
 
   function filtered(){
     const q=input.value.trim().toLowerCase();
-    const actions=quickActions.map(x=>({icon:x[0],title:x[1],detail:x[2],url:x[3],recent:false,action:true}));
-    const base=commands.map(x=>({icon:x[0],title:x[1],detail:x[2],url:x[3],recent:false,action:false}));
-    const recent=readRecent().map(x=>({icon:'↺',title:x.title,detail:'Recently opened',url:x.url,recent:true}));
+    const actions=quickActions.filter(x=>toolAvailable(x[3])).map(x=>({icon:x[0],title:x[1],detail:x[2],url:x[3],recent:false,action:true}));
+    const base=commands.filter(x=>toolAvailable(x[3])).map(x=>({icon:x[0],title:x[1],detail:x[2],url:x[3],recent:false,action:false}));
+    const recent=readRecent().filter(x=>toolAvailable(x.url)).map(x=>({icon:'↺',title:x.title,detail:'Recently opened',url:x.url,recent:true}));
     const pool=[...actions,...base,...recent];
     const all=q?pool.filter(x=>(x.title+' '+x.detail).toLowerCase().includes(q)):[...actions,...recent.slice(0,3),...base];
     return all.filter((x,i,a)=>a.findIndex(y=>y.url===x.url)===i).slice(0,28);
@@ -108,9 +114,9 @@
     }
     if(lower.startsWith('watch ')){
       const term=q.slice(6).trim();
-      return {url:'/watchlist?'+new URLSearchParams({setup_mode:'TOPIC',search_term:term,display_name:term}),title:'New Watch'};
+      return {url:'/watchlist?'+new URLSearchParams({create:'1',setup_mode:'TOPIC',search_term:term,display_name:term})+'#new-watch',title:'New Watch'};
     }
-    if(customHours||/\b(map|show|near|around)\b/.test(lower)){
+    if(toolAvailable('/map')&&(customHours||/\b(map|show|near|around)\b/.test(lower))){
       const term=stripTime(q);
       const params=new URLSearchParams({map_view:'1',tab:'layers'});
       if(term)params.set('area_q',term);
@@ -215,8 +221,23 @@
     if(!row||event.target.closest('a,button,input,select,textarea,summary,[contenteditable]'))return;
     event.preventDefault();navigatePage(row.dataset.cmosContext,row.dataset.cmosTitle);
   });
+  async function readJsonResponse(response){
+    const body=await response.text();
+    const html=(response.headers.get('content-type')||'').includes('text/html')||/^\s*</.test(body);
+    const login=response.redirected&&new URL(response.url,location.href).pathname==='/login';
+    if(login||(html&&response.ok))throw new Error('Refresh the page and sign in again, then retry.');
+    let data;
+    try{data=JSON.parse(body);}catch{}
+    if(!response.ok){
+      const detail=data?.message||data?.detail;
+      const message=typeof detail==='string'?detail:Array.isArray(detail)?detail.map(item=>item.msg).filter(Boolean).join('; '):'';
+      throw new Error(message||(!html&&body.trim())||'Request failed (HTTP '+response.status+').');
+    }
+    if(data===undefined)throw new Error('The server returned an unexpected response. Refresh the page and try again.');
+    return data;
+  }
   // Legacy data-cmos-quicklook anchors are metadata only, never intercepted.
-  window.CMOS={openSidecar,openCommand,navigatePage};
+  window.CMOS={openSidecar,openCommand,navigatePage,readJsonResponse};
 
   // Reorganize inherited module layouts around the user's primary task.
   // Existing forms, routes, controls and data stay untouched; only presentation order changes.
@@ -352,10 +373,14 @@
     }
   }
   if(location.pathname==='/watchlist'&&location.hash==='#new-watch'){
-    setTimeout(()=>{
-      const input=document.querySelector('.watch-layout input[name="display_name"]');
-      input?.scrollIntoView({behavior:'smooth',block:'center'});
-      input?.focus();
-    },80);
+    const capture=document.querySelector('#new-watch .watch-create-panel');
+    if(capture){
+      capture.open=true;
+      setTimeout(()=>{
+        capture.scrollIntoView({behavior:'smooth',block:'start'});
+        (capture.querySelector('[name="search_term"]:not(:disabled)')||capture.querySelector('[data-source-picker] summary'))?.focus();
+      },80);
+    }
   }
 })();
+

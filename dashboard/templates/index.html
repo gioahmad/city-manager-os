@@ -81,7 +81,7 @@
           <a href="/intake"><span>Calendar to review</span><strong>{{ intake_summary.calendar_pending }}</strong><small>Bring only relevant meetings into Events or linked context.</small></a>
         </div>
         <div class="cmos-intake-list">
-          {% for item in intake_summary.items %}
+          {% for item in intake_summary["items"] %}
           <a href="/intake?kind={{ item.kind|urlencode }}&id={{ item.id }}">
             <span class="cmos-action-kind {{ item.kind|lower }}">{{ item.kind }}</span>
             <span><strong>{{ item.title }}</strong><small>{{ item.detail }}</small></span>

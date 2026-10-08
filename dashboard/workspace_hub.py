@@ -232,6 +232,13 @@ def context(owner,item):
 def detail(request:Request,item_kind:str,item_id:str):
     owner=_owner(request);item=find(owner,item_kind,item_id)
     linked,suggestions=context(owner,item)
+    if item['kind']=='MAIL':
+        item['metadata']['email_photos']=query_all("""SELECT d.id,d.filename,octet_length(d.content) AS byte_size
+            FROM workspace_documents d JOIN workspace_context_links l
+              ON l.target_kind='DOCUMENT' AND l.target_id=d.id
+            WHERE d.owner_username=%s AND l.owner_username=%s AND l.source_kind='MAIL'
+              AND l.source_id=%s AND d.profile->'email_photo'->>'mail_id'=%s
+            ORDER BY d.filename,d.id""",(owner,owner,item['id'],str(item['id'])))
     if item['kind']=='BRAIN':
         item['metadata']['attachments']=query_all('''SELECT a.id,a.filename,octet_length(a.content) AS byte_size FROM brain_attachments a
             JOIN brain_notes n ON n.id=a.note_id WHERE n.id=%s AND n.owner_username=%s AND n.deleted_at IS NULL''',(item['id'],owner))
@@ -253,6 +260,9 @@ async def hub_action(request:Request):
     except (ValueError,TypeError):raise HTTPException(400,'Invalid request')
     if not isinstance(values,dict):raise HTTPException(400,'Invalid request')
     _write(request,str(values.get('csrf','')))
+    if values.get('action') in {'BRAIN', 'EVENT'}:
+        from workspace_modules import require_enabled
+        require_enabled(request, 'brain' if values['action'] == 'BRAIN' else 'events')
     return reply(await run_in_threadpool(action,owner,values))
 
 

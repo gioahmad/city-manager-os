@@ -1,7 +1,9 @@
 """CI-local historical Watch preview against real PostgreSQL; no production access."""
+import ast
 import os
 import sys
 from pathlib import Path
+from urllib.parse import quote, urlsplit
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -44,13 +46,35 @@ with core.db_conn() as conn:
              (SELECT count(*) FROM deliveries) AS deliveries"""
     ).fetchone()
 
+updater = (ROOT / "deploy/cmos-system-update").read_text()
+smoke = updater.split("===== AUTHENTICATED APPLICATION SMOKE =====", 1)[1]
+smoke = smoke.split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+path_loop = next(node for node in ast.parse(smoke).body
+                 if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == "path")
+preview_urls = [path for path in ast.literal_eval(path_loop.iter) if urlsplit(path).path == "/watch-preview"]
+assert preview_urls, "Updater must smoke-test Watch preview"
+smoke_results = []
+for path in preview_urls:
+    result = client.get(path, follow_redirects=False)
+    assert result.status_code == 200, (path, result.status_code, result.text[:500])
+    assert "Choose what to preview" in result.text or 'id="history-results"' in result.text, path
+    smoke_results.append(result.text)
+assert any('id="history-results"' in text for text in smoke_results), "Updater must exercise real history, not only its landing page"
+blank_filters = client.get("/watch-preview", params={
+    "q": "", "source": "", "category": "", "municipality": "", "county": "",
+    "window": "24h", "custom_hours": 720, "min_priority": 1,
+}, follow_redirects=False)
+assert blank_filters.status_code == 200, blank_filters.text
+assert "Choose what to preview" in blank_filters.text and 'id="history-results"' not in blank_filters.text
+print("WATCH PREVIEW PASS: actual updater URLs return 200 without redirects; bounded history and empty-filter landing work")
+
 response = client.get("/watch-preview", params={
     "source": "BNN", "q": "Hudson County", "window": "all", "min_priority": 1
 })
 assert response.status_code == 200, response.text
-assert "BNN:pipe-nj-normal" in response.text
-assert "BNN:pipe-nj-reordered" in response.text
-assert "BNN:pipe-ny-reordered" not in response.text
+assert quote("BNN:pipe-nj-normal") in response.text
+assert quote("BNN:pipe-nj-reordered") in response.text
+assert quote("BNN:pipe-ny-reordered") not in response.text
 assert "Would have matched" in response.text
 assert "Continue to Watch Builder" in response.text
 print("WATCH PREVIEW PASS: BNN + Hudson County finds both NJ pipe orders and excludes NY")
@@ -59,7 +83,7 @@ county = client.get("/watch-preview", params={
     "source": "BNN", "county": "Hudson", "window": "all", "min_priority": 1
 })
 assert county.status_code == 200
-assert "BNN:pipe-nj-normal" in county.text and "BNN:pipe-nj-reordered" in county.text
+assert quote("BNN:pipe-nj-normal") in county.text and quote("BNN:pipe-nj-reordered") in county.text
 assert "FIELD county matched" in county.text
 assert "field=county" in county.text or "field%3Dcounty" in county.text
 print("WATCH PREVIEW PASS: structured Hudson County rule previews as FIELD county")
@@ -68,8 +92,8 @@ ny = client.get("/watch-preview", params={
     "source": "BNN", "q": "Queens County", "window": "all"
 })
 assert ny.status_code == 200
-assert "BNN:pipe-ny-reordered" in ny.text
-assert "BNN:pipe-nj-normal" not in ny.text
+assert quote("BNN:pipe-ny-reordered") in ny.text
+assert quote("BNN:pipe-nj-normal") not in ny.text
 print("WATCH PREVIEW PASS: variable-order NY state/county segments classify independently of position")
 
 choices = operations_app.alert_keyword_choices({
@@ -87,6 +111,15 @@ assert any(value == "HUDSON" for value in normalized)
 assert any(value == "JERSEY CITY" for value in normalized)
 print("WATCH PREVIEW PASS: keyword suggestions never form phrases across a BNN pipe boundary")
 
+sys.path.insert(0,str(ROOT/'dashboard/tests'))
+from test_watch_terms import TERMS
+last_terms = client.get('/watch-preview',params={'source':'BNN','window':'all','mode':'CONTAINS','field':'search_text','term':TERMS})
+assert last_terms.status_code==200,last_terms.text
+assert quote('BNN:pipe-nj-normal') in last_terms.text and quote('BNN:pipe-nj-reordered') in last_terms.text
+assert 'overturned auto' in last_terms.text
+assert 'high rise fire' in last_terms.text
+print('WATCH PREVIEW PASS: full editable 34-term list retained and later alternatives matched')
+
 with core.db_conn() as conn:
     after = conn.execute(
         """SELECT
@@ -96,3 +129,5 @@ with core.db_conn() as conn:
     ).fetchone()
 assert dict(after) == dict(before), (before, after)
 print("WATCH PREVIEW PASS: historical evaluation creates no Watch, Match, delivery or Notification")
+
+

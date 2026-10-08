@@ -1,7 +1,7 @@
 name: Microsoft workspace verification
 on:
   push:
-    branches: [microsoft-workspace-actions, watch-preview-bnn-pipes, unified-email-alerts-release, bnn-geography-watch-fix]
+    branches: [microsoft-workspace-actions, watch-preview-bnn-pipes, unified-email-alerts-release, bnn-geography-watch-fix, watchlist-simple-operator-flow]
   pull_request:
     branches: [workspace-cohesion-alert-geofilters]
   workflow_dispatch:
@@ -42,6 +42,8 @@ jobs:
           DB_PASSWORD: ci-test-only
           PYTHONDONTWRITEBYTECODE: '1'
         run: python -m pytest -q -ra tests
+      - name: Application snapshot restore on PostgreSQL 17
+        run: python ci/check_application_snapshot.py
       - name: Transit query on PostgreSQL 17 at scale
         env:
           CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
@@ -50,6 +52,14 @@ jobs:
         env:
           CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
         run: python ci/check_microsoft_workflows.py
+      - name: Outlook contact import and reviewed update lifecycle
+        env:
+          CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
+        run: python ci/check_outlook_contacts.py
+      - name: Selective email photo retention
+        env:
+          CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
+        run: python ci/check_email_photos.py
       - name: Variable-order BNN pipe classifier
         run: python ci/check_bnn_pipe_classifier.py
       - name: Historical Watch preview against real PostgreSQL
@@ -59,6 +69,9 @@ jobs:
       - name: JavaScript and installer syntax
         run: |
           node --check dashboard/static/microsoft_workspace.js
+          node --check dashboard/static/outlook_contacts.js
+          node ci/check_outlook_request_errors.js
+          node ci/check_alert_content.js
           node --check dashboard/static/workspace_hub.js
           node --check dashboard/static/workspace.js
           node --check dashboard/static/macro_layer.js
@@ -73,7 +86,18 @@ jobs:
           bash -n deploy/postgis/release-snapshot.sh
           bash -n deploy/postgis/install-backup-timer.sh
       - name: Install Firefox and Chromium
-        run: python -m playwright install --with-deps firefox chromium > "$RUNNER_TEMP/browser-install.log" 2>&1 || { tail -80 "$RUNNER_TEMP/browser-install.log"; exit 1; }
+        timeout-minutes: 5
+        env:
+          PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: '60000'
+        run: timeout --kill-after=10s 240s python -m playwright install --with-deps firefox chromium > "$RUNNER_TEMP/browser-install.log" 2>&1 || { tail -80 "$RUNNER_TEMP/browser-install.log"; exit 1; }
+      - name: Watch creation and all mapped activity through real PostGIS and delivery guard
+        env:
+          CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
+        run: python ci/check_watch_activity.py
+      - name: Workspace module switches through real settings and both browsers
+        env:
+          CMOS_TEST_POSTGRES_DSN: postgresql://postgres:ci-test-only@127.0.0.1:${{ job.services.transitdb.ports[5432] }}/cmos_tests
+        run: python ci/check_workspace_modules.py
       - name: Existing browser regression
         run: python ci/check_release_browser.py
       - name: Existing authenticated navigation
@@ -96,12 +120,12 @@ jobs:
         run: |
           docker run --rm -i --entrypoint python -e DB_PASSWORD=ci-test-only cmos-release-check - <<'PY'
           from phase3_app import app
-          required={'/','/my-day','/what-changed','/issues','/inbox','/intake','/workspace','/map','/alerts','/watchlist','/watch-preview','/subscribers','/schedule','/event-intelligence','/transit','/spatial-reference','/source-health','/deliveries','/staff-admin','/operations-routines','/context/{item_kind}/{item_id}','/records/{record_id}','/email','/calendar','/important'}
+          required={'/','/my-day','/what-changed','/issues','/inbox','/intake','/workspace','/map','/alerts','/watchlist','/watch-preview','/subscribers','/schedule','/event-intelligence','/transit','/spatial-reference','/source-health','/deliveries','/staff-admin','/operations-routines','/context/{item_kind}/{item_id}','/records/{record_id}','/email','/calendar','/important','/modules'}
           paths=[r.path for r in app.routes if 'GET' in (getattr(r,'methods',set()) or set())]
           assert not required-set(paths),required-set(paths)
-          for path in ('/','/my-day','/issues','/intake','/workspace','/map','/alerts','/watchlist','/watch-preview','/schedule','/email','/calendar','/important'):
+          for path in ('/','/my-day','/issues','/intake','/workspace','/map','/alerts','/watchlist','/watch-preview','/schedule','/email','/calendar','/important','/modules'):
               assert paths.count(path)==1,(path,paths.count(path))
-          print('ROUTE CONTRACT: PASS — 25 required routes, no duplicate core handlers')
+          print('ROUTE CONTRACT: PASS —', len(required), 'required routes, no duplicate core handlers')
           PY
       - name: Save test evidence
         if: always()
