@@ -3,9 +3,11 @@ Runs only on the CI-local database; never publishes or sends a notification.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
+from html import unescape
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit
 from urllib.request import urlopen
@@ -316,11 +318,20 @@ with core.db_conn() as c:
         now()-interval '90 days' FROM generate_series(1,25001) n''',(history_tag,))
 scale_preview = client.get('/watch-preview',params={'latitude':41.5,'longitude':-75,'radius_ft':1})
 assert scale_preview.status_code==200,scale_preview.text[:500]
-assert '<strong>25001</strong>' in scale_preview.text and 'Showing the newest 100 of 25001 matches' in scale_preview.text
+assert '<strong>25001</strong>' in scale_preview.text and 'Showing 1–100 of 25001 matches' in scale_preview.text
+next_href = re.search(r'href="([^"]+)">Next 100</a>',scale_preview.text).group(1)
+scale_second = client.get(unescape(next_href))
+assert scale_second.status_code==200 and 'Showing 101–200 of 25001 matches' in scale_second.text
+assert 'Previous 100' in scale_second.text and 'Next 100' in scale_second.text
+links = lambda response: set(re.findall(r'href="/alerts\?q=([^&"]+)',response.text))
+assert len(links(scale_preview))==len(links(scale_second))==100 and not links(scale_preview)&links(scale_second)
+scale_last = client.get('/watch-preview',params={'latitude':41.5,'longitude':-75,'radius_ft':1,'history_page':251})
+assert scale_last.status_code==200 and 'Showing 25001–25001 of 25001 matches' in scale_last.text
+assert len(links(scale_last))==1 and 'Next 100' not in scale_last.text
 assert history_counts()==history_before
 with core.db_conn() as c:
     c.execute("DELETE FROM alerts WHERE source='CI_HISTORY_SCALE'")
-print('HISTORY SCALE PASS: every one of 25,001 older alerts counted; only newest 100 held for display; no Watch/Match/delivery writes')
+print('HISTORY SCALE PASS: every one of 25,001 older alerts counted; pages 1/2/251 give distinct 100/100/1 results; no Watch/Match/delivery writes')
 
 # Exercise the actual new form behavior in both supported browser engines.
 import socket

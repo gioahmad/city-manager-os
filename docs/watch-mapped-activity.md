@@ -38,8 +38,9 @@ Click a blank spot on the Map, use **Pick Watch Point / Search History**, or cho
 circle redraws as the radius changes. **Preview History Here** searches all stored
 alerts in that radius without creating a Watch. The history page can adjust the
 radius and period, or open an optional Watch draft with the same point and radius.
-Both entry points count every eligible alert and show the newest 100 matches;
-there is no 25,000-candidate cutoff. A server cursor streams the query results.
+Both entry points count every eligible alert and show 100 matches per page, newest
+first. Previous/Next controls reach older results; there is no 25,000-candidate
+cutoff. A server cursor streams the query results and keeps only the current page.
 Previews never write Watches, Matches, deliveries, or Notifications.
 
 History includes mapped operational activity already saved in the alert catalog.

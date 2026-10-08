@@ -67,7 +67,7 @@
     </div>
   </article>
 
-  <article class="panel" style="margin-top:16px">
+  <article class="panel" style="margin-top:16px" id="history-results">
     <div class="panel-head">
       <div><div class="panel-kicker">HISTORICAL TEST</div><h2>Alerts this rule would have caught</h2></div>
       <span class="count-pill">{{ match_total }}</span>
@@ -95,10 +95,15 @@
         </article>
         {% endfor %}
       </div>
-      {% if match_total > matches|length %}<p class="hint">Showing the newest {{ matches|length }} of {{ match_total }} matches.</p>{% endif %}
+      <p class="hint">Showing {{ first_match }}–{{ last_match }} of {{ match_total }} matches · newest first.</p>
       {% else %}
-      <div class="empty-state"><strong>No historical matches.</strong><span>Try a longer history period{% if map_point %} or a larger radius{% endif %}.</span></div>
+      <div class="empty-state"><strong>{{ 'No matches on this page.' if match_total else 'No historical matches.' }}</strong><span>{% if match_total %}Use Previous to return to the matching history.{% else %}Try a longer history period{% if map_point %} or a larger radius{% endif %}.{% endif %}</span></div>
       {% endif %}
+      {% if previous_url or next_url %}<nav class="watch-card-actions" aria-label="History pages">
+        <span class="hint">Page {{ history_page }} of {{ history_pages }}</span>
+        {% if previous_url %}<a class="secondary-button" href="{{ previous_url }}">Previous 100</a>{% endif %}
+        {% if next_url %}<a class="secondary-button" href="{{ next_url }}">Next 100</a>{% endif %}
+      </nav>{% endif %}
     </div>
   </article>
 </main>

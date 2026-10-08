@@ -310,6 +310,7 @@ def watch_preview(
     latitude: float | None = Query(default=None, ge=-90, le=90),
     longitude: float | None = Query(default=None, ge=-180, le=180),
     radius_ft: float = Query(default=1000, ge=1, le=26400),
+    history_page: int = Query(default=1, ge=1),
 ):
     del state  # Watch preview evaluates future matching, not current/resolved lifecycle state.
     map_point = latitude is not None or longitude is not None
@@ -382,7 +383,8 @@ def watch_preview(
     matches = []
     match_total = candidate_total = 0
     # A server cursor checks the entire period without loading its history into memory.
-    # Keep only the newest 100 display rows; counts include every eligible stored alert.
+    # Keep only this page's 100 display rows; counts include every eligible stored alert.
+    first_match = (history_page - 1) * 100
     with db_conn() as conn:
         with conn.cursor(name='watch_history_preview') as cursor:
             cursor.execute(history_query, params)
@@ -391,7 +393,7 @@ def watch_preview(
                 matched, reason = _matches(row, rule)
                 if matched:
                     match_total += 1
-                    if len(matches) >= 100:
+                    if match_total <= first_match or len(matches) >= 100:
                         continue
                     prepared = _prepared(row)
                     prepared["preview_reason"] = reason
@@ -401,6 +403,12 @@ def watch_preview(
                     prepared["pipe_fields"] = prepared.pop("_pipe", {})
                     matches.append(prepared)
 
+    def history_page_url(number: int) -> str:
+        params = dict(request.query_params)
+        params.update(window=window, history_page=number)
+        return '/watch-preview?' + urlencode(params) + '#history-results'
+
+    history_pages = max(1, (match_total + 99) // 100)
     geography = rule["field"] in {"county", "municipality"}
     builder = {
         "display_name": (
@@ -444,6 +452,12 @@ def watch_preview(
             "matches": matches,
             "match_total": match_total,
             "candidate_total": candidate_total,
+            "history_page": history_page,
+            "history_pages": history_pages,
+            "first_match": first_match + 1,
+            "last_match": first_match + len(matches),
+            "previous_url": history_page_url(min(history_page - 1, history_pages)) if history_page > 1 else '',
+            "next_url": history_page_url(history_page + 1) if history_page < history_pages else '',
             "window": window,
             "custom_hours": custom_hours,
             "warnings": warnings,
