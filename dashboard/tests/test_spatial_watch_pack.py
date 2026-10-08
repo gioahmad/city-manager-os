@@ -148,7 +148,9 @@ def test_mapping_center_previews_and_reuses_canonical_references():
     assert "L.featureGroup([previewArea,previewCenter])" in template
     assert "if(key==='watchlist')addWatchCenter(feature,layer)" in template
     assert "if(key==='watchlist')removeLayer('watch-centers')" in template
-    assert "/api/spatial-watch-point/nearby-history" in template
+    assert "form.action='/watch-preview'" in template
+    assert "window:'all'" in template
+    assert "area.circle.setRadius(area.radiusFt*0.3048)" in template
     assert "Create Watch Here" in template
     assert "Search Visible Area" in template
     assert "View nearby alert history data" in watchlist
@@ -203,3 +205,4 @@ def test_application_composition_includes_spatial_watch_module():
     assert "import spatial_reference_app" in phase3
     assert "import spatial_watch_app" in phase3
     assert "COPY spatial_watch_app.py ." in dockerfile
+

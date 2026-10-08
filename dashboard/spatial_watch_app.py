@@ -875,43 +875,8 @@ def _watch_state(row: dict) -> tuple[str, str, str]:
 
 
 def _saved_watch_preview_url(row: dict) -> str:
-    """Build a read-only historical preview URL from one saved non-spatial Watch."""
-    source_filters = list(row.get("source_filter") or [])
-    category_filters = list(row.get("alert_category_filter") or [])
-    if len(source_filters) > 1 or len(category_filters) > 1:
-        return ""
-    params: dict[str, str] = {
-        "window": "all",
-        "min_priority": str(max(1, min(int(row.get("min_priority") or 1), 5))),
-    }
-    if source_filters:
-        params["source"] = str(source_filters[0])
-    if category_filters:
-        params["category"] = str(category_filters[0])
-    watch_type = str(row.get("watch_type") or "").upper()
-    if watch_type == "TOWN":
-        value = str(row.get("municipality") or row.get("search_term") or "").strip()
-        if not value:
-            return ""
-        params["municipality"] = value
-    elif watch_type == "COUNTY":
-        value = str(row.get("county") or row.get("search_term") or "").strip()
-        if not value:
-            return ""
-        params["county"] = value
-    elif row.get("nearby_enabled"):
-        return ""
-    else:
-        term = str(row.get("search_term") or "").strip()
-        if not term:
-            return ""
-        params["field"] = str(row.get("match_field") or "search_text")
-        params["mode"] = str(row.get("match_mode") or "CONTAINS")
-        params["term"] = term
-        aliases = [str(value).strip() for value in (row.get("aliases") or []) if str(value).strip()]
-        if aliases:
-            params["aliases"] = "|".join(aliases[:200])
-    return "/watch-preview?" + urlencode(params)
+    """Preview the complete saved rule, including its area and multiple filters."""
+    return "/watch-preview?" + urlencode({"watch_item_id": str(row["id"]), "window": "all"})
 
 
 def _watch_evidence(watch_item_id: uuid.UUID, view: str, query: str) -> tuple[dict | None, list[dict]]:
@@ -1428,6 +1393,7 @@ def spatial_watchlist(
     evidence_view: str = "matched",
     evidence_q: str = "",
     create: str = "",
+    radius_ft: float = Query(default=5280, ge=1, le=26400),
 ):
     where = []
     params = []
@@ -1676,6 +1642,7 @@ def spatial_watchlist(
         "location_kind": location_kind or ("MAP_POINT" if latitude and longitude else "TYPED_ADDRESS"),
         "location_id": location_id,
         "source_filter": source_filter.strip(),
+        "radius_ft": radius_ft,
         "alert_category_filter": alert_category_filter.strip(),
         "notes": "",
     }
@@ -2906,4 +2873,5 @@ def alert_impact_buffer(alert_id: str, radius_ft: float = 500.0):
         },
         media_type="application/geo+json",
     )
+
 

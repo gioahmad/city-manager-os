@@ -7,6 +7,8 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit
+from urllib.request import urlopen
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -28,8 +30,9 @@ with core.db_conn() as c:
         c.execute(next((ROOT/'deploy/postgis/init').glob(prefix+'*.sql')).read_text())
     c.commit()
 import spatial_watch_app as spatial
+import map_app
 for route in core.app.routes:
-    if getattr(route, 'path', '') == '/watchlist' or getattr(route, 'path', '').startswith('/watchlist/'):
+    if getattr(route, 'path', '') in {'/watchlist','/watch-preview','/map'} or getattr(route, 'path', '').startswith('/watchlist/'):
         application.router.routes.append(route)
 client = TestClient(application, base_url='https://fixture.example.com')
 client.cookies.set(auth.COOKIE_NAME, cookie)
@@ -228,6 +231,97 @@ assert denied.status_code==403,(denied.status_code,denied.text)
 assert sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']['notification_explanations'] is True
 print('GLOBAL NOTIFICATION OPTIONS PASS: real settings + central sender; all sources/recipients on/off, original body and evidence retained, read-only denied, no send')
 
+# A historical preview uses saved rules or a point directly, independently of prior Matches.
+history_tag = str(uuid4())
+history_titles = {}
+def history_alert(key, geometry=inside, source='BNN', category='INCIDENT', priority=4, words='working fire', old=False, resolution=None):
+    title = 'History '+history_tag+' '+key+' '+words
+    row = sql('''INSERT INTO alerts(alert_id,source,category,subtype,status,event_action,title,message,
+        priority,county,municipality,geom,observed_at,received_at)
+        VALUES(%s,%s,%s,'TEST','ACTIVE','NEW',%s,'',%s,'Hudson','Weehawken',ST_GeomFromEWKT(%s),
+        now()-CASE WHEN %s THEN interval '45 days' ELSE interval '0' END,
+        now()-CASE WHEN %s THEN interval '45 days' ELSE interval '0' END) RETURNING id''',
+        ('HISTORY:'+history_tag+':'+key,source,category,title,priority,geometry,old,old))[0]
+    history_titles[key] = title
+    if resolution:
+        sql('''INSERT INTO geo_entity_resolutions(entity_type,entity_id,status,geom)
+            VALUES('ALERT',%s,%s,ST_GeomFromEWKT(%s)) RETURNING id''',(str(row['id']),resolution,inside))
+    return row['id']
+old_area_point = sql("SELECT ST_AsEWKT(ST_Project(ST_SetSRID(ST_MakePoint(-74.02,40.77),4326)::geography,800*0.3048,0)::geometry) AS geom")[0]['geom']
+history_alert('old-area',geometry=old_area_point,priority=1,words='quiet',old=True)
+history_alert('fire',old=True)
+history_alert('tier',source='OPERATIONS',category='WORK',words='tier 3')
+history_alert('wrong-source',source='OTHER')
+history_alert('wrong-category',category='TEST')
+history_alert('low-priority',priority=1)
+history_alert('no-words',words='quiet')
+history_alert('outside',geometry=outside)
+history_alert('resolved',geometry=None,resolution='RESOLVED')
+history_alert('stored-wins',geometry=outside,resolution='RESOLVED')
+history_alert('unresolved',geometry=None,resolution='UNRESOLVED')
+history_alert('unmapped',geometry=None)
+full_rule = sql('''INSERT INTO watch_items(watch_id,display_name,watch_type,search_term,aliases,
+    match_field,match_mode,source_filter,alert_category_filter,min_priority,nearby_enabled,
+    spatial_target_geom,radius_ft,active,starts_at,expires_at)
+    VALUES(%s,'Historical full radius rule','LOCATION_TOPIC','working fire',ARRAY['TIER \\d'],
+    'search_text','WORD',ARRAY['BNN','OPERATIONS'],ARRAY['INCIDENT','WORK'],3,true,
+    ST_SetSRID(ST_MakePoint(-74.02,40.77),4326),1000,false,now()-interval '10 days',now()-interval '1 day') RETURNING *''',
+    ('HISTORY_RULE_'+history_tag,))[0]
+boundary_rule = sql('''INSERT INTO watch_items(watch_id,display_name,watch_type,nearby_enabled,
+    spatial_target_geom,spatial_scope,radius_ft,active)
+    VALUES(%s,'Historical saved boundary','AREA',true,ST_GeomFromEWKT(%s),'ENTITY',50,false) RETURNING *''',
+    ('HISTORY_BOUNDARY_'+history_tag,'SRID=4326;POLYGON((-74.025 40.765,-74.015 40.765,-74.015 40.775,-74.025 40.775,-74.025 40.765))'))[0]
+def history_counts():
+    return sql('''SELECT (SELECT count(*) FROM watch_items) AS watches,
+        (SELECT count(*) FROM alert_watch_matches) AS matches,
+        (SELECT count(*) FROM deliveries) AS deliveries''')[0]
+history_before = history_counts()
+area_params = {'latitude':40.77,'longitude':-74.02,'radius_ft':1000}
+area_preview = client.get('/watch-preview',params=area_params)
+assert area_preview.status_code==200,area_preview.text[:1000]
+assert '<option value="all" selected>' in area_preview.text
+for key in ('old-area','fire','tier','wrong-source','wrong-category','low-priority','no-words','resolved'):
+    assert history_titles[key] in area_preview.text,key
+for key in ('outside','stored-wins','unresolved','unmapped'):
+    assert history_titles[key] not in area_preview.text,key
+assert history_titles['old-area'] not in client.get('/watch-preview',params={**area_params,'window':'24h'}).text
+assert history_titles['fire'] not in client.get('/watch-preview',params={**area_params,'radius_ft':500}).text
+saved_preview = client.get('/watch-preview',params={'watch_item_id':str(full_rule['id']),'window':'all',
+    'source':'OTHER','min_priority':1,'radius_ft':20000})
+assert saved_preview.status_code==200,saved_preview.text[:1000]
+for key in ('fire','tier','resolved'):
+    assert history_titles[key] in saved_preview.text,key
+for key in ('old-area','wrong-source','wrong-category','low-priority','no-words','outside','stored-wins','unresolved','unmapped'):
+    assert history_titles[key] not in saved_preview.text,key
+boundary_preview = client.get('/watch-preview',params={'watch_item_id':str(boundary_rule['id']),'window':'all'})
+assert boundary_preview.status_code==200,boundary_preview.text[:1000]
+assert history_titles['outside'] in boundary_preview.text and history_titles['stored-wins'] in boundary_preview.text
+watch_page = client.get('/watchlist',params={'focus':str(watch['id'])})
+assert '/watch-preview?watch_item_id='+str(watch['id']) in watch_page.text
+evidence_page = client.get('/watchlist',params={'evidence':str(watch['id'])})
+assert 'Could Have Matched' in evidence_page.text and 'watch_item_id='+str(watch['id']) in evidence_page.text
+for params,code in [({'latitude':40.77},400),({**area_params,'latitude':91},422),
+                    ({**area_params,'radius_ft':0},422),({**area_params,'radius_ft':26401},422),
+                    ({**area_params,'latitude':'nan'},422),({'watch_item_id':'bad'},422),
+                    ({**area_params,'watch_item_id':str(watch['id'])},400),({'watch_item_id':str(uuid4())},404)]:
+    assert client.get('/watch-preview',params=params).status_code==code,params
+assert history_counts()==history_before
+print('HISTORY PREVIEW PASS: all periods, no existing Watch/Match required, 999.9/1000.1 ft boundary, resolved/stored geometry precedence, full saved multi-source/category/word/priority rule, paused/expired and ENTITY area, invalid requests rejected; zero writes')
+
+# The All History count must not silently stop at the old 25,000-candidate cap.
+with core.db_conn() as c:
+    c.execute('''INSERT INTO alerts(alert_id,source,category,subtype,status,event_action,title,message,
+        priority,geom,received_at) SELECT 'HISTORY_SCALE:'||%s||':'||n,'CI_HISTORY_SCALE','TEST','TEST',
+        'ACTIVE','NEW','History scale','','1',ST_SetSRID(ST_MakePoint(-75,41.5),4326),
+        now()-interval '90 days' FROM generate_series(1,25001) n''',(history_tag,))
+scale_preview = client.get('/watch-preview',params={'latitude':41.5,'longitude':-75,'radius_ft':1})
+assert scale_preview.status_code==200,scale_preview.text[:500]
+assert '<strong>25001</strong>' in scale_preview.text and 'Showing the newest 100 of 25001 matches' in scale_preview.text
+assert history_counts()==history_before
+with core.db_conn() as c:
+    c.execute("DELETE FROM alerts WHERE source='CI_HISTORY_SCALE'")
+print('HISTORY SCALE PASS: every one of 25,001 older alerts counted; only newest 100 held for display; no Watch/Match/delivery writes')
+
 # Exercise the actual new form behavior in both supported browser engines.
 import socket
 import threading
@@ -248,6 +342,14 @@ for _ in range(100):
         break
     time.sleep(.05)
 assert server.started
+# Load the same pinned Leaflet assets as production once; basemap tiles are not test data.
+map_assets = {}
+for asset in ('leaflet@1.9.4/dist/leaflet.js','leaflet@1.9.4/dist/leaflet.css',
+              'leaflet-draw@1.0.4/dist/leaflet.draw.js','leaflet-draw@1.0.4/dist/leaflet.draw.css',
+              'leaflet.heat@0.2.0/dist/leaflet-heat.js'):
+    url='https://unpkg.com/'+asset
+    with urlopen(url,timeout=30) as response:
+        map_assets[url]=response.read()
 try:
     with sync_playwright() as browsers:
         for engine in ('firefox','chromium'):
@@ -300,7 +402,6 @@ try:
             assert form.locator('[name="source_filter"]').input_value()=='BNN'
             assert form.locator('[name="min_priority"]').input_value()=='4'
             assert form.locator('[name="match_mode"]').input_value()=='FIELD'
-            from urllib.parse import urlencode
             draft = urlencode({'create':'1','setup_mode':'TOPIC','source_filter':'BNN',
                 'search_term':TERMS,'match_mode':'WORD'})
             page.goto(base+'/watchlist?'+draft)
@@ -339,6 +440,52 @@ try:
             options.get_by_role('button',name='Save notification options',exact=True).click()
             page.wait_for_url('**/watchlist?msg=*')
             assert sql('SELECT settings FROM workspace_config WHERE singleton=true')[0]['settings']['notification_explanations'] is True
+            history_snapshot = history_counts()
+            page.goto(base+'/watchlist?focus='+str(watch['id']))
+            card=page.locator('.watch-card').filter(has=page.locator('a[href*="watch_item_id='+str(watch['id'])+'"]')).first
+            card.get_by_role('link',name='Preview History',exact=True).click()
+            page.wait_for_url('**/watch-preview?watch_item_id=*')
+            assert page.locator('#history-preview-controls [name="window"]').input_value()=='all'
+            assert page.get_by_text(history_titles['old-area'],exact=True).is_visible()
+            page.locator('[name="window"]').select_option('24h')
+            page.get_by_role('button',name='Preview History',exact=True).click()
+            page.wait_for_url('**/watch-preview?*window=24h*')
+            assert page.get_by_text(history_titles['old-area'],exact=True).count()==0
+            assert page.locator('[name="watch_item_id"]').input_value()==str(watch['id'])
+            # Only external assets and map layers are mocked. Actual Map JS/Leaflet/forms and history SQL run.
+            context.route('https://**/*',lambda route: route.fulfill(status=200,body=map_assets.get(route.request.url,b''),
+                content_type='text/css' if route.request.url.endswith('.css') else 'application/javascript'))
+            context.route('**/map/gis/status',lambda route: route.fulfill(json={}))
+            map_url=base+'/map?map_view=1&lat=40.77&lng=-74.02&zoom=16&layers=&tab=search'
+            page.goto(map_url)
+            page.wait_for_function("typeof map!=='undefined' && typeof showSelectedLocation==='function'")
+            box=page.locator('#city-map').bounding_box()
+            page.mouse.click(box['x']+box['width']/2,box['y']+box['height']/2)
+            popup=page.locator('.leaflet-popup-content')
+            radius=popup.locator('[name="radius_ft"]')
+            assert radius.input_value()=='1000'
+            radius.fill('1200')
+            assert page.locator('#map-selected-details [name="radius_ft"]').input_value()=='1200'
+            assert abs(page.evaluate("groups['watch-preview'].getLayers()[0].getRadius()")-1200*.3048)<1e-9
+            radius.fill('1000')
+            popup.get_by_role('button',name='Preview History Here',exact=True).click()
+            page.wait_for_url('**/watch-preview?*')
+            params=dict(parse_qsl(urlsplit(page.url).query))
+            assert params['window']=='all' and params['radius_ft']=='1000' and 'watch_item_id' not in params
+            assert abs(float(params['latitude'])-40.77)<1e-4 and abs(float(params['longitude'])+74.02)<1e-4
+            assert page.get_by_text(history_titles['old-area'],exact=True).is_visible()
+            page.locator('[name="radius_ft"]').fill('500')
+            page.get_by_role('button',name='Preview History',exact=True).click()
+            page.wait_for_url('**/watch-preview?*radius_ft=500*')
+            assert page.get_by_text(history_titles['old-area'],exact=True).count()==0
+            page.get_by_role('link',name='Create Watch From This Area',exact=True).click()
+            page.wait_for_url('**/watchlist?*')
+            draft=page.locator('form[action="/watchlist/create"]')
+            assert draft.locator('[name="radius_ft"]').input_value()=='500'
+            assert abs(float(draft.locator('[name="latitude"]').input_value())-float(params['latitude']))<1e-9
+            assert draft.locator('[name="match_selection"]').input_value()=='ANY'
+            assert history_counts()==history_snapshot
+            print('MAP HISTORY BROWSER PASS:',engine,'click actual map, redraw radius, all-history native GET, older un-matched alerts, re-preview radius, optional Watch draft keeps point/radius; no writes')
             assert not errors,errors
             print('WATCH BROWSER PASS:',engine,'Intel/Map/Alert drafts, all activity, selectable 34 terms, source/location/recipient controls, paused save/edit, global explanation on/off')
             context.close()
@@ -346,3 +493,4 @@ try:
 finally:
     server.should_exit=True
     thread.join(timeout=5)
+

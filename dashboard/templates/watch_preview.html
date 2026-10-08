@@ -2,15 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Preview Watch · City Manager OS</title>
+  <title>Preview History · City Manager OS</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header class="topbar">
   <div class="brand">
-    <div class="eyebrow">TEST BEFORE TURNING IT ON</div>
-    <div class="brand-row"><h1>Preview Watch</h1><span class="private-badge">READ ONLY</span></div>
-    <div class="tagline">Run a proposed Watch against alerts already stored in City Manager OS</div>
+    <div class="eyebrow">HISTORICAL SEARCH</div>
+    <div class="brand-row"><h1>Preview History</h1><span class="private-badge">READ ONLY</span></div>
+    <div class="tagline">Search stored alert history using a saved Watch or a map location</div>
   </div>
 </header>
 {% include "nav.html" %}
@@ -18,9 +18,25 @@
   {% for warning in warnings %}
   <div class="flash flash-error"><strong>Rule note:</strong> {{ warning }}</div>
   {% endfor %}
-  {% if truncated %}
-  <div class="flash flash-error"><strong>Preview limited:</strong> More than {{ candidate_total }} candidate alerts were available. Narrow the time period before relying on the count.</div>
-  {% endif %}
+  <article class="panel" style="margin-bottom:16px"><div class="panel-body">
+    <form method="get" action="/watch-preview" class="form-grid two-col" id="history-preview-controls">
+      {% if watch_item_id %}<input type="hidden" name="watch_item_id" value="{{ watch_item_id }}">
+      {% else %}
+      {% if map_point %}<input type="hidden" name="latitude" value="{{ latitude }}"><input type="hidden" name="longitude" value="{{ longitude }}">
+      <label>Radius (feet)<input type="number" name="radius_ft" min="1" max="26400" step="any" value="{{ rule.radius_ft }}" required></label>{% endif %}
+      <input type="hidden" name="source" value="{{ rule.source }}"><input type="hidden" name="category" value="{{ rule.category }}">
+      <input type="hidden" name="min_priority" value="{{ rule.min_priority }}"><input type="hidden" name="field" value="{{ rule.field }}">
+      <input type="hidden" name="mode" value="{{ rule.mode }}"><input type="hidden" name="term" value="{{ rule.term }}">
+      <input type="hidden" name="aliases" value="{{ rule.aliases|join('|') }}">
+      {% endif %}
+      <label>History period<select name="window">
+      {% for value,label in [('1h','1 hour'),('2h','2 hours'),('4h','4 hours'),('6h','6 hours'),('12h','12 hours'),('24h','24 hours'),('3d','3 days'),('7d','7 days'),('30d','30 days'),('all','All stored history'),('custom','Custom hours')] %}
+        <option value="{{ value }}" {% if window == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}</select></label>
+      <label>Custom hours<input type="number" name="custom_hours" min="1" max="8760" value="{{ custom_hours }}"></label>
+      <button class="primary-button" type="submit">Preview History</button>
+    </form>
+  </div></article>
 
   <section class="metrics watch-metrics">
     <div class="metric"><span>Would have matched</span><strong>{{ match_total }}</strong><small>Stored alerts in this preview</small></div>
@@ -31,17 +47,21 @@
 
   <article class="panel">
     <div class="panel-head">
-      <div><div class="panel-kicker">PROPOSED RULE</div><h2>What would trigger</h2></div>
+      <div><div class="panel-kicker">{{ 'SAVED WATCH' if watch_item_id else 'MAP HISTORY' if map_point else 'PROPOSED RULE' }}</div><h2>{{ rule.display_name if watch_item_id else 'Selected map area' if map_point else 'What would trigger' }}</h2></div>
       <span class="status healthy">NO SENDS</span>
     </div>
     <div class="panel-body">
       <div class="form-grid two-col">
-        <div><strong>{{ rule.field|replace('_',' ')|title }}</strong><div class="hint">{{ rule.mode }} “{{ rule.term }}”{% if rule.aliases %} · alternatives {{ rule.aliases|join(', ') }}{% endif %}</div></div>
+        <div>{% if rule.location_required %}<strong>{{ rule.location_label if rule.spatial else rule.location_term }}</strong><div class="hint">{% if rule.spatial %}{% if rule.spatial_scope == 'RADIUS' %}{{ '{:,.0f}'.format(rule.radius_ft) }} feet{% else %}{{ rule.spatial_scope|title }} boundary{% endif %}{% else %}{{ rule.location_field|title }}{% endif %}</div>{% endif %}
+        {% if rule.topic_required is not defined or rule.topic_required %}<strong>{{ rule.field|replace('_',' ')|title }}</strong><div class="hint">{{ rule.mode }} “{{ rule.term }}”{% if rule.aliases %} · alternatives {{ rule.aliases|join(', ') }}{% endif %}</div>{% else %}<div class="hint">Any stored alert matching this area and the filters</div>{% endif %}</div>
         <div><strong>Filters</strong><div class="hint">Source {{ rule.source or 'any' }} · Category {{ rule.category or 'any' }} · P{{ rule.min_priority }}+</div></div>
       </div>
       <p class="hint">This page does not create a Watch, Match, delivery, or Notification. It evaluates stored history only.</p>
+      {% if watch_item_id %}<p class="hint">Uses the Watch's current rule and saved location, including when it is paused or expired. This historical check ignores its start and end dates.</p>{% endif %}
+      {% if rule.spatial %}<p class="hint">Uses stored alert locations, including resolved locations and saved mapped activity. Records without a known location cannot be placed inside a radius.</p>{% endif %}
       <div class="watch-card-actions">
-        <a class="primary-button" href="{{ builder_url }}">Continue to Watch Builder</a>
+        <a class="primary-button" href="{{ builder_url }}">{{ 'Edit This Watch' if watch_item_id else 'Create Watch From This Area' if map_point else 'Continue to Watch Builder' }}</a>
+        {% if watch_item_id %}<a class="secondary-button" href="/watchlist?focus={{ watch_item_id }}">Back to Watch</a>{% elif map_point %}<a class="secondary-button" href="/map?map_view=1&amp;lat={{ latitude }}&amp;lng={{ longitude }}&amp;zoom=16">Back to Map</a>{% endif %}
         <a class="secondary-button" href="/alerts">Back to Alerts</a>
       </div>
     </div>
@@ -64,22 +84,24 @@
                 <strong>{{ a.title }}</strong>
                 <div class="meta">{{ a.source }} · {{ a.category }}{% if a.county %} · {{ a.county }} County{% endif %}{% if a.municipality %} · {{ a.municipality }}{% endif %}</div>
                 <div class="hint">{{ a.preview_reason }}</div>
+                <div class="hint">{{ a.activity_display }}</div>
                 {% if a.pipe_fields %}
                 <div class="hint">BNN fields: {{ a.pipe_fields.state }} | {{ a.pipe_fields.county }} | {{ a.pipe_fields.municipality }} | {{ a.pipe_fields.incident_type }} | {{ a.pipe_fields.location }}</div>
                 {% endif %}
               </div>
             </div>
-            <div class="watch-card-actions"><a class="secondary-button" href="/alerts?q={{ a.alert_id }}&window=all&state=all">Open Alert</a></div>
+            <div class="watch-card-actions"><a class="secondary-button" href="/alerts?q={{ a.alert_id|urlencode }}&window=all&state=all">Open Alert</a></div>
           </div>
         </article>
         {% endfor %}
       </div>
       {% if match_total > matches|length %}<p class="hint">Showing the newest {{ matches|length }} of {{ match_total }} matches.</p>{% endif %}
       {% else %}
-      <div class="empty-state"><strong>No historical matches.</strong><span>Change the rule before turning it on.</span></div>
+      <div class="empty-state"><strong>No historical matches.</strong><span>Try a longer history period{% if map_point %} or a larger radius{% endif %}.</span></div>
       {% endif %}
     </div>
   </article>
 </main>
 </body>
 </html>
+

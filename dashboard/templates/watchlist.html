@@ -224,7 +224,7 @@
         <div>
           <h3>Where should we watch?</h3>
           <p class="hint simple-watch-intro">Choose the area first. County and city Watches match alert geography; an address, intersection, or point uses the distance you choose.</p>
-          {{ location_picker(prefill.location_query, prefill.location_kind, prefill.location_id, prefill.latitude, prefill.longitude, prefill.location_query, 5280) }}
+          {{ location_picker(prefill.location_query, prefill.location_kind, prefill.location_id, prefill.latitude, prefill.longitude, prefill.location_query, prefill.radius_ft) }}
         </div>
       </section>
 
@@ -1302,4 +1302,5 @@
 </script>
 </body>
 </html>
+
 

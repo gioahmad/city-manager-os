@@ -24,6 +24,28 @@ and current live transit vehicles. Parcel/address/reference layers and drawings 
 not activity. County/town rules still use the record's labeled geography; exact
 points and saved boundaries use PostGIS distance/intersection.
 
+**Preview History** is available for every saved Watch, including radius, entity,
+and adjoining-parcel areas. It keeps the complete saved rule: all sources and
+categories, priority, words/alternatives, and the saved geometry. The preview starts
+with **All stored history** and allows shorter periods. It tests the current rule
+even when the Watch is paused or expired, independently of its start/end dates and
+whether an alert ever produced a Match. Stored alert geometry takes precedence;
+a resolved location is used when the stored point is absent. Unresolved/unmapped
+alerts cannot be assigned to a radius.
+
+Click a blank spot on the Map, use **Pick Watch Point / Search History**, or choose
+**Preview History Here** on a mapped feature. Set a radius in feet (1–26,400); the
+circle redraws as the radius changes. **Preview History Here** searches all stored
+alerts in that radius without creating a Watch. The history page can adjust the
+radius and period, or open an optional Watch draft with the same point and radius.
+Both entry points count every eligible alert and show the newest 100 matches;
+there is no 25,000-candidate cutoff. A server cursor streams the query results.
+Previews never write Watches, Matches, deliveries, or Notifications.
+
+History includes mapped operational activity already saved in the alert catalog.
+It does not reconstruct past vehicle positions or operational records that have
+never been saved as alerts. Reference layers and drawings are not alert history.
+
 The existing one-minute resolved-alert workflow also routes new or changed mapped
 operational records into the existing central matcher, Match audit, Subscribers,
 Delivery Guard, and ntfy path. Event/Transit records reuse their canonical alert IDs.
@@ -55,3 +77,4 @@ retain recovery copies of the n8n database/workflows and verify publication. The
 is no PostGIS schema change in this release. The full CI workflow also executes
 `ci/check_watch_activity.py` against real PostgreSQL/PostGIS and tracked n8n code;
 it never sends a notification or accesses production.
+

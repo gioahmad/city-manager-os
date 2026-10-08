@@ -2,6 +2,7 @@
 import os
 import sys
 from pathlib import Path
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -48,9 +49,9 @@ response = client.get("/watch-preview", params={
     "source": "BNN", "q": "Hudson County", "window": "all", "min_priority": 1
 })
 assert response.status_code == 200, response.text
-assert "BNN:pipe-nj-normal" in response.text
-assert "BNN:pipe-nj-reordered" in response.text
-assert "BNN:pipe-ny-reordered" not in response.text
+assert quote("BNN:pipe-nj-normal") in response.text
+assert quote("BNN:pipe-nj-reordered") in response.text
+assert quote("BNN:pipe-ny-reordered") not in response.text
 assert "Would have matched" in response.text
 assert "Continue to Watch Builder" in response.text
 print("WATCH PREVIEW PASS: BNN + Hudson County finds both NJ pipe orders and excludes NY")
@@ -59,7 +60,7 @@ county = client.get("/watch-preview", params={
     "source": "BNN", "county": "Hudson", "window": "all", "min_priority": 1
 })
 assert county.status_code == 200
-assert "BNN:pipe-nj-normal" in county.text and "BNN:pipe-nj-reordered" in county.text
+assert quote("BNN:pipe-nj-normal") in county.text and quote("BNN:pipe-nj-reordered") in county.text
 assert "FIELD county matched" in county.text
 assert "field=county" in county.text or "field%3Dcounty" in county.text
 print("WATCH PREVIEW PASS: structured Hudson County rule previews as FIELD county")
@@ -68,8 +69,8 @@ ny = client.get("/watch-preview", params={
     "source": "BNN", "q": "Queens County", "window": "all"
 })
 assert ny.status_code == 200
-assert "BNN:pipe-ny-reordered" in ny.text
-assert "BNN:pipe-nj-normal" not in ny.text
+assert quote("BNN:pipe-ny-reordered") in ny.text
+assert quote("BNN:pipe-nj-normal") not in ny.text
 print("WATCH PREVIEW PASS: variable-order NY state/county segments classify independently of position")
 
 choices = operations_app.alert_keyword_choices({
@@ -91,7 +92,7 @@ sys.path.insert(0,str(ROOT/'dashboard/tests'))
 from test_watch_terms import TERMS
 last_terms = client.get('/watch-preview',params={'source':'BNN','window':'all','mode':'CONTAINS','field':'search_text','term':TERMS})
 assert last_terms.status_code==200,last_terms.text
-assert 'BNN:pipe-nj-normal' in last_terms.text and 'BNN:pipe-nj-reordered' in last_terms.text
+assert quote('BNN:pipe-nj-normal') in last_terms.text and quote('BNN:pipe-nj-reordered') in last_terms.text
 assert 'overturned auto' in last_terms.text
 assert 'high rise fire' in last_terms.text
 print('WATCH PREVIEW PASS: full editable 34-term list retained and later alternatives matched')
@@ -105,4 +106,5 @@ with core.db_conn() as conn:
     ).fetchone()
 assert dict(after) == dict(before), (before, after)
 print("WATCH PREVIEW PASS: historical evaluation creates no Watch, Match, delivery or Notification")
+
 
