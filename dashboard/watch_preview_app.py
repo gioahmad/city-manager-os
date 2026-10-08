@@ -316,6 +316,13 @@ def watch_preview(
     map_point = latitude is not None or longitude is not None
     if map_point and (latitude is None or longitude is None or watch_item_id):
         raise HTTPException(400, "Choose a saved Watch or supply both coordinates for a map point.")
+    if not watch_item_id and not map_point and not any(
+        value.strip() for value in (source, category, county, municipality, q, term)
+    ):
+        return templates.TemplateResponse(
+            request=request, name="watch_preview.html",
+            context={"needs_criteria": True, "page": "watchlist"},
+        )
     if map_point and 'window' not in request.query_params:
         window = 'all'
     window = window if window in WINDOW_HOURS or window == "custom" else "30d"

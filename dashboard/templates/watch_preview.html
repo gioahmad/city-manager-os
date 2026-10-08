@@ -15,6 +15,20 @@
 </header>
 {% include "nav.html" %}
 <main>
+  {% if needs_criteria %}
+  <article class="panel">
+    <div class="panel-head"><h2>Choose what to preview</h2></div>
+    <div class="panel-body">
+      <p>Select a saved Watch, choose a point and radius on the map, or filter Alerts by source, place, or phrase.</p>
+      <div class="watch-card-actions">
+        <a class="primary-button" href="/watchlist">Choose a saved Watch</a>
+        <a class="secondary-button" href="/map">Choose a map location</a>
+        <a class="secondary-button" href="/alerts">Filter Alerts</a>
+      </div>
+      <p class="hint">History is searched after you choose what to look for.</p>
+    </div>
+  </article>
+  {% else %}
   {% for warning in warnings %}
   <div class="flash flash-error"><strong>Rule note:</strong> {{ warning }}</div>
   {% endfor %}
@@ -106,6 +120,7 @@
       </nav>{% endif %}
     </div>
   </article>
+  {% endif %}
 </main>
 </body>
 </html>
